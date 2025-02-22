@@ -127,10 +127,10 @@ async def download_torrent(movie: Movie, quality: Literal['720p', '1080p', '2160
     
     resume_file = save_path / "resume_data.resume"
     
-    if resume_file.exists():
-        logger.info("Loading existing resume data...")
-        with open(resume_file, "rb") as f:
-            session.load_state(f.read())
+    # if resume_file.exists():
+    #     logger.info("Loading existing resume data...")
+    #     with open(resume_file, "rb") as f:
+    #         session.load_state(f.read())
     
     params = {
         'save_path': str(save_path),
@@ -152,14 +152,23 @@ async def download_torrent(movie: Movie, quality: Literal['720p', '1080p', '2160
     
     while not handle.is_seed():
         status = handle.status()
-        state_str = ["queued", "checking", "downloading metadata", "downloading", "finished", "seeding", "allocating", "checking fastresume"]
+        state_str = [
+            "queued", 
+            "checking", 
+            "downloading metadata", 
+            "downloading", 
+            "finished", 
+            "seeding", 
+            "allocating", 
+            "checking fastresume"
+        ]
         
         logger.info(f"{status.progress * 100:.2f}% complete ({state_str[status.state]}) - {status.download_rate / 1000:.2f} kB/s")
         
-        # Save resume data periodically
-        resume_data = session.save_state()
-        with open(resume_file, "wb") as f:
-            f.write(resume_data)
+        # # Save resume data periodically
+        # resume_data = session.save_state()
+        # with open(resume_file, "wb") as f:
+        #     f.write(resume_data)
         
         time.sleep(2)
     

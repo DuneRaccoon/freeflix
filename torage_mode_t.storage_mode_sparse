@@ -1,0 +1,309 @@
+Help on class torrent_info in module libtorrent:
+
+class ttoorrrreenntt__iinnffoo(Boost.Python.instance)
+ |  Method resolution order:
+ |      torrent_info
+ |      Boost.Python.instance
+ |      builtins.object
+ |  
+ |  Static methods defined here:
+ |  
+ |  ____iinniitt____(...)
+ |      __init__( (object)arg1, (info_hash_t)info_hash) -> None :
+ |      
+ |          C++ signature :
+ |              void __init__(_object*,libtorrent::info_hash_t)
+ |      
+ |      __init__( (object)arg1, (dict)arg2) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,boost::python::dict)
+ |      
+ |      __init__( (object)arg1, (dict)arg2, (dict)arg3) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,boost::python::dict,boost::python::dict)
+ |      
+ |      __init__( (object)arg1, (object)arg2) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,bytes)
+ |      
+ |      __init__( (object)arg1, (object)arg2, (dict)arg3) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,bytes,boost::python::dict)
+ |      
+ |      __init__( (object)arg1, (object)arg2) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,boost::basic_string_view<char, std::char_traits<char> >)
+ |      
+ |      __init__( (object)arg1, (object)arg2, (dict)arg3) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,boost::basic_string_view<char, std::char_traits<char> >,boost::python::dict)
+ |      
+ |      __init__( (object)arg1, (torrent_info)ti) -> None :
+ |      
+ |          C++ signature :
+ |              void __init__(_object*,libtorrent::torrent_info)
+ |      
+ |      __init__( (object)arg1, (sha1_hash)arg2) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,libtorrent::digest32<160l>)
+ |      
+ |      __init__( (object)arg1, (sha256_hash)arg2) -> object :
+ |      
+ |          C++ signature :
+ |              void* __init__(boost::python::api::object,libtorrent::digest32<256l>)
+ |  
+ |  ____rreedduuccee____ = <unnamed Boost.Python function>(...)
+ |  
+ |  aadddd__hhttttpp__sseeeedd(...)
+ |      add_http_seed( (torrent_info)arg1, (str)url [, (str)extern_auth='' [, (object)extra_headers=[]]]) -> None :
+ |      
+ |          C++ signature :
+ |              void add_http_seed(libtorrent::torrent_info {lvalue},std::string [,std::string='' [,std::vector<std::pair<std::string, std::string>, std::allocator<std::pair<std::string, std::string> > >=[]]])
+ |  
+ |  aadddd__nnooddee(...)
+ |      add_node( (torrent_info)arg1, (str)arg2, (int)arg3) -> None :
+ |      
+ |          C++ signature :
+ |              void add_node(libtorrent::torrent_info {lvalue},char const*,int)
+ |  
+ |  aadddd__ttrraacckkeerr(...)
+ |      add_tracker( (torrent_info)arg1, (str)url [, (int)tier=0 [, (tracker_source)source=libtorrent.tracker_source.source_client]]) -> None :
+ |      
+ |          C++ signature :
+ |              void add_tracker(libtorrent::torrent_info {lvalue},std::string [,int=0 [,libtorrent::announce_entry::tracker_source=libtorrent.tracker_source.source_client]])
+ |  
+ |  aadddd__uurrll__sseeeedd(...)
+ |      add_url_seed( (torrent_info)arg1, (str)url [, (str)extern_auth='' [, (object)extra_headers=[]]]) -> None :
+ |      
+ |          C++ signature :
+ |              void add_url_seed(libtorrent::torrent_info {lvalue},std::string [,std::string='' [,std::vector<std::pair<std::string, std::string>, std::allocator<std::pair<std::string, std::string> > >=[]]])
+ |  
+ |  ccoolllleeccttiioonnss(...)
+ |      collections( (torrent_info)arg1) -> object :
+ |      
+ |          C++ signature :
+ |              std::vector<std::string, std::allocator<std::string> > collections(libtorrent::torrent_info {lvalue})
+ |  
+ |  ccoommmmeenntt(...)
+ |      comment( (torrent_info)arg1) -> str :
+ |      
+ |          C++ signature :
+ |              std::string comment(libtorrent::torrent_info {lvalue})
+ |  
+ |  ccrreeaattiioonn__ddaattee(...)
+ |      creation_date( (torrent_info)arg1) -> int :
+ |      
+ |          C++ signature :
+ |              long creation_date(libtorrent::torrent_info {lvalue})
+ |  
+ |  ccrreeaattoorr(...)
+ |      creator( (torrent_info)arg1) -> str :
+ |      
+ |          C++ signature :
+ |              std::string creator(libtorrent::torrent_info {lvalue})
+ |  
+ |  ffiillee__aatt(...)
+ |      file_at( (torrent_info)arg1, (int)arg2) -> file_entry :
+ |      
+ |          C++ signature :
+ |              libtorrent::file_entry file_at(libtorrent::torrent_info {lvalue},int)
+ |  
+ |  ffiilleess(...)
+ |      files( (torrent_info)arg1) -> file_storage :
+ |      
+ |          C++ signature :
+ |              libtorrent::file_storage files(libtorrent::torrent_info {lvalue})
+ |  
+ |  hhaasshh__ffoorr__ppiieeccee(...)
+ |      hash_for_piece( (torrent_info)arg1, (object)arg2) -> object :
+ |      
+ |          C++ signature :
+ |              bytes hash_for_piece(libtorrent::torrent_info,libtorrent::aux::strong_typedef<int, libtorrent::aux::piece_index_tag, void>)
+ |  
+ |  iinnffoo__hhaasshh(...)
+ |      info_hash( (torrent_info)arg1) -> sha1_hash :
+ |      
+ |          C++ signature :
+ |              libtorrent::digest32<160l> info_hash(libtorrent::torrent_info {lvalue})
+ |  
+ |  iinnffoo__hhaasshheess(...)
+ |      info_hashes( (torrent_info)arg1) -> info_hash_t :
+ |      
+ |          C++ signature :
+ |              libtorrent::info_hash_t info_hashes(libtorrent::torrent_info {lvalue})
+ |  
+ |  iinnffoo__sseeccttiioonn(...)
+ |      info_section( (torrent_info)arg1) -> object :
+ |      
+ |          C++ signature :
+ |              bytes info_section(libtorrent::torrent_info)
+ |  
+ |  iiss__ii22pp(...)
+ |      is_i2p( (torrent_info)arg1) -> bool :
+ |      
+ |          C++ signature :
+ |              bool is_i2p(libtorrent::torrent_info {lvalue})
+ |  
+ |  iiss__mmeerrkkllee__ttoorrrreenntt(...)
+ |      is_merkle_torrent( (torrent_info)arg1) -> bool :
+ |      
+ |          C++ signature :
+ |              bool is_merkle_torrent(libtorrent::torrent_info {lvalue})
+ |  
+ |  iiss__vvaalliidd(...)
+ |      is_valid( (torrent_info)arg1) -> bool :
+ |      
+ |          C++ signature :
+ |              bool is_valid(libtorrent::torrent_info {lvalue})
+ |  
+ |  mmaapp__bblloocckk(...)
+ |      map_block( (torrent_info)arg1, (object)arg2, (int)arg3, (int)arg4) -> list :
+ |      
+ |          C++ signature :
+ |              boost::python::list map_block(libtorrent::torrent_info {lvalue},libtorrent::aux::strong_typedef<int, libtorrent::aux::piece_index_tag, void>,long,int)
+ |  
+ |  mmaapp__ffiillee(...)
+ |      map_file( (torrent_info)arg1, (object)arg2, (int)arg3, (int)arg4) -> peer_request :
+ |      
+ |          C++ signature :
+ |              libtorrent::peer_request map_file(libtorrent::torrent_info {lvalue},libtorrent::aux::strong_typedef<int, libtorrent::aux::file_index_tag, void>,long,int)
+ |  
+ |  mmeerrkkllee__ttrreeee(...)
+ |      merkle_tree( (torrent_info)arg1) -> list :
+ |      
+ |          C++ signature :
+ |              boost::python::list merkle_tree(libtorrent::torrent_info)
+ |  
+ |  mmeettaaddaattaa(...)
+ |      metadata( (torrent_info)arg1) -> object :
+ |      
+ |          C++ signature :
+ |              bytes metadata(libtorrent::torrent_info)
+ |  
+ |  mmeettaaddaattaa__ssiizzee(...)
+ |      metadata_size( (torrent_info)arg1) -> int :
+ |      
+ |          C++ signature :
+ |              int metadata_size(libtorrent::torrent_info {lvalue})
+ |  
+ |  nnaammee(...)
+ |      name( (torrent_info)arg1) -> str :
+ |      
+ |          C++ signature :
+ |              std::string name(libtorrent::torrent_info {lvalue})
+ |  
+ |  nnooddeess(...)
+ |      nodes( (torrent_info)arg1) -> list :
+ |      
+ |          C++ signature :
+ |              boost::python::list nodes(libtorrent::torrent_info)
+ |  
+ |  nnuumm__ffiilleess(...)
+ |      num_files( (torrent_info)arg1) -> int :
+ |      
+ |          C++ signature :
+ |              int num_files(libtorrent::torrent_info {lvalue})
+ |  
+ |  nnuumm__ppiieecceess(...)
+ |      num_pieces( (torrent_info)arg1) -> int :
+ |      
+ |          C++ signature :
+ |              int num_pieces(libtorrent::torrent_info {lvalue})
+ |  
+ |  oorriigg__ffiilleess(...)
+ |      orig_files( (torrent_info)arg1) -> file_storage :
+ |      
+ |          C++ signature :
+ |              libtorrent::file_storage orig_files(libtorrent::torrent_info {lvalue})
+ |  
+ |  ppiieeccee__lleennggtthh(...)
+ |      piece_length( (torrent_info)arg1) -> int :
+ |      
+ |          C++ signature :
+ |              int piece_length(libtorrent::torrent_info {lvalue})
+ |  
+ |  ppiieeccee__ssiizzee(...)
+ |      piece_size( (torrent_info)arg1, (object)arg2) -> int :
+ |      
+ |          C++ signature :
+ |              int piece_size(libtorrent::torrent_info {lvalue},libtorrent::aux::strong_typedef<int, libtorrent::aux::piece_index_tag, void>)
+ |  
+ |  pprriivv(...)
+ |      priv( (torrent_info)arg1) -> bool :
+ |      
+ |          C++ signature :
+ |              bool priv(libtorrent::torrent_info {lvalue})
+ |  
+ |  rreemmaapp__ffiilleess(...)
+ |      remap_files( (torrent_info)arg1, (file_storage)arg2) -> None :
+ |      
+ |          C++ signature :
+ |              void remap_files(libtorrent::torrent_info {lvalue},libtorrent::file_storage)
+ |  
+ |  rreennaammee__ffiillee(...)
+ |      rename_file( (torrent_info)arg1, (object)arg2, (str)arg3) -> None :
+ |      
+ |          C++ signature :
+ |              void rename_file(libtorrent::torrent_info {lvalue},libtorrent::aux::strong_typedef<int, libtorrent::aux::file_index_tag, void>,std::string)
+ |  
+ |  sseett__mmeerrkkllee__ttrreeee(...)
+ |      set_merkle_tree( (torrent_info)arg1, (list)arg2) -> None :
+ |      
+ |          C++ signature :
+ |              void set_merkle_tree(libtorrent::torrent_info {lvalue},boost::python::list)
+ |  
+ |  sseett__wweebb__sseeeeddss(...)
+ |      set_web_seeds( (torrent_info)arg1, (list)arg2) -> None :
+ |      
+ |          C++ signature :
+ |              void set_web_seeds(libtorrent::torrent_info {lvalue},boost::python::list)
+ |  
+ |  ssiimmiillaarr__ttoorrrreennttss(...)
+ |      similar_torrents( (torrent_info)arg1) -> object :
+ |      
+ |          C++ signature :
+ |              std::vector<libtorrent::digest32<160l>, std::allocator<libtorrent::digest32<160l> > > similar_torrents(libtorrent::torrent_info {lvalue})
+ |  
+ |  ssssll__cceerrtt(...)
+ |      ssl_cert( (torrent_info)arg1) -> object :
+ |      
+ |          C++ signature :
+ |              boost::basic_string_view<char, std::char_traits<char> > ssl_cert(libtorrent::torrent_info {lvalue})
+ |  
+ |  ttoottaall__ssiizzee(...)
+ |      total_size( (torrent_info)arg1) -> int :
+ |      
+ |          C++ signature :
+ |              long total_size(libtorrent::torrent_info {lvalue})
+ |  
+ |  ttrraacckkeerrss(...)
+ |      trackers( (object)arg1) -> object :
+ |      
+ |          C++ signature :
+ |              boost::python::objects::iterator_range<boost::python::return_value_policy<boost::python::return_by_value, boost::python::default_call_policies>, __gnu_cxx::__normal_iterator<libtorrent::announce_entry const*, std::vector<libtorrent::announce_entry, std::allocator<libtorrent::announce_entry> > > > trackers(boost::python::back_reference<libtorrent::torrent_info&>)
+ |  
+ |  wweebb__sseeeeddss(...)
+ |      web_seeds( (torrent_info)arg1) -> list :
+ |      
+ |          C++ signature :
+ |              boost::python::list web_seeds(libtorrent::torrent_info)
+ |  
+ |  ----------------------------------------------------------------------
+ |  Static methods inherited from Boost.Python.instance:
+ |  
+ |  ____nneeww____(*args, **kwargs) from Boost.Python.class
+ |      Create and return a new object.  See help(type) for accurate signature.
+ |  
+ |  ----------------------------------------------------------------------
+ |  Data descriptors inherited from Boost.Python.instance:
+ |  
+ |  ____ddiicctt____
+ |  
+ |  ____wweeaakkrreeff____

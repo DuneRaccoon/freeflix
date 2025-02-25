@@ -2,6 +2,7 @@ import httpx
 import time
 import asyncio
 import libtorrent as lt
+from torf import Magnet
 from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel, HttpUrl
@@ -28,7 +29,7 @@ logger.add(
 class Torrent(BaseModel):
     quality: str
     sizes: Tuple[str, str]
-    torrent_url: HttpUrl
+    url: HttpUrl
     magnet: str
 
 class Movie(BaseModel):
@@ -79,7 +80,7 @@ async def fetch_available_torrents(movie_url: str):
             torrents.append(Torrent(
                 quality=quality,
                 sizes=sizes,
-                torrent_url=f'{BASE_URL}{torrent_url}',
+                url=f'{BASE_URL}{torrent_url}',
                 magnet=magnet
             ))
         return torrents
@@ -122,8 +123,10 @@ async def download_torrent(movie: Movie, quality: Literal['720p', '1080p', '2160
     save_path = Path('yify') / movie.title
     save_path.mkdir(parents=True, exist_ok=True)
     
-    session = lt.session()
-    session.listen_on(6881, 6891)
+    torrent_path = save_path / f'{movie.title} {quality}.torrent'
+    
+    session = lt.session({'listen_interfaces': '0.0.0.0:6881'})
+    # session.listen_on(6881, 6891)
     
     resume_file = save_path / "resume_data.resume"
     

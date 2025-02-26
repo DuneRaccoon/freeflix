@@ -15,6 +15,10 @@ loguru = "^0.7.3"
 pydantic = "^2.10.6"
 torf = "^4.3.0"
 torrentp = "^0.2.3"
+pydantic-settings = "^2.8.0"
+croniter = "^6.0.0"
+fastapi = "^0.115.8"
+uvicorn = "^0.34.0"
 
 
 [build-system]

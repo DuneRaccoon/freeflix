@@ -1,0 +1,402 @@
+import sqlite3
+import json
+import uuid
+import asyncio
+from datetime import datetime
+from croniter import croniter
+from loguru import logger
+import random
+from typing import List, Dict, Optional, Any
+
+from app.models import SearchParams, ScheduleConfig, ScheduleResponse
+from app.config import settings
+from app.scrapers.yts import browse_yts
+from app.torrent.manager import torrent_manager
+
+
+class ScheduleManager:
+    """Manages scheduled downloads based on cron expressions"""
+    
+    def __init__(self):
+        self._init_db()
+        self.running_task = None
+    
+    def _init_db(self):
+        """Initialize the SQLite database for schedule storage"""
+        try:
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            
+            # Create the schedules table if it doesn't exist
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS schedules (
+                id TEXT PRIMARY KEY,
+                cron_expression TEXT NOT NULL,
+                search_params TEXT NOT NULL,
+                quality TEXT NOT NULL,
+                max_downloads INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                next_run TEXT NOT NULL,
+                last_run_status TEXT
+            )
+            ''')
+            
+            conn.commit()
+            conn.close()
+            logger.info("Schedule database initialized")
+        except Exception as e:
+            logger.error(f"Error initializing schedule database: {e}")
+    
+    def add_schedule(self, config: ScheduleConfig) -> str:
+        """Add a new scheduled job"""
+        try:
+            schedule_id = str(uuid.uuid4())
+            
+            # Calculate next run time
+            cron = croniter(config.cron_expression, datetime.now())
+            next_run = cron.get_next(datetime)
+            
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            INSERT INTO schedules 
+            (id, cron_expression, search_params, quality, max_downloads, enabled, next_run)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                schedule_id,
+                config.cron_expression,
+                json.dumps(config.search_params.dict()),
+                config.quality,
+                config.max_downloads,
+                1 if config.enabled else 0,
+                next_run.isoformat()
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Added new schedule: {schedule_id} - Next run: {next_run}")
+            return schedule_id
+        except Exception as e:
+            logger.error(f"Error adding schedule: {e}")
+            raise
+    
+    def update_schedule(self, schedule_id: str, config: ScheduleConfig) -> bool:
+        """Update an existing scheduled job"""
+        try:
+            # Calculate next run time
+            cron = croniter(config.cron_expression, datetime.now())
+            next_run = cron.get_next(datetime)
+            
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            UPDATE schedules 
+            SET cron_expression = ?, 
+                search_params = ?, 
+                quality = ?, 
+                max_downloads = ?, 
+                enabled = ?,
+                next_run = ?
+            WHERE id = ?
+            ''', (
+                config.cron_expression,
+                json.dumps(config.search_params.dict()),
+                config.quality,
+                config.max_downloads,
+                1 if config.enabled else 0,
+                next_run.isoformat(),
+                schedule_id
+            ))
+            
+            if cursor.rowcount == 0:
+                conn.close()
+                return False
+                
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Updated schedule: {schedule_id} - Next run: {next_run}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating schedule: {e}")
+            return False
+    
+    def delete_schedule(self, schedule_id: str) -> bool:
+        """Delete a scheduled job"""
+        try:
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+            
+            if cursor.rowcount == 0:
+                conn.close()
+                return False
+                
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Deleted schedule: {schedule_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting schedule: {e}")
+            return False
+    
+    def get_schedule(self, schedule_id: str) -> Optional[ScheduleResponse]:
+        """Get a scheduled job by ID"""
+        try:
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            SELECT id, cron_expression, search_params, quality, max_downloads, 
+                   enabled, last_run, next_run, last_run_status
+            FROM schedules
+            WHERE id = ?
+            ''', (schedule_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if not row:
+                return None
+                
+            id, cron_expr, search_params_json, quality, max_downloads, enabled, last_run, next_run, status = row
+            
+            search_params = SearchParams(**json.loads(search_params_json))
+            
+            return ScheduleResponse(
+                id=id,
+                config=ScheduleConfig(
+                    cron_expression=cron_expr,
+                    search_params=search_params,
+                    quality=quality,
+                    max_downloads=max_downloads,
+                    enabled=bool(enabled)
+                ),
+                next_run=datetime.fromisoformat(next_run),
+                last_run=datetime.fromisoformat(last_run) if last_run else None,
+                status=status or "scheduled"
+            )
+        except Exception as e:
+            logger.error(f"Error getting schedule {schedule_id}: {e}")
+            return None
+    
+    def get_all_schedules(self) -> List[ScheduleResponse]:
+        """Get all scheduled jobs"""
+        try:
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            SELECT id, cron_expression, search_params, quality, max_downloads, 
+                   enabled, last_run, next_run, last_run_status
+            FROM schedules
+            ''')
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            results = []
+            for row in rows:
+                id, cron_expr, search_params_json, quality, max_downloads, enabled, last_run, next_run, status = row
+                
+                search_params = SearchParams(**json.loads(search_params_json))
+                
+                results.append(ScheduleResponse(
+                    id=id,
+                    config=ScheduleConfig(
+                        cron_expression=cron_expr,
+                        search_params=search_params,
+                        quality=quality,
+                        max_downloads=max_downloads,
+                        enabled=bool(enabled)
+                    ),
+                    next_run=datetime.fromisoformat(next_run),
+                    last_run=datetime.fromisoformat(last_run) if last_run else None,
+                    status=status or "scheduled"
+                ))
+            
+            return results
+        except Exception as e:
+            logger.error(f"Error getting all schedules: {e}")
+            return []
+    
+    def _update_next_run(self, schedule_id: str, last_run: datetime, status: str = "completed"):
+        """Update the next run time and status for a scheduled job"""
+        try:
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            
+            # Get the current cron expression
+            cursor.execute("SELECT cron_expression FROM schedules WHERE id = ?", (schedule_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                conn.close()
+                return
+                
+            cron_expr = row[0]
+            
+            # Calculate the next run time
+            cron = croniter(cron_expr, last_run)
+            next_run = cron.get_next(datetime)
+            
+            # Update the schedule
+            cursor.execute('''
+            UPDATE schedules
+            SET last_run = ?, next_run = ?, last_run_status = ?
+            WHERE id = ?
+            ''', (
+                last_run.isoformat(),
+                next_run.isoformat(),
+                status,
+                schedule_id
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Updated schedule {schedule_id} next run to {next_run}")
+        except Exception as e:
+            logger.error(f"Error updating next run for schedule {schedule_id}: {e}")
+    
+    async def execute_schedule(self, schedule_id: str) -> bool:
+        """Execute a scheduled job immediately"""
+        try:
+            # Get the schedule
+            schedule = self.get_schedule(schedule_id)
+            if not schedule:
+                logger.error(f"Schedule {schedule_id} not found")
+                return False
+            
+            # Mark as running
+            conn = sqlite3.connect(settings.DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE schedules SET last_run_status = ? WHERE id = ?", 
+                ("running", schedule_id)
+            )
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Executing schedule {schedule_id}")
+            
+            # Execute the search
+            movies = await browse_yts(schedule.config.search_params)
+            
+            if not movies:
+                logger.info(f"No movies found for schedule {schedule_id}")
+                self._update_next_run(schedule_id, datetime.now(), "completed (no movies found)")
+                return True
+            
+            # Sort movies by rating (highest first)
+            movies.sort(key=lambda m: float(m.rating.split('/')[0]), reverse=True)
+            
+            # Take only the number of movies specified by max_downloads
+            selected_movies = movies[:schedule.config.max_downloads]
+            
+            logger.info(f"Found {len(selected_movies)} movies to download for schedule {schedule_id}")
+            
+            # Download each movie
+            for movie in selected_movies:
+                try:
+                    # Find the torrent with the requested quality
+                    matching_torrents = [t for t in movie.torrents if t.quality == schedule.config.quality]
+                    
+                    if not matching_torrents:
+                        logger.warning(f"No {schedule.config.quality} torrent found for {movie.title}")
+                        continue
+                    
+                    torrent = matching_torrents[0]
+                    
+                    # Start the download
+                    await torrent_manager.add_torrent(movie, torrent)
+                    
+                    logger.info(f"Started download for {movie.title} ({schedule.config.quality})")
+                except Exception as e:
+                    logger.error(f"Error downloading {movie.title}: {e}")
+            
+            # Update the next run time
+            self._update_next_run(schedule_id, datetime.now())
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error executing schedule {schedule_id}: {e}")
+            
+            # Update status to error
+            try:
+                self._update_next_run(schedule_id, datetime.now(), f"error: {str(e)}")
+            except:
+                pass
+                
+            return False
+    
+    async def start_scheduler(self):
+        """Start the background scheduler task"""
+        if self.running_task is None or self.running_task.done():
+            self.running_task = asyncio.create_task(self._scheduler_task())
+            logger.info("Started scheduler task")
+    
+    async def _scheduler_task(self):
+        """Background task that checks and executes scheduled jobs"""
+        logger.info("Scheduler task started")
+        
+        while True:
+            try:
+                # Get all enabled schedules
+                conn = sqlite3.connect(settings.DB_PATH)
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                SELECT id, next_run, last_run_status
+                FROM schedules
+                WHERE enabled = 1
+                ''')
+                
+                schedules = cursor.fetchall()
+                conn.close()
+                
+                now = datetime.now()
+                
+                for schedule_id, next_run_str, status in schedules:
+                    next_run = datetime.fromisoformat(next_run_str)
+                    
+                    # Check if it's time to run the schedule and it's not already running
+                    if next_run <= now and status != "running":
+                        logger.info(f"Schedule {schedule_id} is due to run")
+                        
+                        # Execute in a separate task to avoid blocking
+                        asyncio.create_task(self.execute_schedule(schedule_id))
+                        
+                        # Add a small delay to avoid overloading
+                        await asyncio.sleep(2)
+                
+                # Sleep for a while before checking again
+                await asyncio.sleep(30)  # Check every 30 seconds
+                
+            except asyncio.CancelledError:
+                logger.info("Scheduler task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in scheduler task: {e}")
+                await asyncio.sleep(60)  # Longer sleep on error
+    
+    async def shutdown(self):
+        """Gracefully shut down the scheduler"""
+        logger.info("Shutting down scheduler...")
+        
+        if self.running_task and not self.running_task.done():
+            self.running_task.cancel()
+            try:
+                await self.running_task
+            except asyncio.CancelledError:
+                pass
+
+
+# Create a singleton instance
+schedule_manager = ScheduleManager()

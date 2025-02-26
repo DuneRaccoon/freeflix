@@ -19,6 +19,7 @@ class Movie(BaseModel):
     link: HttpUrl
     genre: str
     img: HttpUrl
+    description: Optional[str] = None
     torrents: List[Torrent]
 
 

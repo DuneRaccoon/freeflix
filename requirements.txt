@@ -10,7 +10,7 @@ beautifulsoup4==4.12.2
 torf==4.2.4
 
 # Rate limiting
-leakybucket==0.2.7
+leaky-bucket-py==0.1.3
 
 # Scheduling
 croniter==1.4.1
@@ -20,7 +20,10 @@ APScheduler==3.10.4
 loguru==0.7.2
 
 # Libtorrent
-python-libtorrent==1.2.8
+libtorrent==2.0.11
 
 # Utilities
 python-multipart==0.0.6
+
+# Database
+sqlalchemy==1.4.31

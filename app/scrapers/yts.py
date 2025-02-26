@@ -16,10 +16,9 @@ throttler = LeakyBucket(InMemoryLeakyBucketStorage(
     time_period=1
 ))
 
-
+throttler.throttle()
 async def fetch_available_torrents(movie_url: str) -> List[Torrent]:
     """Fetch available torrents for a specific movie URL"""
-    throttler.throttle()
     async with httpx.AsyncClient() as client:
         try:
             logger.info(f'Fetching available torrents for {movie_url}')
@@ -55,7 +54,7 @@ async def fetch_available_torrents(movie_url: str) -> List[Torrent]:
 
 async def scrape_movies(soup: bs) -> List[Movie]:
     """Extract movie information from the soup object"""
-    async def _scrape_movie(movie: bs) -> Movie:
+    async def _scrape_movie(movie: bs, soup: bs) -> Movie:
         try:
             title = movie.select_one('div.browse-movie-bottom > a.browse-movie-title').text
             year = int(movie.select_one('div.browse-movie-year').text)
@@ -63,6 +62,7 @@ async def scrape_movies(soup: bs) -> List[Movie]:
             link = movie.select_one('a.browse-movie-link')['href']
             genre = movie.select_one('h4.rating').find_next('h4').text
             img = movie.select_one('img.img-responsive')['src']
+            description = soup.select_one('#synopsis')
             
             return Movie(
                 title=title,
@@ -71,6 +71,7 @@ async def scrape_movies(soup: bs) -> List[Movie]:
                 link=f'{settings.BASE_URL}{link}',
                 genre=genre,
                 img=f'{settings.BASE_URL}{img}',
+                description=description.text if description else None,
                 torrents=(
                     await fetch_available_torrents(f'{settings.BASE_URL}{link}')
                 )
@@ -80,16 +81,15 @@ async def scrape_movies(soup: bs) -> List[Movie]:
             return None
     
     results = await asyncio.gather(*[
-        _scrape_movie(movie) for movie in soup.select('div.browse-movie-wrap')
+        _scrape_movie(movie, soup) for movie in soup.select('div.browse-movie-wrap')
     ])
     
     # Filter out None values (failed scrapes)
     return [movie for movie in results if movie is not None]
 
-
+throttler.throttle()
 async def browse_yts(params: SearchParams) -> List[Movie]:
     """Browse YTS movies with the given parameters"""
-    throttler.throttle()
     
     # Convert params to dict for httpx
     query_params = {

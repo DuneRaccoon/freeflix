@@ -10,7 +10,7 @@ ExecStart=/opt/yify_downloader/venv/bin/python /opt/yify_downloader/downloader.p
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
-Environment=DOWNLOAD_PATH=/mnt/media/downloads/movies
+# Environment=DOWNLOAD_PATH=/mnt/media/downloads/movies
 
 # Basic security measures
 NoNewPrivileges=true

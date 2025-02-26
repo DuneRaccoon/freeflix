@@ -1,0 +1,26 @@
+# FastAPI and server
+fastapi==0.104.1
+uvicorn[standard]==0.23.2
+pydantic==2.4.2
+pydantic-settings==2.0.3
+
+# HTTP and parsing
+httpx==0.25.0
+beautifulsoup4==4.12.2
+torf==4.2.4
+
+# Rate limiting
+leakybucket==0.2.7
+
+# Scheduling
+croniter==1.4.1
+APScheduler==3.10.4
+
+# Logging
+loguru==0.7.2
+
+# Libtorrent
+python-libtorrent==1.2.8
+
+# Utilities
+python-multipart==0.0.6

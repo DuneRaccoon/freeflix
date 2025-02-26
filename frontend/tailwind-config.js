@@ -8,6 +8,10 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        background: '#0f172a', // Dark blue background
+        foreground: '#f8fafc', // Light text color
+        card: '#1e293b',       // Slightly lighter card background
+        accent: '#6366f1',     // Indigo accent
         primary: {
           50: '#f0f9ff',
           100: '#e0f2fe',
@@ -34,10 +38,6 @@ module.exports = {
           900: '#831843',
           950: '#500724',
         },
-        background: '#0f172a', // Dark blue background
-        foreground: '#f8fafc', // Light text color
-        card: '#1e293b',       // Slightly lighter card background
-        accent: '#6366f1',     // Indigo accent
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
@@ -59,4 +59,4 @@ module.exports = {
     },
   },
   plugins: [],
-};
+}

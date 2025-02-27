@@ -7,45 +7,29 @@ const nextConfig: NextConfig = {
       {
         protocol: 'https',
         hostname: 'en.yts-official.mx',
-        port: '',
-        pathname: '/*',
-        search: '',
+        pathname: '/**',
       },
       {
         protocol: 'https',
         hostname: 'yts.mx',
-        port: '',
-        pathname: '/*',
-        search: '',
+        pathname: '/**',
       },
       {
         protocol: 'https',
         hostname: 'img.yts.mx',
-        port: '',
-        pathname: '/*',
-        search: '',
+        pathname: '/**',
       },
       {
         protocol: 'https',
-        hostname: '*.yts.*',
-        port: '',
-        pathname: '/*',
-        search: '',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.yts-official.*',
-        port: '',
-        pathname: '/*',
-        search: '',
-      },
-      {
-        protocol: 'https',
-        hostname: 'en.yts-official.mx',
-        port: '',
-        pathname: '/*',
-        search: '',
-      },
+        hostname: 'yts-official.mx',
+        pathname: '/**',
+      }
+    ],
+    domains: [
+      'en.yts-official.mx',
+      'yts.mx',
+      'img.yts.mx',
+      'yts-official.mx'
     ]
   },
   async rewrites() {

@@ -9,8 +9,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "YIFY Torrent Downloader"
     
     # YTS scraping settings
-    BASE_URL: str = "https://en.yts-official.mx"
-    BROWSE_URL: str = "https://en.yts-official.mx/browse-movies"
+    YIFY_URL: str = "https://en.yts-official.mx"
+    YIFY_URL_BROWSE_URL: str = "https://en.yts-official.mx/browse-movies"
+    RARBG_URL: str = "https://en.rarbg-official.com/{path}"
     REQUEST_RATE_LIMIT: int = 3  # requests per second
     
     # Torrent settings

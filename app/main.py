@@ -22,7 +22,7 @@ logger.remove()  # Remove default handler
 logger.add(
     sys.stdout,
     level=settings.LOG_LEVEL,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <cyan>{level}</cyan> | {message}",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <cyan>{level}</cyan> | <blue>{file}:{line}</blue> | {message}",
 )
 logger.add(
     settings.LOG_PATH / "{time:YYYY-MM-DD}.log",

@@ -40,7 +40,7 @@ async def fetch_available_torrents(movie_url: str) -> List[Torrent]:
                     id=torrent_id,
                     quality=quality,
                     sizes=sizes,
-                    url=f'{settings.BASE_URL}{torrent_url}',
+                    url=f'{settings.YIFY_URL}{torrent_url}',
                     magnet=magnet
                 ))
             return torrents
@@ -68,12 +68,12 @@ async def scrape_movies(soup: bs) -> List[Movie]:
                 title=title,
                 year=year,
                 rating=rating,
-                link=f'{settings.BASE_URL}{link}',
+                link=f'{settings.YIFY_URL}{link}',
                 genre=genre,
-                img=f'{settings.BASE_URL}{img}',
+                img=f'{settings.YIFY_URL}{img}',
                 description=description.text if description else None,
                 torrents=(
-                    await fetch_available_torrents(f'{settings.BASE_URL}{link}')
+                    await fetch_available_torrents(f'{settings.YIFY_URL}{link}')
                 )
             )
         except Exception as e:
@@ -93,7 +93,7 @@ async def browse_yts(params: SearchParams) -> List[Movie]:
     
     # Convert params to dict for httpx
     query_params = {
-        k: v for k, v in params.dict().items() 
+        k: v for k, v in params.model_dump().items() 
         if v is not None and k != 'page'
     }
     
@@ -107,7 +107,7 @@ async def browse_yts(params: SearchParams) -> List[Movie]:
             logger.info(f"{query_params}")
             
             response = await client.get(
-                settings.BROWSE_URL, 
+                settings.YIFY_URL_BROWSE_URL, 
                 params=query_params, 
                 timeout=15.0
             )
@@ -170,7 +170,7 @@ async def get_movie_by_url(url: str) -> Optional[Movie]:
                     id=torrent_id,
                     quality=quality,
                     sizes=sizes,
-                    url=f'{settings.BASE_URL}{torrent_url}',
+                    url=f'{settings.YIFY_URL}{torrent_url}',
                     magnet=magnet
                 ))
             
@@ -180,13 +180,13 @@ async def get_movie_by_url(url: str) -> Optional[Movie]:
                 rating=rating,
                 link=url,
                 genre=genre,
-                img=f'{settings.BASE_URL}{img}',
+                img=f'{settings.YIFY_URL}{img}',
                 torrents=torrents
             )
             
         except httpx.RequestError as e:
-            logger.error(f"Request error for {url}: {e}")
+            logger.error(f"Request error for {url}", exc_info=e)
             return None
         except Exception as e:
-            logger.error(f"Error getting movie details for {url}: {e}")
+            logger.error(f"Error getting movie details for {url}", exc_info=e)
             return None

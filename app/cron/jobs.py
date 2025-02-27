@@ -1,13 +1,17 @@
-import sqlite3
+import asyncio
 import json
 import uuid
-import asyncio
 from datetime import datetime
 from croniter import croniter
 from loguru import logger
 import random
 from typing import List, Dict, Optional, Any
+from sqlalchemy.orm import Session
 
+from app.database.session import get_db, init_db
+from app.database.models import Schedule as DbSchedule
+from app.database.models import ScheduleLog as DbScheduleLog
+from app.database.utils import schedule_db_to_response
 from app.models import SearchParams, ScheduleConfig, ScheduleResponse
 from app.config import settings
 from app.scrapers.yts import browse_yts
@@ -18,35 +22,9 @@ class ScheduleManager:
     """Manages scheduled downloads based on cron expressions"""
     
     def __init__(self):
-        self._init_db()
+        # Initialize database
+        init_db()
         self.running_task = None
-    
-    def _init_db(self):
-        """Initialize the SQLite database for schedule storage"""
-        try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            # Create the schedules table if it doesn't exist
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS schedules (
-                id TEXT PRIMARY KEY,
-                cron_expression TEXT NOT NULL,
-                search_params TEXT NOT NULL,
-                quality TEXT NOT NULL,
-                max_downloads INTEGER NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                last_run TEXT,
-                next_run TEXT NOT NULL,
-                last_run_status TEXT
-            )
-            ''')
-            
-            conn.commit()
-            conn.close()
-            logger.info("Schedule database initialized")
-        except Exception as e:
-            logger.error(f"Error initializing schedule database: {e}")
     
     def add_schedule(self, config: ScheduleConfig) -> str:
         """Add a new scheduled job"""
@@ -57,25 +35,20 @@ class ScheduleManager:
             cron = croniter(config.cron_expression, datetime.now())
             next_run = cron.get_next(datetime)
             
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            INSERT INTO schedules 
-            (id, cron_expression, search_params, quality, max_downloads, enabled, next_run)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                schedule_id,
-                config.cron_expression,
-                json.dumps(config.search_params.dict()),
-                config.quality,
-                config.max_downloads,
-                1 if config.enabled else 0,
-                next_run.isoformat()
-            ))
-            
-            conn.commit()
-            conn.close()
+            # Create new schedule in database
+            with get_db() as db:
+                new_schedule = DbSchedule(
+                    id=schedule_id,
+                    name=config.name,
+                    cron_expression=config.cron_expression,
+                    search_params=config.search_params.dict(),
+                    quality=config.quality,
+                    max_downloads=config.max_downloads,
+                    enabled=config.enabled,
+                    next_run=next_run
+                )
+                db.add(new_schedule)
+                db.commit()
             
             logger.info(f"Added new schedule: {schedule_id} - Next run: {next_run}")
             return schedule_id
@@ -90,34 +63,22 @@ class ScheduleManager:
             cron = croniter(config.cron_expression, datetime.now())
             next_run = cron.get_next(datetime)
             
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            UPDATE schedules 
-            SET cron_expression = ?, 
-                search_params = ?, 
-                quality = ?, 
-                max_downloads = ?, 
-                enabled = ?,
-                next_run = ?
-            WHERE id = ?
-            ''', (
-                config.cron_expression,
-                json.dumps(config.search_params.dict()),
-                config.quality,
-                config.max_downloads,
-                1 if config.enabled else 0,
-                next_run.isoformat(),
-                schedule_id
-            ))
-            
-            if cursor.rowcount == 0:
-                conn.close()
-                return False
+            with get_db() as db:
+                schedule: DbSchedule = db.query(DbSchedule).filter(DbSchedule.id == schedule_id).first()
                 
-            conn.commit()
-            conn.close()
+                if not schedule:
+                    return False
+                
+                # Update fields
+                schedule.name = config.name
+                schedule.cron_expression = config.cron_expression
+                schedule.search_params = config.search_params.model_dump()
+                schedule.quality = config.quality
+                schedule.max_downloads = config.max_downloads
+                schedule.enabled = config.enabled
+                schedule.next_run = next_run
+                
+                db.commit()
             
             logger.info(f"Updated schedule: {schedule_id} - Next run: {next_run}")
             return True
@@ -128,17 +89,14 @@ class ScheduleManager:
     def delete_schedule(self, schedule_id: str) -> bool:
         """Delete a scheduled job"""
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
-            
-            if cursor.rowcount == 0:
-                conn.close()
-                return False
+            with get_db() as db:
+                schedule = db.query(DbSchedule).filter(DbSchedule.id == schedule_id).first()
                 
-            conn.commit()
-            conn.close()
+                if not schedule:
+                    return False
+                
+                db.delete(schedule)
+                db.commit()
             
             logger.info(f"Deleted schedule: {schedule_id}")
             return True
@@ -149,39 +107,13 @@ class ScheduleManager:
     def get_schedule(self, schedule_id: str) -> Optional[ScheduleResponse]:
         """Get a scheduled job by ID"""
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            SELECT id, cron_expression, search_params, quality, max_downloads, 
-                   enabled, last_run, next_run, last_run_status
-            FROM schedules
-            WHERE id = ?
-            ''', (schedule_id,))
-            
-            row = cursor.fetchone()
-            conn.close()
-            
-            if not row:
-                return None
+            with get_db() as db:
+                schedule = db.query(DbSchedule).filter(DbSchedule.id == schedule_id).first()
                 
-            id, cron_expr, search_params_json, quality, max_downloads, enabled, last_run, next_run, status = row
-            
-            search_params = SearchParams(**json.loads(search_params_json))
-            
-            return ScheduleResponse(
-                id=id,
-                config=ScheduleConfig(
-                    cron_expression=cron_expr,
-                    search_params=search_params,
-                    quality=quality,
-                    max_downloads=max_downloads,
-                    enabled=bool(enabled)
-                ),
-                next_run=datetime.fromisoformat(next_run),
-                last_run=datetime.fromisoformat(last_run) if last_run else None,
-                status=status or "scheduled"
-            )
+                if not schedule:
+                    return None
+                
+                return schedule_db_to_response(schedule)
         except Exception as e:
             logger.error(f"Error getting schedule {schedule_id}: {e}")
             return None
@@ -189,39 +121,10 @@ class ScheduleManager:
     def get_all_schedules(self) -> List[ScheduleResponse]:
         """Get all scheduled jobs"""
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            SELECT id, cron_expression, search_params, quality, max_downloads, 
-                   enabled, last_run, next_run, last_run_status
-            FROM schedules
-            ''')
-            
-            rows = cursor.fetchall()
-            conn.close()
-            
-            results = []
-            for row in rows:
-                id, cron_expr, search_params_json, quality, max_downloads, enabled, last_run, next_run, status = row
+            with get_db() as db:
+                schedules = db.query(DbSchedule).all()
                 
-                search_params = SearchParams(**json.loads(search_params_json))
-                
-                results.append(ScheduleResponse(
-                    id=id,
-                    config=ScheduleConfig(
-                        cron_expression=cron_expr,
-                        search_params=search_params,
-                        quality=quality,
-                        max_downloads=max_downloads,
-                        enabled=bool(enabled)
-                    ),
-                    next_run=datetime.fromisoformat(next_run),
-                    last_run=datetime.fromisoformat(last_run) if last_run else None,
-                    status=status or "scheduled"
-                ))
-            
-            return results
+                return [schedule_db_to_response(schedule) for schedule in schedules]
         except Exception as e:
             logger.error(f"Error getting all schedules: {e}")
             return []
@@ -229,37 +132,30 @@ class ScheduleManager:
     def _update_next_run(self, schedule_id: str, last_run: datetime, status: str = "completed"):
         """Update the next run time and status for a scheduled job"""
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            # Get the current cron expression
-            cursor.execute("SELECT cron_expression FROM schedules WHERE id = ?", (schedule_id,))
-            row = cursor.fetchone()
-            
-            if not row:
-                conn.close()
-                return
+            with get_db() as db:
+                schedule = db.query(DbSchedule).filter(DbSchedule.id == schedule_id).first()
                 
-            cron_expr = row[0]
-            
-            # Calculate the next run time
-            cron = croniter(cron_expr, last_run)
-            next_run = cron.get_next(datetime)
-            
-            # Update the schedule
-            cursor.execute('''
-            UPDATE schedules
-            SET last_run = ?, next_run = ?, last_run_status = ?
-            WHERE id = ?
-            ''', (
-                last_run.isoformat(),
-                next_run.isoformat(),
-                status,
-                schedule_id
-            ))
-            
-            conn.commit()
-            conn.close()
+                if not schedule:
+                    return
+                
+                # Calculate the next run time
+                cron = croniter(schedule.cron_expression, last_run)
+                next_run = cron.get_next(datetime)
+                
+                # Update fields
+                schedule.last_run = last_run
+                schedule.next_run = next_run
+                schedule.last_run_status = status
+                
+                # Create execution log
+                log_entry = DbScheduleLog(
+                    schedule_id=schedule_id,
+                    execution_time=last_run,
+                    status=status
+                )
+                db.add(log_entry)
+                
+                db.commit()
             
             logger.info(f"Updated schedule {schedule_id} next run to {next_run}")
         except Exception as e:
@@ -275,14 +171,11 @@ class ScheduleManager:
                 return False
             
             # Mark as running
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE schedules SET last_run_status = ? WHERE id = ?", 
-                ("running", schedule_id)
-            )
-            conn.commit()
-            conn.close()
+            with get_db() as db:
+                schedule_db = db.query(DbSchedule).filter(DbSchedule.id == schedule_id).first()
+                if schedule_db:
+                    schedule_db.last_run_status = "running"
+                    db.commit()
             
             logger.info(f"Executing schedule {schedule_id}")
             
@@ -300,9 +193,17 @@ class ScheduleManager:
             # Take only the number of movies specified by max_downloads
             selected_movies = movies[:schedule.config.max_downloads]
             
+            # Log results
+            results = {
+                "movies_found": len(movies),
+                "movies_selected": len(selected_movies),
+                "selected_titles": [m.title for m in selected_movies]
+            }
+            
             logger.info(f"Found {len(selected_movies)} movies to download for schedule {schedule_id}")
             
             # Download each movie
+            downloaded_count = 0
             for movie in selected_movies:
                 try:
                     # Find the torrent with the requested quality
@@ -316,10 +217,25 @@ class ScheduleManager:
                     
                     # Start the download
                     await torrent_manager.add_torrent(movie, torrent)
+                    downloaded_count += 1
                     
                     logger.info(f"Started download for {movie.title} ({schedule.config.quality})")
                 except Exception as e:
                     logger.error(f"Error downloading {movie.title}: {e}")
+            
+            # Update results
+            results["downloads_started"] = downloaded_count
+            
+            # Store log entry
+            with get_db() as db:
+                log_entry = DbScheduleLog(
+                    schedule_id=schedule_id,
+                    execution_time=datetime.now(),
+                    status="completed",
+                    results=results
+                )
+                db.add(log_entry)
+                db.commit()
             
             # Update the next run time
             self._update_next_run(schedule_id, datetime.now())
@@ -330,7 +246,19 @@ class ScheduleManager:
             
             # Update status to error
             try:
-                self._update_next_run(schedule_id, datetime.now(), f"error: {str(e)}")
+                error_status = f"error: {str(e)}"
+                self._update_next_run(schedule_id, datetime.now(), error_status)
+                
+                # Store error log
+                with get_db() as db:
+                    log_entry = DbScheduleLog(
+                        schedule_id=schedule_id,
+                        execution_time=datetime.now(),
+                        status="error",
+                        message=str(e)
+                    )
+                    db.add(log_entry)
+                    db.commit()
             except:
                 pass
                 
@@ -349,29 +277,20 @@ class ScheduleManager:
         while True:
             try:
                 # Get all enabled schedules
-                conn = sqlite3.connect(settings.DB_PATH)
-                cursor = conn.cursor()
-                
-                cursor.execute('''
-                SELECT id, next_run, last_run_status
-                FROM schedules
-                WHERE enabled = 1
-                ''')
-                
-                schedules = cursor.fetchall()
-                conn.close()
+                with get_db() as db:
+                    schedules = db.query(DbSchedule).filter(
+                        DbSchedule.enabled == True
+                    ).all()
                 
                 now = datetime.now()
                 
-                for schedule_id, next_run_str, status in schedules:
-                    next_run = datetime.fromisoformat(next_run_str)
-                    
+                for schedule in schedules:
                     # Check if it's time to run the schedule and it's not already running
-                    if next_run <= now and status != "running":
-                        logger.info(f"Schedule {schedule_id} is due to run")
+                    if schedule.next_run <= now and schedule.last_run_status != "running":
+                        logger.info(f"Schedule {schedule.id} is due to run")
                         
                         # Execute in a separate task to avoid blocking
-                        asyncio.create_task(self.execute_schedule(schedule_id))
+                        asyncio.create_task(self.execute_schedule(schedule.id))
                         
                         # Add a small delay to avoid overloading
                         await asyncio.sleep(2)

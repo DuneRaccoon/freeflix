@@ -1,26 +1,7 @@
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, HttpUrl, Field, validator, ConfigDict
 from typing import Optional, List, Tuple, Literal, Dict, Any
 from datetime import datetime
 from enum import Enum
-
-
-class Torrent(BaseModel):
-    id: str = Field(..., description="Unique identifier for the torrent")
-    quality: str
-    sizes: Tuple[str, str]
-    url: HttpUrl
-    magnet: str
-
-
-class Movie(BaseModel):
-    title: str
-    year: int
-    rating: str
-    link: HttpUrl
-    genre: str
-    img: HttpUrl
-    description: Optional[str] = None
-    torrents: List[Torrent]
 
 
 class TorrentState(str, Enum):
@@ -34,9 +15,43 @@ class TorrentState(str, Enum):
     CHECKING_FASTRESUME = "checking_fastresume"
     PAUSED = "paused"
     ERROR = "error"
+    STOPPED = "stopped"
+
+
+class Torrent(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    id: str = Field(..., description="Unique identifier for the torrent")
+    quality: str
+    sizes: Tuple[str, str]
+    url: HttpUrl
+    magnet: str
+
+class Movie(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    title: str
+    year: int
+    rating: str
+    link: HttpUrl
+    genre: str
+    img: HttpUrl
+    description: Optional[str] = None
+    torrents: List[Torrent]
 
 
 class TorrentStatus(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
     id: str
     movie_title: str
     quality: str
@@ -75,6 +90,12 @@ class TorrentAction(BaseModel):
 
 
 class ScheduleConfig(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    name: Optional[str] = None
     cron_expression: str
     search_params: SearchParams
     quality: Literal['720p', '1080p', '2160p'] = '1080p'
@@ -83,8 +104,58 @@ class ScheduleConfig(BaseModel):
 
 
 class ScheduleResponse(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
     id: str
+    name: Optional[str] = None
     config: ScheduleConfig
     next_run: datetime
     last_run: Optional[datetime] = None
     status: str = "scheduled"
+
+
+# Log models
+class TorrentLogEntry(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    id: str
+    torrent_id: str
+    timestamp: datetime
+    message: str
+    level: str
+    state: Optional[str] = None
+    progress: Optional[float] = None
+    download_rate: Optional[float] = None
+
+
+class ScheduleLogEntry(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    id: str
+    schedule_id: str
+    execution_time: datetime
+    status: str
+    message: Optional[str] = None
+    results: Optional[Dict[str, Any]] = None
+
+
+# Settings model
+class AppSetting(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    key: str
+    value: Any
+    description: Optional[str] = None
+    updated_at: datetime

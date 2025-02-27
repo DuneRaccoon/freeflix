@@ -1,8 +1,11 @@
-from fastapi import APIRouter, HTTPException, Path, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Path, BackgroundTasks, Depends
 from typing import List, Dict, Any
+from sqlalchemy.orm import Session
 
-from app.models import ScheduleConfig, ScheduleResponse
+from app.models import ScheduleConfig, ScheduleResponse, ScheduleLogEntry
 from app.cron.jobs import schedule_manager
+from app.database.session import get_db
+from app.database.models import ScheduleLog
 
 router = APIRouter()
 
@@ -111,3 +114,25 @@ async def run_schedule(
             raise HTTPException(status_code=500, detail="Schedule execution failed")
         
         return {"success": True, "message": "Schedule executed successfully"}
+
+
+@router.get("/{schedule_id}/logs", response_model=List[ScheduleLogEntry], summary="Get schedule execution logs")
+async def get_schedule_logs(
+    schedule_id: str = Path(..., description="ID of the schedule"),
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    """
+    Get the execution logs for a specific schedule.
+    """
+    schedule = schedule_manager.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    logs = db.query(ScheduleLog).filter(
+        ScheduleLog.schedule_id == schedule_id
+    ).order_by(
+        ScheduleLog.execution_time.desc()
+    ).limit(limit).all()
+    
+    return logs

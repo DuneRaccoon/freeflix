@@ -13,6 +13,7 @@ from app.config import settings
 from app.api import movies, torrents, schedules
 from app.torrent.manager import torrent_manager
 from app.cron.jobs import schedule_manager
+from app.database.session import init_db
 
 # Initialize directories and settings
 settings.initialize()
@@ -99,6 +100,10 @@ async def log_requests(request: Request, call_next):
 async def startup_event():
     """Initialize services on startup"""
     logger.info("Starting up YIFY Torrent Downloader...")
+    
+    # Initialize database
+    init_db()
+    logger.info("Database initialized")
     
     # Start torrent manager update task
     await torrent_manager.start_update_task()

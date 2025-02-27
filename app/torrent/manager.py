@@ -3,13 +3,17 @@ import asyncio
 import time
 import json
 import uuid
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
 from typing import Dict, List, Optional, Any, Tuple
 from torf import Magnet
+from sqlalchemy.orm import Session
 
+from app.database.session import get_db, init_db
+from app.database.models import Torrent as DbTorrent
+from app.database.models import TorrentLog as DbTorrentLog
+from app.database.utils import torrent_db_to_status, torrent_status_metadata
 from app.models import TorrentState, TorrentStatus, Movie, Torrent as TorrentModel
 from app.config import settings
 
@@ -33,8 +37,8 @@ class TorrentManager:
         # Dictionary to store active torrents: {torrent_id: (handle, metadata)}
         self.active_torrents: Dict[str, Tuple[lt.torrent_handle, Dict[str, Any]]] = {}
         
-        # Initialize the SQLite database for persistent storage
-        self._init_db()
+        # Initialize the database
+        init_db()
         
         # Load any previously active torrents
         self._load_saved_torrents()
@@ -44,91 +48,47 @@ class TorrentManager:
         
         logger.info("TorrentManager initialized")
     
-    def _init_db(self):
-        """Initialize the SQLite database for torrent status storage"""
-        try:
-            # Create parent directory if it doesn't exist
-            settings.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Connect to the database
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            # Create the torrents table if it doesn't exist
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS torrents (
-                id TEXT PRIMARY KEY,
-                movie_title TEXT NOT NULL,
-                quality TEXT NOT NULL,
-                magnet TEXT NOT NULL,
-                save_path TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                state TEXT NOT NULL,
-                progress REAL DEFAULT 0.0,
-                resume_data BLOB,
-                metadata JSON
-            )
-            ''')
-            
-            conn.commit()
-            conn.close()
-            logger.info(f"Database initialized at {settings.DB_PATH}")
-        except Exception as e:
-            logger.error(f"Error initializing database: {e}")
-    
     def _load_saved_torrents(self):
         """Load previously active torrents from the database"""
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            SELECT id, movie_title, quality, magnet, save_path, state, resume_data, metadata
-            FROM torrents
-            WHERE state NOT IN ('finished', 'error')
-            ''')
-            
-            rows = cursor.fetchall()
-            conn.close()
-            
-            for row in rows:
-                torrent_id, movie_title, quality, magnet, save_path, state, resume_data, metadata = row
-                if state != 'error':
-                    try:
-                        metadata_dict = json.loads(metadata) if metadata else {}
-                        self._add_torrent(torrent_id, magnet, Path(save_path), metadata_dict, resume_data)
-                        logger.info(f"Loaded torrent {torrent_id} - {movie_title} ({quality})")
-                    except Exception as e:
-                        logger.error(f"Error loading torrent {torrent_id}: {e}")
-                        self._update_torrent_in_db(torrent_id, {'state': 'error', 'error_message': str(e)})
+            with get_db() as db:
+                # Query for torrents that are not in finished or error state
+                active_torrents = db.query(DbTorrent).filter(
+                    ~DbTorrent.state.in_(['finished', 'error'])
+                ).all()
+                
+                for torrent in active_torrents:
+                    if torrent.state != 'error':
+                        try:
+                            metadata_dict = torrent.meta_data or {}
+                            self._add_torrent(
+                                torrent.id, 
+                                torrent.magnet, 
+                                Path(torrent.save_path), 
+                                metadata_dict, 
+                                torrent.resume_data
+                            )
+                            logger.info(f"Loaded torrent {torrent.id} - {torrent.movie_title} ({torrent.quality})")
+                        except Exception as e:
+                            logger.error(f"Error loading torrent {torrent.id}: {e}")
+                            # Update torrent state to error
+                            torrent.state = 'error'
+                            torrent.error_message = str(e)
+                            db.commit()
         except Exception as e:
             logger.error(f"Error loading saved torrents: {e}")
     
-    def _update_torrent_in_db(self, torrent_id: str, update_data: Dict[str, Any]):
-        """Update torrent information in the database"""
-        try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            # Prepare the update statement based on the provided data
-            set_clause = ", ".join([f"{k} = ?" for k in update_data.keys()])
-            values = list(update_data.values())
-            
-            # Add updated_at timestamp
-            set_clause += ", updated_at = ?"
-            values.append(datetime.now().isoformat())
-            
-            # Execute the update
-            cursor.execute(f"UPDATE torrents SET {set_clause} WHERE id = ?", values + [torrent_id])
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logger.error(f"Error updating torrent {torrent_id} in database: {e}")
-    
     def _save_resume_data(self, torrent_id: str, resume_data: bytes):
         """Save resume data for a torrent to the database"""
-        self._update_torrent_in_db(torrent_id, {'resume_data': resume_data})
+        try:
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent:
+                    torrent.resume_data = resume_data
+                    torrent.updated_at = datetime.utcnow()
+                    db.commit()
+        except Exception as e:
+            logger.error(f"Error saving resume data for torrent {torrent_id}: {e}")
     
     def _add_torrent(self, torrent_id: str, magnet_uri: str, save_path: Path, 
                     metadata: Dict[str, Any], resume_data: Optional[bytes] = None) -> lt.torrent_handle:
@@ -187,11 +147,31 @@ class TorrentManager:
                             "checking_fastresume"
                         ][status.state]
                         
-                        # Update progress in database
-                        self._update_torrent_in_db(torrent_id, {
-                            'state': state_str,
-                            'progress': status.progress * 100
-                        })
+                        # Update torrent state and progress in database
+                        with get_db() as db:
+                            torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                            if torrent:
+                                torrent.state = state_str
+                                torrent.progress = status.progress * 100
+                                torrent.updated_at = datetime.utcnow()
+                                
+                                # Update metadata
+                                updated_metadata = torrent.meta_data or {}
+                                updated_metadata.update({
+                                    'download_rate': status.download_rate / 1000,  # B/s to kB/s
+                                    'upload_rate': status.upload_rate / 1000,  # B/s to kB/s
+                                    'num_peers': status.num_peers
+                                })
+                                
+                                # Calculate ETA if downloading
+                                if state_str == 'downloading' and status.download_rate > 0:
+                                    total_size = status.total_wanted
+                                    downloaded = status.total_wanted_done
+                                    remaining = total_size - downloaded
+                                    updated_metadata['eta'] = int(remaining / status.download_rate)
+                                
+                                torrent.meta_data = updated_metadata
+                                db.commit()
                         
                         # Log status periodically
                         if torrent_id not in getattr(self, '_last_logged', {}):
@@ -213,7 +193,11 @@ class TorrentManager:
                         # If download is finished, update the state
                         if status.state == lt.torrent_status.finished:
                             logger.info(f"Torrent {torrent_id} finished downloading")
-                            self._update_torrent_in_db(torrent_id, {'state': 'finished'})
+                            with get_db() as db:
+                                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                                if torrent:
+                                    torrent.state = 'finished'
+                                    db.commit()
                         
                         # If seeding, calculate seed time and potentially stop seeding
                         if status.state == lt.torrent_status.seeding:
@@ -222,10 +206,12 @@ class TorrentManager:
                     
                     except Exception as e:
                         logger.error(f"Error updating status for torrent {torrent_id}: {e}")
-                        self._update_torrent_in_db(torrent_id, {
-                            'state': 'error',
-                            'error_message': str(e)
-                        })
+                        with get_db() as db:
+                            torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                            if torrent:
+                                torrent.state = 'error'
+                                torrent.error_message = str(e)
+                                db.commit()
                         # Remove from active torrents
                         self.active_torrents.pop(torrent_id, None)
                 
@@ -248,7 +234,11 @@ class TorrentManager:
             for torrent_id, (handle, _) in self.active_torrents.items():
                 if handle == torrent_handle:
                     logger.info(f"Torrent {torrent_id} finished downloading")
-                    self._update_torrent_in_db(torrent_id, {'state': 'finished'})
+                    with get_db() as db:
+                        torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                        if torrent:
+                            torrent.state = 'finished'
+                            db.commit()
                     break
         
         elif isinstance(alert, lt.save_resume_data_alert):
@@ -269,10 +259,12 @@ class TorrentManager:
             for torrent_id, (handle, _) in self.active_torrents.items():
                 if handle == torrent_handle:
                     logger.error(f"Torrent error for {torrent_id}: {error_message}")
-                    self._update_torrent_in_db(torrent_id, {
-                        'state': 'error',
-                        'error_message': error_message
-                    })
+                    with get_db() as db:
+                        torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                        if torrent:
+                            torrent.state = 'error'
+                            torrent.error_message = error_message
+                            db.commit()
                     break
     
     async def add_torrent(self, movie: Movie, torrent: TorrentModel, save_path: Optional[Path] = None) -> str:
@@ -308,27 +300,20 @@ class TorrentManager:
         
         # Store torrent in database
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            INSERT INTO torrents 
-            (id, movie_title, quality, magnet, save_path, created_at, updated_at, state, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                torrent_id, 
-                movie.title, 
-                torrent.quality, 
-                torrent.magnet, 
-                str(save_path),
-                datetime.now().isoformat(),
-                datetime.now().isoformat(),
-                'queued',
-                json.dumps(metadata)
-            ))
-            
-            conn.commit()
-            conn.close()
+            with get_db() as db:
+                new_torrent = DbTorrent(
+                    id=torrent_id,
+                    movie_title=movie.title,
+                    quality=torrent.quality,
+                    magnet=torrent.magnet,
+                    url=str(torrent.url),
+                    save_path=str(save_path),
+                    sizes=torrent.sizes,
+                    state='queued',
+                    meta_data=metadata  # Changed from metadata to meta_data
+                )
+                db.add(new_torrent)
+                db.commit()
         except Exception as e:
             logger.error(f"Error storing torrent in database: {e}")
             raise
@@ -344,10 +329,12 @@ class TorrentManager:
             return torrent_id
         except Exception as e:
             logger.error(f"Error starting torrent download: {e}")
-            self._update_torrent_in_db(torrent_id, {
-                'state': 'error',
-                'error_message': str(e)
-            })
+            with get_db() as db:
+                torrent_obj = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent_obj:
+                    torrent_obj.state = 'error'
+                    torrent_obj.error_message = str(e)
+                    db.commit()
             raise
     
     def pause_torrent(self, torrent_id: str) -> bool:
@@ -355,7 +342,13 @@ class TorrentManager:
         if torrent_id in self.active_torrents:
             handle, _ = self.active_torrents[torrent_id]
             handle.pause()
-            self._update_torrent_in_db(torrent_id, {'state': 'paused'})
+            
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent:
+                    torrent.state = 'paused'
+                    db.commit()
+            
             logger.info(f"Paused torrent {torrent_id}")
             return True
         else:
@@ -367,41 +360,44 @@ class TorrentManager:
         if torrent_id in self.active_torrents:
             handle, _ = self.active_torrents[torrent_id]
             handle.resume()
-            self._update_torrent_in_db(torrent_id, {'state': 'downloading'})
+            
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent:
+                    torrent.state = 'downloading'
+                    db.commit()
+            
             logger.info(f"Resumed torrent {torrent_id}")
             return True
         else:
             # Check if it's in the database but not active
             try:
-                conn = sqlite3.connect(settings.DB_PATH)
-                cursor = conn.cursor()
-                
-                cursor.execute('''
-                SELECT magnet, save_path, metadata, resume_data
-                FROM torrents
-                WHERE id = ? AND state = 'paused'
-                ''', (torrent_id,))
-                
-                row = cursor.fetchone()
-                conn.close()
-                
-                if row:
-                    magnet, save_path, metadata_json, resume_data = row
-                    metadata = json.loads(metadata_json) if metadata_json else {}
+                with get_db() as db:
+                    torrent = db.query(DbTorrent).filter(
+                        DbTorrent.id == torrent_id,
+                        DbTorrent.state == 'paused'
+                    ).first()
                     
-                    # Add the torrent back to the session
-                    handle = self._add_torrent(
-                        torrent_id, magnet, Path(save_path), metadata, resume_data
-                    )
-                    handle.resume()
+                    if torrent:
+                        # Add the torrent back to the session
+                        handle = self._add_torrent(
+                            torrent_id, 
+                            torrent.magnet, 
+                            Path(torrent.save_path), 
+                            torrent.meta_data or {},  # Changed from metadata to meta_data
+                            torrent.resume_data
+                        )
+                        handle.resume()
+                        
+                        torrent.state = 'downloading'
+                        db.commit()
+                        
+                        logger.info(f"Re-added and resumed torrent {torrent_id}")
+                        return True
+                    else:
+                        logger.warning(f"Torrent {torrent_id} not found or not paused")
+                        return False
                     
-                    self._update_torrent_in_db(torrent_id, {'state': 'downloading'})
-                    logger.info(f"Re-added and resumed torrent {torrent_id}")
-                    return True
-                else:
-                    logger.warning(f"Torrent {torrent_id} not found or not paused")
-                    return False
-                
             except Exception as e:
                 logger.error(f"Error resuming torrent {torrent_id}: {e}")
                 return False
@@ -425,7 +421,12 @@ class TorrentManager:
             # Remove from active torrents
             self.active_torrents.pop(torrent_id)
             
-            self._update_torrent_in_db(torrent_id, {'state': 'stopped'})
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent:
+                    torrent.state = 'stopped'
+                    db.commit()
+            
             logger.info(f"Stopped torrent {torrent_id}")
             return True
         else:
@@ -445,13 +446,11 @@ class TorrentManager:
                 self.active_torrents.pop(torrent_id)
             
             # Remove from database
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute("DELETE FROM torrents WHERE id = ?", (torrent_id,))
-            
-            conn.commit()
-            conn.close()
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent:
+                    db.delete(torrent)
+                    db.commit()
             
             logger.info(f"Removed torrent {torrent_id}")
             return True
@@ -462,63 +461,32 @@ class TorrentManager:
     def get_torrent_status(self, torrent_id: str) -> Optional[TorrentStatus]:
         """Get the current status of a torrent"""
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            SELECT movie_title, quality, save_path, created_at, updated_at, state, progress, metadata
-            FROM torrents
-            WHERE id = ?
-            ''', (torrent_id,))
-            
-            row = cursor.fetchone()
-            conn.close()
-            
-            if not row:
-                return None
-            
-            movie_title, quality, save_path, created_at, updated_at, state, progress, metadata_json = row
-            metadata = json.loads(metadata_json) if metadata_json else {}
-            
-            # Get real-time status if the torrent is active
-            download_rate = 0.0
-            upload_rate = 0.0
-            num_peers = 0
-            eta = None
-            error_message = metadata.get('error_message')
-            
-            if torrent_id in self.active_torrents:
-                handle, _ = self.active_torrents[torrent_id]
-                status = handle.status()
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if not torrent:
+                    return None
                 
-                download_rate = status.download_rate / 1000  # B/s to kB/s
-                upload_rate = status.upload_rate / 1000  # B/s to kB/s
-                num_peers = status.num_peers
+                # Create base TorrentStatus from database
+                status = torrent_db_to_status(torrent)
                 
-                # Calculate ETA if downloading
-                if state == 'downloading' and status.download_rate > 0:
-                    total_size = status.total_wanted
-                    downloaded = status.total_wanted_done
-                    remaining = total_size - downloaded
-                    eta = int(remaining / status.download_rate)
-            
-            return TorrentStatus(
-                id=torrent_id,
-                movie_title=movie_title,
-                quality=quality,
-                state=TorrentState(state),
-                progress=progress,
-                download_rate=download_rate,
-                upload_rate=upload_rate,
-                total_downloaded=0,  # TODO: Get from handle
-                total_uploaded=0,    # TODO: Get from handle
-                num_peers=num_peers,
-                save_path=save_path,
-                created_at=datetime.fromisoformat(created_at),
-                updated_at=datetime.fromisoformat(updated_at),
-                eta=eta,
-                error_message=error_message
-            )
+                # Update with real-time information if the torrent is active
+                if torrent_id in self.active_torrents:
+                    handle, _ = self.active_torrents[torrent_id]
+                    lt_status = handle.status()
+                    
+                    # Update real-time fields
+                    status.download_rate = lt_status.download_rate / 1000  # B/s to kB/s
+                    status.upload_rate = lt_status.upload_rate / 1000  # B/s to kB/s
+                    status.num_peers = lt_status.num_peers
+                    
+                    # Calculate ETA if downloading
+                    if status.state == TorrentState.DOWNLOADING and lt_status.download_rate > 0:
+                        total_size = lt_status.total_wanted
+                        downloaded = lt_status.total_wanted_done
+                        remaining = total_size - downloaded
+                        status.eta = int(remaining / lt_status.download_rate)
+                
+                return status
         except Exception as e:
             logger.error(f"Error getting status for torrent {torrent_id}: {e}")
             return None
@@ -526,62 +494,34 @@ class TorrentManager:
     def get_all_torrents(self) -> List[TorrentStatus]:
         """Get the status of all torrents"""
         try:
-            conn = sqlite3.connect(settings.DB_PATH)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-            SELECT id, movie_title, quality, save_path, created_at, updated_at, state, progress, metadata
-            FROM torrents
-            ''')
-            
-            rows = cursor.fetchall()
-            conn.close()
-            
-            results = []
-            for row in rows:
-                torrent_id, movie_title, quality, save_path, created_at, updated_at, state, progress, metadata_json = row
-                metadata = json.loads(metadata_json) if metadata_json else {}
+            with get_db() as db:
+                torrents = db.query(DbTorrent).all()
                 
-                download_rate = 0.0
-                upload_rate = 0.0
-                num_peers = 0
-                eta = None
-                error_message = metadata.get('error_message')
-                
-                if torrent_id in self.active_torrents:
-                    handle, _ = self.active_torrents[torrent_id]
-                    status = handle.status()
+                results = []
+                for torrent in torrents:
+                    # Create base TorrentStatus from database
+                    status = torrent_db_to_status(torrent)
                     
-                    download_rate = status.download_rate / 1000  # B/s to kB/s
-                    upload_rate = status.upload_rate / 1000  # B/s to kB/s
-                    num_peers = status.num_peers
+                    # Update with real-time information if the torrent is active
+                    if torrent.id in self.active_torrents:
+                        handle, _ = self.active_torrents[torrent.id]
+                        lt_status = handle.status()
+                        
+                        # Update real-time fields
+                        status.download_rate = lt_status.download_rate / 1000  # B/s to kB/s
+                        status.upload_rate = lt_status.upload_rate / 1000  # B/s to kB/s
+                        status.num_peers = lt_status.num_peers
+                        
+                        # Calculate ETA if downloading
+                        if status.state == TorrentState.DOWNLOADING and lt_status.download_rate > 0:
+                            total_size = lt_status.total_wanted
+                            downloaded = lt_status.total_wanted_done
+                            remaining = total_size - downloaded
+                            status.eta = int(remaining / lt_status.download_rate)
                     
-                    # Calculate ETA if downloading
-                    if state == 'downloading' and status.download_rate > 0:
-                        total_size = status.total_wanted
-                        downloaded = status.total_wanted_done
-                        remaining = total_size - downloaded
-                        eta = int(remaining / status.download_rate)
+                    results.append(status)
                 
-                results.append(TorrentStatus(
-                    id=torrent_id,
-                    movie_title=movie_title,
-                    quality=quality,
-                    state=TorrentState(state),
-                    progress=progress,
-                    download_rate=download_rate,
-                    upload_rate=upload_rate,
-                    total_downloaded=0,  # TODO: Get from handle
-                    total_uploaded=0,    # TODO: Get from handle
-                    num_peers=num_peers,
-                    save_path=save_path,
-                    created_at=datetime.fromisoformat(created_at),
-                    updated_at=datetime.fromisoformat(updated_at),
-                    eta=eta,
-                    error_message=error_message
-                ))
-            
-            return results
+                return results
         except Exception as e:
             logger.error(f"Error getting all torrents: {e}")
             return []
@@ -604,7 +544,11 @@ class TorrentManager:
                 handle.save_resume_data()
                 
                 # Update state to paused
-                self._update_torrent_in_db(torrent_id, {'state': 'paused'})
+                with get_db() as db:
+                    torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                    if torrent:
+                        torrent.state = 'paused'
+                        db.commit()
             except Exception as e:
                 logger.error(f"Error saving resume data for torrent {torrent_id}: {e}")
         

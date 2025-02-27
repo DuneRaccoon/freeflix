@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException, Query, Body, Path, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, Body, Path, BackgroundTasks, Depends
 from typing import List, Optional, Dict, Any
 from pathlib import Path as PathLib
+from sqlalchemy.orm import Session
 
 from app.models import TorrentRequest, TorrentStatus, TorrentAction
 from app.scrapers.yts import search_movie, get_movie_by_url
 from app.torrent.manager import torrent_manager
 from app.config import settings
+from app.database.session import get_db
 
 router = APIRouter()
 

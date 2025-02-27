@@ -3,7 +3,7 @@ from sqlalchemy import (
     Integer, String, Text, JSON, func
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime
+import datetime
 import uuid
 
 from app.database.session import Base
@@ -34,12 +34,12 @@ class Torrent(Base):
     # Resume data for restarting torrents
     resume_data = Column(Text, nullable=True)
     
-    # Additional metadata
-    metadata = Column(JSON, nullable=True)
+    # Additional metadata - renamed from 'metadata' to 'meta_data'
+    meta_data = Column(JSON, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
     
     # Relationships
     download_logs = relationship("TorrentLog", back_populates="torrent", cascade="all, delete-orphan")
@@ -51,7 +51,7 @@ class TorrentLog(Base):
     
     id = Column(String, primary_key=True, default=generate_uuid)
     torrent_id = Column(String, ForeignKey("torrents.id", ondelete="CASCADE"), nullable=False)
-    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    timestamp = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
     message = Column(Text, nullable=False)
     level = Column(String, nullable=False, default="INFO")
     
@@ -82,8 +82,8 @@ class Schedule(Base):
     last_run_status = Column(String, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
     
     # Relationships
     execution_logs = relationship("ScheduleLog", back_populates="schedule", cascade="all, delete-orphan")
@@ -95,7 +95,7 @@ class ScheduleLog(Base):
     
     id = Column(String, primary_key=True, default=generate_uuid)
     schedule_id = Column(String, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=False)
-    execution_time = Column(DateTime, nullable=False, default=datetime.utcnow)
+    execution_time = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
     status = Column(String, nullable=False)
     message = Column(Text, nullable=True)
     results = Column(JSON, nullable=True)  # Store results like number of movies found, downloaded, etc.
@@ -121,12 +121,12 @@ class MovieCache(Base):
     torrents_json = Column(JSON, nullable=False)
     
     # Cache control
-    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    fetched_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
     expires_at = Column(DateTime, nullable=False)
     
     # Timestamps
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
 
 
 class Setting(Base):
@@ -136,4 +136,4 @@ class Setting(Base):
     key = Column(String, primary_key=True)
     value = Column(JSON, nullable=False)
     description = Column(String, nullable=True)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))

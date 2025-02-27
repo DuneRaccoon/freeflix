@@ -1,5 +1,13 @@
 import axios from 'axios';
 
+// root client exists to get system config and run healthchecks on the API
+const rootClient = axios.create({
+  baseURL: '/',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
 // Create an Axios instance with default configs
 const apiClient = axios.create({
   baseURL: '/api/v1',
@@ -41,5 +49,19 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+
+export const baseService = {
+
+  healthcheck: async () => {
+    const response = await rootClient.get('/health');
+    return response.data;
+  },
+
+  root: async () => {
+    const response = await rootClient.get('/');
+    return response.data;
+  }
+}
 
 export default apiClient;

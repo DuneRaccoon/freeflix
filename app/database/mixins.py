@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import Column, DateTime, func, select, inspect
 import uuid
-from datetime import datetime
+import datetime
 
 from app.database.session import Base
 
@@ -25,85 +25,93 @@ class CRUDMixin(Generic[T]):
     @classmethod
     def create(cls: Type[T], db: Session, commit: bool = True, **kwargs) -> T:
         """Create a new record and optionally save it to the database."""
-        instance = cls(**kwargs)
-        db.add(instance)
-        if commit:
-            try:
-                db.commit()
-                db.refresh(instance)
-            except SQLAlchemyError as e:
-                db.rollback()
-                raise
-        return instance
+        with db as session:
+            instance = cls(**kwargs)
+            session.add(instance)
+            if commit:
+                try:
+                    session.commit()
+                    session.refresh(instance)
+                except SQLAlchemyError as e:
+                    session.rollback()
+                    raise
+            return instance
 
     @classmethod
     def get_by_id(cls, db: Session, id_: str) -> Optional[T]:
         """Get a record by its ID."""
-        return db.query(cls).filter_by(id=id_).first()
+        with db as session:
+            return session.query(cls).filter_by(id=id_).first()
     
     @classmethod
     def get(cls, db: Session, first: bool=True, **kwargs) -> Optional[Union[T, List[T]]]:
         """Get records by arbitrary filters."""
-        query = db.query(cls).filter_by(**kwargs)
-        return query.first() if first else query.all()
+        with db as session:
+            query = session.query(cls).filter_by(**kwargs)
+            return query.first() if first else query.all()
     
     @classmethod
     def get_all(cls, db: Session) -> List[T]:
         """Get all records."""
-        return db.query(cls).all()
+        with db as session:
+            return session.query(cls).all()
         
     @classmethod
     def filter(cls, db: Session, skip: int = 0, limit: int = 100, **filters) -> List[T]:
         """Get records with pagination and filters."""
-        query = db.query(cls).filter_by(**filters)
-        return query.offset(skip).limit(limit).all()
+        with db as session:
+            query = session.query(cls).filter_by(**filters)
+            return query.offset(skip).limit(limit).all()
 
     def update(self, db: Session, commit: bool = True, **kwargs) -> T:
         """Update specific fields of a record."""
-        for attr, value in kwargs.items():
-            setattr(self, attr, value)
-        if commit:
-            try:
-                db.commit()
-                db.refresh(self)
-            except SQLAlchemyError as e:
-                db.rollback()
-                raise
-        return self
+        with db as session:
+            for attr, value in kwargs.items():
+                setattr(self, attr, value)
+            if commit:
+                try:
+                    session.commit()
+                    session.refresh(self)
+                except SQLAlchemyError as e:
+                    session.rollback()
+                    raise
+            return self
     
     def save(self, db: Session, commit: bool = True) -> T:
         """Save the record to the database."""
-        db.add(self)
-        if commit:
-            try:
-                db.commit()
-                db.refresh(self)
-            except SQLAlchemyError as e:
-                db.rollback()
-                raise
-        return self
+        with db as session:
+            session.add(self)
+            if commit:
+                try:
+                    session.commit()
+                    session.refresh(self)
+                except SQLAlchemyError as e:
+                    session.rollback()
+                    raise
+            return self
 
     def delete(self, db: Session, commit: bool=True, hard_delete: bool=False) -> bool:
         """Remove the record from the database or mark as deleted."""
-        if not hard_delete and hasattr(self, 'deleted_at'):
-            self.deleted_at = datetime.utcnow()
-            if commit:
+        with db as session:
+            if not hard_delete and hasattr(self, 'deleted_at'):
+                self.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+                if commit:
+                    try:
+                        session.commit()
+                        return True
+                    except SQLAlchemyError:
+                        session.rollback()
+                        raise
+            else:
                 try:
-                    db.commit()
+                    session.delete(self)
+                    if commit:
+                        session.commit()
                     return True
                 except SQLAlchemyError:
-                    db.rollback()
+                    if commit:
+                        session.rollback()
                     raise
-        else:
-            try:
-                db.delete(self)
-                if commit:
-                    db.commit()
-                return True
-            except SQLAlchemyError:
-                if commit:
-                    db.rollback()
-                raise
         return False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -117,8 +125,8 @@ class Model(CRUDMixin, Base):
     
     __abstract__ = True
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc), index=True)
+    updated_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc), index=True)
     deleted_at = Column(DateTime, nullable=True, index=True)
     
     @classmethod

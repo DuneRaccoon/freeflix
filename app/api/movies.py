@@ -1,9 +1,13 @@
+import datetime
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import List, Optional
 from pydantic import HttpUrl
+from sqlalchemy.orm import Session
 
 from app.models import Movie, SearchParams
 from app.scrapers.yts import browse_yts, search_movie, get_movie_by_url
+from app.database.models import MovieCache
+from app.database.session import get_db
 
 router = APIRouter()
 
@@ -25,7 +29,7 @@ async def search_movies(title: str = Query(..., description="Movie title to sear
 
 
 @router.post("/browse", response_model=List[Movie], summary="Browse movies with filters")
-async def browse_movies(params: SearchParams):
+async def browse_movies(params: SearchParams, db: Session = Depends(get_db)):
     """
     Browse movies with various filters.
     
@@ -38,6 +42,19 @@ async def browse_movies(params: SearchParams):
     - **page**: Page number
     """
     movies = await browse_yts(params)
+    # for movie in movies:
+    #     movie_orm = MovieCache(
+    #         title=movie.title,
+    #         year=movie.year,
+    #         rating=movie.rating,
+    #         link=str(movie.link),
+    #         genre=movie.genre,
+    #         img=str(movie.img),
+    #         description=movie.description,
+    #         torrents_json=[{k: str(v) for k,v in t.model_dump().items()} for t in movie.torrents],
+    #         expires_at=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
+    #     )
+    #     movie_orm.save(db)
     return movies
 
 

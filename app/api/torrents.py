@@ -18,6 +18,13 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
     - **movie_id**: URL or ID of the movie
     - **quality**: Desired quality (720p, 1080p, 2160p)
     - **save_path**: Optional custom save path
+    
+    ###Download a Movie
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/torrents/download/movie" \
+     -H "Content-Type: application/json" \
+     -d '{"movie_id": "https://en.yts-official.mx/movies/the-matrix-1999", "quality": "1080p"}'
+     ```
     """
     try:
         # Get movie details

@@ -14,6 +14,11 @@ async def search_movies(title: str = Query(..., description="Movie title to sear
     Search for movies by title.
     
     Returns a list of movies matching the search query.
+    
+    ###Search for a movie
+    ```bash
+    curl -X GET "http://localhost:8000/api/v1/movies/search?title=matrix"
+    ```
     """
     movies = await search_movie(title)
     return movies

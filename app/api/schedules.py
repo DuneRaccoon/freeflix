@@ -17,6 +17,22 @@ async def create_schedule(config: ScheduleConfig):
     - **quality**: Desired quality for downloads
     - **max_downloads**: Maximum number of movies to download per execution
     - **enabled**: Whether the schedule is enabled
+    
+    ###Create a Scheduled Download
+    ```bash
+    curl -X POST "http://localhost:8000/api/v1/schedules/" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "cron_expression": "0 2 * * *",
+           "search_params": {
+             "order_by": "rating",
+             "year": 2024
+           },
+           "quality": "1080p",
+           "max_downloads": 1,
+           "enabled": true
+         }'
+    ```
     """
     try:
         schedule_id = schedule_manager.add_schedule(config)

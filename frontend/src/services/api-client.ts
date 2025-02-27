@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // root client exists to get system config and run healthchecks on the API
 const rootClient = axios.create({
-  baseURL: '/',
+  baseURL: 'http://localhost:8000/',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,7 +19,7 @@ const apiClient = axios.create({
 // Add a request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    // You can add auth tokens here if needed in the future
+    // add auth tokens here if needed in the future
     return config;
   },
   (error) => {

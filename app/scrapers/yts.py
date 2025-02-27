@@ -138,10 +138,9 @@ async def search_movie(title: str) -> List[Movie]:
     params = SearchParams(keyword=title)
     return await browse_yts(params)
 
-
+throttler.throttle()
 async def get_movie_by_url(url: str) -> Optional[Movie]:
     """Fetch a specific movie by its URL"""
-    throttler.throttle()
     async with httpx.AsyncClient() as client:
         try:
             logger.info(f'Fetching movie details for {url}')
@@ -151,11 +150,11 @@ async def get_movie_by_url(url: str) -> Optional[Movie]:
             soup = bs(response.text, 'html.parser')
             
             # Extract movie details
-            title = soup.select_one('h1.movie-title').text
-            year = int(soup.select_one('h2.movie-year').text)
-            rating = soup.select_one('span.imdb-rating').text
-            genre = ", ".join([g.text for g in soup.select('div.genre-list > a')])
-            img = soup.select_one('div.movie-poster img')['src']
+            title = soup.select_one('#movie-info h1').text
+            year = int(soup.select_one('#movie-info h2').text)
+            genre = ", ".join(soup.select_one('#movie-info h2 ~ h2').text.split(' / '))
+            rating = soup.find(attrs={'itemprop': "ratingValue"}).text
+            img = soup.select_one('#movie-poster img')['src']
             
             torrents = []
             for torrent in soup.select('div.modal-torrent'):

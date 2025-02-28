@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from pathlib import Path
 from loguru import logger
@@ -25,17 +25,37 @@ Base = declarative_base()
 
 @contextmanager
 def get_db():
-    """Provide a transactional scope around a series of operations."""
-    db = SessionLocal()
+    """
+    Provide a transactional scope around a series of operations.
+    
+    Usage:
+        with get_db() as db:
+            # Use the database session
+            db.query(Model).filter(...).all()
+            
+            # If no exception occurs, commit happens automatically
+            # If an exception occurs, rollback happens automatically
+    """
+    session = SessionLocal()
     try:
-        yield db
-        db.commit()
+        yield session
+        # Commit only if no exception occurred and if the session is still active
+        if session.is_active:
+            try:
+                session.commit()
+            except Exception as commit_error:
+                logger.error(f"Error committing database session: {commit_error}")
+                session.rollback()
+                raise
     except Exception as e:
-        db.rollback()
+        # Only rollback if the session is still active
+        if session.is_active:
+            session.rollback()
         logger.error(f"Database error: {e}")
         raise
     finally:
-        db.close()
+        # Always close the session
+        session.close()
 
 def init_db():
     """Initialize the database tables."""

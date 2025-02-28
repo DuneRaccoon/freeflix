@@ -46,6 +46,7 @@ class Torrent(Model):
             movie_title=self.movie_title,
             quality=self.quality,
             state=TorrentState(self.state),
+            magnet=self.magnet,
             progress=self.progress,
             download_rate=meta_data.get('download_rate', 0.0),
             upload_rate=meta_data.get('upload_rate', 0.0),

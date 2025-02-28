@@ -56,6 +56,7 @@ class TorrentStatus(BaseModel):
     movie_title: str
     quality: str
     state: TorrentState
+    magnet: Optional[str] = None
     progress: float = 0.0
     download_rate: float = 0.0  # kB/s
     upload_rate: float = 0.0    # kB/s

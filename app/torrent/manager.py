@@ -148,7 +148,7 @@ class TorrentManager:
                         # Process each torrent in its own database session
                         with get_db() as db:
                             # Get a fresh torrent instance from the database
-                            torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                            torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                             if not torrent:
                                 logger.warning(f"Torrent {torrent_id} not found in database, but exists in active_torrents")
                                 continue
@@ -186,7 +186,7 @@ class TorrentManager:
                                 # Use torrent from the current session for logging
                                 if handle.has_metadata():
                                     torrent_info = handle.get_torrent_info()
-                                    logger.info(f"Torrent {torrent_id}: {torrent_info.name()} - "
+                                    logger.info(f"Torrent {torrent.movie_title} [{torrent_id}]: {torrent_info.name()} - "
                                                 f"{status.progress * 100:.2f}% complete ({state_str}) - "
                                                 f"{status.download_rate / 1000:.2f} kB/s")
                                     

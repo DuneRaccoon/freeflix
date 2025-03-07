@@ -24,12 +24,6 @@ const nextConfig: NextConfig = {
         hostname: 'yts-official.mx',
         pathname: '/**',
       }
-    ],
-    domains: [
-      'en.yts-official.mx',
-      'yts.mx',
-      'img.yts.mx',
-      'yts-official.mx'
     ]
   },
   async rewrites() {

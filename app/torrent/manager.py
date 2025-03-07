@@ -321,7 +321,7 @@ class TorrentManager:
                         logger.info(f"Torrent {torrent_id} finished downloading")
                         # Use a new session for database operations
                         with get_db() as db:
-                            torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                            torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                             if torrent:
                                 torrent.state = 'finished'
                                 # Log completion
@@ -375,8 +375,130 @@ class TorrentManager:
                                 db.add(log)
                                 db.commit()
                         break
+            
+            elif isinstance(alert, lt.stats_alert):
+                # Statistics alert - useful for updating UI but doesn't need persistent storage
+                pass  # We handle these updates in the _update_torrents_status method
+            
+            elif isinstance(alert, lt.metadata_received_alert):
+                torrent_handle = alert.handle
+                
+                for torrent_id, (handle, _) in self.active_torrents.items():
+                    if handle == torrent_handle:
+                        logger.info(f"Received metadata for torrent {torrent_id}")
+                        # Update database to indicate we have metadata
+                        with get_db() as db:
+                            torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                            if torrent and torrent.state == 'downloading_metadata':
+                                torrent.state = 'downloading'
+                                log = TorrentLog(
+                                    torrent_id=torrent_id,
+                                    message="Metadata received, starting download",
+                                    level="INFO",
+                                    state='downloading'
+                                )
+                                db.add(log)
+                                db.commit()
+                        break
+            
+            elif isinstance(alert, lt.state_changed_alert):
+                torrent_handle = alert.handle
+                state_value = alert.state.value
+                
+                # Map libtorrent state to our state names
+                state_map = {
+                    1: "checking",  # checking_files
+                    2: "downloading_metadata",  # downloading_metadata
+                    3: "downloading",  # downloading
+                    4: "finished",  # finished
+                    5: "seeding",  # seeding
+                    6: "allocating",  # allocating
+                    7: "checking"  # checking_resume_data
+                }
+                
+                if state_value in state_map:
+                    new_state = state_map[state_value]
+                    for torrent_id, (handle, _) in self.active_torrents.items():
+                        if handle == torrent_handle:
+                            # Only log significant state changes
+                            logger.debug(f"Torrent {torrent_id} changed state to {new_state}")
+                            with get_db() as db:
+                                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                                if torrent and torrent.state != new_state:
+                                    torrent.state = new_state
+                                    # Only log significant state changes to avoid database bloat
+                                    if new_state in ['checking', 'downloading', 'finished', 'seeding']:
+                                        log = TorrentLog(
+                                            torrent_id=torrent_id,
+                                            message=f"State changed to {new_state}",
+                                            level="INFO",
+                                            state=new_state
+                                        )
+                                        db.add(log)
+                                    db.commit()
+                            break
+
+            elif isinstance(alert, lt.tracker_error_alert):
+                torrent_handle = alert.handle
+                error_message = f"Tracker error: {alert.error_message()}"
+                
+                for torrent_id, (handle, _) in self.active_torrents.items():
+                    if handle == torrent_handle:
+                        logger.warning(f"Tracker error for torrent {torrent_id}: {error_message}")
+                        # We don't update the torrent state just for tracker errors
+                        # but we do log them for debugging purposes
+                        with get_db() as db:
+                            log = TorrentLog(
+                                torrent_id=torrent_id,
+                                message=error_message,
+                                level="WARNING",
+                                state=None  # Don't change state for tracker errors
+                            )
+                            db.add(log)
+                            db.commit()
+                        break
+
+            elif isinstance(alert, lt.fastresume_rejected_alert):
+                torrent_handle = alert.handle
+                error_message = f"Fast resume data rejected: {alert.message()}"
+                
+                for torrent_id, (handle, _) in self.active_torrents.items():
+                    if handle == torrent_handle:
+                        logger.warning(f"Fast resume rejected for {torrent_id}: {error_message}")
+                        # This isn't fatal, we just log it and continue
+                        with get_db() as db:
+                            log = TorrentLog(
+                                torrent_id=torrent_id,
+                                message=error_message,
+                                level="WARNING",
+                                state=None
+                            )
+                            db.add(log)
+                            db.commit()
+                        break
+
+            elif isinstance(alert, lt.performance_alert):
+                torrent_handle = alert.handle
+                warning = f"Performance warning: {alert.message()}"
+                
+                for torrent_id, (handle, _) in self.active_torrents.items():
+                    if handle == torrent_handle:
+                        logger.warning(f"Performance alert for {torrent_id}: {warning}")
+                        # Log performance warnings but don't change state
+                        with get_db() as db:
+                            log = TorrentLog(
+                                torrent_id=torrent_id,
+                                message=warning,
+                                level="WARNING",
+                                state=None
+                            )
+                            db.add(log)
+                            db.commit()
+                        break
+
         except Exception as e:
             logger.error(f"Error handling alert: {e}")
+            logger.exception("Alert handling exception details:")
     
     # Improved add_torrent method
     async def add_torrent(self, movie: Movie, torrent: TorrentModel, save_path: Optional[Path] = None) -> str:
@@ -626,7 +748,7 @@ class TorrentManager:
             # Check if it's in the database but not active
             try:
                 with get_db() as db:
-                    torrent = db.query(DbTorrent).filter(
+                    torrent: DbTorrent = db.query(DbTorrent).filter(
                         DbTorrent.id == torrent_id,
                         DbTorrent.state == 'paused'
                     ).first()

@@ -92,10 +92,17 @@ throttler.throttle()
 async def browse_yts(params: SearchParams) -> List[Movie]:
     """Browse YTS movies with the given parameters"""
     
-    # Convert params to dict for httpx
+    # # Convert params to dict for httpx
+    # query_params = {
+    #     k: v for k, v in params.model_dump().items() 
+    #     if v is not None and k != 'page'
+    # }
+    
     query_params = {
-        k: v for k, v in params.model_dump().items() 
-        if v is not None and k != 'page'
+        k: v for k, v in params.model_dump(
+            exclude=['page'],
+            exclude_none=True
+        ).items()
     }
     
     # Add page param if it exists
@@ -104,9 +111,6 @@ async def browse_yts(params: SearchParams) -> List[Movie]:
     
     async with httpx.AsyncClient() as client:
         try:
-            logger.info('Browsing YTS movies with parameters:')
-            logger.info(f"{query_params}")
-            
             response = await client.get(
                 settings.YIFY_URL_BROWSE_URL, 
                 params=query_params, 

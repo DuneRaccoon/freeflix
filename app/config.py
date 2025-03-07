@@ -24,7 +24,10 @@ class Settings(BaseSettings):
     
     # Logging settings
     LOG_LEVEL: str = "INFO"
-    LOG_PATH: Path = Path("/opt/yify_downloader/logs")
+    if os.environ.get("LOG_PATH"):
+        LOG_PATH: Path = Path(os.environ.get("LOG_PATH"))
+    else:
+        LOG_PATH: Path = Path(__file__).parent / "logs"
     
     # Database settings (for storing torrent status and schedule)
     DB_PATH: Path = Path("/opt/yify_downloader/data/torrents.db")

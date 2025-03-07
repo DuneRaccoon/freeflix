@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from app.models import TorrentStatus, TorrentState, ScheduleResponse, ScheduleConfig, SearchParams
+from app.models import TorrentStatus, TorrentState, ScheduleResponse, ScheduleConfig
 
 # These functions are kept for backward compatibility
 # In the refactored approach, most functionality is moved to model methods

@@ -23,6 +23,16 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'yts-official.mx',
         pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'resizing.flixster.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'rottentomatoes.com',
+        pathname: '/**',
       }
     ]
   },

@@ -19,6 +19,12 @@ pydantic-settings = "^2.8.0"
 croniter = "^6.0.0"
 fastapi = "^0.115.8"
 uvicorn = "^0.34.0"
+pytest = "^8.3.5"
+pytest-asyncio = "^0.25.3"
+pytest-cov = "^6.0.0"
+pytest-mock = "^3.14.0"
+ipython = "8.0.0"
+nest-asyncio = "1.5.1"
 
 
 [build-system]

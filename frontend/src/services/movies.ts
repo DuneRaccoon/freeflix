@@ -24,9 +24,19 @@ export const moviesService = {
     return response.data;
   },
 
+  // Get detailed movie information from enhanced API
+  getMovieDetails: async (movie_id: string): Promise<any> => {
+    const response = await apiClient.get(`/movies/details`, { params: { movie_id } });
+    return response.data;
+  },
+
   // Get latest movies
-  getLatestMovies: async (limit: number = 10, quality?: string): Promise<Movie[]> => {
-    const params: Record<string, any> = { limit };
+  getLatestMovies: async (
+    limit: number = 10, 
+    quality?: string, 
+    page: number = 1
+  ): Promise<Movie[]> => {
+    const params: Record<string, any> = { limit, page };
     if (quality) params.quality = quality;
     
     const response = await apiClient.get(`/movies/latest`, { params });
@@ -38,9 +48,10 @@ export const moviesService = {
     limit: number = 10, 
     quality?: string, 
     genre?: string, 
-    year?: number
+    year?: number,
+    page: number = 1
   ): Promise<Movie[]> => {
-    const params: Record<string, any> = { limit };
+    const params: Record<string, any> = { limit, page };
     if (quality) params.quality = quality;
     if (genre) params.genre = genre;
     if (year) params.year = year;

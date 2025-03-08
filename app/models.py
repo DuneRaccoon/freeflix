@@ -3,6 +3,12 @@ from typing import Optional, List, Tuple, Literal, Dict, Any
 from datetime import datetime
 from enum import Enum
 
+class ReviewSource(str, Enum):
+    IMDB = "IMDB"
+    ROTTEN_TOMATOES = "Rotten Tomatoes"
+    ROTTEN_TOMATOES_CRITIC = "Rotten Tomatoes - Critic"
+    ROTTEN_TOMATOES_AUDIENCE = "Rotten Tomatoes - Audience"
+    METACRITIC = "Metacritic"
 
 class TorrentState(str, Enum):
     QUEUED = "queued"
@@ -45,6 +51,72 @@ class Movie(BaseModel):
     description: Optional[str] = None
     torrents: List[Torrent]
 
+class MovieRating(BaseModel):
+    imdb: Optional[str] = None
+    rottenTomatoes: Optional[str] = None
+    metacritic: Optional[str] = None
+
+class CastMember(BaseModel):
+    name: str
+    character: Optional[str] = None
+    image: Optional[str] = None
+
+class MovieCredits(BaseModel):
+    director: Optional[str] = None
+    cast: List[CastMember] = []
+
+class MovieMedia(BaseModel):
+    poster: Optional[str] = None
+    backdrop: Optional[str] = None
+    trailer: Optional[str] = None
+
+class Review(BaseModel):
+    source: ReviewSource
+    author: Optional[str] = None
+    content: str
+    rating: Optional[str] = None
+    url: Optional[str] = None
+    date: Optional[datetime] = None
+    
+class RelatedMovie(BaseModel):
+    title: str
+    url: HttpUrl
+    image: Optional[str] = None
+    critic_score: Optional[int] = None
+    audience_score: Optional[int] = None
+    
+
+class DetailedMovie(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    # Basic movie info from YTS
+    id: str
+    title: str
+    year: int
+    rating: str
+    link: HttpUrl
+    genre: str
+    img: HttpUrl
+    description: Optional[str] = None
+    torrents: List[Torrent]
+    
+    # Extended movie details
+    imdb_id: Optional[str] = None
+    plot: Optional[str] = None
+    runtime: Optional[str] = None
+    language: Optional[str] = None
+    country: Optional[str] = None
+    awards: Optional[str] = None
+    
+    # Organized nested data
+    ratings: MovieRating = MovieRating()
+    credits: MovieCredits = MovieCredits()
+    media: MovieMedia = MovieMedia()
+    reviews: List[Review] = []
+    related_movies: List[RelatedMovie] = []
 
 class TorrentStatus(BaseModel):
     model_config = ConfigDict(

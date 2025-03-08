@@ -250,35 +250,88 @@ class MovieCache(Model):
     img = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     
+    # Extended metadata fields
+    imdb_id = Column(String, nullable=True, index=True)
+    imdb_rating = Column(String, nullable=True)
+    imdb_votes = Column(Integer, nullable=True)
+    rotten_tomatoes_rating = Column(String, nullable=True)
+    rotten_tomatoes_total_review_count = Column(Integer, nullable=True)
+    rotten_tomatoes_critics_reviews = Column(JSON, nullable=True)  # Store as JSON array of review objects
+    rotten_tomatoes_audience_rating = Column(String, nullable=True)
+    rotten_tomatoes_audience_review_count = Column(Integer, nullable=True)
+    rotten_tomatoes_audience_reviews = Column(JSON, nullable=True)  # Store as JSON array of review objects
+    metacritic_rating = Column(String, nullable=True)
+    metacritic_votes = Column(Integer, nullable=True)
+    runtime = Column(String, nullable=True)
+    director = Column(String, nullable=True)
+    cast = Column(JSON, nullable=True)  # Store as a JSON array of cast members
+    plot = Column(Text, nullable=True)  # Full plot
+    poster_url = Column(String, nullable=True)  # Higher quality poster if available
+    backdrop_url = Column(String, nullable=True)  # Background image
+    trailer_url = Column(String, nullable=True)
+    awards = Column(String, nullable=True)
+    language = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    reviews = Column(JSON, nullable=True)  # Store as JSON array of review objects
+    related_movies = Column(JSON, nullable=True)  # Store as JSON array of related movie links
+    
     # Cache the available torrents
     torrents_json = Column(JSON, nullable=False)
     
     # Cache control
     fetched_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
+    extended_data_fetched_at = Column(DateTime, nullable=True)  # When external data was fetched
     expires_at = Column(DateTime, nullable=False)
     
     @classmethod
-    def get_valid_cache(cls, db: Session, url: str) -> Optional["MovieCache"]:
-        """Get a valid (not expired) cache entry for a movie URL."""
+    def get_with_extended_data(cls, db: Session, url: str) -> Optional["MovieCache"]:
+        """Get a movie with extended data if available, otherwise return basic data."""
         now = datetime.datetime.now(datetime.timezone.utc)
         return db.query(cls).filter(
             cls.link == url,
             cls.expires_at > now
         ).first()
-    
+        
     @classmethod
-    def clear_expired(cls, db: Session) -> int:
-        """Clear expired cache entries and return count of deleted entries."""
-        now = datetime.datetime.now(datetime.timezone.utc)
-        expired = db.query(cls).filter(cls.expires_at <= now).all()
-        
-        count = len(expired)
-        for entry in expired:
-            db.delete(entry)
-        
+    def update_extended_data(cls, db: Session, movie_id: str, extended_data: Dict[str, Any]) -> Optional["MovieCache"]:
+        """Update a movie with extended data from external sources."""
+        movie = db.query(cls).filter(cls.id == movie_id).first()
+        if not movie:
+            return None
+            
+        # Update all provided fields
+        for key, value in extended_data.items():
+            if hasattr(movie, key):
+                if key in {'reviews', 'related_movies'}:
+                    setattr(movie, key, [model.model_dump(mode='json') for model in value])
+                else:
+                    setattr(movie, key, value)
+                
+        # movie.extended_data_fetched_at = datetime.datetime.now(datetime.timezone.utc)
+        movie.extended_data_fetched_at = datetime.datetime.now()
         db.commit()
-        return count
-
+        db.refresh(movie)
+        return movie
+    
+    def to_detailed_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary including extended data."""
+        result = self.to_dict()
+        # Add nested structures for better organization
+        result['ratings'] = {
+            'imdb': self.imdb_rating,
+            'rottenTomatoes': self.rotten_tomatoes_rating,
+            'metacritic': self.metacritic_rating
+        }
+        result['credits'] = {
+            'director': self.director,
+            'cast': self.cast or []
+        }
+        result['media'] = {
+            'poster': self.poster_url or self.img,
+            'backdrop': self.backdrop_url,
+            'trailer': self.trailer_url
+        }
+        return result
 
 class Setting(Model):
     """SQLAlchemy model for application settings."""

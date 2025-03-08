@@ -47,6 +47,7 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
   const getStateVariant = (state: TorrentState) => {
     switch (state) {
       case TorrentState.DOWNLOADING:
+        return 'success'
       case TorrentState.DOWNLOADING_METADATA:
         return 'primary';
       case TorrentState.FINISHED:

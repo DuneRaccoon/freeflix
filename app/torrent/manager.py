@@ -847,7 +847,7 @@ class TorrentManager:
             
             # Remove from database
             with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
+                torrent: DbTorrent = DbTorrent.get_by_id(db, torrent_id)
                 if torrent:
                     # Log remove action before deleting
                     torrent.add_log(
@@ -855,8 +855,9 @@ class TorrentManager:
                         message=f"Torrent removed (files {'deleted' if delete_files else 'kept'})",
                         level="INFO"
                     )
-                    # Delete the torrent
-                    torrent.delete(db)
+                    if delete_files:
+                        # Delete the torrent
+                        torrent.delete(db)
             
             logger.info(f"Removed torrent {torrent_id} (delete_files={delete_files})")
             return True

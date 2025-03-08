@@ -130,7 +130,7 @@ export default function DownloadsPage() {
             <TorrentList 
               initialTorrents={torrents} 
               autoRefresh={autoRefresh}
-              refreshInterval={5000}
+              refreshInterval={1000}
             />
           )}
         </>

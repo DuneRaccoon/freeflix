@@ -1,13 +1,27 @@
 import datetime
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Path
 from typing import List, Optional
 from pydantic import HttpUrl
 from sqlalchemy.orm import Session
+import uuid
 
 from app.models import Movie, SearchParams
 from app.scrapers.yts import browse_yts, search_movie, get_movie_by_url
 from app.database.models import MovieCache
 from app.database.session import get_db
+from app.services.movies import movie_details_service
+from app.config import settings
+from app.models import (
+    DetailedMovie, 
+    MovieRating, 
+    CastMember, 
+    MovieCredits, 
+    MovieMedia, 
+    Review, 
+    Torrent,
+    RelatedMovie
+)
+from loguru import logger
 
 router = APIRouter()
 
@@ -113,3 +127,131 @@ async def get_top_rated(
     
     movies = await browse_yts(params)
     return movies[:limit]
+
+@router.get("/details", response_model=DetailedMovie, summary="Get detailed movie information")
+async def get_movie_details(
+    movie_id: str = Query(None, description="ID or URL of the movie"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a movie, including data from external sources like IMDB and Rotten Tomatoes.
+    
+    This endpoint returns enhanced movie information with cast, reviews, and additional metadata.
+    The data is cached in the database to improve performance and reduce external API calls.
+    """
+    try:
+        with db as session:
+            # Check if movie_id is a URL or an ID
+            is_url = movie_id.startswith('http')
+            
+            # Try to get from cache first
+            movie_cache = None
+            if is_url:
+                movie_cache = MovieCache.get_with_extended_data(session, movie_id)
+            else:
+                movie_cache = session.query(MovieCache).filter(MovieCache.id == movie_id).first()
+                
+            # If not in cache or external data not fetched, get basic movie info first
+            if not movie_cache:
+                if is_url:
+                    # It's a URL, get the movie from YTS
+                    basic_movie = await get_movie_by_url(movie_id)
+                    if not basic_movie:
+                        raise HTTPException(status_code=404, detail="Movie not found")
+                        
+                    # Store in cache
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    expires = now + datetime.timedelta(days=settings.CACHE_MOVIES_FOR)
+                    
+                    movie_cache = MovieCache(
+                        id=str(uuid.uuid4()),
+                        title=basic_movie.title,
+                        year=basic_movie.year,
+                        link=str(basic_movie.link),
+                        rating=basic_movie.rating,
+                        genre=basic_movie.genre,
+                        img=str(basic_movie.img),
+                        description=basic_movie.description,
+                        torrents_json=[t.model_dump(mode='json') for t in basic_movie.torrents],
+                        fetched_at=now,
+                        expires_at=expires
+                    )
+                    session.add(movie_cache)
+                    session.commit()
+                    session.refresh(movie_cache)
+                else:
+                    raise HTTPException(status_code=404, detail="Movie not found in cache")
+            
+            # Check if we need to fetch extended data
+            extended_data_fresh = (
+                movie_cache.extended_data_fetched_at is not None and
+                # (datetime.datetime.now(datetime.timezone.utc) - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.CACHE_MOVIES_FOR)
+                (datetime.datetime.now() - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.CACHE_MOVIES_FOR)
+            )
+            
+            if not extended_data_fresh:
+                # Fetch extended data from external sources
+                try:
+                    extended_data = await movie_details_service.get_movie_details(
+                        movie_cache.title, 
+                        movie_cache.year
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to fetch extended movie data: {e}")
+                    logger.exception("Error Details:")
+                    extended_data = None
+                    
+                # Update the cache with extended data
+                if extended_data:
+                    MovieCache.update_extended_data(session, movie_cache.id, extended_data)
+                    
+                    # Refresh our movie_cache object
+                    movie_cache = session.query(MovieCache).filter(MovieCache.id == movie_cache.id).first()
+            
+            # Convert to response model
+            detailed_movie = DetailedMovie(
+                id=movie_cache.id,
+                title=movie_cache.title,
+                year=movie_cache.year,
+                rating=movie_cache.rating,
+                link=movie_cache.link,
+                genre=movie_cache.genre,
+                img=movie_cache.img,
+                description=movie_cache.description or movie_cache.plot,
+                plot=movie_cache.plot,
+                runtime=movie_cache.runtime,
+                language=movie_cache.language,
+                country=movie_cache.country,
+                imdb_id=movie_cache.imdb_id,
+                awards=movie_cache.awards,
+                
+                # Convert JSON torrents back to model
+                torrents=[Torrent(**t) for t in movie_cache.torrents_json],
+                
+                # Nested structures
+                ratings=MovieRating(
+                    imdb=movie_cache.imdb_rating,
+                    rottenTomatoes=movie_cache.rotten_tomatoes_rating,
+                    metacritic=movie_cache.metacritic_rating
+                ),
+                credits=MovieCredits(
+                    director=movie_cache.director,
+                    cast=[CastMember(**member) for member in (movie_cache.cast or [])]
+                ),
+                media=MovieMedia(
+                    poster=movie_cache.poster_url or movie_cache.img,
+                    backdrop=movie_cache.backdrop_url,
+                    trailer=movie_cache.trailer_url
+                ),
+                reviews=[Review(**review) for review in (movie_cache.reviews or [])],
+                related_movies=[RelatedMovie(**related) for related in (movie_cache.related_movies or [])]
+            )
+            
+            return detailed_movie
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting detailed movie information: {e}")
+        logger.exception("Error Details:")
+        raise HTTPException(status_code=500, detail="Failed to fetch movie details")

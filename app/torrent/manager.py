@@ -38,7 +38,20 @@ class TorrentManager:
         self.session = lt.session({
             'listen_interfaces': settings.LISTEN_INTERFACES,
             'alert_mask': lt.alert.category_t.all_categories,
+            'enable_dht': True,
+            'dht_bootstrap_nodes': (
+                'router.bittorrent.com:6881, '
+                'router.utorrent.com:6881, '
+                'dht.transmissionbt.com:6881'
+            ),
+            'enable_lsd': True,  # local peer discovery
+            'enable_upnp': True,
+            'enable_natpmp': True,
         })
+        
+        self.session.add_dht_router("router.bittorrent.com", 6881)
+        self.session.add_dht_router("router.utorrent.com", 6881)
+        self.session.add_dht_router("dht.transmissionbt.com", 6881)
         
         # Try to load the resume data
         settings.RESUME_DATA_PATH.mkdir(parents=True, exist_ok=True)

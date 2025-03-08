@@ -1,5 +1,5 @@
 from pydantic import BaseModel, HttpUrl, Field, validator, ConfigDict
-from typing import Optional, List, Tuple, Literal, Dict, Any
+from typing import Optional, List, Tuple, Literal, Dict, Union, Any
 from datetime import datetime
 from enum import Enum
 
@@ -53,8 +53,13 @@ class Movie(BaseModel):
 
 class MovieRating(BaseModel):
     imdb: Optional[str] = None
+    imdbVotes: Optional[Union[str, int]] = None
     rottenTomatoes: Optional[str] = None
+    rottenTomatoesCount: Optional[Union[str, int]] = None
+    rottenTomatoesAudience: Optional[str] = None
+    rottenTomatoesAudienceCount: Optional[Union[str, int]] = None
     metacritic: Optional[str] = None
+    metacriticCount: Optional[Union[str, int]] = None
 
 class CastMember(BaseModel):
     name: str

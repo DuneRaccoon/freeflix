@@ -224,11 +224,10 @@ async def get_movie_details(
                 country=movie_cache.country,
                 imdb_id=movie_cache.imdb_id,
                 awards=movie_cache.awards,
-                
-                # Convert JSON torrents back to model
-                torrents=[Torrent(**t) for t in movie_cache.torrents_json],
+                movie_info_json=movie_cache.movie_info_json,
                 
                 # Nested structures
+                torrents=[Torrent(**t) for t in movie_cache.torrents_json],
                 ratings=MovieRating(
                     imdb=movie_cache.imdb_rating,
                     rottenTomatoes=movie_cache.rotten_tomatoes_rating,

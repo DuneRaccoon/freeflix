@@ -274,6 +274,7 @@ class MovieCache(Model):
     country = Column(String, nullable=True)
     reviews = Column(JSON, nullable=True)  # Store as JSON array of review objects
     related_movies = Column(JSON, nullable=True)  # Store as JSON array of related movie links
+    movie_info_json = Column(JSON, nullable=True)  # Store full movie info JSON from RT
     
     # Cache the available torrents
     torrents_json = Column(JSON, nullable=False)

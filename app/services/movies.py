@@ -219,12 +219,12 @@ class MovieDetailsService:
         result = {}
         
         # First scrape IMDB
-        imdb_data = await self._scrape_from_imdb(title, year)
+        imdb_data, rt_data = await asyncio.gather(
+            self._scrape_from_imdb(title, year),
+            self._scrape_from_rotten_tomatoes(title, year)
+        )
+        
         result.update(imdb_data)
-        
-        # Then try Rotten Tomatoes
-        rt_data = await self._scrape_from_rotten_tomatoes(title, year)
-        
         result.update(rt_data)
             
         return result
@@ -310,10 +310,12 @@ class MovieDetailsService:
             for section in cast_section:
                 actor = section.select_one('[data-testid="title-cast-item__actor"]')
                 character = section.select_one('[data-testid="cast-item-characters-link"]')
+                img = section.select_one('.ipc-image')
                 if actor and character:
                     cast.append({
                         "name": actor.text.strip(),
-                        "character": character.text.strip()
+                        "character": character.text.strip(),
+                        "image": img['src'] if img else None,
                     })
             
             if cast:
@@ -462,16 +464,16 @@ class MovieDetailsService:
                         score = score.text.strip()
                     if createDate:
                         try:
-                            createDate = datetime.strptime(createDate.text.strip(), "%b %d, %Y")
+                            createDate = datetime.strptime(createDate.text.strip(), "%m/%d/%y")
                         except:
                             createDate = None
-                    if quote and author and url:
+                    if quote and author:
                         reviews.append(Review(
-                            source=ReviewSource.ROTTEN_TOMATOES_CRITIC,
+                            source=ReviewSource.ROTTEN_TOMATOES_AUDIENCE,
                             author=author.text.strip(),
                             content=quote.text.strip(),
                             rating=score,
-                            url=url['href'],
+                            url=url['href'] if url else None,
                             date=createDate
                         ))
             except Exception as e:
@@ -513,6 +515,28 @@ class MovieDetailsService:
             if related_movies:
                 result["related_movies"] = related_movies
                 
+            movie_info_json = {}
+            for category_wrap in movie_soup.select('div.category-wrap'):
+                try:
+                    key_elem = category_wrap.select_one('rt-text.key')
+                    if key_elem:
+                        key = '_'.join(key_elem.text.strip().lower().split(' '))
+                        value_elem = category_wrap.select_one('dd[data-qa="item-value-group"]')
+                        if value_elem:
+                            value = value_elem.text.strip()
+                            movie_info_json[key] = value
+                except:
+                    pass
+                
+            if movie_info_json:
+                result['movie_info_json'] = movie_info_json
+                
+                if movie_info_json.get('runtime'):
+                    result['runtime'] = movie_info_json['runtime']
+                
+                if movie_info_json.get('original_language'):
+                    result['language'] = movie_info_json['original_language']
+                    
             return result
 
 

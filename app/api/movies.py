@@ -230,8 +230,13 @@ async def get_movie_details(
                 torrents=[Torrent(**t) for t in movie_cache.torrents_json],
                 ratings=MovieRating(
                     imdb=movie_cache.imdb_rating,
+                    imdbVotes=movie_cache.imdb_votes,
                     rottenTomatoes=movie_cache.rotten_tomatoes_rating,
-                    metacritic=movie_cache.metacritic_rating
+                    rottenTomatoesCount=movie_cache.rotten_tomatoes_total_review_count,
+                    rottenTomatoesAudience=movie_cache.rotten_tomatoes_audience_rating,
+                    rottenTomatoesAudienceCount=movie_cache.rotten_tomatoes_audience_review_count,
+                    metacritic=movie_cache.metacritic_rating,
+                    metacriticCount=movie_cache.metacritic_votes
                 ),
                 credits=MovieCredits(
                     director=movie_cache.director,

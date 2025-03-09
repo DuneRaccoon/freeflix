@@ -27,6 +27,8 @@ TORRENT_STATES = [
     "checking_fastresume"
 ]
 
+VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.ogv', '.wmv', '.flv']
+
 class TorrentManager:
     """
     Manages torrent downloads using libtorrent.
@@ -972,6 +974,164 @@ class TorrentManager:
         alerts = self.session.pop_alerts()
         for alert in alerts:
             self._handle_alert(alert)
+                
+    def prioritize_video_files(self, torrent_id: str) -> bool:
+        """
+        Set high priority for video files and enable sequential downloading
+        for optimal streaming experience.
+        
+        Args:
+            torrent_id: ID of the torrent to prioritize
+            
+        Returns:
+            bool: Success status
+        """
+        if torrent_id not in self.active_torrents:
+            logger.warning(f"Torrent {torrent_id} not found in active torrents")
+            return False
+        
+        handle, _ = self.active_torrents[torrent_id]
+        if not handle.has_metadata():
+            logger.info(f"Waiting for metadata for torrent {torrent_id}")
+            return False
+        
+        try:
+            handle.set_sequential_download(True)
+            
+            # Find video files and set their priorities
+            torrent_info = handle.get_torrent_info()
+            file_priorities = []
+            
+            for i in range(torrent_info.num_files()):
+                file_info = torrent_info.file_at(i)
+                file_path = file_info.path
+                
+                # Check if it's a video file
+                if self._is_video_file(file_path):
+                    # Set highest priority (7) for video files
+                    file_priorities.append(7)
+                    logger.info(f"Setting high priority for video file: {file_path}")
+                else:
+                    # Set normal priority (1) for other files
+                    file_priorities.append(1)
+            
+            # Apply priorities if any files found
+            if file_priorities:
+                handle.prioritize_files(file_priorities)
+                logger.info(f"File priorities set for torrent {torrent_id}")
+                
+                with get_db() as db:
+                    torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                    if torrent:
+                        # Update metadata to indicate streaming optimization
+                        metadata = torrent.meta_data or {}
+                        metadata['streaming_optimized'] = True
+                        torrent.meta_data = metadata
+                        torrent.update(db)
+            
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error setting file priorities for torrent {torrent_id}: {e}")
+            return False
+
+    def _is_video_file(self, file_path: str) -> bool:
+        """Check if a file is a video based on its extension"""
+        return any(file_path.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
+
+    def get_file_progress(self, torrent_id: str) -> Dict[int, float]:
+        """
+        Get the download progress of individual files in a torrent
+        
+        Args:
+            torrent_id: ID of the torrent
+            
+        Returns:
+            Dict mapping file index to progress percentage
+        """
+        if torrent_id not in self.active_torrents:
+            return {}
+        
+        handle, _ = self.active_torrents[torrent_id]
+        
+        if not handle.has_metadata():
+            return {}
+        
+        try:
+            torrent_info = handle.get_torrent_info()
+            file_progress = handle.file_progress()
+            
+            result = {}
+            for i in range(torrent_info.num_files()):
+                file_info = torrent_info.file_at(i)
+                total_size = file_info.size
+                
+                if total_size > 0 and i < len(file_progress):
+                    progress_percentage = (file_progress[i] / total_size) * 100
+                    result[i] = progress_percentage
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"Error getting file progress for torrent {torrent_id}: {e}")
+            return {}
+
+    def get_video_file_info(self, torrent_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get information about the main video file in a torrent
+        
+        Args:
+            torrent_id: ID of the torrent
+            
+        Returns:
+            Dict with video file information or None if not found
+        """
+        if torrent_id not in self.active_torrents:
+            return None
+        
+        handle, _ = self.active_torrents[torrent_id]
+        
+        if not handle.has_metadata():
+            return None
+        
+        try:
+            torrent_info = handle.get_torrent_info()
+            file_progress = handle.file_progress()
+            
+            # Find the largest video file
+            largest_video_index = -1
+            largest_video_size = 0
+            
+            for i in range(torrent_info.num_files()):
+                file_info = torrent_info.file_at(i)
+                
+                if self._is_video_file(file_info.path) and file_info.size > largest_video_size:
+                    largest_video_index = i
+                    largest_video_size = file_info.size
+            
+            if largest_video_index >= 0 and largest_video_index < len(file_progress):
+                file_info = torrent_info.file_at(largest_video_index)
+                downloaded = file_progress[largest_video_index]
+                progress = (downloaded / file_info.size) * 100 if file_info.size > 0 else 0
+                
+                # Get absolute path to the file
+                base_path = Path(handle.status().save_path)
+                file_path = base_path / file_info.path
+                
+                return {
+                    "index": largest_video_index,
+                    "path": str(file_path),
+                    "size": file_info.size,
+                    "downloaded": downloaded,
+                    "progress": progress,
+                    "name": Path(file_info.path).name
+                }
+            
+            return None
+        
+        except Exception as e:
+            logger.error(f"Error getting video file info for torrent {torrent_id}: {e}")
+            return None
 
 
 # Create a singleton instance

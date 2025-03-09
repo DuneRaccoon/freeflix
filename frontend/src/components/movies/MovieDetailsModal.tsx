@@ -1,11 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog } from '@headlessui/react';
-import { XMarkIcon, StarIcon, ClockIcon, FilmIcon } from '@heroicons/react/24/solid';
-import { QuestionMarkCircleIcon, BookOpenIcon } from '@heroicons/react/24/outline';
+import { 
+  XMarkIcon, 
+  StarIcon, 
+  ClockIcon, 
+  FilmIcon, 
+  GlobeAltIcon, 
+  TrophyIcon,
+  LanguageIcon,
+  FlagIcon,
+  CalendarIcon,
+  ArrowsUpDownIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ArrowTopRightOnSquareIcon
+} from '@heroicons/react/24/solid';
+import { 
+  QuestionMarkCircleIcon, 
+  BookOpenIcon,
+  UserGroupIcon,
+  ChatBubbleLeftRightIcon,
+  LinkIcon,
+  FilmIcon as FilmIconOutline,
+  InformationCircleIcon
+} from '@heroicons/react/24/outline';
 import { moviesService } from '@/services/movies';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import Progress from '@/components/ui/Progress';
+import { torrentsService } from '@/services/torrents';
+import { toast } from 'react-hot-toast';
+import { 
+  RottenTomatoesAudienceIcon,
+  RottenTomatoesIcon
+} from '@/components/icons';
 
 // Define the detailed movie type
 interface DetailedMovie {
@@ -32,8 +60,13 @@ interface DetailedMovie {
   }>;
   ratings: {
     imdb: string | null;
+    imdbVotes: string | null;
     rottenTomatoes: string | null;
+    rottenTomatoesCount: number | null;
+    rottenTomatoesAudience: string | null;
+    rottenTomatoesAudienceCount: number | null;
     metacritic: string | null;
+    metacriticCount: number | null;
   };
   credits: {
     director: string | null;
@@ -54,6 +87,14 @@ interface DetailedMovie {
     content: string;
     rating: string | null;
     url: string | null;
+    date: string | null;
+  }>;
+  related_movies: Array<{
+    title: string;
+    url: string;
+    image: string | null;
+    critic_score: number | null;
+    audience_score: number | null;
   }>;
 }
 
@@ -73,8 +114,11 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
   const [movie, setMovie] = useState<DetailedMovie | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'cast' | 'reviews'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'cast' | 'reviews' | 'related'>('overview');
   const [downloadQuality, setDownloadQuality] = useState<string | null>(null);
+  const [reviewSort, setReviewSort] = useState<'date' | 'rating'>('rating');
+  const [reviewSortDirection, setReviewSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [reviewFilter, setReviewFilter] = useState<string>('all');
 
   // Fetch movie details when modal opens
   useEffect(() => {
@@ -99,19 +143,32 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
   }, [movieId, isOpen]);
 
   // Handle download button click
-  const handleDownload = (quality: string) => {
+  const handleDownload = async (quality: string) => {
     if (!movie) return;
     
-    setDownloadQuality(quality);
-    
-    if (onDownload) {
-      onDownload(movie.link, quality);
+    try {
+      setDownloadQuality(quality);
+      
+      // Call the API to download the movie
+      await torrentsService.downloadMovie({
+        movie_id: movie.link,
+        quality: quality as '720p' | '1080p' | '2160p',
+      });
+      
+      toast.success(`Added ${movie.title} (${quality}) to download queue`);
+      
+      // Call the onDownload callback if provided
+      if (onDownload) {
+        onDownload(movie.link, quality);
+      }
+    } catch (error) {
+      console.error('Error downloading movie:', error);
+      toast.error('Failed to add movie to download queue');
+    } finally {
+      setTimeout(() => {
+        setDownloadQuality(null);
+      }, 2000);
     }
-    
-    // Reset download quality after 2 seconds
-    setTimeout(() => {
-      setDownloadQuality(null);
-    }, 2000);
   };
 
   // Format IMDB rating as stars
@@ -147,7 +204,7 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
   };
 
   // Format Rotten Tomatoes rating
-  const renderTomatoMeter = (rating: string | null) => {
+  const renderTomatoMeter = (rating: string | null, count: number | null = null) => {
     if (!rating) return null;
     
     const percentage = parseInt(rating.replace('%', ''));
@@ -164,9 +221,86 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
             <XMarkIcon className="w-4 h-4 text-white" />
           )}
         </div>
-        <span className={`ml-1 ${isFresh ? 'text-green-600' : 'text-red-600'}`}>{rating}</span>
+        <span className={`ml-1 ${isFresh ? 'text-green-600' : 'text-red-600'}`}>
+          {rating}
+          {count && <span className="text-xs text-gray-400 ml-1">({count} reviews)</span>}
+        </span>
       </div>
     );
+  };
+
+  // Format Metacritic rating
+  const renderMetacritic = (rating: string | null, count: number | null = null) => {
+    if (!rating) return null;
+    
+    const score = parseInt(rating);
+    let color = 'bg-red-600';
+    if (score >= 75) color = 'bg-green-600';
+    else if (score >= 50) color = 'bg-yellow-500';
+    
+    return (
+      <div className="flex items-center">
+        <div className={`${color} rounded px-1.5 py-0.5`}>
+          <span className="text-white font-bold text-sm">{score}</span>
+        </div>
+        {count && <span className="text-xs text-gray-400 ml-1">({count} reviews)</span>}
+      </div>
+    );
+  };
+
+  // Get sorted and filtered reviews
+  const getSortedAndFilteredReviews = () => {
+    if (!movie || !movie.reviews) return [];
+    
+    // Filter reviews
+    let filteredReviews = movie.reviews;
+    if (reviewFilter !== 'all') {
+      filteredReviews = movie.reviews.filter(review => review.source === reviewFilter);
+    }
+    
+    // Sort reviews
+    return [...filteredReviews].sort((a, b) => {
+      // Sort by date
+      if (reviewSort === 'date') {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return reviewSortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+      }
+      
+      // Sort by rating
+      const ratingA = a.rating ? parseFloat(a.rating.replace('%', '')) : 0;
+      const ratingB = b.rating ? parseFloat(b.rating.replace('%', '')) : 0;
+      return reviewSortDirection === 'asc' ? ratingA - ratingB : ratingB - ratingA;
+    });
+  };
+
+  // Toggle review sort direction
+  const toggleSortDirection = () => {
+    setReviewSortDirection(prevDirection => prevDirection === 'asc' ? 'desc' : 'asc');
+  };
+
+  // Format review date
+  const formatReviewDate = (dateString: string | null) => {
+    if (!dateString) return null;
+    
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  // Get unique review sources
+  const getReviewSources = () => {
+    if (!movie || !movie.reviews) return [];
+    
+    const sources = movie.reviews.map(review => review.source);
+    return ['all', ...new Set(sources)];
   };
 
   // Loading skeleton
@@ -243,15 +377,15 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
       onClose={onClose}
       className="relative z-50"
     >
-      <div className="fixed inset-0 bg-black/70" aria-hidden="true" />
+      <div className="fixed inset-0 bg-black/80" aria-hidden="true" />
       
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <Dialog.Panel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+        <Dialog.Panel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden">
           {/* Header with backdrop */}
           <div 
-            className="relative h-64 w-full bg-cover bg-center"
+            className="relative h-72 w-full bg-cover bg-center"
             style={{ 
-              backgroundImage: `linear-gradient(rgba(0, 0, 0, 0), rgba(23, 23, 23, 1)), url(${backdropImage})`,
+              backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.2), rgba(23, 23, 23, 0.8)), url(${backdropImage})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center top'
             }}
@@ -259,308 +393,605 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
             {/* Close button */}
             <button 
               onClick={onClose}
-              className="absolute top-4 right-4 p-2 rounded-full bg-black/50 hover:bg-black/80 text-white transition-colors"
+              className="absolute top-4 right-4 p-2 rounded-full bg-black/50 hover:bg-black/80 text-white transition-colors z-10"
               aria-label="Close"
             >
               <XMarkIcon className="h-5 w-5" />
             </button>
             
-            {/* Movie title */}
-            <div className="absolute bottom-4 left-6 right-6">
-              <h2 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg">
-                {movie.title} <span className="text-gray-300">({movie.year})</span>
-              </h2>
+            {/* Movie title and metadata */}
+            <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-gray-900 to-transparent">
+              <div className="flex items-end gap-6">
+                {/* Poster thumbnail */}
+                <div className="hidden sm:block w-32 h-48 rounded-md overflow-hidden shadow-lg flex-shrink-0 border border-gray-700 transform -translate-y-6">
+                  <img src={movie.media.poster} alt={movie.title} className="w-full h-full object-cover" />
+                </div>
+                
+                {/* Title and metadata */}
+                <div className="flex-1">
+                  <h2 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg mb-2">
+                    {movie.title} <span className="text-gray-300">({movie.year})</span>
+                  </h2>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {movie.genre.split(', ').map((genre) => (
+                      <Badge key={genre} variant="secondary" size="md">
+                        {genre}
+                      </Badge>
+                    ))}
+                    {movie.runtime && (
+                      <Badge variant="default" size="md" className="flex items-center">
+                        <ClockIcon className="w-3 h-3 mr-1" />
+                        {movie.runtime}
+                      </Badge>
+                    )}
+                  </div>
+                  
+                  {/* Ratings bar */}
+                  <div className="flex flex-wrap gap-4">
+                    {movie.ratings.imdb && (
+                      <div className="flex items-center gap-1">
+                        <img 
+                          src="https://upload.wikimedia.org/wikipedia/commons/6/69/IMDB_Logo_2016.svg" 
+                          alt="IMDB" 
+                          className="h-4 w-auto"
+                        />
+                        {renderStars(movie.ratings.imdb)}
+                      </div>
+                    )}
+                    
+                    {movie.ratings.rottenTomatoes && (
+                      <div className="flex items-center">
+                        {renderTomatoMeter(movie.ratings.rottenTomatoes)}
+                      </div>
+                    )}
+                    
+                    {movie.ratings.metacritic && (
+                      <div className="flex items-center">
+                        {renderMetacritic(movie.ratings.metacritic)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+          
+          {/* Tabs */}
+          <div className="border-b border-gray-800">
+            <nav className="flex overflow-x-auto scrollbar-hide">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`py-3 px-4 font-medium text-sm border-b-2 whitespace-nowrap ${
+                  activeTab === 'overview' 
+                    ? 'border-primary-500 text-primary-500' 
+                    : 'border-transparent text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                <InformationCircleIcon className="w-4 h-4 inline mr-1" />
+                Overview
+              </button>
+              <button
+                onClick={() => setActiveTab('cast')}
+                className={`py-3 px-4 font-medium text-sm border-b-2 whitespace-nowrap ${
+                  activeTab === 'cast' 
+                    ? 'border-primary-500 text-primary-500' 
+                    : 'border-transparent text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                <UserGroupIcon className="w-4 h-4 inline mr-1" />
+                Cast & Crew
+              </button>
+              <button
+                onClick={() => setActiveTab('reviews')}
+                className={`py-3 px-4 font-medium text-sm border-b-2 whitespace-nowrap ${
+                  activeTab === 'reviews' 
+                    ? 'border-primary-500 text-primary-500' 
+                    : 'border-transparent text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                <ChatBubbleLeftRightIcon className="w-4 h-4 inline mr-1" />
+                Reviews
+                {movie.reviews.length > 0 && 
+                  <span className="ml-1 text-xs bg-gray-700 rounded-full px-2 py-0.5">
+                    {movie.reviews.length}
+                  </span>
+                }
+              </button>
+              {movie.related_movies && movie.related_movies.length > 0 && (
+                <button
+                  onClick={() => setActiveTab('related')}
+                  className={`py-3 px-4 font-medium text-sm border-b-2 whitespace-nowrap ${
+                    activeTab === 'related' 
+                      ? 'border-primary-500 text-primary-500' 
+                      : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                >
+                  <FilmIconOutline className="w-4 h-4 inline mr-1" />
+                  Related Movies
+                </button>
+              )}
+            </nav>
           </div>
           
           {/* Content */}
-          <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 16rem)' }}>
-            {/* Movie info and poster */}
-            <div className="flex flex-col md:flex-row gap-6 mb-6">
-              {/* Poster image */}
+          <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 22rem)' }}>
+            <div className="flex flex-col md:flex-row gap-6">
+              {/* Sidebar (visible on all tabs) */}
               <div className="w-full md:w-1/3 flex-shrink-0">
-                <img 
-                  src={movie.media.poster} 
-                  alt={movie.title} 
-                  className="w-full h-auto rounded-lg shadow-lg"
-                />
-                
                 {/* Download buttons */}
-                <div className="mt-4 space-y-2">
-                  {movie.torrents.map((torrent) => (
-                    <Button
-                      key={torrent.quality}
-                      variant={torrent.quality === '1080p' ? 'primary' : 'outline'}
-                      size="sm"
-                      className="w-full"
-                      onClick={() => handleDownload(torrent.quality)}
-                      isLoading={downloadQuality === torrent.quality}
-                    >
-                      Download {torrent.quality} ({torrent.sizes[0]})
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Movie details */}
-              <div className="w-full md:w-2/3">
-                {/* Metadata */}
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {movie.genre.split(', ').map((genre) => (
-                    <Badge key={genre} variant="secondary" size="md">
-                      {genre}
-                    </Badge>
-                  ))}
-                  {movie.runtime && (
-                    <Badge variant="default" size="md" className="flex items-center">
-                      <ClockIcon className="w-3 h-3 mr-1" />
-                      {movie.runtime}
-                    </Badge>
-                  )}
+                <div className="bg-gray-800/70 rounded-lg p-4 mb-6">
+                  <h3 className="text-lg font-semibold mb-3">Download Options</h3>
+                  <div className="space-y-2">
+                    {movie.torrents.map((torrent) => (
+                      <Button
+                        key={torrent.quality}
+                        variant={torrent.quality === '1080p' ? 'primary' : torrent.quality === '2160p' ? 'secondary' : 'outline'}
+                        size="sm"
+                        className="w-full flex justify-between items-center"
+                        onClick={() => handleDownload(torrent.quality)}
+                        isLoading={downloadQuality === torrent.quality}
+                      >
+                        <span>Download {torrent.quality}</span>
+                        <span className="text-xs opacity-80">{torrent.sizes[0]}</span>
+                      </Button>
+                    ))}
+                  </div>
                 </div>
                 
-                {/* Ratings */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 bg-gray-800/40 p-4 rounded-lg">
-                  {movie.ratings.imdb && (
-                    <div>
-                      <h4 className="text-xs text-gray-400 mb-1">IMDB Rating</h4>
-                      {renderStars(movie.ratings.imdb)}
+                {/* Info Card */}
+                <div className="bg-gray-800/70 rounded-lg p-4 mb-6">
+                  <h3 className="text-lg font-semibold mb-3">Movie Info</h3>
+                  <div className="space-y-2 text-sm">
+                    {movie.runtime && (
+                      <div className="flex items-start">
+                        <ClockIcon className="w-4 h-4 mt-0.5 mr-2 text-gray-400" />
+                        <div>
+                          <span className="text-gray-400">Runtime:</span>
+                          <span className="block text-white">{movie.runtime}</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {movie.language && (
+                      <div className="flex items-start">
+                        <LanguageIcon className="w-4 h-4 mt-0.5 mr-2 text-gray-400" />
+                        <div>
+                          <span className="text-gray-400">Language:</span>
+                          <span className="block text-white">{movie.language}</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {movie.country && (
+                      <div className="flex items-start">
+                        <FlagIcon className="w-4 h-4 mt-0.5 mr-2 text-gray-400" />
+                        <div>
+                          <span className="text-gray-400">Country:</span>
+                          <span className="block text-white">{movie.country}</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-start">
+                      <CalendarIcon className="w-4 h-4 mt-0.5 mr-2 text-gray-400" />
+                      <div>
+                        <span className="text-gray-400">Year:</span>
+                        <span className="block text-white">{movie.year}</span>
+                      </div>
                     </div>
-                  )}
-                  {movie.ratings.rottenTomatoes && (
-                    <div>
-                      <h4 className="text-xs text-gray-400 mb-1">Rotten Tomatoes</h4>
-                      {renderTomatoMeter(movie.ratings.rottenTomatoes)}
-                    </div>
-                  )}
-                  {movie.ratings.metacritic && (
-                    <div>
-                      <h4 className="text-xs text-gray-400 mb-1">Metacritic</h4>
-                      <span className="text-blue-500">{movie.ratings.metacritic}</span>
-                    </div>
-                  )}
+                    
+                    {movie.imdb_id && (
+                      <div className="flex items-start">
+                        <LinkIcon className="w-4 h-4 mt-0.5 mr-2 text-gray-400" />
+                        <div>
+                          <span className="text-gray-400">External Links:</span>
+                          <a 
+                            href={`https://www.imdb.com/title/${movie.imdb_id}`}
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-primary-400 hover:text-primary-300 flex items-center"
+                          >
+                            IMDB
+                            <ArrowTopRightOnSquareIcon className="h-3 w-3 ml-1" />
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
-                {/* Tabs */}
-                <div className="border-b border-gray-800 mb-4">
-                  <nav className="flex space-x-8" aria-label="Tabs">
-                    <button
-                      onClick={() => setActiveTab('overview')}
-                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                        activeTab === 'overview' 
-                          ? 'border-primary-500 text-primary-500' 
-                          : 'border-transparent text-gray-400 hover:text-gray-300'
-                      }`}
-                    >
-                      Overview
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('cast')}
-                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                        activeTab === 'cast' 
-                          ? 'border-primary-500 text-primary-500' 
-                          : 'border-transparent text-gray-400 hover:text-gray-300'
-                      }`}
-                    >
-                      Cast & Crew
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('reviews')}
-                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                        activeTab === 'reviews' 
-                          ? 'border-primary-500 text-primary-500' 
-                          : 'border-transparent text-gray-400 hover:text-gray-300'
-                      }`}
-                    >
-                      Reviews
-                    </button>
-                  </nav>
-                </div>
-                
-                {/* Tab content */}
-                <div>
-                  {/* Overview tab */}
-                  {activeTab === 'overview' && (
-                    <div>
-                      <h3 className="text-xl font-semibold mb-2">Synopsis</h3>
-                      <p className="text-gray-300 mb-4">
-                        {movie.plot || movie.description || "No synopsis available."}
-                      </p>
-                      
-                      {/* Additional details */}
-                      <div className="grid grid-cols-2 gap-4 mt-6 text-sm">
-                        {movie.credits.director && (
-                          <div>
-                            <span className="text-gray-400">Director:</span>{' '}
-                            <span className="text-gray-200">{movie.credits.director}</span>
+                {/* Ratings Card */}
+                <div className="bg-gray-800/70 rounded-lg p-4">
+                  <h3 className="text-lg font-semibold mb-3">Ratings</h3>
+                  <div className="space-y-4">
+                    {movie.ratings.imdb && (
+                      <div className="pb-3 border-b border-gray-700">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <img 
+                              src="https://upload.wikimedia.org/wikipedia/commons/6/69/IMDB_Logo_2016.svg" 
+                              alt="IMDB" 
+                              className="h-5 w-auto mr-2"
+                            />
+                            <span className="font-medium">IMDB</span>
                           </div>
-                        )}
-                        {movie.language && (
-                          <div>
-                            <span className="text-gray-400">Language:</span>{' '}
-                            <span className="text-gray-200">{movie.language}</span>
+                          <div className="text-yellow-500 font-semibold">
+                            {movie.ratings.imdb} / 10
                           </div>
-                        )}
-                        {movie.country && (
-                          <div>
-                            <span className="text-gray-400">Country:</span>{' '}
-                            <span className="text-gray-200">{movie.country}</span>
-                          </div>
-                        )}
-                        {movie.awards && (
-                          <div>
-                            <span className="text-gray-400">Awards:</span>{' '}
-                            <span className="text-gray-200">{movie.awards}</span>
+                        </div>
+                        <div className="mt-2">
+                          {renderStars(movie.ratings.imdb)}
+                        </div>
+                        {movie.ratings.imdbVotes && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            based on {movie.ratings.imdbVotes.toLocaleString()} votes
                           </div>
                         )}
                       </div>
-                      
-                      {/* Trailer */}
-                      {movie.media.trailer && (
-                        <div className="mt-6">
-                          <h3 className="text-lg font-semibold mb-2">Trailer</h3>
-                          <a 
-                            href={movie.media.trailer} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center text-primary-500 hover:text-primary-400"
-                          >
-                            <FilmIcon className="h-5 w-5 mr-1" />
-                            Watch Trailer
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Cast tab */}
-                  {activeTab === 'cast' && (
-                    <div>
-                      <h3 className="text-xl font-semibold mb-4">Cast & Crew</h3>
-                      
-                      {movie.credits.director && (
-                        <div className="mb-6">
-                          <h4 className="text-lg font-medium mb-2">Director</h4>
-                          <div className="flex items-center bg-gray-800/50 p-3 rounded-lg">
-                            <div className="bg-gray-700 rounded-full h-10 w-10 flex items-center justify-center mr-3">
-                              <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                              </svg>
-                            </div>
-                            <div>
-                              <p className="font-semibold">{movie.credits.director}</p>
-                              <p className="text-sm text-gray-400">Director</p>
-                            </div>
+                    )}
+                    
+                    {movie.ratings.rottenTomatoes && (
+                      <div className="pb-3 border-b border-gray-700">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <RottenTomatoesIcon type={ parseInt(movie.ratings.rottenTomatoes.replace('%', '')) > 60 ? 'positive' : 'negative'}/>
+                            <span className="font-medium">Critics</span>
+                          </div>
+                          <div className={`font-semibold ${parseInt(movie.ratings.rottenTomatoes.replace('%', '')) >= 60 ? 'text-green-600' : 'text-red-600'}`}>
+                            {movie.ratings.rottenTomatoes}
                           </div>
                         </div>
-                      )}
-                      
-                      {movie.credits.cast && movie.credits.cast.length > 0 ? (
-                        <div>
-                          <h4 className="text-lg font-medium mb-2">Cast</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {movie.credits.cast.map((person, index) => (
-                              <div key={index} className="flex items-center bg-gray-800/50 p-3 rounded-lg">
-                                {person.image ? (
-                                  <img 
-                                    src={person.image} 
-                                    alt={person.name} 
-                                    className="h-12 w-12 object-cover rounded-full mr-3"
-                                  />
-                                ) : (
-                                  <div className="bg-gray-700 rounded-full h-12 w-12 flex items-center justify-center mr-3">
-                                    <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                    </svg>
-                                  </div>
-                                )}
-                                <div>
-                                  <p className="font-semibold">{person.name}</p>
-                                  {person.character && (
-                                    <p className="text-sm text-gray-400">{person.character}</p>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
+                        {movie.ratings.rottenTomatoesCount && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            based on {movie.ratings.rottenTomatoesCount.toLocaleString()} reviews
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {movie.ratings.rottenTomatoesAudience && (
+                      <div className="pb-3 border-b border-gray-700">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <RottenTomatoesAudienceIcon />
+                            <span className="font-medium">Audience</span>
+                          </div>
+                          <div className={`font-semibold ${parseInt(movie.ratings.rottenTomatoesAudience.replace('%', '')) >= 60 ? 'text-green-600' : 'text-red-600'}`}>
+                            {movie.ratings.rottenTomatoesAudience}
                           </div>
                         </div>
-                      ) : (
-                        <p className="text-gray-400">No cast information available.</p>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Reviews tab */}
-                  {activeTab === 'reviews' && (
-                    <div>
-                      <h3 className="text-xl font-semibold mb-4">Reviews</h3>
-                      
-                      {movie.reviews && movie.reviews.length > 0 ? (
-                        <div className="space-y-4">
-                          {movie.reviews.map((review, index) => (
-                            <div key={index} className="bg-gray-800/50 p-4 rounded-lg">
-                              <div className="flex justify-between items-start mb-2">
-                                <div>
-                                  <span className="font-semibold">
-                                    {review.author || 'Anonymous'}
-                                  </span>
-                                  <span className="text-xs text-gray-400 ml-2">
-                                    via {review.source}
-                                  </span>
+                        {movie.ratings.rottenTomatoesAudienceCount && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            based on {movie.ratings.rottenTomatoesAudienceCount.toLocaleString()} ratings
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {movie.ratings.metacritic && (
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <span className="font-medium">Metacritic</span>
+                          </div>
+                          <div className="font-semibold">
+                            {renderMetacritic(movie.ratings.metacritic)}
+                          </div>
+                        </div>
+                        {movie.ratings.metacriticCount && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            based on {movie.ratings.metacriticCount.toLocaleString()} critic reviews
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Main content area */}
+              <div className="w-full md:w-2/3">
+                {/* Overview tab */}
+                {activeTab === 'overview' && (
+                  <div>
+                    <h3 className="text-xl font-semibold mb-3">Synopsis</h3>
+                    <p className="text-gray-300 mb-4">
+                      {movie.plot || movie.description || "No synopsis available."}
+                    </p>
+                    
+                    {/* Additional details */}
+                    {movie.credits.director && (
+                      <div className="mb-4">
+                        <h4 className="text-lg font-medium mb-2">Director</h4>
+                        <div className="bg-gray-800/50 p-3 rounded-lg">
+                          <p className="font-semibold">{movie.credits.director}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Awards section */}
+                    {movie.awards && (
+                      <div className="mt-6">
+                        <h3 className="text-lg font-semibold mb-2 flex items-center">
+                          <TrophyIcon className="h-5 w-5 mr-2 text-yellow-500" />
+                          Awards
+                        </h3>
+                        <div className="bg-gray-800/50 p-4 rounded-lg">
+                          <p className="text-gray-200">{movie.awards}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Trailer */}
+                    {movie.media.trailer && (
+                      <div className="mt-6">
+                        <h3 className="text-lg font-semibold mb-2 flex items-center">
+                          <FilmIcon className="h-5 w-5 mr-2 text-primary-500" />
+                          Trailer
+                        </h3>
+                        <div className="bg-gray-800/50 p-4 rounded-lg">
+                          <div className="aspect-video rounded-md overflow-hidden">
+                            <iframe
+                              src={movie.media.trailer.replace('watch?v=', 'embed/')} 
+                              title={`${movie.title} Trailer`}
+                              allowFullScreen
+                              className="w-full h-full"
+                            ></iframe>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Cast tab */}
+                {activeTab === 'cast' && (
+                  <div>
+                    <h3 className="text-xl font-semibold mb-4">Cast & Crew</h3>
+                    
+                    {movie.credits.director && (
+                      <div className="mb-6">
+                        <h4 className="text-lg font-medium mb-2">Director</h4>
+                        <div className="flex items-center bg-gray-800/50 p-3 rounded-lg">
+                          <div className="bg-gray-700 rounded-full h-12 w-12 flex items-center justify-center mr-3">
+                            <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="font-semibold">{movie.credits.director}</p>
+                            <p className="text-sm text-gray-400">Director</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {movie.credits.cast && movie.credits.cast.length > 0 ? (
+                      <div>
+                        <h4 className="text-lg font-medium mb-2">Cast</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {movie.credits.cast.map((person, index) => (
+                            <div 
+                              key={`${person.name}-${index}`} 
+                              className="flex items-center bg-gray-800/50 p-3 rounded-lg"
+                            >
+                              {person.image ? (
+                                <img 
+                                  src={person.image} 
+                                  alt={person.name} 
+                                  className="h-16 w-16 object-cover rounded-full mr-3"
+                                />
+                              ) : (
+                                <div className="bg-gray-700 rounded-full h-16 w-16 flex items-center justify-center mr-3">
+                                  <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                  </svg>
                                 </div>
-                                {review.rating && (
-                                  <Badge variant="primary" size="sm">
-                                    {review.rating}
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="text-gray-300 text-sm">
-                                {review.content.length > 300 
-                                  ? `${review.content.substring(0, 300)}...` 
-                                  : review.content
-                                }
-                              </p>
-                              {review.url && (
-                                <a 
-                                  href={review.url} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-primary-500 hover:text-primary-400 mt-2 inline-block"
-                                >
-                                  Read full review
-                                </a>
                               )}
+                              <div>
+                                <p className="font-semibold">{person.name}</p>
+                                {person.character && (
+                                  <p className="text-sm text-gray-400">{person.character}</p>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <BookOpenIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
-                          <p className="text-gray-400">No reviews available.</p>
+                      </div>
+                    ) : (
+                      <p className="text-gray-400">No cast information available.</p>
+                    )}
+                  </div>
+                )}
+                
+                {/* Reviews tab */}
+                {activeTab === 'reviews' && (
+                  <div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4">
+                      <h3 className="text-xl font-semibold">Reviews</h3>
+                      
+                      <div className="flex mt-2 sm:mt-0 space-x-2">
+                        {/* Filter by source */}
+                        <select
+                          value={reviewFilter}
+                          onChange={(e) => setReviewFilter(e.target.value)}
+                          className="bg-gray-800 border border-gray-700 rounded-md text-sm p-1.5"
+                        >
+                          {getReviewSources().map(source => (
+                            <option key={source} value={source}>
+                              {source === 'all' ? 'All Sources' : source}
+                            </option>
+                          ))}
+                        </select>
+                        
+                        {/* Sort options */}
+                        <div className="flex border border-gray-700 rounded-md overflow-hidden">
+                          <button
+                            className={`px-2 py-1.5 text-xs ${reviewSort === 'rating' ? 'bg-gray-700' : 'bg-gray-800'}`}
+                            onClick={() => setReviewSort('rating')}
+                          >
+                            Rating
+                          </button>
+                          <button
+                            className={`px-2 py-1.5 text-xs ${reviewSort === 'date' ? 'bg-gray-700' : 'bg-gray-800'}`}
+                            onClick={() => setReviewSort('date')}
+                          >
+                            Date
+                          </button>
+                          
+                          <button
+                            className="px-2 py-1.5 bg-gray-800 border-l border-gray-700"
+                            onClick={toggleSortDirection}
+                          >
+                            {reviewSortDirection === 'asc' ? (
+                              <ChevronUpIcon className="h-4 w-4" />
+                            ) : (
+                              <ChevronDownIcon className="h-4 w-4" />
+                            )}
+                          </button>
                         </div>
-                      )}
+                      </div>
                     </div>
-                  )}
-                </div>
+                    
+                    {movie.reviews && movie.reviews.length > 0 ? (
+                      <div className="space-y-4">
+                        {getSortedAndFilteredReviews().map((review, index) => (
+                          <div key={index} className="bg-gray-800/50 p-4 rounded-lg">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <span className="font-semibold">
+                                  {review.author || 'Anonymous'}
+                                </span>
+                                <span className="text-xs text-gray-400 ml-2">
+                                  via {review.source}
+                                </span>
+                                {review.date && (
+                                  <span className="text-xs text-gray-400 ml-2">
+                                    {formatReviewDate(review.date)}
+                                  </span>
+                                )}
+                              </div>
+                              {review.rating && (
+                                <Badge variant={
+                                  review.source.includes('Rotten Tomatoes') && parseInt(review.rating.replace('%', '') || '0') >= 60 ? 'success' : 
+                                  review.source.includes('Rotten Tomatoes') ? 'danger' : 
+                                  'primary'
+                                } size="sm">
+                                  {review.rating}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-gray-300 text-sm">
+                              {review.content.length > 300 
+                                ? (
+                                  <>
+                                    {review.content.substring(0, 300)}...
+                                    {review.url && (
+                                      <a 
+                                        href={review.url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-primary-500 hover:text-primary-400 ml-1 inline-flex items-center"
+                                      >
+                                        Read full review
+                                        <ArrowTopRightOnSquareIcon className="h-3 w-3 ml-0.5" />
+                                      </a>
+                                    )}
+                                  </>
+                                )
+                                : review.content
+                              }
+                            </p>
+                            {review.url && review.content.length <= 300 && (
+                              <a 
+                                href={review.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary-500 hover:text-primary-400 mt-2 inline-flex items-center"
+                              >
+                                View on {review.source}
+                                <ArrowTopRightOnSquareIcon className="h-3 w-3 ml-0.5" />
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <BookOpenIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+                        <p className="text-gray-400">No reviews available.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Related Movies tab */}
+                {activeTab === 'related' && movie.related_movies && movie.related_movies.length > 0 && (
+                  <div>
+                    <h3 className="text-xl font-semibold mb-4">Related Movies</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      {movie.related_movies.map((relatedMovie, index) => (
+                        <div key={index} className="bg-gray-800/50 rounded-lg overflow-hidden">
+                          <div className="aspect-[2/3] relative">
+                            {relatedMovie.image ? (
+                              <img 
+                                src={relatedMovie.image} 
+                                alt={relatedMovie.title} 
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                                <FilmIconOutline className="h-12 w-12 text-gray-500" />
+                              </div>
+                            )}
+                            {(relatedMovie.critic_score || relatedMovie.audience_score) && (
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/70 p-1 flex justify-between">
+                                {relatedMovie.critic_score && (
+                                  <div className="flex items-center">
+                                    <img 
+                                      src="https://www.rottentomatoes.com/assets/pizza-pie/images/icons/tomatometer-empty.149b5e8adc3.svg" 
+                                      alt="Critics" 
+                                      className="h-4 w-4 mr-1" 
+                                    />
+                                    <span className={`text-xs ${relatedMovie.critic_score >= 60 ? 'text-green-500' : 'text-red-500'}`}>
+                                      {relatedMovie.critic_score}%
+                                    </span>
+                                  </div>
+                                )}
+                                {relatedMovie.audience_score && (
+                                  <div className="flex items-center">
+                                    <img 
+                                      src="https://www.rottentomatoes.com/assets/pizza-pie/images/icons/audience-empty.a0e89b8ad6f.svg" 
+                                      alt="Audience" 
+                                      className="h-4 w-4 mr-1" 
+                                    />
+                                    <span className={`text-xs ${relatedMovie.audience_score >= 60 ? 'text-green-500' : 'text-red-500'}`}>
+                                      {relatedMovie.audience_score}%
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-2">
+                            <h4 className="font-medium text-sm line-clamp-2 h-10">{relatedMovie.title}</h4>
+                            <a 
+                              href={relatedMovie.url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-xs text-primary-500 hover:text-primary-400 mt-1 inline-flex items-center"
+                            >
+                              View details
+                              <ArrowTopRightOnSquareIcon className="h-3 w-3 ml-0.5" />
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-          
-          {/* Footer */}
-          <div className="border-t border-gray-800 p-4 flex justify-between items-center">
-            {movie.imdb_id && (
-              <a 
-                href={`https://www.imdb.com/title/${movie.imdb_id}`} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-gray-400 hover:text-gray-300 text-sm"
-              >
-                View on IMDB
-              </a>
-            )}
-            <Button onClick={onClose} variant="outline" size="sm">
-              Close
-            </Button>
           </div>
         </Dialog.Panel>
       </div>

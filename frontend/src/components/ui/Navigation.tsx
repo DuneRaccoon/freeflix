@@ -35,7 +35,7 @@ const Navigation: React.FC = () => {
   };
 
   return (
-    <nav className="bg-gray-900 border-b border-gray-800">
+    <nav className="bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           {/* Logo and Brand */}

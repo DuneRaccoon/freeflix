@@ -22,6 +22,8 @@ export const streamingService = {
     try {
       if (!torrentId) return false;
       const info = await streamingService.getStreamingInfo(torrentId);
+
+      if (!info) return false;
       
       // A file is generally ready for streaming if it has at least 5% downloaded
       // or if the first few MB are available

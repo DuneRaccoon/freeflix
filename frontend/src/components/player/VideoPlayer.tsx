@@ -1,7 +1,4 @@
-// frontend/src/components/player/VideoPlayer.tsx
-'use client';
-
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { 
   PlayIcon, 
   PauseIcon, 
@@ -10,11 +7,11 @@ import {
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon,
   ForwardIcon,
-  BackwardIcon
+  BackwardIcon,
+  Cog6ToothIcon
 } from '@heroicons/react/24/solid';
-import Progress from '@/components/ui/Progress';
-import { PlayerState } from '@/types';
 import { formatTime } from '@/utils/format';
+import { PlayerState } from '@/types';
 
 interface VideoPlayerProps {
   src: string;
@@ -39,26 +36,246 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
+  const volumeBarRef = useRef<HTMLDivElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
   const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
+  const doubleClickTimeout = useRef<NodeJS.Timeout | null>(null);
+  const clickCount = useRef<number>(0);
   
   const [playerState, setPlayerState] = useState<PlayerState>({
     isPlaying: false,
     currentTime: 0,
     duration: 0,
     buffered: 0,
-    volume: 1,
+    volume: 0.8, // Start at 80% volume
     isMuted: false,
     isFullscreen: false,
     showControls: true,
     isLoading: true,
     error: null
   });
+  
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [isDraggingProgress, setIsDraggingProgress] = useState(false);
+  const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+  const [videoIsReady, setVideoIsReady] = useState(false);
 
-  // Keyboard controls
+  // --- Video Element Initialization ---
+  
+  // Initialize player when video element is available
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Set initial volume (setting directly to fix volume issues)
+    try {
+      console.log("Setting initial volume to:", playerState.volume);
+      video.volume = playerState.volume;
+      video.muted = playerState.isMuted;
+    } catch (e) {
+      console.error("Error setting initial volume:", e);
+    }
+    
+    // Set playback rate
+    video.playbackRate = playbackSpeed;
+    
+    // Check if fullscreen is active
+    const isFullscreen = document.fullscreenElement === playerRef.current;
+    if (isFullscreen !== playerState.isFullscreen) {
+      setPlayerState(prev => ({ ...prev, isFullscreen }));
+    }
+    
+    // For debugging
+    console.log("Video element initialized");
+  }, []);
+
+  // --- Event Handlers ---
+  
+  // Toggle play/pause
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    try {
+      if (video.paused || video.ended) {
+        video.play().catch(error => {
+          console.error('Play error:', error);
+          if (onError) onError('Could not play video. Please try again.');
+        });
+      } else {
+        video.pause();
+      }
+    } catch (e) {
+      console.error("Error toggling play state:", e);
+    }
+  }, [onError]);
+
+  // Handle click on video (for play/pause toggle)
+  const handleVideoClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Increment click count
+    clickCount.current += 1;
+    
+    // Clear existing double click timeout
+    if (doubleClickTimeout.current) {
+      clearTimeout(doubleClickTimeout.current);
+    }
+    
+    // If this is the first click, set a timeout to check for double click
+    if (clickCount.current === 1) {
+      doubleClickTimeout.current = setTimeout(() => {
+        // If we get here, it was a single click
+        if (clickCount.current === 1) {
+          togglePlay();
+        }
+        // Reset click count
+        clickCount.current = 0;
+      }, 300); // 300ms threshold for double click
+    } else {
+      // It's a double click, handle fullscreen toggle
+      toggleFullscreen();
+      // Reset click count
+      clickCount.current = 0;
+    }
+  }, [togglePlay]);
+
+  // Toggle mute
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    try {
+      // Toggle the muted state
+      const newMutedState = !video.muted;
+      
+      // Update the video element
+      video.muted = newMutedState;
+      
+      // Update our state to match
+      setPlayerState(prev => ({ ...prev, isMuted: newMutedState }));
+      
+      console.log("Mute toggled:", newMutedState);
+    } catch (e) {
+      console.error("Error toggling mute:", e);
+    }
+  }, []);
+
+  // Toggle fullscreen
+  const toggleFullscreen = useCallback(() => {
+    if (!playerRef.current) return;
+
+    try {
+      if (!document.fullscreenElement) {
+        playerRef.current.requestFullscreen().catch(err => {
+          console.error('Error attempting to enable fullscreen:', err);
+        });
+      } else {
+        document.exitFullscreen();
+      }
+    } catch (e) {
+      console.error("Error toggling fullscreen:", e);
+    }
+  }, []);
+
+  // Skip forward or backward
+  const skip = useCallback((seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    try {
+      const newTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
+      video.currentTime = newTime;
+      
+      // Update our state to match
+      setPlayerState(prev => ({ ...prev, currentTime: newTime }));
+    } catch (e) {
+      console.error("Error skipping:", e);
+    }
+  }, []);
+
+  // Set volume level
+  const setVolume = useCallback((volumeLevel: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    try {
+      // Ensure volume is between 0 and 1
+      const newVolume = Math.max(0, Math.min(1, volumeLevel));
+      
+      // Update the video element
+      video.volume = newVolume;
+      
+      // If volume is set to 0, mute the video
+      if (newVolume === 0) {
+        video.muted = true;
+      } else if (video.muted) {
+        // If we're adjusting volume and it was muted, unmute it
+        video.muted = false;
+      }
+      
+      // Update our state to match
+      setPlayerState(prev => ({ 
+        ...prev, 
+        volume: newVolume,
+        isMuted: video.muted
+      }));
+      
+      console.log("Volume set to:", newVolume, "Muted:", video.muted);
+    } catch (e) {
+      console.error("Error setting volume:", e);
+    }
+  }, []);
+
+  // Handle volume bar click
+  const handleVolumeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!volumeBarRef.current) return;
+    
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const rect = volumeBarRef.current.getBoundingClientRect();
+      const pos = (e.clientX - rect.left) / rect.width;
+      setVolume(pos);
+    } catch (e) {
+      console.error("Error handling volume click:", e);
+    }
+  }, [setVolume]);
+
+  // Handle progress bar click
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    if (!video || !progressBarRef.current) return;
+    
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const rect = progressBarRef.current.getBoundingClientRect();
+      const pos = (e.clientX - rect.left) / rect.width;
+      const newTime = pos * video.duration;
+      
+      // Set new time on video element
+      video.currentTime = newTime;
+      
+      // Update our state to match
+      setPlayerState(prev => ({ ...prev, currentTime: newTime }));
+    } catch (e) {
+      console.error("Error handling progress click:", e);
+    }
+  }, []);
+
+  // --- Keyboard Controls ---
+  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle events when this player is in focus
-      if (!playerRef.current?.contains(document.activeElement)) return;
+      // Only handle events when this player is in focus or in fullscreen
+      if (!playerRef.current?.contains(document.activeElement) && 
+          document.fullscreenElement !== playerRef.current) return;
 
       switch (e.key) {
         case ' ':
@@ -84,34 +301,58 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           break;
         case 'ArrowUp':
           e.preventDefault();
-          adjustVolume(0.1);
+          setVolume(playerState.volume + 0.1);
           break;
         case 'ArrowDown':
           e.preventDefault();
-          adjustVolume(-0.1);
+          setVolume(playerState.volume - 0.1);
+          break;
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          // Jump to percentage of video
+          if (videoRef.current) {
+            e.preventDefault();
+            const percent = parseInt(e.key) * 10;
+            const newTime = (videoRef.current.duration * percent) / 100;
+            videoRef.current.currentTime = newTime;
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [playerState.volume, skip, toggleFullscreen, toggleMute, togglePlay]);
 
-  // Update buffered amount
+  // --- Video Event Listeners ---
+  
+  // Buffered progress tracking
   useEffect(() => {
     const updateBuffered = () => {
       const video = videoRef.current;
       if (!video) return;
 
-      let buffered = 0;
-      for (let i = 0; i < video.buffered.length; i++) {
-        if (video.buffered.start(i) <= video.currentTime && video.currentTime <= video.buffered.end(i)) {
-          buffered = video.buffered.end(i) / video.duration * 100;
-          break;
+      try {
+        let buffered = 0;
+        for (let i = 0; i < video.buffered.length; i++) {
+          if (video.buffered.start(i) <= video.currentTime && video.currentTime <= video.buffered.end(i)) {
+            buffered = video.buffered.end(i) / video.duration * 100;
+            break;
+          }
         }
+        
+        setPlayerState(prev => ({ ...prev, buffered }));
+      } catch (e) {
+        console.error("Error updating buffer:", e);
       }
-      
-      setPlayerState(prev => ({ ...prev, buffered }));
     };
 
     const video = videoRef.current;
@@ -121,105 +362,136 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  // Auto-hide controls
-  useEffect(() => {
-    const hideControls = () => {
-      setPlayerState(prev => ({ ...prev, showControls: false }));
-    };
-
-    const resetControlsTimeout = () => {
-      if (controlsTimeout.current) {
-        clearTimeout(controlsTimeout.current);
-      }
-      
-      setPlayerState(prev => ({ ...prev, showControls: true }));
-      
-      if (playerState.isPlaying) {
-        controlsTimeout.current = setTimeout(hideControls, 3000);
-      }
-    };
-
-    const handleMouseMove = () => resetControlsTimeout();
-    
-    if (playerRef.current) {
-      playerRef.current.addEventListener('mousemove', handleMouseMove);
-    }
-
-    return () => {
-      if (controlsTimeout.current) {
-        clearTimeout(controlsTimeout.current);
-      }
-      if (playerRef.current) {
-        playerRef.current.removeEventListener('mousemove', handleMouseMove);
-      }
-    };
-  }, [playerState.isPlaying]);
-
-  // Handle video events
+  // All video events
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     const handleTimeUpdate = () => {
-      setPlayerState(prev => ({
-        ...prev,
-        currentTime: video.currentTime,
-        duration: video.duration || 0
-      }));
-      
-      if (onProgress) {
-        onProgress({
-          ...playerState,
+      try {
+        setPlayerState(prev => ({
+          ...prev,
           currentTime: video.currentTime,
           duration: video.duration || 0
-        });
+        }));
+        
+        if (onProgress) {
+          onProgress({
+            ...playerState,
+            currentTime: video.currentTime,
+            duration: video.duration || 0
+          });
+        }
+      } catch (e) {
+        console.error("Error in time update:", e);
       }
     };
 
     const handlePlay = () => {
-      setPlayerState(prev => ({ ...prev, isPlaying: true, isLoading: false }));
+      try {
+        console.log("Play event triggered");
+        setPlayerState(prev => ({ ...prev, isPlaying: true, isLoading: false }));
+      } catch (e) {
+        console.error("Error in play event:", e);
+      }
     };
 
     const handlePause = () => {
-      setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      try {
+        console.log("Pause event triggered");
+        setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      } catch (e) {
+        console.error("Error in pause event:", e);
+      }
     };
 
     const handleVolumeChange = () => {
-      setPlayerState(prev => ({
-        ...prev,
-        volume: video.volume,
-        isMuted: video.muted
-      }));
+      try {
+        console.log("Volume change:", video.volume, "Muted:", video.muted);
+        setPlayerState(prev => ({
+          ...prev,
+          volume: video.volume,
+          isMuted: video.muted
+        }));
+      } catch (e) {
+        console.error("Error in volume change event:", e);
+      }
     };
 
     const handleLoadStart = () => {
-      setPlayerState(prev => ({ ...prev, isLoading: true }));
+      try {
+        console.log("Load start event");
+        setPlayerState(prev => ({ ...prev, isLoading: true }));
+        setVideoIsReady(false);
+      } catch (e) {
+        console.error("Error in load start event:", e);
+      }
     };
 
     const handleCanPlay = () => {
-      setPlayerState(prev => ({ ...prev, isLoading: false }));
-      if (autoPlay) {
-        video.play().catch(error => {
-          console.error('Autoplay failed:', error);
-        });
+      try {
+        console.log("Can play event");
+        setPlayerState(prev => ({ ...prev, isLoading: false }));
+        setVideoIsReady(true);
+        
+        // Explicitly set volume again when video is ready
+        video.volume = playerState.volume;
+        video.muted = playerState.isMuted;
+        
+        if (autoPlay) {
+          video.play().catch(error => {
+            console.error('Autoplay failed:', error);
+          });
+        }
+      } catch (e) {
+        console.error("Error in can play event:", e);
       }
     };
 
     const handleEnded = () => {
-      setPlayerState(prev => ({ ...prev, isPlaying: false }));
-      if (onEnded) onEnded();
+      try {
+        console.log("Video ended");
+        setPlayerState(prev => ({ ...prev, isPlaying: false }));
+        if (onEnded) onEnded();
+      } catch (e) {
+        console.error("Error in ended event:", e);
+      }
     };
 
     const handleError = () => {
-      const errorMessage = 'An error occurred while playing the video.';
-      setPlayerState(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        error: errorMessage 
-      }));
-      if (onError) onError(errorMessage);
+      try {
+        const errorMessage = 'An error occurred while playing the video.';
+        console.error("Video error:", errorMessage);
+        setPlayerState(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: errorMessage 
+        }));
+        if (onError) onError(errorMessage);
+      } catch (e) {
+        console.error("Error in error event:", e);
+      }
     };
 
+    const handleWaiting = () => {
+      try {
+        console.log("Waiting for data");
+        setPlayerState(prev => ({ ...prev, isLoading: true }));
+      } catch (e) {
+        console.error("Error in waiting event:", e);
+      }
+    };
+
+    const handlePlaying = () => {
+      try {
+        console.log("Playing event");
+        setPlayerState(prev => ({ ...prev, isLoading: false, isPlaying: true }));
+      } catch (e) {
+        console.error("Error in playing event:", e);
+      }
+    };
+
+    // Add all event listeners
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
@@ -228,7 +500,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('ended', handleEnded);
     video.addEventListener('error', handleError);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
 
+    // Clean up by removing all event listeners
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('play', handlePlay);
@@ -238,9 +513,93 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('error', handleError);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
     };
-  }, [autoPlay, onEnded, onError, onProgress, playerState]);
+  }, [autoPlay, onEnded, onError, onProgress, playerState, playerState.isMuted]);
 
+  // Set playback speed when changed
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && videoIsReady) {
+      try {
+        video.playbackRate = playbackSpeed;
+      } catch (e) {
+        console.error("Error setting playback speed:", e);
+      }
+    }
+  }, [playbackSpeed, videoIsReady]);
+
+  // Apply volume fix when video is ready
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && videoIsReady) {
+      try {
+        // Set volume explicitly when video is ready
+        console.log("Setting volume when video is ready:", playerState.volume);
+        video.volume = playerState.volume;
+        video.muted = playerState.isMuted;
+      } catch (e) {
+        console.error("Error applying volume fix:", e);
+      }
+    }
+  }, [videoIsReady, playerState.volume, playerState.isMuted]);
+
+  // --- Controls visibility ---
+  
+  // Auto-hide controls
+  useEffect(() => {
+    const hideControls = () => {
+      if (playerState.isPlaying && !isDraggingProgress && !isDraggingVolume) {
+        setPlayerState(prev => ({ ...prev, showControls: false }));
+        setShowVolumeSlider(false);
+        setShowSettings(false);
+      }
+    };
+
+    const resetControlsTimeout = () => {
+      if (controlsTimeout.current) {
+        clearTimeout(controlsTimeout.current);
+      }
+      
+      setPlayerState(prev => ({ ...prev, showControls: true }));
+      
+      if (playerState.isPlaying && !isDraggingProgress && !isDraggingVolume) {
+        controlsTimeout.current = setTimeout(hideControls, 3000);
+      }
+    };
+
+    const handleMouseMove = () => {
+      resetControlsTimeout();
+    };
+    
+    const handleMouseLeave = () => {
+      if (playerState.isPlaying && !isDraggingProgress && !isDraggingVolume) {
+        hideControls();
+      }
+    };
+    
+    if (playerRef.current) {
+      playerRef.current.addEventListener('mousemove', handleMouseMove);
+      playerRef.current.addEventListener('mouseleave', handleMouseLeave);
+    }
+
+    // Set initial timeout
+    resetControlsTimeout();
+
+    return () => {
+      if (controlsTimeout.current) {
+        clearTimeout(controlsTimeout.current);
+      }
+      if (playerRef.current) {
+        playerRef.current.removeEventListener('mousemove', handleMouseMove);
+        playerRef.current.removeEventListener('mouseleave', handleMouseLeave);
+      }
+    };
+  }, [playerState.isPlaying, isDraggingProgress, isDraggingVolume]);
+
+  // --- Fullscreen Change Detection ---
+  
   // Handle fullscreen changes
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -252,89 +611,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Player control functions
-  const togglePlay = () => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (playerState.isPlaying) {
-      video.pause();
-    } else {
-      video.play().catch(error => {
-        console.error('Play error:', error);
-        if (onError) onError('Could not play video. Please try again.');
-      });
-    }
-  };
-
-  const toggleMute = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.muted = !video.muted;
-  };
-
-  const adjustVolume = (change: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-    
-    const newVolume = Math.max(0, Math.min(1, video.volume + change));
-    video.volume = newVolume;
-    
-    if (newVolume > 0 && video.muted) {
-      video.muted = false;
-    }
-  };
-
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    const video = videoRef.current;
-    const progressBar = e.currentTarget;
-    if (!video || !progressBar) return;
-
-    const rect = progressBar.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
-    video.currentTime = pos * video.duration;
-  };
-
-  const skip = (seconds: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
-  };
-
-  const toggleFullscreen = () => {
-    if (!playerRef.current) return;
-
-    if (!document.fullscreenElement) {
-      playerRef.current.requestFullscreen().catch(err => {
-        console.error('Error attempting to enable fullscreen:', err);
-      });
-    } else {
-      document.exitFullscreen();
-    }
-  };
-
-  // Handle double-click to fast-forward/rewind
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const rect = video.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const clickPosition = x / rect.width;
-
-    if (clickPosition < 0.3) {
-      // Double-click on left side - rewind
-      skip(-10);
-    } else if (clickPosition > 0.7) {
-      // Double-click on right side - fast forward
-      skip(10);
-    }
-  };
-
   return (
     <div 
       ref={playerRef}
-      className="relative w-full h-full bg-black overflow-hidden group"
+      className="relative w-full h-full bg-black overflow-hidden"
       tabIndex={0}
     >
       {/* Video Element */}
@@ -342,9 +622,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ref={videoRef}
         src={src}
         poster={poster}
-        className="w-full h-full object-contain"
-        onClick={togglePlay}
-        onDoubleClick={handleDoubleClick}
+        className="w-full h-full object-contain cursor-pointer"
+        onClick={handleVideoClick}
         preload="auto"
         playsInline
       />
@@ -376,17 +655,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
+      {/* Big Play/Pause Button - Show when paused or controls visible */}
+      {(!playerState.isPlaying || playerState.showControls) && !playerState.isLoading && !playerState.error && (
+        <div 
+          className={`absolute inset-0 flex items-center justify-center z-10 pointer-events-none`}
+        >
+          <div 
+            className={`${playerState.isPlaying ? 'opacity-0' : 'opacity-90'} 
+                        bg-black/40 rounded-full p-4 transition-all duration-200
+                        ${playerState.isPlaying ? 'scale-75' : 'scale-100'}`}
+          >
+            {playerState.isPlaying ? (
+              <PauseIcon className="w-12 h-12 text-white" />
+            ) : (
+              <PlayIcon className="w-12 h-12 text-white" />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Controls Overlay - show on hover or when paused */}
       <div 
-        className={`absolute inset-0 flex flex-col justify-between bg-gradient-to-b from-black/70 via-transparent to-black/70 transition-opacity duration-300 ${
-          playerState.showControls || !playerState.isPlaying ? 'opacity-100' : 'opacity-0'
-        }`}
+        className={`absolute inset-0 flex flex-col justify-between bg-gradient-to-b from-black/70 via-transparent to-black/70 
+                    transition-opacity duration-300 z-20
+                    ${playerState.showControls || !playerState.isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Movie Title Overlay - only shown when paused or on hover */}
         {(movieTitle || subtitle) && (
           <div className="p-4">
-            {movieTitle && <h2 className="text-white text-2xl font-bold">{movieTitle}</h2>}
-            {subtitle && <p className="text-white/80 text-lg">{subtitle}</p>}
+            {movieTitle && <h2 className="text-white text-2xl font-bold drop-shadow-md">{movieTitle}</h2>}
+            {subtitle && <p className="text-white/80 text-lg drop-shadow-md">{subtitle}</p>}
           </div>
         )}
 
@@ -394,24 +693,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="p-4 space-y-2">
           {/* Progress Bar */}
           <div 
-            className="relative h-1 bg-gray-600 cursor-pointer group"
-            onClick={seek}
+            ref={progressBarRef}
+            className="relative h-2 bg-gray-600/60 cursor-pointer rounded group"
+            onClick={handleProgressClick}
           >
             {/* Buffered Progress */}
             <div 
-              className="absolute h-full bg-gray-500"
+              className="absolute h-full bg-gray-500/70 rounded"
               style={{ width: `${playerState.buffered}%` }}
             ></div>
             
             {/* Playback Progress */}
             <div 
-              className="absolute h-full bg-primary-500 group-hover:bg-primary-400"
+              className="absolute h-full bg-primary-500 group-hover:bg-primary-400 rounded"
               style={{ width: `${(playerState.currentTime / playerState.duration) * 100 || 0}%` }}
             ></div>
             
             {/* Scrubber Handle - only visible on hover */}
             <div 
-              className="absolute h-3 w-3 bg-primary-500 rounded-full -translate-x-1/2 -translate-y-1/4 opacity-0 group-hover:opacity-100"
+              className="absolute h-4 w-4 bg-primary-500 rounded-full -translate-x-1/2 -translate-y-1/4 opacity-0 group-hover:opacity-100 transition-opacity"
               style={{ 
                 left: `${(playerState.currentTime / playerState.duration) * 100 || 0}%`,
                 top: '50%'
@@ -424,8 +724,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <div className="flex items-center space-x-4">
               {/* Play/Pause Button */}
               <button 
-                className="text-white hover:text-primary-400 transition-colors"
-                onClick={togglePlay}
+                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
+                onClick={() => togglePlay()}
                 aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
               >
                 {playerState.isPlaying ? (
@@ -437,7 +737,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               
               {/* Skip Backward */}
               <button 
-                className="text-white hover:text-primary-400 transition-colors"
+                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
                 onClick={() => skip(-10)}
                 aria-label="Rewind 10 seconds"
               >
@@ -446,7 +746,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               
               {/* Skip Forward */}
               <button 
-                className="text-white hover:text-primary-400 transition-colors"
+                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
                 onClick={() => skip(10)}
                 aria-label="Fast forward 10 seconds"
               >
@@ -454,10 +754,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </button>
               
               {/* Volume Control */}
-              <div className="flex items-center">
+              <div className="relative flex items-center group">
                 <button 
-                  className="text-white hover:text-primary-400 transition-colors"
-                  onClick={toggleMute}
+                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
+                  onClick={() => toggleMute()}
+                  onMouseEnter={() => setShowVolumeSlider(true)}
                   aria-label={playerState.isMuted ? 'Unmute' : 'Mute'}
                 >
                   {playerState.isMuted || playerState.volume === 0 ? (
@@ -467,11 +768,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   )}
                 </button>
                 
-                <div className="relative w-16 h-1 bg-gray-600 mx-2 cursor-pointer hidden sm:block">
+                {/* Volume Slider - shown on hover */}
+                <div 
+                  className={`absolute bottom-full left-0 bg-gray-800/90 rounded px-3 py-2 mb-2 transition-all duration-200 
+                             group-hover:opacity-100 group-hover:translate-y-0 
+                             ${showVolumeSlider ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
+                  onMouseLeave={() => setShowVolumeSlider(false)}
+                >
                   <div 
-                    className="absolute h-full bg-white"
-                    style={{ width: `${playerState.isMuted ? 0 : playerState.volume * 100}%` }}
-                  ></div>
+                    ref={volumeBarRef}
+                    className="w-24 h-1.5 bg-gray-600 cursor-pointer rounded"
+                    onClick={handleVolumeClick}
+                  >
+                    <div 
+                      className="h-full bg-white rounded"
+                      style={{ width: `${playerState.isMuted ? 0 : playerState.volume * 100}%` }}
+                    ></div>
+                  </div>
                 </div>
               </div>
               
@@ -482,11 +795,43 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             
             {/* Right Side Controls */}
-            <div>
+            <div className="flex items-center space-x-3">
+              {/* Settings Button */}
+              <div className="relative">
+                <button 
+                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
+                  onClick={() => setShowSettings(!showSettings)}
+                  aria-label="Settings"
+                >
+                  <Cog6ToothIcon className="w-6 h-6" />
+                </button>
+                
+                {/* Settings Menu */}
+                {showSettings && (
+                  <div className="absolute bottom-full right-0 bg-gray-800/90 rounded py-2 mb-2 min-w-[120px] z-30">
+                    <div className="px-3 py-1 text-sm text-gray-300">Playback Speed</div>
+                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                      <button
+                        key={speed}
+                        className={`w-full text-left px-3 py-1 text-sm hover:bg-gray-700 ${
+                          playbackSpeed === speed ? 'text-primary-400' : 'text-white'
+                        }`}
+                        onClick={() => {
+                          setPlaybackSpeed(speed);
+                          setShowSettings(false);
+                        }}
+                      >
+                        {speed === 1 ? 'Normal' : `${speed}x`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
               {/* Fullscreen Toggle */}
               <button 
-                className="text-white hover:text-primary-400 transition-colors"
-                onClick={toggleFullscreen}
+                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
+                onClick={() => toggleFullscreen()}
                 aria-label={playerState.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
               >
                 {playerState.isFullscreen ? (

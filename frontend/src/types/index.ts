@@ -34,13 +34,7 @@ export interface DetailedMovie {
   country: string | null;
   imdb_id: string | null;
   awards: string | null;
-  torrents: Array<{
-    id: string;
-    quality: string;
-    sizes: [string, string];
-    url: string;
-    magnet: string;
-  }>;
+  torrents: Array<Torrent>;
   ratings: {
     imdb: string | null;
     imdbVotes: string | null;

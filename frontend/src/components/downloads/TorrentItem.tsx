@@ -25,6 +25,7 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
   onStatusChange 
 }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreamLoading, setIsStreamLoading] = useState(false);
 
   const router = useRouter();
 
@@ -89,6 +90,29 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
     }
   };
 
+  const handleStream = async () => {
+    try {
+      setIsStreamLoading(true);
+      
+      // Prioritize for streaming
+      await torrentsService.prioritizeForStreaming(torrent.id);
+      
+      // Navigate to the streaming page
+      router.push(`/streaming/${torrent.id}`);
+    } catch (error) {
+      console.error('Error preparing stream:', error);
+      toast.error('Failed to prepare streaming. Please try again.');
+      setIsStreamLoading(false);
+    }
+  };
+
+  const canStream = [
+    TorrentState.DOWNLOADING,
+    TorrentState.DOWNLOADING_METADATA,
+    TorrentState.FINISHED,
+    TorrentState.SEEDING
+  ].includes(torrent.state);
+
   return (
     <Card className="mb-4 overflow-visible">
       <CardContent className="p-4">
@@ -112,6 +136,7 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
               showValue={true}
               variant={getStateVariant(torrent.state)}
               className="mt-3 mb-2"
+              formatValue={(value) => `${Math.round(value)}%`}
             />
             
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-400 mt-2">
@@ -151,6 +176,20 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
           </div>
           
           <div className="flex space-x-2 mt-4 md:mt-0 md:ml-4">
+            {/* Play/Stream Button - Prioritized and improved */}
+            {canStream && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<PlayIcon className="w-4 h-4" />}
+                onClick={handleStream}
+                isLoading={isStreamLoading}
+              >
+                Stream Now
+              </Button>
+            )}
+            
+            {/* Pause/Resume Button */}
             {torrent.state === TorrentState.PAUSED ? (
               <Button
                 variant="primary"
@@ -174,21 +213,7 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
               </Button>
             ) : null}
 
-            {(torrent.state === TorrentState.DOWNLOADING || 
-              torrent.state === TorrentState.DOWNLOADING_METADATA ||
-              torrent.state === TorrentState.FINISHED || 
-              torrent.state === TorrentState.SEEDING) && (
-              <Button
-                variant="primary"
-                size="sm"
-                leftIcon={<PlayIcon className="w-4 h-4" />}
-                onClick={() => router.push(`/streaming/${torrent.id}`)}
-              >
-                Stream
-              </Button>
-            )}
-
-                        
+            {/* Stop Button */}
             {torrent.state !== TorrentState.STOPPED && 
             torrent.state !== TorrentState.FINISHED && 
             torrent.state !== TorrentState.ERROR && (
@@ -203,6 +228,7 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
               </Button>
             )}
             
+            {/* Remove Button */}
             <Button
               variant="danger"
               size="sm"

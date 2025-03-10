@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Dialog } from '@headlessui/react';
 import { 
   XMarkIcon, 
@@ -13,7 +14,9 @@ import {
   ArrowsUpDownIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  ArrowTopRightOnSquareIcon
+  ArrowTopRightOnSquareIcon,
+  ArrowDownTrayIcon,
+  PlayIcon
 } from '@heroicons/react/24/solid';
 import { 
   QuestionMarkCircleIcon, 
@@ -30,11 +33,12 @@ import Badge from '@/components/ui/Badge';
 import Progress from '@/components/ui/Progress';
 import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
-import { DetailedMovie } from '@/types';
+import { DetailedMovie, Torrent } from '@/types';
 import { 
   RottenTomatoesAudienceIcon,
   RottenTomatoesIcon
 } from '@/components/icons';
+import { handleStreamingStart } from '@/utils/streaming';
 
 interface MovieDetailsModalProps {
   isOpen: boolean;
@@ -49,6 +53,8 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
   movieId,
   onDownload
 }) => {
+  const router = useRouter();
+  const [streamingQuality, setStreamingQuality] = useState<string | null>(null);
   const [movie, setMovie] = useState<DetailedMovie | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +112,30 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
       setTimeout(() => {
         setDownloadQuality(null);
       }, 2000);
+    }
+  };
+
+  const handleStream = async (quality: string) => {
+    if (!movie) return;
+    
+    try {
+      setStreamingQuality(quality);
+      
+      // Start the download and navigate to streaming page
+      const torrentStatus = await handleStreamingStart({
+        movie_id: movie.link,
+        quality: quality as '720p' | '1080p' | '2160p'
+      });
+      
+      if (torrentStatus?.id) {
+        onClose(); // Close the modal before navigating
+        router.push(`/streaming/${torrentStatus.id}`);
+      }
+    } catch (error) {
+      console.error('Error starting stream:', error);
+      toast.error('Failed to start streaming. Please try again.');
+    } finally {
+      setStreamingQuality(null);
     }
   };
 
@@ -458,20 +488,31 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
               <div className="w-full md:w-1/3 flex-shrink-0">
                 {/* Download buttons */}
                 <div className="bg-gray-800/70 rounded-lg p-4 mb-6">
-                  <h3 className="text-lg font-semibold mb-3">Download Options</h3>
-                  <div className="space-y-2">
-                    {movie.torrents.map((torrent) => (
-                      <Button
-                        key={torrent.quality}
-                        variant={torrent.quality === '1080p' ? 'primary' : torrent.quality === '2160p' ? 'secondary' : 'outline'}
-                        size="sm"
-                        className="w-full flex justify-between items-center"
-                        onClick={() => handleDownload(torrent.quality)}
-                        isLoading={downloadQuality === torrent.quality}
-                      >
-                        <span>Download {torrent.quality}</span>
-                        <span className="text-xs opacity-80">{torrent.sizes[0]}</span>
-                      </Button>
+                  <h3 className="text-lg font-semibold mb-3">Watch Options</h3>
+                  <div className="space-y-3">
+                    {movie?.torrents.map((torrent: Torrent) => (
+                      <div key={torrent.quality} className="flex gap-2">
+                        <Button
+                          variant={torrent.quality === '1080p' ? 'primary' : torrent.quality === '2160p' ? 'secondary' : 'outline'}
+                          size="sm"
+                          className="flex-1"
+                          leftIcon={<ArrowDownTrayIcon className="w-4 h-4" />}
+                          onClick={() => handleDownload(torrent.quality)}
+                          isLoading={downloadQuality === torrent.quality}
+                        >
+                          Download {torrent.quality}
+                        </Button>
+                        <Button
+                          variant={torrent.quality === '1080p' ? 'primary' : torrent.quality === '2160p' ? 'secondary' : 'outline'}
+                          size="sm"
+                          className="flex-1"
+                          leftIcon={<PlayIcon className="w-4 h-4" />}
+                          onClick={() => handleStream(torrent.quality)}
+                          isLoading={streamingQuality === torrent.quality}
+                        >
+                          Stream {torrent.quality}
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 </div>

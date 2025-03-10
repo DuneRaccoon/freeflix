@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { Movie } from '@/types';
 import { Card, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
-import { StarIcon, EyeIcon } from '@heroicons/react/24/solid';
+import { StarIcon, EyeIcon, ArrowDownTrayIcon, PlayIcon } from '@heroicons/react/24/solid';
 import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import MovieDetailsModal from './MovieDetailsModal';
+import { handleStreamingStart } from '@/utils/streaming';
 
 interface MovieCardProps {
   movie: Movie;
@@ -15,6 +17,7 @@ interface MovieCardProps {
 }
 
 const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -39,6 +42,29 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
     } catch (error) {
       console.error('Error downloading movie:', error);
       toast.error('Failed to add movie to download queue');
+    } finally {
+      setTimeout(() => {
+        setLoading(null);
+      }, 2000);
+    }
+  };
+
+  // Handle stream button click
+  const handleStream = async (quality: string) => {
+    try {
+      setLoading(quality);
+      // Start the download and navigate to streaming page
+      const torrentStatus = await handleStreamingStart({
+        movie_id: movie.link,
+        quality: quality as '720p' | '1080p' | '2160p'
+      });
+      
+      if (torrentStatus?.id) {
+        router.push(`/streaming/${torrentStatus.id}`);
+      }
+    } catch (error) {
+      console.error('Error starting stream:', error);
+      toast.error('Failed to start streaming. Please try again.');
     } finally {
       setLoading(null);
     }
@@ -108,50 +134,57 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
           
           <div className="mt-2">
             {expanded ? (
-              <div className="grid grid-cols-2 gap-2 animate-slide-up">
-                {availableQualities.includes('720p') && (
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    isLoading={loading === '720p'}
-                    disabled={!!loading}
-                    onClick={() => handleDownload('720p')}
-                  >
-                    720p
-                  </Button>
-                )}
-                {availableQualities.includes('1080p') && (
-                  <Button 
-                    size="sm" 
-                    variant="primary"
-                    isLoading={loading === '1080p'}
-                    disabled={!!loading}
-                    onClick={() => handleDownload('1080p')}
-                  >
-                    1080p
-                  </Button>
-                )}
-                {availableQualities.includes('2160p') && (
-                  <Button 
-                    size="sm" 
-                    variant="secondary"
-                    isLoading={loading === '2160p'}
-                    disabled={!!loading}
-                    onClick={() => handleDownload('2160p')}
-                  >
-                    4K
-                  </Button>
-                )}
+              <div className="grid gap-2 animate-slide-up">
+                {availableQualities.map(quality => (
+                  <div key={quality} className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant={quality === '1080p' ? 'primary' : quality === '2160p' ? 'secondary' : 'outline'}
+                      className="flex-1"
+                      leftIcon={<ArrowDownTrayIcon className="w-4 h-4" />}
+                      isLoading={loading === `download-${quality}`}
+                      disabled={!!loading}
+                      onClick={() => handleDownload(quality)}
+                    >
+                      Download {quality}
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant={quality === '1080p' ? 'primary' : quality === '2160p' ? 'secondary' : 'outline'}
+                      className="flex-1"
+                      leftIcon={<PlayIcon className="w-4 h-4" />}
+                      isLoading={loading === `stream-${quality}`}
+                      disabled={!!loading}
+                      onClick={() => handleStream(quality)}
+                    >
+                      Stream {quality}
+                    </Button>
+                  </div>
+                ))}
               </div>
             ) : (
-              <Button 
-                size="sm" 
-                variant="ghost" 
-                className="w-full"
-                onClick={() => setExpanded(true)}
-              >
-                Download
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button 
+                  size="sm" 
+                  variant="ghost" 
+                  className="w-full"
+                  leftIcon={<ArrowDownTrayIcon className="w-4 h-4" />}
+                  onClick={() => setExpanded(true)}
+                >
+                  Download
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="primary" 
+                  className="w-full"
+                  leftIcon={<PlayIcon className="w-4 h-4" />}
+                  onClick={() => handleStream('1080p')}
+                  isLoading={loading === 'stream-1080p'}
+                  disabled={!!loading}
+                >
+                  Stream
+                </Button>
+              </div>
             )}
           </div>
         </CardContent>

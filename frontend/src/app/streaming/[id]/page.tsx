@@ -5,15 +5,19 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { torrentsService } from '@/services/torrents';
 import { streamingService } from '@/services/streaming';
-import { TorrentStatus, StreamingInfo } from '@/types';
+import { TorrentStatus, StreamingInfo, TorrentState } from '@/types';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import Button from '@/components/ui/Button';
+import Progress from '@/components/ui/Progress';
 import { 
   ArrowLeftIcon,
   InformationCircleIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  HomeIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import { formatBytes } from '@/utils/format';
+import { isStreamingReady } from '@/utils/streaming';
 
 export default function StreamingPage() {
   const { id } = useParams();
@@ -25,25 +29,49 @@ export default function StreamingPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isStreamReady, setIsStreamReady] = useState(false);
+  const [forceStreaming, setForceStreaming] = useState(false);
   const [showStreamingStats, setShowStreamingStats] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   
   // Check if torrent exists and get initial status
   useEffect(() => {
     const getTorrentStatus = async () => {
+      if (!torrentId) return;
+      
       try {
         setIsLoading(true);
         setError(null);
         
+        // Get torrent status
         const status = await torrentsService.getTorrentStatus(torrentId);
         setTorrentStatus(status);
         
-        // Check if streaming is possible
-        const isReady = await streamingService.checkStreamingReady(torrentId);
-        setIsStreamReady(isReady);
+        if (!status) {
+          setError('Torrent not found. It may have been deleted or never existed.');
+          setIsLoading(false);
+          return;
+        }
         
-        if (isReady) {
-          const info = await streamingService.getStreamingInfo(torrentId);
-          setStreamingInfo(info);
+        // Prioritize for streaming if not already
+        await torrentsService.prioritizeForStreaming(torrentId);
+        
+        // Check if streaming is possible
+        const readyToStream = await isStreamingReady(torrentId) || forceStreaming;
+        setIsStreamReady(readyToStream);
+        
+        if (readyToStream) {
+          try {
+            const info = await streamingService.getStreamingInfo(torrentId);
+            setStreamingInfo(info);
+          } catch (err) {
+            console.error('Error fetching streaming info:', err);
+            // Don't set error yet, we'll retry
+            if (retryCount < 3) {
+              setRetryCount(prev => prev + 1);
+            } else {
+              setError('Failed to get streaming information. The file may not be ready yet.');
+            }
+          }
         }
       } catch (err) {
         console.error('Error loading torrent for streaming:', err);
@@ -57,23 +85,36 @@ export default function StreamingPage() {
     
     // Set up interval to refresh status
     const interval = setInterval(async () => {
+      if (!torrentId) return;
+      
       try {
+        // Get updated torrent status
         const status = await torrentsService.getTorrentStatus(torrentId);
         setTorrentStatus(status);
         
+        if (!status) return;
+        
         // Check streaming status if not ready yet
-        if (!isStreamReady) {
-          const isReady = await streamingService.checkStreamingReady(torrentId);
-          setIsStreamReady(isReady);
+        if (!isStreamReady && !forceStreaming) {
+          const readyToStream = await isStreamingReady(torrentId);
+          setIsStreamReady(readyToStream);
           
-          if (isReady) {
-            const info = await streamingService.getStreamingInfo(torrentId);
-            setStreamingInfo(info);
+          if (readyToStream) {
+            try {
+              const info = await streamingService.getStreamingInfo(torrentId);
+              setStreamingInfo(info);
+            } catch (err) {
+              console.error('Error fetching streaming info during retry:', err);
+            }
           }
         } else if (streamingInfo) {
           // Update streaming info if already streaming
-          const info = await streamingService.getStreamingInfo(torrentId);
-          setStreamingInfo(info);
+          try {
+            const info = await streamingService.getStreamingInfo(torrentId);
+            setStreamingInfo(info);
+          } catch (err) {
+            console.error('Error updating streaming info:', err);
+          }
         }
       } catch (err) {
         console.error('Error updating torrent status:', err);
@@ -81,16 +122,65 @@ export default function StreamingPage() {
     }, 5000);
     
     return () => clearInterval(interval);
-  }, [torrentId, isStreamReady]);
+  }, [torrentId, isStreamReady, forceStreaming, retryCount]);
   
   const handleBackClick = () => {
     router.push('/downloads');
+  };
+  
+  const handleHomeClick = () => {
+    router.push('/');
   };
   
   const toggleStreamingStats = () => {
     setShowStreamingStats(!showStreamingStats);
   };
   
+  const handleForceStreaming = async () => {
+    try {
+      setIsLoading(true);
+      setForceStreaming(true);
+      
+      await torrentsService.prioritizeForStreaming(torrentId);
+      
+      const info = await streamingService.getStreamingInfo(torrentId);
+      setStreamingInfo(info);
+      setIsStreamReady(true);
+      setError(null);
+    } catch (err) {
+      console.error('Error forcing stream start:', err);
+      setError('Failed to start streaming. The file may not be ready yet.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const handleRefresh = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      await torrentsService.prioritizeForStreaming(torrentId);
+      
+      const status = await torrentsService.getTorrentStatus(torrentId);
+      setTorrentStatus(status);
+      
+      if (status) {
+        const info = await streamingService.getStreamingInfo(torrentId);
+        setStreamingInfo(info);
+        setIsStreamReady(true);
+      } else {
+        setError('Torrent not found. It may have been deleted or never existed.');
+      }
+    } catch (err) {
+      console.error('Error refreshing stream:', err);
+      setError('Failed to refresh streaming data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Get the streaming URL if info is available
   const streamingUrl = streamingInfo ? 
     streamingService.getStreamingUrl(torrentId) : '';
   
@@ -99,7 +189,8 @@ export default function StreamingPage() {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-900">
         <div className="animate-spin w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full mb-4"></div>
-        <h2 className="text-xl font-semibold text-white">Loading movie...</h2>
+        <h2 className="text-xl font-semibold text-white mb-2">Loading movie...</h2>
+        <p className="text-gray-400">Preparing your streaming experience</p>
       </div>
     );
   }
@@ -110,27 +201,36 @@ export default function StreamingPage() {
       <div className="h-screen flex flex-col items-center justify-center bg-gray-900 p-4">
         <ExclamationTriangleIcon className="w-16 h-16 text-red-500 mb-4" />
         <h2 className="text-xl font-semibold text-white mb-2">Unable to Stream Movie</h2>
-        <p className="text-gray-300 text-center mb-6">{error || 'Movie not found. It may have been deleted or never existed.'}</p>
-        <Button 
-          variant="primary" 
-          leftIcon={<ArrowLeftIcon className="w-5 h-5" />}
-          onClick={handleBackClick}
-        >
-          Back to Downloads
-        </Button>
+        <p className="text-gray-300 text-center mb-6 max-w-md">{error || 'Movie not found. It may have been deleted or never existed.'}</p>
+        <div className="flex gap-4">
+          <Button 
+            variant="outline" 
+            leftIcon={<ArrowPathIcon className="w-5 h-5" />}
+            onClick={handleRefresh}
+          >
+            Try Again
+          </Button>
+          <Button 
+            variant="primary" 
+            leftIcon={<ArrowLeftIcon className="w-5 h-5" />}
+            onClick={handleBackClick}
+          >
+            Back to Downloads
+          </Button>
+        </div>
       </div>
     );
   }
   
   // Not ready for streaming yet
-  if (!isStreamReady) {
+  if (!isStreamReady && !forceStreaming) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-900 p-4">
         <div className="max-w-md w-full bg-gray-800 rounded-lg p-6 shadow-lg">
           <h2 className="text-xl font-semibold text-white mb-4">Preparing for Streaming...</h2>
           <p className="text-gray-300 mb-6">
             We're downloading the beginning of "{torrentStatus.movie_title}" so you can start watching.
-            This may take a few moments depending on your connection.
+            This may take a few moments depending on your connection speed. We will begin streaming at 5% downloaded.
           </p>
           
           <div className="mb-4">
@@ -138,46 +238,59 @@ export default function StreamingPage() {
               <span>Download Progress</span>
               <span>{Math.round(torrentStatus.progress)}%</span>
             </div>
-            <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-primary-500 transition-all duration-300"
-                style={{ width: `${torrentStatus.progress}%` }}
-              ></div>
+            <Progress
+              value={torrentStatus.progress}
+              max={100}
+              variant="primary"
+              className="mb-2"
+            />
+          </div>
+          
+          <div className="flex flex-col sm:flex-row gap-2 justify-between items-center text-sm text-gray-400 mb-6">
+            <div className="flex flex-col w-full sm:w-auto">
+              <span>Download Speed</span>
+              <span className="font-medium text-white">{torrentStatus.download_rate.toFixed(2)} KB/s</span>
+            </div>
+            <div className="flex flex-col w-full sm:w-auto">
+              <span>Connected Peers</span>
+              <span className="font-medium text-white">{torrentStatus.num_peers}</span>
+            </div>
+            <div className="flex flex-col w-full sm:w-auto">
+              <span>Estimated Wait</span>
+              <span className="font-medium text-white">
+                {torrentStatus.progress < 2 ? 'Calculating...' : 
+                  torrentStatus.progress >= 5 ? 'Ready Soon' : 
+                  'Less than a minute'}
+              </span>
             </div>
           </div>
           
-          <div className="flex justify-between items-center text-sm text-gray-400 mb-4">
-            <span>Download Speed</span>
-            <span>{torrentStatus.download_rate.toFixed(2)} KB/s</span>
-          </div>
-          
-          <div className="flex justify-between">
+          <div className="flex flex-col sm:flex-row gap-3 justify-between">
             <Button 
               variant="outline" 
               leftIcon={<ArrowLeftIcon className="w-5 h-5" />}
               onClick={handleBackClick}
+              className="order-2 sm:order-1"
             >
               Back to Downloads
             </Button>
             
             <Button 
               variant="primary"
-              onClick={async () => {
-                try {
-                  setIsLoading(true);
-                  setIsStreamReady(true);
-                  const info = await streamingService.getStreamingInfo(torrentId);
-                  setStreamingInfo(info);
-                  setIsLoading(false);
-                } catch (err) {
-                  console.error('Error forcing stream start:', err);
-                  setError('Failed to start streaming. The file may not be ready yet.');
-                  setIsLoading(false);
-                }
-              }}
+              onClick={handleForceStreaming}
+              className="order-1 sm:order-2"
             >
               Start Anyway
             </Button>
+          </div>
+          
+          <div className="mt-4 text-center">
+            <button 
+              className="text-primary-400 hover:text-primary-300 text-sm"
+              onClick={handleHomeClick}
+            >
+              Return to Home Page
+            </button>
           </div>
         </div>
       </div>
@@ -212,7 +325,7 @@ export default function StreamingPage() {
       
       {/* Player Area */}
       <div className="flex-grow relative overflow-hidden">
-        {streamingInfo && streamingUrl && (
+        {streamingInfo && streamingUrl ? (
           <VideoPlayer 
             src={streamingUrl}
             movieTitle={torrentStatus.movie_title}
@@ -220,16 +333,23 @@ export default function StreamingPage() {
             autoPlay={true}
             onError={(error) => setError(error)}
           />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-black">
+            <div className="text-center">
+              <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p className="text-white">Loading video player...</p>
+            </div>
+          </div>
         )}
       </div>
       
       {/* Streaming Stats Overlay */}
       {showStreamingStats && streamingInfo && (
-        <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-4 text-white">
+        <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-4 text-white z-10">
           <h3 className="text-lg font-semibold mb-2">Streaming Statistics</h3>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2">
             <div>
-              <span className="text-gray-400">Overall Download:</span>
+              <span className="text-gray-400">Overall Progress:</span>
               <span className="ml-2">{Math.round(torrentStatus.progress)}%</span>
             </div>
             <div>
@@ -249,8 +369,24 @@ export default function StreamingPage() {
               <span className="ml-2">{formatBytes(streamingInfo.video_file.downloaded)}</span>
             </div>
             <div>
-              <span className="text-gray-400">Peers:</span>
+              <span className="text-gray-400">Connected Peers:</span>
               <span className="ml-2">{torrentStatus.num_peers}</span>
+            </div>
+            <div>
+              <span className="text-gray-400">State:</span>
+              <span className="ml-2">{torrentStatus.state}</span>
+            </div>
+            <div>
+              <span className="text-gray-400">Progress Rate:</span>
+              <span className="ml-2">
+                {torrentStatus.download_rate > 0 
+                  ? `~${(torrentStatus.download_rate / streamingInfo.video_file.size * 100).toFixed(2)}%/s`
+                  : 'N/A'}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-400">Format:</span>
+              <span className="ml-2">{streamingInfo.video_file.mime_type.split('/')[1].toUpperCase()}</span>
             </div>
           </div>
         </div>

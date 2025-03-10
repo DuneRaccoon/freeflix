@@ -23,7 +23,7 @@ export const torrentsService = {
   },
 
   // Perform action on torrent (pause, resume, stop, remove)
-  performTorrentAction: async (torrentId: string, action: TorrentAction): Promise<any> => {
+  performTorrentAction: async (torrentId: string, action: string): Promise<any> => {
     const response = await apiClient.post(`/torrents/action/${torrentId}`, { action });
     return response.data;
   },
@@ -34,5 +34,19 @@ export const torrentsService = {
       params: { delete_files: deleteFiles }
     });
     return response.data;
+  },
+  
+  // Prioritize torrent for streaming (new function)
+  prioritizeForStreaming: async (torrentId?: string | null): Promise<boolean> => {
+    if (!torrentId) return false;
+    try {
+      const response = await apiClient.post(`/torrents/${torrentId}/prioritize`, {
+        for_streaming: true
+      });
+      return response.data.success || false;
+    } catch (error) {
+      console.error('Error prioritizing torrent for streaming:', error);
+      return false;
+    }
   }
 };

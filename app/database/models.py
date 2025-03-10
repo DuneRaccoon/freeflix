@@ -35,6 +35,7 @@ class Torrent(Model):
     
     # Relationships
     download_logs = relationship("TorrentLog", back_populates="torrent", cascade="all, delete-orphan")
+    movie_cache = relationship("MovieCache", back_populates="torrent", uselist=False)
     
     def to_status(self) -> TorrentStatus:
         """Convert database Torrent model to TorrentStatus Pydantic model."""

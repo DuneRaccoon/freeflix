@@ -30,6 +30,11 @@ export const moviesService = {
     return response.data;
   },
 
+  getMovieDetailsByTitle: async (title: string): Promise<any> => {
+    const response = await apiClient.get(`/movies/details`, { params: { title } });
+    return response.data;
+  },
+
   // Get latest movies
   getLatestMovies: async (
     limit: number = 10, 

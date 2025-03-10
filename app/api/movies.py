@@ -130,7 +130,8 @@ async def get_top_rated(
 
 @router.get("/details", response_model=DetailedMovie, summary="Get detailed movie information")
 async def get_movie_details(
-    movie_id: str = Query(None, description="ID or URL of the movie"),
+    movie_id: Optional[str] = Query(None, description="ID or URL of the movie"),
+    title: Optional[str] = Query(None, description="Title of the movie"),
     db: Session = Depends(get_db)
 ):
     """
@@ -140,17 +141,26 @@ async def get_movie_details(
     The data is cached in the database to improve performance and reduce external API calls.
     """
     try:
+        if movie_id is None and title is None:
+            raise HTTPException(status_code=400, detail="Missing movie ID or title")
+        
         with db as session:
-            # Check if movie_id is a URL or an ID
-            is_url = movie_id.startswith('http')
+            is_url = False
             
-            # Try to get from cache first
-            movie_cache = None
-            if is_url:
-                movie_cache = MovieCache.get_with_extended_data(session, movie_id)
-            else:
-                movie_cache = session.query(MovieCache).filter(MovieCache.id == movie_id).first()
+            if movie_id:
+                # Check if movie_id is a URL or an ID
+                is_url = movie_id.startswith('http')
                 
+                # Try to get from cache first
+                movie_cache = None
+                if is_url:
+                    movie_cache = MovieCache.get_with_extended_data(session, movie_id)
+                else:
+                    movie_cache = session.query(MovieCache).filter(MovieCache.id == movie_id).first()   
+            else:
+                # Search for the movie by title
+                movie_cache = session.query(MovieCache).filter(MovieCache.title == title).first()
+                    
             # If not in cache or external data not fetched, get basic movie info first
             if not movie_cache:
                 if is_url:

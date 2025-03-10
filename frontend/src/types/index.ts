@@ -18,6 +18,69 @@ export interface Movie {
   torrents: Torrent[];
 }
 
+
+export interface DetailedMovie {
+  id: string;
+  title: string;
+  year: number;
+  rating: string;
+  link: string;
+  genre: string;
+  img: string;
+  description: string | null;
+  plot: string | null;
+  runtime: string | null;
+  language: string | null;
+  country: string | null;
+  imdb_id: string | null;
+  awards: string | null;
+  torrents: Array<{
+    id: string;
+    quality: string;
+    sizes: [string, string];
+    url: string;
+    magnet: string;
+  }>;
+  ratings: {
+    imdb: string | null;
+    imdbVotes: string | null;
+    rottenTomatoes: string | null;
+    rottenTomatoesCount: number | null;
+    rottenTomatoesAudience: string | null;
+    rottenTomatoesAudienceCount: number | null;
+    metacritic: string | null;
+    metacriticCount: number | null;
+  };
+  credits: {
+    director: string | null;
+    cast: Array<{
+      name: string;
+      character: string | null;
+      image: string | null;
+    }>;
+  };
+  media: {
+    poster: string;
+    backdrop: string | null;
+    trailer: string | null;
+  };
+  reviews: Array<{
+    source: string;
+    author: string | null;
+    content: string;
+    rating: string | null;
+    url: string | null;
+    date: string | null;
+  }>;
+  related_movies: Array<{
+    title: string;
+    url: string;
+    image: string | null;
+    critic_score: number | null;
+    audience_score: number | null;
+  }>;
+}
+
 // --- Torrent Status Types ---
 export enum TorrentState {
   QUEUED = "queued",

@@ -39,12 +39,11 @@ export const handleStreamingStart = async (
  */
 export const isStreamingReady = async (
   torrentId: string,
-  minimumProgress: number = 2
+  minimumProgress: number = 5
 ): Promise<boolean> => {
   try {
     const status = await torrentsService.getTorrentStatus(torrentId);
     
-    // If the status doesn't exist, it's not ready
     if (!status) return false;
     
     // Check if the torrent is in a playable state

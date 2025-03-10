@@ -56,3 +56,182 @@ body {
   transition-duration: 0.15s;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Add these animations to your globals.css */
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes scaleIn {
+  0% { transform: scale(0.9); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes slideUp {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideDown {
+  0% { transform: translateY(-20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideInRight {
+  0% { transform: translateX(20px); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  0% { transform: translateX(-20px); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.98); }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(255, 230, 100, 0.6)); }
+  50% { filter: drop-shadow(0 0 10px rgba(255, 230, 100, 0.8)); }
+}
+
+/* Custom utility classes */
+.animate-fade-in {
+  animation: fadeIn 0.7s ease-in-out forwards;
+}
+
+.animate-fade-out {
+  animation: fadeOut 0.7s ease-in-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.7s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.7s ease-out forwards;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.7s ease-out forwards;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.7s ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.7s ease-out forwards;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+.animate-wiggle {
+  animation: wiggle 2s cubic-bezier(0.36, 0.07, 0.19, 0.97) infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Scene transition effects */
+.scene-enter {
+  opacity: 0;
+  transform: scale(0.9) translateY(10px);
+}
+
+.scene-enter-active {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  transition: opacity 600ms, transform 600ms;
+}
+
+.scene-exit {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+.scene-exit-active {
+  opacity: 0;
+  transform: scale(0.9) translateY(-10px);
+  transition: opacity 600ms, transform 600ms;
+}
+
+/* Theater environment effects */
+.theater-shadow {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3),
+              0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+.cinema-glow {
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8);
+}
+
+/* Film grain overlay */
+.film-grain {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 99;
+  pointer-events: none;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='512' height='512' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+}
+
+/* Movie screen with subtle glow */
+.movie-screen {
+  border-radius: 8px;
+  background: #1a202c;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1), 
+              inset 0 0 30px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  position: relative;
+}
+
+.movie-screen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(to right, 
+    rgba(255, 255, 255, 0), 
+    rgba(255, 255, 255, 0.2), 
+    rgba(255, 255, 255, 0));
+  animation: slideInRight 2s infinite;
+}
+
+/* Smooth transitions for all elements */
+* {
+  transition-property: opacity, transform, background-color, color, box-shadow;
+  transition-duration: 0.3s;
+  transition-timing-function: ease-in-out;
+}

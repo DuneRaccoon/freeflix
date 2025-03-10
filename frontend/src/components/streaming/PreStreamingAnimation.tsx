@@ -5,6 +5,7 @@ import { DetailedMovie } from '@/types/index';
 import { 
   ArrowLeftIcon,
   PlayIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import {
   PopcornAnimation,
@@ -80,15 +81,19 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
   estimatedTimeSeconds = 60,
 }) => {
   const [currentScene, setCurrentScene] = useState<AnimationScene>('popcorn');
+  const [previousScene, setPreviousScene] = useState<AnimationScene | null>(null);
   const [message, setMessage] = useState(LOADING_MESSAGES[0]);
+  const [prevMessage, setPrevMessage] = useState("");
   const [movie, setMovie] = useState<DetailedMovie | null>(null);
   const [fact, setFact] = useState(MOVIE_FACTS[0]);
+  const [prevFact, setPrevFact] = useState("");
   const [showFact, setShowFact] = useState(false);
   const sceneTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const factTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const initialLoadTimeRef = useRef<number>(Date.now());
   const [countdown, setCountdown] = useState(5);
+  const [isSceneTransitioning, setIsSceneTransitioning] = useState(false);
   
   // Rotate between scenes
   useEffect(() => {
@@ -96,20 +101,30 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
     let currentIndex = sceneSequence.indexOf(currentScene);
     
     const rotateScene = () => {
-      currentIndex = (currentIndex + 1) % sceneSequence.length;
-      setCurrentScene(sceneSequence[currentIndex]);
+      setIsSceneTransitioning(true);
+      setPreviousScene(currentScene);
       
-      // Show facts during the trivia scene
-      if (sceneSequence[currentIndex] === 'trivia') {
-        setShowFact(true);
-      } else {
-        setShowFact(false);
-      }
-      
-      // Start countdown during the countdown scene
-      if (sceneSequence[currentIndex] === 'countdown') {
-        setCountdown(5);
-      }
+      // Short delay before changing to the new scene
+      setTimeout(() => {
+        currentIndex = (currentIndex + 1) % sceneSequence.length;
+        setCurrentScene(sceneSequence[currentIndex]);
+        
+        // Show facts during the trivia scene
+        if (sceneSequence[currentIndex] === 'trivia') {
+          setShowFact(true);
+        } else {
+          setShowFact(false);
+        }
+        
+        // Start countdown during the countdown scene
+        if (sceneSequence[currentIndex] === 'countdown') {
+          setCountdown(5);
+        }
+        
+        setTimeout(() => {
+          setIsSceneTransitioning(false);
+        }, 300);
+      }, 700); // Transition out time before changing scene
     };
     
     sceneTimeoutRef.current = setTimeout(rotateScene, 6000);
@@ -124,8 +139,24 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
   // Rotate loading messages
   useEffect(() => {
     const rotateMessage = () => {
-      const randomIndex = Math.floor(Math.random() * LOADING_MESSAGES.length);
-      setMessage(LOADING_MESSAGES[randomIndex]);
+      setPrevMessage(message);
+      
+      // Fade out current message
+      const messageElement = document.getElementById('loading-message');
+      if (messageElement) {
+        messageElement.classList.add('opacity-0', 'translate-y-4');
+      }
+      
+      // After short delay, change message and fade in
+      setTimeout(() => {
+        const randomIndex = Math.floor(Math.random() * LOADING_MESSAGES.length);
+        const newMessage = LOADING_MESSAGES[randomIndex];
+        setMessage(newMessage);
+        
+        if (messageElement) {
+          messageElement.classList.remove('opacity-0', 'translate-y-4');
+        }
+      }, 500);
     };
     
     messageTimeoutRef.current = setTimeout(rotateMessage, 4000);
@@ -141,8 +172,24 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
   useEffect(() => {
     if (showFact) {
       const rotateFact = () => {
-        const randomIndex = Math.floor(Math.random() * MOVIE_FACTS.length);
-        setFact(MOVIE_FACTS[randomIndex]);
+        setPrevFact(fact);
+        
+        // Fade out current fact
+        const factElement = document.getElementById('movie-fact');
+        if (factElement) {
+          factElement.classList.add('opacity-0', 'translate-y-4');
+        }
+        
+        // After short delay, change fact and fade in
+        setTimeout(() => {
+          const randomIndex = Math.floor(Math.random() * MOVIE_FACTS.length);
+          const newFact = MOVIE_FACTS[randomIndex];
+          setFact(newFact);
+          
+          if (factElement) {
+            factElement.classList.remove('opacity-0', 'translate-y-4');
+          }
+        }, 500);
       };
       
       factTimeoutRef.current = setTimeout(rotateFact, 8000);
@@ -182,23 +229,35 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
   // Calculate realistic percent loaded for progress bar animation
   const percentLoaded = progress >= 5 ? progress : Math.min(progress + (timeElapsed / 10), 5);
   
+  // Get scene transition classes
+  const getSceneClasses = (sceneName: AnimationScene) => {
+    if (isSceneTransitioning && currentScene === sceneName) {
+      return 'opacity-0 transform scale-95 translate-y-4';
+    }
+    if (!isSceneTransitioning && currentScene === sceneName) {
+      return 'opacity-100 transform scale-100 translate-y-0';
+    }
+    return 'opacity-0 absolute transform scale-90 translate-y-8 pointer-events-none';
+  };
+  
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black overflow-hidden">
-      <div className="relative w-full max-w-4xl mx-auto">
-        {/* Cinema Screen Background */}
-        <div className="relative h-[70vh] overflow-hidden bg-gray-900 rounded-t-xl border-x-8 border-t-8 border-gray-800">
-          {/* Back Button */}
+    <div className="fixed inset-0 w-screen h-screen flex items-center justify-center bg-black z-50">
+      <div className="relative w-full h-full">
+        {/* Cinema Screen Background - Full viewport */}
+        <div className="absolute inset-0 overflow-hidden bg-gray-900 border-x-8 border-t-8 border-gray-800 rounded-t-xl">
+          {/* Close Button */}
           <button 
             onClick={onBack}
-            className="absolute top-4 left-4 z-50 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+            className="absolute top-4 right-4 z-50 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+            aria-label="Close"
           >
-            <ArrowLeftIcon className="w-5 h-5" />
+            <XMarkIcon className="w-6 h-6" />
           </button>
           
           {/* Start Anyway Button */}
           <button 
             onClick={onStartAnyway}
-            className="absolute top-4 right-4 z-50 bg-primary-600 text-white px-4 py-2 rounded-full hover:bg-primary-700 transition-colors flex items-center"
+            className="absolute top-4 right-16 z-50 bg-primary-600 text-white px-4 py-2 rounded-full hover:bg-primary-700 transition-colors flex items-center"
           >
             <PlayIcon className="w-5 h-5 mr-1" />
             Start Now
@@ -219,77 +278,126 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
           
           {/* Animation Container */}
           <div className="relative h-full flex flex-col items-center justify-center z-10 p-8">
-            {/* Movie Title */}
-            <h1 className="text-3xl md:text-4xl font-bold text-white text-center mb-8 tracking-wide">
+            {/* Movie Title with animation */}
+            <h1 className="text-3xl md:text-4xl font-bold text-white text-center mb-8 tracking-wide animate-fade-in">
               {movieTitle}
             </h1>
             
             {/* Animation Area */}
             <div className="w-full max-w-lg h-64 relative mx-auto">
-              {/* Different Animation Scenes */}
-              {currentScene === 'popcorn' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              {/* Different Animation Scenes with enhanced transitions */}
+              <div 
+                className={`absolute inset-0 flex flex-col items-center justify-center text-center transition-all duration-700 ease-in-out ${getSceneClasses('popcorn')}`}
+              >
+                <div className="transform transition-transform duration-1000 hover:scale-110">
                   <PopcornAnimation />
-                  <h2 className="text-2xl font-semibold text-white mt-6 mb-2">Getting Your Snacks Ready</h2>
-                  <p className="text-gray-300">{message}</p>
                 </div>
-              )}
+                <h2 className="text-2xl font-semibold text-white mt-6 mb-2 transition-all duration-500">
+                  Getting Your Snacks Ready
+                </h2>
+                <p 
+                  id="loading-message"
+                  className="text-gray-300 transition-all duration-500 ease-in-out"
+                >
+                  {message}
+                </p>
+              </div>
               
-              {currentScene === 'tickets' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <div 
+                className={`absolute inset-0 flex flex-col items-center justify-center text-center transition-all duration-700 ease-in-out ${getSceneClasses('tickets')}`}
+              >
+                <div className="transform transition-transform duration-1000 hover:scale-110">
                   <TicketsAnimation />
-                  <h2 className="text-2xl font-semibold text-white mt-6 mb-2">Checking Your Tickets</h2>
-                  <p className="text-gray-300">{message}</p>
                 </div>
-              )}
+                <h2 className="text-2xl font-semibold text-white mt-6 mb-2 transition-all duration-500">
+                  Checking Your Tickets
+                </h2>
+                <p 
+                  id="loading-message"
+                  className="text-gray-300 transition-all duration-500 ease-in-out"
+                >
+                  {message}
+                </p>
+              </div>
               
-              {currentScene === 'seats' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <div 
+                className={`absolute inset-0 flex flex-col items-center justify-center text-center transition-all duration-700 ease-in-out ${getSceneClasses('seats')}`}
+              >
+                <div className="transform transition-transform duration-1000 hover:scale-110">
                   <TheaterSeatsAnimation />
-                  <h2 className="text-2xl font-semibold text-white mt-6 mb-2">Finding Perfect Seats</h2>
-                  <p className="text-gray-300">{message}</p>
                 </div>
-              )}
+                <h2 className="text-2xl font-semibold text-white mt-6 mb-2 transition-all duration-500">
+                  Finding Perfect Seats
+                </h2>
+                <p 
+                  id="loading-message"
+                  className="text-gray-300 transition-all duration-500 ease-in-out"
+                >
+                  {message}
+                </p>
+              </div>
               
-              {currentScene === 'lights' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <div 
+                className={`absolute inset-0 flex flex-col items-center justify-center text-center transition-all duration-700 ease-in-out ${getSceneClasses('lights')}`}
+              >
+                <div className="transform transition-transform duration-1000 hover:scale-110">
                   <TheaterLightsAnimation />
-                  <h2 className="text-2xl font-semibold text-white mt-6 mb-2">Dimming The Lights</h2>
-                  <p className="text-gray-300">{message}</p>
                 </div>
-              )}
+                <h2 className="text-2xl font-semibold text-white mt-6 mb-2 transition-all duration-500">
+                  Dimming The Lights
+                </h2>
+                <p 
+                  id="loading-message"
+                  className="text-gray-300 transition-all duration-500 ease-in-out"
+                >
+                  {message}
+                </p>
+              </div>
               
-              {currentScene === 'trivia' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center max-w-md mx-auto">
+              <div 
+                className={`absolute inset-0 flex flex-col items-center justify-center text-center max-w-md mx-auto transition-all duration-700 ease-in-out ${getSceneClasses('trivia')}`}
+              >
+                <div className="transform transition-transform duration-1000 hover:scale-110">
                   <TriviaAnimation />
-                  <h2 className="text-2xl font-semibold text-white mt-6 mb-2">Movie Trivia</h2>
-                  <p className="text-gray-300 text-sm">{fact}</p>
                 </div>
-              )}
+                <h2 className="text-2xl font-semibold text-white mt-6 mb-2 transition-all duration-500">
+                  Movie Trivia
+                </h2>
+                <p 
+                  id="movie-fact"
+                  className="text-gray-300 text-sm transition-all duration-500 ease-in-out"
+                >
+                  {fact}
+                </p>
+              </div>
               
-              {currentScene === 'countdown' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <div className="relative h-32 w-32 flex items-center justify-center">
-                    <div className="absolute inset-0 border-4 border-primary-500 rounded-full opacity-30"></div>
-                    <div 
-                      className="absolute inset-0 border-4 border-primary-500 rounded-full opacity-80"
-                      style={{
-                        clipPath: `polygon(50% 50%, 50% 0%, ${50 + 50 * Math.sin((countdown/5) * Math.PI * 2)}% ${50 - 50 * Math.cos((countdown/5) * Math.PI * 2)}%, 50% 50%)`
-                      }}
-                    ></div>
-                    <span className="text-6xl font-bold text-primary-500">{countdown}</span>
-                  </div>
-                  <h2 className="text-2xl font-semibold text-white mt-6 mb-2">Starting Soon!</h2>
-                  <p className="text-gray-300">Get ready for your movie...</p>
+              <div 
+                className={`absolute inset-0 flex flex-col items-center justify-center text-center transition-all duration-700 ease-in-out ${getSceneClasses('countdown')}`}
+              >
+                <div className="relative h-32 w-32 flex items-center justify-center transition-transform duration-1000 transform hover:scale-110">
+                  <div className="absolute inset-0 border-4 border-primary-500 rounded-full opacity-30"></div>
+                  <div 
+                    className="absolute inset-0 border-4 border-primary-500 rounded-full opacity-80 transition-all duration-300"
+                    style={{
+                      clipPath: `polygon(50% 50%, 50% 0%, ${50 + 50 * Math.sin((countdown/5) * Math.PI * 2)}% ${50 - 50 * Math.cos((countdown/5) * Math.PI * 2)}%, 50% 50%)`
+                    }}
+                  ></div>
+                  <span className="text-6xl font-bold text-primary-500 transition-all duration-300 transform scale-100">{countdown}</span>
                 </div>
-              )}
+                <h2 className="text-2xl font-semibold text-white mt-6 mb-2 transition-all duration-500">
+                  Starting Soon!
+                </h2>
+                <p id="loading-message" className="text-gray-300 transition-all duration-500 ease-in-out">
+                  Get ready for your movie...
+                </p>
+              </div>
             </div>
             
             {/* Progress Bar Styled as Film Strip */}
             <div className="w-full max-w-md mt-12 relative">
               <div className="flex justify-between text-sm text-gray-400 mb-1">
-                <span>Preparing your stream...</span>
-                <span>{Math.round(progress)}%</span>
+                <span className="transition-all duration-300 ease-in-out">Preparing your stream...</span>
+                <span className="transition-all duration-300 ease-in-out">{Math.round(progress)}%</span>
               </div>
               
               <div className="relative h-6 bg-gray-800 rounded-md overflow-hidden">
@@ -300,44 +408,37 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
                   ))}
                 </div>
                 
-                {/* Actual Progress */}
+                {/* Actual Progress with smooth animation */}
                 <div 
-                  className="absolute inset-y-0 left-0 bg-primary-600 transition-all duration-300 ease-out"
+                  className="absolute inset-y-0 left-0 bg-primary-600 transition-all duration-700 ease-out"
                   style={{ width: `${percentLoaded}%` }}
                 />
               </div>
               
-              {/* Loading Stats */}
+              {/* Loading Stats with fade-in animations */}
               <div className="flex flex-wrap justify-between mt-3 text-xs text-gray-400">
-                <div>
+                <div className="transition-all duration-500 ease-in-out hover:text-white">
                   <span className="block text-gray-500">Download Speed</span>
                   <span className="text-white">{downloadSpeed.toFixed(2)} KB/s</span>
                 </div>
-                <div>
+                <div className="transition-all duration-500 ease-in-out hover:text-white">
                   <span className="block text-gray-500">Peers</span>
                   <span className="text-white">{numPeers}</span>
                 </div>
-                <div>
+                <div className="transition-all duration-500 ease-in-out hover:text-white">
                   <span className="block text-gray-500">Estimated Wait</span>
                   <span className="text-white">{formatTimeRemaining()}</span>
                 </div>
               </div>
             </div>
             
-            {/* Control Buttons */}
-            <div className="mt-10 flex gap-4">
-              <Button 
-                variant="outline" 
-                leftIcon={<ArrowLeftIcon className="w-5 h-5" />}
-                onClick={onBack}
-              >
-                Back to Downloads
-              </Button>
-              
+            {/* Control Button */}
+            <div className="mt-10">
               <Button 
                 variant="primary"
                 leftIcon={<PlayIcon className="w-5 h-5" />}
                 onClick={onStartAnyway}
+                className="animate-pulse hover:scale-105 transition-transform duration-300"
               >
                 Start Anyway
               </Button>
@@ -346,7 +447,7 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
         </div>
         
         {/* Cinema Seats (Decorative) */}
-        <div className="h-20 bg-gray-800 rounded-b-xl relative overflow-hidden flex">
+        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gray-800 rounded-b-xl overflow-hidden flex">
           {Array.from({ length: 20 }).map((_, i) => (
             <div key={i} className="flex-1 border-r border-gray-700 pt-2">
               <div className="h-4 bg-gray-700 rounded-t-md mx-1"></div>

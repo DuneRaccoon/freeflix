@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { TorrentStatus, TorrentState } from '@/types';
 import { Card, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -24,6 +25,8 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
   onStatusChange 
 }) => {
   const [isLoading, setIsLoading] = useState(false);
+
+  const router = useRouter();
 
   const formatSpeed = (speedKBps: number): string => {
     if (speedKBps > 1024) {
@@ -170,7 +173,22 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
                 Pause
               </Button>
             ) : null}
-            
+
+            {(torrent.state === TorrentState.DOWNLOADING || 
+              torrent.state === TorrentState.DOWNLOADING_METADATA ||
+              torrent.state === TorrentState.FINISHED || 
+              torrent.state === TorrentState.SEEDING) && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<PlayIcon className="w-4 h-4" />}
+                onClick={() => router.push(`/streaming/${torrent.id}`)}
+              >
+                Stream
+              </Button>
+            )}
+
+                        
             {torrent.state !== TorrentState.STOPPED && 
             torrent.state !== TorrentState.FINISHED && 
             torrent.state !== TorrentState.ERROR && (

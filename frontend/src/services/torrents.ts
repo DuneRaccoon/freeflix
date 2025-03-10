@@ -9,7 +9,8 @@ export const torrentsService = {
   },
 
   // Get torrent status
-  getTorrentStatus: async (torrentId: string): Promise<TorrentStatus> => {
+  getTorrentStatus: async (torrentId?: string | null): Promise<TorrentStatus | null> => {
+    if (!torrentId) return null;
     const response = await apiClient.get(`/torrents/status/${torrentId}`);
     return response.data;
   },

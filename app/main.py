@@ -10,7 +10,7 @@ from typing import Optional
 import platform
 
 from app.config import settings
-from app.api import movies, torrents, schedules
+from app.api import movies, torrents, schedules, streaming
 from app.torrent.manager import torrent_manager
 from app.cron.jobs import schedule_manager
 from app.database.session import init_db
@@ -79,11 +79,11 @@ app.include_router(
     prefix=f"{settings.API_V1_STR}/schedules",
     tags=["Schedules"],
 )
-# app.include_router(
-#     streaming.router,
-#     prefix=f"{settings.API_V1_STR}/streaming",
-#     tags=["Streaming"],
-# )
+app.include_router(
+    streaming.router,
+    prefix=f"{settings.API_V1_STR}/streaming",
+    tags=["Streaming"],
+)
 
 
 @app.middleware("http")

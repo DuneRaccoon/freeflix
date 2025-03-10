@@ -974,66 +974,6 @@ class TorrentManager:
         alerts = self.session.pop_alerts()
         for alert in alerts:
             self._handle_alert(alert)
-                
-    def prioritize_video_files(self, torrent_id: str) -> bool:
-        """
-        Set high priority for video files and enable sequential downloading
-        for optimal streaming experience.
-        
-        Args:
-            torrent_id: ID of the torrent to prioritize
-            
-        Returns:
-            bool: Success status
-        """
-        if torrent_id not in self.active_torrents:
-            logger.warning(f"Torrent {torrent_id} not found in active torrents")
-            return False
-        
-        handle, _ = self.active_torrents[torrent_id]
-        if not handle.has_metadata():
-            logger.info(f"Waiting for metadata for torrent {torrent_id}")
-            return False
-        
-        try:
-            handle.set_sequential_download(True)
-            
-            # Find video files and set their priorities
-            torrent_info = handle.get_torrent_info()
-            file_priorities = []
-            
-            for i in range(torrent_info.num_files()):
-                file_info = torrent_info.file_at(i)
-                file_path = file_info.path
-                
-                # Check if it's a video file
-                if self._is_video_file(file_path):
-                    # Set highest priority (7) for video files
-                    file_priorities.append(7)
-                    logger.info(f"Setting high priority for video file: {file_path}")
-                else:
-                    # Set normal priority (1) for other files
-                    file_priorities.append(1)
-            
-            # Apply priorities if any files found
-            if file_priorities:
-                handle.prioritize_files(file_priorities)
-                logger.info(f"File priorities set for torrent {torrent_id}")
-                
-                with get_db() as db:
-                    torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
-                    if torrent:
-                        # Update metadata to indicate streaming optimization
-                        metadata = torrent.meta_data or {}
-                        metadata['streaming_optimized'] = True
-                        torrent.meta_data = metadata
-                        torrent.update(db)
-            
-            return True
-        
-        except Exception as e:
-            logger.error(f"Error setting file priorities for torrent {torrent_id}: {e}")
-            return False
 
     def _is_video_file(self, file_path: str) -> bool:
         """Check if a file is a video based on its extension"""
@@ -1132,7 +1072,109 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Error getting video file info for torrent {torrent_id}: {e}")
             return None
+        
+    def prioritize_video_files(self, torrent_id: str, piece_prioritization: bool = True) -> bool:
+        """
+        Set high priority for video files and enable sequential downloading
+        for optimal streaming experience.
+        
+        Args:
+            torrent_id: ID of the torrent to prioritize
+            piece_prioritization: Whether to prioritize individual pieces for streaming
+            
+        Returns:
+            bool: Success status
+        """
+        if torrent_id not in self.active_torrents:
+            logger.warning(f"Torrent {torrent_id} not found in active torrents")
+            return False
+        
+        handle, _ = self.active_torrents[torrent_id]
+        if not handle.has_metadata():
+            logger.info(f"Waiting for metadata for torrent {torrent_id}")
+            return False
+        
+        try:
+            # Enable sequential download
+            handle.set_sequential_download(True)
+            
+            # Find video files and set their priorities
+            torrent_info = handle.get_torrent_info()
+            file_priorities = []
+            video_file_indices = []
+            
+            for i in range(torrent_info.num_files()):
+                file_info = torrent_info.file_at(i)
+                file_path = file_info.path
+                
+                # Check if it's a video file
+                if self._is_video_file(file_path):
+                    # Set highest priority (7) for video files
+                    file_priorities.append(7)
+                    video_file_indices.append(i)
+                    logger.info(f"Setting high priority for video file: {file_path}")
+                else:
+                    # Set normal priority (1) for other files
+                    file_priorities.append(1)
+            
+            # Apply file priorities if any files found
+            if file_priorities:
+                handle.prioritize_files(file_priorities)
+                logger.info(f"File priorities set for torrent {torrent_id}")
+                
+                # Piece prioritization for streaming
+                if piece_prioritization and video_file_indices:
+                    self._prioritize_streaming_pieces(handle, video_file_indices[0], torrent_info)
+                
+                with get_db() as db:
+                    torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                    if torrent:
+                        # Update metadata to indicate streaming optimization
+                        metadata = torrent.meta_data or {}
+                        metadata['streaming_optimized'] = True
+                        metadata['streaming_video_index'] = video_file_indices[0] if video_file_indices else None
+                        torrent.meta_data = metadata
+                        torrent.update(db)
+            
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error setting file priorities for torrent {torrent_id}: {e}")
+            return False
 
+    def _prioritize_streaming_pieces(self, handle, video_file_index, torrent_info):
+        """
+        Prioritize pieces at the beginning of the video file and around the current playback position
+        to improve streaming experience.
+        
+        Args:
+            handle: Torrent handle
+            video_file_index: Index of the video file
+            torrent_info: Torrent info object
+        """
+        try:
+            # Get the piece information for the video file
+            file_info = torrent_info.file_at(video_file_index)
+            file_size = file_info.size
+            
+            # Get the first and last piece of the file
+            first_piece = handle.get_file_priorities()[video_file_index].piece_index
+            num_pieces = file_size // torrent_info.piece_length() + 1
+            
+            # Set higher priority for pieces at the beginning (first 5%)
+            initial_buffer_pieces = max(5, int(num_pieces * 0.05))
+            
+            pieces_priorities = handle.piece_priorities()
+            
+            # Set highest priority for initial pieces to allow quick start
+            for i in range(first_piece, first_piece + initial_buffer_pieces):
+                if i < len(pieces_priorities):
+                    handle.piece_priority(i, 7)  # Top priority
+            
+            logger.info(f"Prioritized initial {initial_buffer_pieces} pieces for streaming")
+            
+        except Exception as e:
+            logger.error(f"Error prioritizing pieces for streaming: {e}")
 
 # Create a singleton instance
 torrent_manager = TorrentManager()

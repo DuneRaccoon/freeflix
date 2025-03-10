@@ -182,3 +182,36 @@ export interface ApiResponse<T> {
   data: T;
   error?: string;
 }
+
+// --- Streaming Types ---
+export interface VideoFileInfo {
+  name: string;
+  size: number;
+  downloaded: number;
+  progress: number;
+  mime_type: string;
+  stream_url: string;
+}
+
+export interface StreamingInfo {
+  torrent_id: string;
+  movie_title: string;
+  quality: string;
+  progress: number;
+  video_file: VideoFileInfo;
+  total_progress: number;
+  state: string;
+}
+
+export interface PlayerState {
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  buffered: number;
+  volume: number;
+  isMuted: boolean;
+  isFullscreen: boolean;
+  showControls: boolean;
+  isLoading: boolean;
+  error: string | null;
+}

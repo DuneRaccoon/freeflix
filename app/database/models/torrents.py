@@ -38,6 +38,9 @@ class Torrent(Model):
     download_logs = relationship("TorrentLog", back_populates="torrent", cascade="all, delete-orphan")
     movie_cache = relationship("MovieCache", foreign_keys=[movie_cache_id], back_populates="torrents")
     
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Nullable for backward compatibility
+    user = relationship("User", back_populates="downloads")
+    
     def to_status(self) -> TorrentStatus:
         """Convert database Torrent model to TorrentStatus Pydantic model."""
         # Extract metadata fields
@@ -157,6 +160,9 @@ class Schedule(Model):
     
     # Relationships
     execution_logs = relationship("ScheduleLog", back_populates="schedule", cascade="all, delete-orphan")
+    
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Nullable for backward compatibility
+    user = relationship("User", back_populates="schedules")
     
     def to_response(self) -> ScheduleResponse:
         """Convert database Schedule model to ScheduleResponse Pydantic model."""

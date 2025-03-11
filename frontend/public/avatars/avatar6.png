@@ -1,0 +1,14 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <circle cx="100" cy="100" r="100" fill="#ef4444"/>
+  <!-- Face -->
+  <circle cx="100" cy="70" r="40" fill="#f8fafc"/>
+  <!-- Eye 1 - Cool sunglasses -->
+  <rect x="70" y="60" width="60" height="15" rx="5" fill="#1e293b"/>
+  <!-- Mouth -->
+  <path d="M80 90 Q100 80 120 90" stroke="#1e293b" stroke-width="3" fill="none"/>
+  <!-- Beard -->
+  <path d="M70 90 Q100 120 130 90" fill="#64748b"/>
+  <!-- Body -->
+  <path d="M100 120 C60 120 40 150 40 200 L160 200 C160 150 140 120 100 120Z" fill="#f8fafc"/>
+</svg>

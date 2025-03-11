@@ -2,14 +2,10 @@
 
 import React, { Suspense } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-import Link from 'next/link';
-import {
-  ArrowPathIcon,
-  MagnifyingGlassIcon,
-  ArrowDownTrayIcon,
-  ClockIcon,
-} from '@heroicons/react/24/outline';
+import { useRouter } from 'next/navigation';
+import { useUser } from '@/context/UserContext';
+import UserSelectScreen from '@/components/users/UserSelectScreen';
+import LoadingScreen from '@/components/ui/LoadingScreen';
 
 // Create a separate client component for the actual content
 const HomePageContent = React.lazy(() => import('@/components/home/HomePageContent'));
@@ -68,6 +64,17 @@ const HomePageSkeleton = () => (
 );
 
 export default function HomePage() {
+  const { currentUser, isLoading } = useUser();
+  const router = useRouter();
+
+  if (isLoading) {
+    return <LoadingScreen message="Loading..." />;
+  }
+
+  if (!currentUser) {
+    return <UserSelectScreen />;
+  }
+
   return (
     <Suspense fallback={<HomePageSkeleton />}>
       <HomePageContent />

@@ -1,0 +1,17 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <circle cx="100" cy="100" r="100" fill="#059669"/>
+  <!-- Face -->
+  <circle cx="100" cy="70" r="40" fill="#f8fafc"/>
+  <!-- Eye 1 -->
+  <ellipse cx="80" cy="65" rx="10" ry="5" fill="#1e293b"/>
+  <!-- Eye 2 -->
+  <ellipse cx="120" cy="65" rx="10" ry="5" fill="#1e293b"/>
+  <!-- Mouth -->
+  <path d="M80 90 Q100 110 120 90" fill="#1e293b"/>
+  <!-- Hair -->
+  <path d="M60 50 C70 30 130 30 140 50" fill="#1e293b"/>
+  <path d="M60 50 C70 20 130 20 140 50" fill="#1e293b"/>
+  <!-- Body -->
+  <path d="M100 120 C60 120 40 150 40 200 L160 200 C160 150 140 120 100 120Z" fill="#f8fafc"/>
+</svg>

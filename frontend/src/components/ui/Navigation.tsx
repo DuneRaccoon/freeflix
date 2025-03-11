@@ -13,6 +13,7 @@ import {
   Bars3Icon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import UserDropdown from '@/components/users/UserDropdown';
 
 const Navigation: React.FC<{
   sticky?: boolean;
@@ -71,8 +72,14 @@ const Navigation: React.FC<{
             ))}
           </div>
 
+          {/* User Dropdown (Desktop) */}
+          <div className="hidden md:flex items-center">
+            <UserDropdown />
+          </div>
+
           {/* Mobile Menu Button */}
-          <div className="md:hidden">
+          <div className="md:hidden flex items-center space-x-3">
+            <UserDropdown />
             <button
               onClick={toggleMobileMenu}
               className="text-gray-300 hover:text-white focus:outline-none"

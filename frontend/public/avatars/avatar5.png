@@ -1,0 +1,16 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <circle cx="100" cy="100" r="100" fill="#8b5cf6"/>
+  <!-- Face -->
+  <circle cx="100" cy="70" r="40" fill="#f8fafc"/>
+  <!-- Eye 1 -->
+  <path d="M75 60 Q80 55 85 60" stroke="#1e293b" stroke-width="3" fill="none"/>
+  <!-- Eye 2 -->
+  <path d="M115 60 Q120 55 125 60" stroke="#1e293b" stroke-width="3" fill="none"/>
+  <!-- Mouth -->
+  <path d="M80 85 L120 85" stroke="#1e293b" stroke-width="3"/>
+  <!-- Hair -->
+  <path d="M60 50 Q100 0 140 50" fill="#1e293b"/>
+  <!-- Body -->
+  <path d="M100 120 C60 120 40 150 40 200 L160 200 C160 150 140 120 100 120Z" fill="#f8fafc"/>
+</svg>

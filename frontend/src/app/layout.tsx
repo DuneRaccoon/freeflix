@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import Navigation from '@/components/ui/Navigation';
 import { Toaster } from 'react-hot-toast';
+import { UserProvider } from '@/context/UserContext';
 
 import './globals.css';
 
@@ -20,32 +21,34 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-background text-foreground min-h-screen`}>
-        <Navigation />
-        <main className="container mx-auto py-6 px-4">
-          {children}
-        </main>
-        <Toaster 
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: '#1e293b',
-              color: '#f8fafc',
-              border: '1px solid #334155',
-            },
-            success: {
-              iconTheme: {
-                primary: '#10b981',
-                secondary: '#f8fafc',
+        <UserProvider>
+          <Navigation />
+          <main className="container mx-auto py-6 px-4">
+            {children}
+          </main>
+          <Toaster 
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: '#1e293b',
+                color: '#f8fafc',
+                border: '1px solid #334155',
               },
-            },
-            error: {
-              iconTheme: {
-                primary: '#ef4444',
-                secondary: '#f8fafc',
+              success: {
+                iconTheme: {
+                  primary: '#10b981',
+                  secondary: '#f8fafc',
+                },
               },
-            },
-          }}
-        />
+              error: {
+                iconTheme: {
+                  primary: '#ef4444',
+                  secondary: '#f8fafc',
+                },
+              },
+            }}
+          />
+        </UserProvider>
       </body>
     </html>
   );

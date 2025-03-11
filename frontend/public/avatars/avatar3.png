@@ -1,0 +1,14 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <circle cx="100" cy="100" r="100" fill="#ec4899"/>
+  <!-- Face -->
+  <circle cx="100" cy="70" r="40" fill="#f8fafc"/>
+  <!-- Glasses -->
+  <rect x="65" y="60" width="30" height="20" rx="5" fill="#1e293b"/>
+  <rect x="105" y="60" width="30" height="20" rx="5" fill="#1e293b"/>
+  <line x1="95" y1="70" x2="105" y2="70" stroke="#1e293b" stroke-width="3"/>
+  <!-- Mouth -->
+  <path d="M80 90 Q100 100 120 90" stroke="#1e293b" stroke-width="3" fill="none"/>
+  <!-- Body -->
+  <path d="M100 120 C60 120 40 150 40 200 L160 200 C160 150 140 120 100 120Z" fill="#f8fafc"/>
+</svg>

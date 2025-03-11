@@ -1,0 +1,16 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <circle cx="100" cy="100" r="100" fill="#f59e0b"/>
+  <!-- Face -->
+  <circle cx="100" cy="70" r="40" fill="#f8fafc"/>
+  <!-- Hat -->
+  <path d="M60 70 Q100 10 140 70" fill="#1e293b" stroke="#1e293b" stroke-width="2"/>
+  <!-- Eye 1 -->
+  <circle cx="80" cy="70" r="6" fill="#1e293b"/>
+  <!-- Eye 2 -->
+  <circle cx="120" cy="70" r="6" fill="#1e293b"/>
+  <!-- Smile -->
+  <path d="M80 90 Q100 100 120 90" stroke="#1e293b" stroke-width="3" fill="none"/>
+  <!-- Body -->
+  <path d="M100 120 C60 120 40 150 40 200 L160 200 C160 150 140 120 100 120Z" fill="#f8fafc"/>
+</svg>

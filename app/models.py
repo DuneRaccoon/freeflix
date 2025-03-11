@@ -237,3 +237,38 @@ class AppSetting(BaseModel):
     value: Any
     description: Optional[str] = None
     updated_at: datetime
+    
+    
+# User models
+class UserCreate(BaseModel):
+    username: str
+    display_name: str
+    avatar: str = None
+
+class UserUpdate(BaseModel):
+    display_name: str = None
+    avatar: str = None
+
+class UserSettingsModel(BaseModel):
+    maturity_restriction: str = "none"
+    require_passcode: bool = False
+    passcode: str = None
+    theme: str = "dark"
+    default_quality: str = "1080p"
+    download_path: str = None
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    avatar: str = None
+    created_at: str
+
+class UserSettingsResponse(BaseModel):
+    id: str
+    user_id: str
+    maturity_restriction: str
+    require_passcode: bool
+    theme: str
+    default_quality: str
+    download_path: str = None

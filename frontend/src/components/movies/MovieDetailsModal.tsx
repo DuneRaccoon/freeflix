@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Dialog } from '@headlessui/react';
+import { Dialog, DialogPanel } from '@headlessui/react';
 import { 
   XMarkIcon, 
   StarIcon, 
@@ -345,10 +345,11 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
       onClose={onClose}
       className="relative z-50"
     >
+      {/* Backdrop overlay */}
       <div className="fixed inset-0 bg-black/80" aria-hidden="true" />
       
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <Dialog.Panel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden">
+        <DialogPanel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden">
           {/* Header with backdrop */}
           <div 
             className="relative h-72 w-full bg-cover bg-center"
@@ -972,7 +973,7 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
               </div>
             </div>
           </div>
-        </Dialog.Panel>
+        </DialogPanel>
       </div>
     </Dialog>
   );

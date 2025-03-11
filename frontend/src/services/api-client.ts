@@ -1,5 +1,13 @@
 import axios from 'axios';
 
+// Determine if we're running on the server
+const isServer = typeof window === 'undefined';
+
+// Set the API base URL based on environment
+const baseURL = isServer 
+  ? process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1' // Full URL for server
+  : '/api/v1'; // Relative URL for client
+
 // root client exists to get system config and run healthchecks on the API
 const rootClient = axios.create({
   baseURL: 'http://localhost:8000/',
@@ -10,7 +18,7 @@ const rootClient = axios.create({
 
 // Create an Axios instance with default configs
 const apiClient = axios.create({
-  baseURL: '/api/v1',
+  baseURL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,6 +27,9 @@ const apiClient = axios.create({
 // Add a request interceptor
 apiClient.interceptors.request.use(
   (config) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+    }
     // add auth tokens here if needed in the future
     return config;
   },
@@ -33,6 +44,7 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    console.error('API Error:', error); 
     // Handle common errors here
     if (error.response) {
       // The request was made and the server responded with a status code

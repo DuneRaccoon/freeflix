@@ -185,7 +185,7 @@ const TorrentItem: React.FC<TorrentItemProps> = ({
                 onClick={handleStream}
                 isLoading={isStreamLoading}
               >
-                Stream Now
+                Watch Now
               </Button>
             )}
             

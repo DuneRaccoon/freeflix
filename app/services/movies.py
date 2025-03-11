@@ -10,6 +10,9 @@ from app.config import settings
 from app.database.session import get_db
 from app.database.models import MovieCache
 from app.models import ReviewSource, Review, RelatedMovie
+from app.utils.user_agent import get_random_user_agent
+
+user_agent = get_random_user_agent()
 
 class MovieDetailsService:
     """Service to fetch extended movie details from external sources."""
@@ -62,7 +65,7 @@ class MovieDetailsService:
         """Fetch movie details from OMDB API."""
         await self._rate_limit()
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
             response = await client.get(
                 self.OMDB_API_URL,
                 params={
@@ -122,7 +125,7 @@ class MovieDetailsService:
         """Fetch movie details from TMDB API."""
         await self._rate_limit()
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
             # First search for the movie
             search_response = await client.get(
                 f"{self.TMDB_API_URL}/search/movie",
@@ -236,7 +239,7 @@ class MovieDetailsService:
         # Create a search query for IMDB
         search_query = f"{title.replace(' ', '+')}+{year}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
             # Search for the movie
             search_response = await client.get(
                 f"https://www.imdb.com/find/?q={search_query}",
@@ -331,7 +334,7 @@ class MovieDetailsService:
         # search_query = f"{title.replace(' ', '+')}+{year}"
         search_query = f"{title.replace(' ', '+')}"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
             # Search for the movie
             search_response = await client.get(
                 f"https://www.rottentomatoes.com/search?search={search_query}",

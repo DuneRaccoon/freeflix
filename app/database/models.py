@@ -15,6 +15,7 @@ class Torrent(Model):
     __tablename__ = "torrents"
     
     id = Column(String, primary_key=True, default=generate_uuid)
+    movie_cache_id = Column(String, ForeignKey("movie_cache.id"), nullable=True)
     movie_title = Column(String, nullable=False, index=True)
     quality = Column(String, nullable=False)
     magnet = Column(Text, nullable=False)
@@ -35,7 +36,7 @@ class Torrent(Model):
     
     # Relationships
     download_logs = relationship("TorrentLog", back_populates="torrent", cascade="all, delete-orphan")
-    movie_cache = relationship("MovieCache", back_populates="torrent", uselist=False)
+    movie_cache = relationship("MovieCache", foreign_keys=[movie_cache_id], back_populates="torrents")
     
     def to_status(self) -> TorrentStatus:
         """Convert database Torrent model to TorrentStatus Pydantic model."""
@@ -273,12 +274,14 @@ class MovieCache(Model):
     awards = Column(String, nullable=True)
     language = Column(String, nullable=True)
     country = Column(String, nullable=True)
+    maturity_rating = Column(String, nullable=True)
     reviews = Column(JSON, nullable=True)  # Store as JSON array of review objects
     related_movies = Column(JSON, nullable=True)  # Store as JSON array of related movie links
     movie_info_json = Column(JSON, nullable=True)  # Store full movie info JSON from RT
     
     # Cache the available torrents
     torrents_json = Column(JSON, nullable=False)
+    torrents = relationship("Torrent", back_populates="movie_cache", foreign_keys=[Torrent.movie_cache_id])
     
     # Cache control
     fetched_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))

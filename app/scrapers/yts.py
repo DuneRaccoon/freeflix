@@ -10,6 +10,7 @@ from leakybucket.persistence import InMemoryLeakyBucketStorage
 
 from app.models import Movie, Torrent, SearchParams
 from app.config import settings
+from app.utils.user_agent import get_random_user_agent
 
 # Initialize rate limiter
 throttler = LeakyBucket(InMemoryLeakyBucketStorage(
@@ -17,10 +18,12 @@ throttler = LeakyBucket(InMemoryLeakyBucketStorage(
     time_period=1
 ))
 
+user_agent = get_random_user_agent()
+
 throttler.throttle()
 async def fetch_available_torrents(movie_url: str) -> List[Torrent]:
     """Fetch available torrents for a specific movie URL"""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
         try:
             logger.info(f'Fetching available torrents for {movie_url}')
             response = await client.get(movie_url, timeout=10.0)
@@ -109,7 +112,7 @@ async def browse_yts(params: SearchParams) -> List[Movie]:
     if params.page:
         query_params['page'] = params.page
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
         try:
             response = await client.get(
                 settings.YIFY_URL_BROWSE_URL, 
@@ -145,7 +148,7 @@ async def search_movie(title: str) -> List[Movie]:
 throttler.throttle()
 async def get_movie_by_url(url: str) -> Optional[Movie]:
     """Fetch a specific movie by its URL"""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
         try:
             logger.info(f'Fetching movie details for {url}')
             response = await client.get(url, timeout=10.0)

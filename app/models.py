@@ -2,6 +2,7 @@ from pydantic import BaseModel, HttpUrl, Field, validator, ConfigDict
 from typing import Optional, List, Tuple, Literal, Dict, Union, Any
 from datetime import datetime
 from enum import Enum
+from uuid import UUID
 
 class ReviewSource(str, Enum):
     IMDB = "IMDB"
@@ -94,7 +95,7 @@ class SearchParams(BaseModel):
     keyword: Optional[str] = None
     quality: Optional[QualityLiteral] = 'all'
     genre: Optional[GenreLiteral] = 'all'
-    rating: Optional[RatingLiteral] = 0
+    rating: Optional[RatingLiteral] = 'all'
     year: Optional[YearLiteral] = None
     order_by: Optional[OrderByLiteral] = 'featured'
     page: Optional[int] = 1
@@ -323,11 +324,13 @@ class UserSettingsModel(BaseModel):
     download_path: Optional[str] = None
 
 class UserResponse(BaseModel):
-    id: str
+    id: UUID
     username: str
     display_name: str
     avatar: Optional[str] = None
-    created_at: str
+    created_at: datetime
+    updated_at: datetime
+    settings: UserSettingsModel
 
 class UserSettingsResponse(BaseModel):
     id: str
@@ -335,5 +338,5 @@ class UserSettingsResponse(BaseModel):
     maturity_restriction: str
     require_passcode: bool
     theme: str
-    default_quality: str
+    default_quality: Literal['720p', '1080p', '2160p']
     download_path: Optional[str] = None

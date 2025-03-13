@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # API settings
     api_v1_str: str = "/api/v1"
     project_name: str = "YIFY Torrent Downloader"
+    environment: str = "development"
     
     # YTS scraping settings
     yify_url: str = "https://en.yts-official.mx"

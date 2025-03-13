@@ -90,14 +90,14 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
   return (
     <>
       <Link href={`/movies/${movieId}`} prefetch={false}>
-        <Card className="h-full flex flex-col transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg cursor-pointer">
-          <div className="relative pb-[150%] overflow-hidden group">
+        <Card className="h-full flex flex-col transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg cursor-pointer group">
+          <div className="relative pb-[150%] overflow-hidden">
             {/* Quick view button overlay */}
             <div 
               className="absolute top-2 right-2 z-20"
               onClick={handleQuickViewClick}
             >
-              <div className="bg-black/70 hover:bg-primary-600 rounded-full p-2 transition-all duration-300 opacity-0 group-hover:opacity-100">
+              <div className="bg-black/70 hover:bg-primary-600 rounded-full p-2 transition-all duration-300 opacity-100">
                 <EyeIcon className="h-5 w-5 text-white" />
               </div>
             </div>

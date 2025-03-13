@@ -34,7 +34,7 @@ async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)])
             avatar=user.avatar
         )
         
-        return new_user
+        return new_user.to_dict()
 
 # Get all users
 @router.get("/", response_model=List[UserResponse])
@@ -42,7 +42,7 @@ async def get_users(db: Annotated[Session, Depends(get_db)]):
     with db as session:
         users: List[User] = session.query(User).all()
         logger.info(users)
-        return users
+        return [UserResponse(**user.to_dict(), settings=user.settings.to_dict()) for user in users]
 
 # Get user by ID
 @router.get("/{user_id}", response_model=UserResponse)
@@ -51,7 +51,7 @@ async def get_user(user_id: str, db: Annotated[Session, Depends(get_db)]):
         user: Optional[User] = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        return user
+        return UserResponse(**user.to_dict(), settings=user.settings.to_dict())
 
 # Update user
 @router.put("/{user_id}", response_model=UserResponse)
@@ -69,7 +69,7 @@ async def update_user(user_id: str, user_update: UserUpdate, db: Annotated[Sessi
         
         session.commit()
         session.refresh(user)
-        return user
+        return user.to_dict()
 
 # Delete user
 @router.delete("/{user_id}")
@@ -95,7 +95,7 @@ async def get_user_settings(user_id: str, db: Annotated[Session, Depends(get_db)
         if not settings:
             raise HTTPException(status_code=404, detail="User settings not found")
         
-        return settings
+        return settings.to_dict()
 
 # Update user settings
 @router.put("/{user_id}/settings", response_model=UserSettingsResponse)
@@ -121,4 +121,4 @@ async def update_user_settings(
         
         session.commit()
         session.refresh(settings)
-        return settings
+        return settings.to_dict()

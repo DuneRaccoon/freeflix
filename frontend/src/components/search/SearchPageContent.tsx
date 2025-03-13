@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Movie, SearchParams } from '@/types';
+import { Movie, SearchParams, OrderByLiteral, GenreLiteral, QualityLiteral, YearLiteral, RatingLiteral } from '@/types';
 import { moviesService } from '@/services/movies';
 import MovieGrid from '@/components/movies/MovieGrid';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -22,11 +22,11 @@ export default function SearchPageContent() {
   
   // Get initial search parameters from URL
   const initialKeyword = searchParams.get('keyword') || '';
-  const initialQuality = searchParams.get('quality') || 'all';
-  const initialGenre = searchParams.get('genre') || 'all';
-  const initialRating = searchParams.get('rating') ? parseInt(searchParams.get('rating')!, 10) : 0;
-  const initialYear = searchParams.get('year') ? parseInt(searchParams.get('year')!, 10) : undefined;
-  const initialOrderBy = searchParams.get('order_by') || 'featured';
+  const initialQuality = (searchParams.get('quality') || 'all') as QualityLiteral;
+  const initialGenre = (searchParams.get('genre') || 'all') as GenreLiteral;
+  const initialRating = (searchParams.get('rating') || 'all') as RatingLiteral;
+  const initialYear = searchParams.get('year') as YearLiteral || undefined;
+  const initialOrderBy = (searchParams.get('order_by') || 'featured') as OrderByLiteral;
   
   const [searchTerm, setSearchTerm] = useState(initialKeyword);
   const [showFilters, setShowFilters] = useState(false);
@@ -39,11 +39,11 @@ export default function SearchPageContent() {
   const [hasMorePages, setHasMorePages] = useState(true);
   
   // Filter states
-  const [quality, setQuality] = useState(initialQuality);
-  const [genre, setGenre] = useState(initialGenre);
-  const [minRating, setMinRating] = useState(initialRating);
-  const [year, setYear] = useState<number | undefined>(initialYear);
-  const [orderBy, setOrderBy] = useState(initialOrderBy);
+  const [quality, setQuality] = useState<QualityLiteral>(initialQuality);
+  const [genre, setGenre] = useState<GenreLiteral>(initialGenre);
+  const [minRating, setMinRating] = useState<RatingLiteral>(initialRating);
+  const [year, setYear] = useState<YearLiteral | undefined>(initialYear);
+  const [orderBy, setOrderBy] = useState<OrderByLiteral>(initialOrderBy);
   
   // Function to get current search parameters
   const getCurrentSearchParams = useCallback((): SearchParams => {
@@ -69,8 +69,8 @@ export default function SearchPageContent() {
       if (params.keyword) queryParams.set('keyword', params.keyword);
       if (params.quality !== 'all') queryParams.set('quality', params.quality!);
       if (params.genre !== 'all') queryParams.set('genre', params.genre!);
-      if (params.rating && params.rating > 0) queryParams.set('rating', params.rating.toString());
-      if (params.year) queryParams.set('year', params.year.toString());
+      if (params.rating !== 'all') queryParams.set('rating', params.rating!);
+      if (params.year) queryParams.set('year', params.year);
       if (params.order_by !== 'featured') queryParams.set('order_by', params.order_by!);
       
       // Only update the URL on initial search or filter changes
@@ -113,7 +113,7 @@ export default function SearchPageContent() {
   const handleResetFilters = () => {
     setQuality('all');
     setGenre('all');
-    setMinRating(0);
+    setMinRating('all');
     setYear(undefined);
     setOrderBy('featured');
     
@@ -122,7 +122,7 @@ export default function SearchPageContent() {
       keyword: searchTerm,
       quality: 'all',
       genre: 'all',
-      rating: 0,
+      rating: 'all',
       year: undefined,
       order_by: 'featured',
       page: 1
@@ -166,7 +166,8 @@ export default function SearchPageContent() {
     { value: 'all', label: 'All Qualities' },
     { value: '720p', label: '720p' },
     { value: '1080p', label: '1080p' },
-    { value: '2160p', label: '4K (2160p)' }
+    { value: '2160p', label: '4K (2160p)' },
+    { value: '3d', label: '3D' }
   ];
   
   // Genre options
@@ -183,27 +184,72 @@ export default function SearchPageContent() {
     { value: 'family', label: 'Family' },
     { value: 'fantasy', label: 'Fantasy' },
     { value: 'film-noir', label: 'Film-Noir' },
+    { value: 'game-show', label: 'Game Show' },
     { value: 'history', label: 'History' },
     { value: 'horror', label: 'Horror' },
     { value: 'music', label: 'Music' },
     { value: 'musical', label: 'Musical' },
     { value: 'mystery', label: 'Mystery' },
+    { value: 'news', label: 'News' },
+    { value: 'reality-tv', label: 'Reality TV' },
     { value: 'romance', label: 'Romance' },
     { value: 'sci-fi', label: 'Sci-Fi' },
     { value: 'sport', label: 'Sport' },
+    { value: 'talk-show', label: 'Talk Show' },
     { value: 'thriller', label: 'Thriller' },
     { value: 'war', label: 'War' },
     { value: 'western', label: 'Western' }
   ];
   
+  // Rating options
+  const ratingOptions = [
+    { value: 'all', label: 'All Ratings' },
+    { value: '9', label: '9+' },
+    { value: '8', label: '8+' },
+    { value: '7', label: '7+' },
+    { value: '6', label: '6+' },
+    { value: '5', label: '5+' },
+    { value: '4', label: '4+' },
+    { value: '3', label: '3+' },
+    { value: '2', label: '2+' },
+    { value: '1', label: '1+' }
+  ];
+  
+  // Year options
+  const yearOptions = [
+    { value: 'all', label: 'All Years' },
+    { value: '2024', label: '2024' },
+    { value: '2023', label: '2023' },
+    { value: '2022', label: '2022' },
+    { value: '2021', label: '2021' },
+    { value: '2020', label: '2020' },
+    { value: '2019', label: '2019' },
+    { value: '2018', label: '2018' },
+    { value: '2017', label: '2017' },
+    { value: '2016', label: '2016' },
+    { value: '2015', label: '2015' },
+    { value: '2014', label: '2014' },
+    { value: '2013', label: '2013' },
+    { value: '2012', label: '2012' },
+    { value: '2011', label: '2011' },
+    { value: '2010', label: '2010' },
+    { value: '2000-2009', label: '2000-2009' },
+    { value: '1990-1999', label: '1990-1999' },
+    { value: '1980-1989', label: '1980-1989' },
+    { value: '1970-1979', label: '1970-1979' },
+    { value: '1950-1969', label: '1950-1969' },
+    { value: '1900-1949', label: '1900-1949' }
+  ];
+  
   // Order by options
   const orderByOptions = [
     { value: 'featured', label: 'Featured' },
-    { value: 'date', label: 'Date Added' },
-    { value: 'rating', label: 'Rating' },
-    { value: 'title', label: 'Title' },
+    { value: 'latest', label: 'Latest' },
+    { value: 'oldest', label: 'Oldest' },
     { value: 'year', label: 'Year' },
-    { value: 'seeds', label: 'Seeds' }
+    { value: 'rating', label: 'Rating' },
+    { value: 'likes', label: 'Likes' },
+    { value: 'alphabetical', label: 'Title (A-Z)' }
   ];
 
   return (
@@ -261,47 +307,44 @@ export default function SearchPageContent() {
                   </Button>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Select
                     label="Quality"
                     options={qualityOptions}
                     value={quality}
-                    onChange={(e) => setQuality(e.target.value)}
+                    onChange={(e) => setQuality(e.target.value as QualityLiteral)}
                   />
                   
                   <Select
                     label="Genre"
                     options={genreOptions}
                     value={genre}
-                    onChange={(e) => setGenre(e.target.value)}
-                  />
-                  
-                  <Select
-                    label="Sort By"
-                    options={orderByOptions}
-                    value={orderBy}
-                    onChange={(e) => setOrderBy(e.target.value)}
+                    onChange={(e) => setGenre(e.target.value as GenreLiteral)}
                   />
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <Input
-                    type="number"
+                  <Select
                     label="Minimum Rating"
-                    min="0"
-                    max="10"
-                    value={minRating || ''}
-                    onChange={(e) => setMinRating(parseInt(e.target.value || '0', 10))}
+                    options={ratingOptions}
+                    value={minRating}
+                    onChange={(e) => setMinRating(e.target.value)}
                   />
                   
-                  <Input
-                    type="number"
+                  <Select
                     label="Year"
-                    min="1900"
-                    max={new Date().getFullYear()}
-                    value={year || ''}
-                    onChange={(e) => setYear(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                    placeholder="Any year"
+                    options={yearOptions}
+                    value={year || 'all'}
+                    onChange={(e) => setYear(e.target.value as YearLiteral)}
+                  />
+                </div>
+                
+                <div className="mt-4">
+                  <Select
+                    label="Sort By"
+                    options={orderByOptions}
+                    value={orderBy}
+                    onChange={(e) => setOrderBy(e.target.value as OrderByLiteral)}
                   />
                 </div>
               </div>

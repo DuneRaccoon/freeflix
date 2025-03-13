@@ -18,10 +18,9 @@ class User(Model):
     username = Column(String, nullable=False, unique=True, index=True)
     display_name = Column(String, nullable=False)
     avatar = Column(String, nullable=True)  # Store path to avatar image
-    created_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
     
     # User settings
-    settings = relationship("UserSettings", uselist=False, back_populates="user", cascade="all, delete-orphan")
+    settings = relationship("UserSettings", uselist=False, back_populates="user", cascade="all, delete-orphan", lazy="selectin")
     
     # User relationships
     downloads = relationship("Torrent", back_populates="user")

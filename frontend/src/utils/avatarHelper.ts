@@ -7,14 +7,14 @@ export const DEFAULT_AVATAR_DATA_URI = 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm
 
 // Available avatar options with preloading
 export const AVATAR_OPTIONS = [
-  '/avatars/avatar1.png',
-  '/avatars/avatar2.png',
-  '/avatars/avatar3.png',
-  '/avatars/avatar4.png',
-  '/avatars/avatar5.png',
-  '/avatars/avatar6.png',
-  '/avatars/avatar7.png',
-  '/avatars/avatar8.png',
+  '/avatars/avatar1.svg',
+  '/avatars/avatar2.svg',
+  '/avatars/avatar3.svg',
+  '/avatars/avatar4.svg',
+  '/avatars/avatar5.svg',
+  '/avatars/avatar6.svg',
+  '/avatars/avatar7.svg',
+  '/avatars/avatar8.svg',
 ];
 
 // Preload avatars to check if they exist

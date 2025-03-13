@@ -95,7 +95,7 @@ async def get_latest(
     - **quality**: Optional filter by quality (720p, 1080p, 2160p)
     """
     params = SearchParams(
-        order_by="date",
+        order_by="latest",
         quality=quality or "all"
     )
     

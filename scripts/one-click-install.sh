@@ -47,8 +47,8 @@ if [[ "$IS_RASPBERRY_PI" != true ]]; then
 fi
 
 # Ask for installation directory
-read -p "Installation directory [/opt/yify_downloader]: " INSTALL_DIR
-INSTALL_DIR=${INSTALL_DIR:-/opt/yify_downloader}
+read -p "Installation directory [/opt/freeflix]: " INSTALL_DIR
+INSTALL_DIR=${INSTALL_DIR:-/opt/freeflix}
 
 # Ask for download directory
 read -p "Download directory for movies [${INSTALL_DIR}/downloads]: " DOWNLOAD_DIR

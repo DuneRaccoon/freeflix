@@ -340,3 +340,37 @@ class UserSettingsResponse(BaseModel):
     theme: str
     default_quality: Literal['720p', '1080p', '2160p']
     download_path: Optional[str] = None
+
+
+# Streaming models
+class StreamingProgressCreate(BaseModel):
+    torrent_id: str
+    movie_id: str
+    current_time: float
+    duration: Optional[float] = None
+    percentage: float
+    completed: bool = False
+
+class StreamingProgressUpdate(BaseModel):
+    current_time: float
+    duration: Optional[float] = None
+    percentage: float
+    completed: bool = False
+
+class StreamingProgressResponse(BaseModel):
+    model_config = ConfigDict(
+        allow_mutation=True,
+        from_attributes=True,
+    )
+    
+    id: str
+    user_id: str
+    torrent_id: str
+    movie_id: str
+    current_time: float
+    duration: Optional[float] = None
+    percentage: float
+    completed: bool
+    last_watched_at: datetime
+    created_at: datetime
+    updated_at: datetime

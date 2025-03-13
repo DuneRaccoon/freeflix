@@ -213,6 +213,20 @@ export interface StreamingInfo {
   state: string;
 }
 
+export interface StreamingProgress {
+  id: string;
+  user_id: string;
+  torrent_id: string;
+  movie_id: string;
+  current_time: number;
+  duration: number | null;
+  percentage: number;
+  completed: boolean;
+  last_watched_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PlayerState {
   isPlaying: boolean;
   currentTime: number;

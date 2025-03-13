@@ -22,7 +22,7 @@ interface HealthInfo {
 }
 
 export default function SettingsPage() {
-  const [downloadPath, setDownloadPath] = useState('/opt/yify_downloader/downloads');
+  const [downloadPath, setDownloadPath] = useState('/opt/freeflix/downloads');
   const [maxDownloads, setMaxDownloads] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
   

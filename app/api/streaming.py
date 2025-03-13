@@ -7,6 +7,13 @@ import stat
 import mimetypes
 import asyncio
 from loguru import logger
+from fastapi import APIRouter, HTTPException, Path, Depends
+from typing import List, Dict, Any, Optional
+from sqlalchemy.orm import Session
+
+from app.database.session import get_db
+from app.database.models import UserStreamingProgress, Torrent, MovieCache, User
+from app.models import StreamingProgressCreate, StreamingProgressUpdate, StreamingProgressResponse
 
 from app.torrent.manager import torrent_manager
 
@@ -167,3 +174,198 @@ async def get_video_info(
         "total_progress": torrent_status.progress,
         "state": torrent_status.state
     }
+
+@router.post("/progress/{user_id}", response_model=StreamingProgressResponse)
+async def create_streaming_progress(
+    user_id: str,
+    progress: StreamingProgressCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Save a user's streaming progress for a movie.
+    
+    - **user_id**: ID of the user
+    - **progress**: Streaming progress data
+    """
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify torrent exists
+    torrent = db.query(Torrent).filter(Torrent.id == progress.torrent_id).first()
+    if not torrent:
+        raise HTTPException(status_code=404, detail="Torrent not found")
+    
+    # Check if progress already exists for this user and torrent
+    existing_progress = UserStreamingProgress.get_by_torrent_and_user(
+        db, progress.torrent_id, user_id
+    )
+    
+    if existing_progress:
+        # Update existing progress
+        existing_progress.current_time = progress.current_time
+        existing_progress.duration = progress.duration
+        existing_progress.percentage = progress.percentage
+        existing_progress.completed = progress.completed
+        existing_progress.last_watched_at = db.func.now()
+        
+        db.commit()
+        db.refresh(existing_progress)
+        return existing_progress
+    else:
+        # Create new progress entry
+        new_progress = UserStreamingProgress(
+            user_id=user_id,
+            torrent_id=progress.torrent_id,
+            movie_id=progress.movie_id,
+            current_time=progress.current_time,
+            duration=progress.duration,
+            percentage=progress.percentage,
+            completed=progress.completed
+        )
+        
+        db.add(new_progress)
+        db.commit()
+        db.refresh(new_progress)
+        return new_progress
+
+@router.put("/progress/{user_id}/{progress_id}", response_model=StreamingProgressResponse)
+async def update_streaming_progress(
+    user_id: str,
+    progress_id: str,
+    progress_update: StreamingProgressUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update a user's streaming progress.
+    
+    - **user_id**: ID of the user
+    - **progress_id**: ID of the progress entry to update
+    - **progress_update**: Updated streaming progress data
+    """
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get progress entry
+    progress_entry = db.query(UserStreamingProgress).filter(
+        UserStreamingProgress.id == progress_id,
+        UserStreamingProgress.user_id == user_id
+    ).first()
+    
+    if not progress_entry:
+        raise HTTPException(status_code=404, detail="Streaming progress not found")
+    
+    # Update progress
+    progress_entry.current_time = progress_update.current_time
+    progress_entry.duration = progress_update.duration
+    progress_entry.percentage = progress_update.percentage
+    progress_entry.completed = progress_update.completed
+    progress_entry.last_watched_at = db.func.now()
+    
+    db.commit()
+    db.refresh(progress_entry)
+    return progress_entry
+
+@router.get("/progress/{user_id}/{torrent_id}", response_model=Optional[StreamingProgressResponse])
+async def get_streaming_progress(
+    user_id: str,
+    torrent_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a user's streaming progress for a specific torrent.
+    
+    - **user_id**: ID of the user
+    - **torrent_id**: ID of the torrent
+    """
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get progress
+    progress = UserStreamingProgress.get_by_torrent_and_user(db, torrent_id, user_id)
+    if not progress:
+        return None
+    
+    return progress
+
+@router.get("/progress/{user_id}/movie/{movie_id}", response_model=Optional[StreamingProgressResponse])
+async def get_streaming_progress_by_movie(
+    user_id: str,
+    movie_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a user's streaming progress for a specific movie.
+    
+    - **user_id**: ID of the user
+    - **movie_id**: ID of the movie
+    """
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get progress
+    progress = UserStreamingProgress.get_by_movie_and_user(db, movie_id, user_id)
+    if not progress:
+        return None
+    
+    return progress
+
+@router.get("/progress/{user_id}", response_model=List[StreamingProgressResponse])
+async def get_recent_streaming_progress(
+    user_id: str,
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a user's recent streaming progress entries.
+    
+    - **user_id**: ID of the user
+    - **limit**: Maximum number of entries to return (default: 10)
+    """
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get recent progress entries
+    progress_entries = UserStreamingProgress.get_recent_for_user(db, user_id, limit)
+    return progress_entries
+
+@router.delete("/progress/{user_id}/{progress_id}")
+async def delete_streaming_progress(
+    user_id: str,
+    progress_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a user's streaming progress entry.
+    
+    - **user_id**: ID of the user
+    - **progress_id**: ID of the progress entry to delete
+    """
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get progress entry
+    progress_entry = db.query(UserStreamingProgress).filter(
+        UserStreamingProgress.id == progress_id,
+        UserStreamingProgress.user_id == user_id
+    ).first()
+    
+    if not progress_entry:
+        raise HTTPException(status_code=404, detail="Streaming progress not found")
+    
+    # Delete progress entry
+    db.delete(progress_entry)
+    db.commit()
+    
+    return {"message": "Streaming progress deleted successfully"}

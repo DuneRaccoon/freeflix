@@ -34,7 +34,7 @@ async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)])
             avatar=user.avatar
         )
         
-        return new_user.to_dict()
+        return UserResponse(**new_user.to_dict(), settings=new_user.settings.to_dict())
 
 # Get all users
 @router.get("/", response_model=List[UserResponse])
@@ -69,7 +69,7 @@ async def update_user(user_id: str, user_update: UserUpdate, db: Annotated[Sessi
         
         session.commit()
         session.refresh(user)
-        return user.to_dict()
+        return UserResponse(**user.to_dict())
 
 # Delete user
 @router.delete("/{user_id}")
@@ -95,7 +95,7 @@ async def get_user_settings(user_id: str, db: Annotated[Session, Depends(get_db)
         if not settings:
             raise HTTPException(status_code=404, detail="User settings not found")
         
-        return settings.to_dict()
+        return UserSettingsResponse(**settings.to_dict())
 
 # Update user settings
 @router.put("/{user_id}/settings", response_model=UserSettingsResponse)
@@ -121,4 +121,4 @@ async def update_user_settings(
         
         session.commit()
         session.refresh(settings)
-        return settings.to_dict()
+        return UserSettingsResponse(**settings.to_dict())

@@ -25,6 +25,7 @@ class User(Model):
     # User relationships
     downloads = relationship("Torrent", back_populates="user")
     schedules = relationship("Schedule", back_populates="user")
+    streaming_progress = relationship("UserStreamingProgress", back_populates="user", cascade="all, delete-orphan")
     
     # Create a user with default settings
     @classmethod

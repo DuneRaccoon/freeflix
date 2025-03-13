@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     console.log(movie);
     
     return {
-      title: `${movie.title} (${movie.year}) | YIFY Downloader`,
+      title: `${movie.title} (${movie.year}) | Freeflix`,
       description: movie.description || movie.plot || `Watch and download ${movie.title}`,
       openGraph: {
         images: [movie.media.poster || movie.img],
@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   } catch (error) {
     return {
-      title: 'Movie | YIFY Downloader',
+      title: 'Movie | Freeflix',
     };
   }
 }

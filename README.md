@@ -1,6 +1,6 @@
-### **YIFY Downloader**
+### **Freeflix**
 
-YIFY Downloader is an automated torrent management system that scrapes YTS for the latest movies, fetches available torrents, and downloads them efficiently using **libtorrent**.
+Freeflix is an open source streaming service, which can be used to automatically download torrents, autamtically stream torrents and schedule regular downloads.
 
 * * *
 
@@ -12,7 +12,7 @@ YIFY Downloader is an automated torrent management system that scrapes YTS for t
     
     CopyEdit
     
-    `git clone https://github.com/yify-scraper.git && cd yify_downloader`
+    `git clone https://github.com/freeflix.git && cd freeflix`
     
 2.  Run the installation script:
     
@@ -28,7 +28,7 @@ YIFY Downloader is an automated torrent management system that scrapes YTS for t
     
     CopyEdit
     
-    `sudo systemctl status yify_downloader`
+    `sudo systemctl status freeflix`
     
 
 * * *
@@ -43,7 +43,7 @@ YIFY Downloader is an automated torrent management system that scrapes YTS for t
     
     CopyEdit
     
-    `sudo systemctl restart yify_downloader`
+    `sudo systemctl restart freeflix`
     
 
 * * *

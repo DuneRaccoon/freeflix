@@ -14,6 +14,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import UserDropdown from '@/components/users/UserDropdown';
+import ThemeToggle from '@/components/ui/ThemeToggle';
 
 const Navigation: React.FC<{
   sticky?: boolean;
@@ -40,7 +41,7 @@ const Navigation: React.FC<{
   };
 
   return (
-    <nav className={`bg-gray-900 border-b border-gray-800 ${sticky ? 'sticky top-0 z-10' : ''}`}>
+    <nav className="border-b border-gray-800 sticky top-0 z-10 bg-card">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           {/* Logo and Brand */}
@@ -48,7 +49,7 @@ const Navigation: React.FC<{
             <Link href="/">
               <span className="flex items-center">
                 <ArrowDownTrayIcon className="h-8 w-8 text-primary-500" />
-                <span className="ml-2 text-xl font-bold">YIFY Downloader</span>
+                <span className="ml-2 text-xl font-bold">Freeflix</span>
               </span>
             </Link>
           </div>
@@ -62,8 +63,8 @@ const Navigation: React.FC<{
                 className={twMerge(
                   'flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors',
                   isActive(item.href)
-                    ? 'bg-gray-800 text-white'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                    ? 'bg-gray-800 text-white dark:bg-gray-700 dark:text-white'
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white dark:text-gray-700 dark:hover:bg-gray-200 dark:hover:text-gray-900'
                 )}
               >
                 <item.icon className="h-5 w-5 mr-1" />
@@ -72,17 +73,19 @@ const Navigation: React.FC<{
             ))}
           </div>
 
-          {/* User Dropdown (Desktop) */}
-          <div className="hidden md:flex items-center">
+          {/* User Dropdown and Theme Toggle (Desktop) */}
+          <div className="hidden md:flex items-center space-x-2">
+            <ThemeToggle />
             <UserDropdown />
           </div>
 
           {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center space-x-3">
+            <ThemeToggle />
             <UserDropdown />
             <button
               onClick={toggleMobileMenu}
-              className="text-gray-300 hover:text-white focus:outline-none"
+              className="text-gray-300 hover:text-white focus:outline-none dark:text-gray-700 dark:hover:text-gray-900"
             >
               {isMobileMenuOpen ? (
                 <XMarkIcon className="h-6 w-6" />
@@ -96,7 +99,7 @@ const Navigation: React.FC<{
 
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
-        <div className="md:hidden bg-gray-900 pb-3 px-4 animate-fade-in">
+        <div className="md:hidden bg-card pb-3 px-4 animate-fade-in">
           <div className="space-y-1">
             {navItems.map((item) => (
               <Link
@@ -105,8 +108,8 @@ const Navigation: React.FC<{
                 className={twMerge(
                   'flex items-center px-3 py-2 rounded-md text-base font-medium',
                   isActive(item.href)
-                    ? 'bg-gray-800 text-white'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white dark:text-gray-700 dark:hover:bg-gray-200 dark:hover:text-gray-900'
                 )}
                 onClick={() => setIsMobileMenuOpen(false)}
               >

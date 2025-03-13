@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "yify-scraper"
+name = "freeflix"
 version = "0.1.0"
 description = "Yify movie scraper"
 authors = ["DuneRaccoon <benjamincsherro@hotmail.com>"]

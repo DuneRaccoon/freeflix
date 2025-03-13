@@ -41,6 +41,8 @@ class Torrent(Model):
     user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Nullable for backward compatibility
     user = relationship("User", back_populates="downloads")
     
+    streaming_progress = relationship("UserStreamingProgress", back_populates="torrent", cascade="all, delete-orphan")
+    
     def to_status(self) -> TorrentStatus:
         """Convert database Torrent model to TorrentStatus Pydantic model."""
         # Extract metadata fields

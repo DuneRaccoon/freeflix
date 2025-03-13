@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* Base theme (dark) */
 :root {
   --background: 222.2 84% 4.9%;
   --foreground: 210 40% 98%;
@@ -24,11 +25,114 @@
   --ring: 212.7 26.8% 83.9%;
   
   --radius: 0.5rem;
+  --scrollbar-track: #1e293b;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+
+  /* Named color variables for easier usage */
+  --color-background: #0f172a;
+  --color-foreground: #f8fafc;
+  --color-card: #1e293b;
+  --color-card-foreground: #f8fafc;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #ec4899;
+  --color-secondary-foreground: #ffffff;
+  --color-muted: #334155;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #1e293b;
+  --color-danger: #ef4444;
+}
+
+/* Light theme */
+.light {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  
+  --secondary: 346.8 77.2% 49.8%;
+  --secondary-foreground: 210 40% 98%;
+  
+  --accent: 261.4 72.2% 55.3%;
+  --accent-foreground: 210 40% 98%;
+  
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
+  
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+  
+  /* Named color variables for easier usage */
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #ec4899;
+  --color-secondary-foreground: #ffffff;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-danger: #ef4444;
+}
+
+/* Dark theme (explicitly defined for specificity) */
+.dark {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  
+  --card: 222.2 84% 9.8%;
+  --card-foreground: 210 40% 98%;
+  
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  
+  --secondary: 346.8 77.2% 49.8%;
+  --secondary-foreground: 210 40% 98%;
+  
+  --accent: 261.4 72.2% 55.3%;
+  --accent-foreground: 210 40% 98%;
+  
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
+  
+  --scrollbar-track: #1e293b;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+  
+  /* Named color variables for easier usage */
+  --color-background: #0f172a;
+  --color-foreground: #f8fafc;
+  --color-card: #1e293b;
+  --color-card-foreground: #f8fafc;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #ec4899;
+  --color-secondary-foreground: #ffffff;
+  --color-muted: #334155;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #1e293b;
+  --color-danger: #ef4444;
 }
 
 body {
-  background-color: #0f172a;
-  color: #f8fafc;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
   font-feature-settings: "rlig" 1, "calt" 1;
 }
 
@@ -38,16 +142,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: theme('colors.gray.900');
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: theme('colors.gray.700');
+  background: var(--scrollbar-thumb);
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: theme('colors.gray.600');
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Smooth transitions */
@@ -208,7 +312,7 @@ body {
 /* Movie screen with subtle glow */
 .movie-screen {
   border-radius: 8px;
-  background: #1a202c;
+  background: var(--color-card);
   box-shadow: 0 0 20px rgba(255, 255, 255, 0.1), 
               inset 0 0 30px rgba(0, 0, 0, 0.5);
   overflow: hidden;
@@ -227,6 +331,19 @@ body {
     rgba(255, 255, 255, 0.2), 
     rgba(255, 255, 255, 0));
   animation: slideInRight 2s infinite;
+}
+
+/* Background color classes based on theme */
+.bg-background {
+  background-color: var(--color-background);
+}
+
+.bg-card {
+  background-color: var(--color-card);
+}
+
+.text-foreground {
+  color: var(--color-foreground);
 }
 
 /* Smooth transitions for all elements */

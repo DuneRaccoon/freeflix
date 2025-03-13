@@ -23,6 +23,7 @@ interface VideoPlayerProps {
   onEnded?: () => void;
   onError?: (error: string) => void;
   onProgress?: (state: PlayerState) => void;
+  registerMethods?: (methods: { seekTo: (time: number) => void }) => void;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -34,7 +35,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   debug = false,
   onEnded,
   onError,
-  onProgress
+  onProgress,
+  registerMethods
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -694,6 +696,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     });
   }, [playbackSpeed, safeVideoOperation]);
 
+  useEffect(() => {
+    if (registerMethods) {
+      registerMethods({
+        seekTo: (time: number) => {
+          safeVideoOperation(video => {
+            video.currentTime = time;
+          });
+        }
+      });
+    }
+  }, [registerMethods, safeVideoOperation]);
+  
   // CRITICAL FIX: Reset cursor timeout function
   const resetCursorTimeout = useCallback(() => {
     // Show cursor and controls

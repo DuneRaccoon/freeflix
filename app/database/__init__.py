@@ -9,7 +9,10 @@ from app.database.models import (
     Schedule, 
     ScheduleLog, 
     MovieCache, 
-    Setting
+    Setting,
+    User,
+    UserSettings,
+    UserStreamingProgress
 )
 from app.database.utils import (
     to_dict,
@@ -41,6 +44,9 @@ __all__ = [
     'ScheduleLog',
     'MovieCache',
     'Setting',
+    'User',
+    'UserSettings',
+    'UserStreamingProgress',
     
     # Utils
     'to_dict',

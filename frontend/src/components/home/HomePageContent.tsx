@@ -13,8 +13,11 @@ import {
   ArrowDownTrayIcon,
   ClockIcon,
 } from '@heroicons/react/24/outline';
+import RecentlyWatchedMovies from '@/components/home/RecentlyWatchedMovies';
+import { useUser } from '@/context/UserContext';
 
 export default function HomePageContent() {
+  const { currentUser } = useUser();
   const [latestMovies, setLatestMovies] = useState<Movie[]>([]);
   const [topRatedMovies, setTopRatedMovies] = useState<Movie[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -185,7 +188,7 @@ export default function HomePageContent() {
             </div>
             <div>
               <h3 className="text-lg font-semibold">Explore</h3>
-              <p className="text-gray-400">Browse thousands of movies</p>
+              <p className="text-muted-foreground">Browse thousands of movies</p>
             </div>
           </CardContent>
         </Card>
@@ -197,23 +200,26 @@ export default function HomePageContent() {
             </div>
             <div>
               <h3 className="text-lg font-semibold">Download</h3>
-              <p className="text-gray-400">High-quality torrents</p>
+              <p className="text-muted-foreground">High-quality torrents</p>
             </div>
           </CardContent>
         </Card>
         
         <Card>
           <CardContent className="p-4 flex items-center">
-            <div className="bg-gray-800 p-3 rounded-full mr-4">
-              <ClockIcon className="w-6 h-6 text-gray-400" />
+            <div className="bg-muted p-3 rounded-full mr-4">
+              <ClockIcon className="w-6 h-6 text-muted-foreground" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">Automate</h3>
-              <p className="text-gray-400">Schedule regular downloads</p>
+              <p className="text-muted-foreground">Schedule regular downloads</p>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Recently Watched Section - Only show if user is logged in */}
+      {currentUser && <RecentlyWatchedMovies />}
 
       {/* Latest Movies Section */}
       <Card>

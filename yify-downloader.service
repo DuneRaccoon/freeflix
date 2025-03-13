@@ -5,8 +5,8 @@ After=network.target
 [Service]
 User=pi
 Group=pi
-WorkingDirectory=/opt/yify_downloader
-ExecStart=/opt/yify_downloader/venv/bin/python /opt/yify_downloader/downloader.py
+WorkingDirectory=/opt/freeflix
+ExecStart=/opt/freeflix/venv/bin/python /opt/freeflix/downloader.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

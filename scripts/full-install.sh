@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default configuration
-INSTALL_DIR="/opt/yify_downloader"
+INSTALL_DIR="/opt/freeflix"
 DOWNLOAD_DIR="/mnt/media/downloads/movies"
 SERVICE_USER="$USER"
 SERVICE_GROUP="$USER"

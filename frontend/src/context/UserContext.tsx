@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserSettings, usersService } from '@/services/users';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
+import { preloadAvatars } from '@/utils/avatarHelper';
 
 type UserContextType = {
   currentUser: User | null;
@@ -33,6 +34,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Load users on mount
   useEffect(() => {
+    // Preload avatars to ensure they're available
+    preloadAvatars();
+    
     loadUsers();
     
     // Try to get current user from local storage

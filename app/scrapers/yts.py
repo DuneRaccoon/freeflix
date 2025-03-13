@@ -14,7 +14,7 @@ from app.utils.user_agent import get_random_user_agent
 
 # Initialize rate limiter
 throttler = LeakyBucket(InMemoryLeakyBucketStorage(
-    max_rate=settings.REQUEST_RATE_LIMIT, 
+    max_rate=settings.request_rate_limit, 
     time_period=1
 ))
 
@@ -44,7 +44,7 @@ async def fetch_available_torrents(movie_url: str) -> List[Torrent]:
                     id=torrent_id,
                     quality=quality,
                     sizes=sizes,
-                    url=f'{settings.YIFY_URL}{torrent_url}',
+                    url=f'{settings.yify_url}{torrent_url}',
                     magnet=magnet
                 ))
             return torrents
@@ -72,12 +72,12 @@ async def scrape_movies(soup: bs) -> List[Movie]:
                 title=title,
                 year=year,
                 rating=rating,
-                link=f'{settings.YIFY_URL}{link}',
+                link=f'{settings.yify_url}{link}',
                 genre=genre,
-                img=f'{settings.YIFY_URL}{img}',
+                img=f'{settings.yify_url}{img}',
                 description=description.text if description else None,
                 torrents=(
-                    await fetch_available_torrents(f'{settings.YIFY_URL}{link}')
+                    await fetch_available_torrents(f'{settings.yify_url}{link}')
                 )
             )
         except Exception as e:
@@ -115,7 +115,7 @@ async def browse_yts(params: SearchParams) -> List[Movie]:
     async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
         try:
             response = await client.get(
-                settings.YIFY_URL_BROWSE_URL, 
+                settings.yify_url_browse_url, 
                 params=query_params, 
                 timeout=15.0
             )
@@ -177,7 +177,7 @@ async def get_movie_by_url(url: str) -> Optional[Movie]:
                     id=torrent_id,
                     quality=quality,
                     sizes=sizes,
-                    url=f'{settings.YIFY_URL}{torrent_url}',
+                    url=f'{settings.yify_url}{torrent_url}',
                     magnet=magnet
                 ))
             
@@ -187,7 +187,7 @@ async def get_movie_by_url(url: str) -> Optional[Movie]:
                 rating=rating,
                 link=url,
                 genre=genre,
-                img=f'{settings.YIFY_URL}{img}',
+                img=f'{settings.yify_url}{img}',
                 torrents=torrents
             )
             

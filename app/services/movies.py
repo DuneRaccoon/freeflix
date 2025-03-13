@@ -22,8 +22,8 @@ class MovieDetailsService:
     TMDB_API_URL = "https://api.themoviedb.org/3"
     
     def __init__(self):
-        self.omdb_api_key = settings.OMDB_API_KEY if hasattr(settings, 'OMDB_API_KEY') else ""
-        self.tmdb_api_key = settings.TMDB_API_KEY if hasattr(settings, 'TMDB_API_KEY') else ""
+        self.omdb_api_key = settings.omdb_api_key
+        self.tmdb_api_key = settings.tmdb_api_key
         
         # If API keys are missing, use web scraping as fallback
         self.use_api = bool(self.omdb_api_key or self.tmdb_api_key)

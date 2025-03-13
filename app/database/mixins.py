@@ -129,6 +129,9 @@ class Model(CRUDMixin, Base):
     updated_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc), index=True)
     deleted_at = Column(DateTime, nullable=True, index=True)
     
+    # def __repr__(self):
+    #     return f"<{self.__class__.__name__} {self.id}>"
+    
     @classmethod
     def __declare_last__(cls):
         """Called after mappings are configured"""

@@ -88,7 +88,7 @@ def setup_shell():
         # Redirect logs to a file in the current directory
         log_dir = Path('./logs')
         log_dir.mkdir(exist_ok=True)
-        settings.LOG_PATH = log_dir
+        settings.log_path = log_dir
         
         # Import FastAPI application after modifying settings
         from app.main import app
@@ -142,10 +142,10 @@ def setup_shell():
             print(f"  Database: {'Connected' if db else 'Not connected'}")
             print(f"  Torrent Manager: {'Initialized' if torrent_manager else 'Not initialized'}")
             print(f"  Schedule Manager: {'Initialized' if schedule_manager else 'Not initialized'}")
-            print(f"  Download Path: {settings.DEFAULT_DOWNLOAD_PATH}")
+            print(f"  Download Path: {settings.default_download_path}")
             print(f"  Max Active Downloads: {settings.MAX_ACTIVE_DOWNLOADS}")
-            print(f"  Log Level: {settings.LOG_LEVEL}")
-            print(f"  Scheduler Enabled: {settings.CRON_ENABLED}")
+            print(f"  Log Level: {settings.log_level}")
+            print(f"  Scheduler Enabled: {settings.cron_enabled}")
             
             # Check active torrents
             try:

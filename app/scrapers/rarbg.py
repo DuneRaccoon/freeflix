@@ -12,7 +12,7 @@ from app.config import settings
 
 # Initialize rate limiter
 throttler = LeakyBucket(InMemoryLeakyBucketStorage(
-    max_rate=settings.REQUEST_RATE_LIMIT, 
+    max_rate=settings.request_rate_limit, 
     time_period=1
 ))
 
@@ -39,7 +39,7 @@ async def browse_rarbg(path: Literal['movies', 'series'], params: SearchParams) 
             logger.info(f"{query_params}")
             
             response = await client.get(
-                settings.RARBG_URL.format(path=path), 
+                settings.rarbg_url.format(path=path), 
                 params=query_params, 
                 timeout=15.0
             )

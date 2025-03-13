@@ -1,53 +1,55 @@
 import os
+from typing import Optional
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    class Config:
+        env_file = ".env"
+        env_file_encoding = 'utf-8'
+    
     # API settings
-    API_V1_STR: str = "/api/v1"
-    PROJECT_NAME: str = "YIFY Torrent Downloader"
+    api_v1_str: str = "/api/v1"
+    project_name: str = "YIFY Torrent Downloader"
     
     # YTS scraping settings
-    YIFY_URL: str = "https://en.yts-official.mx"
-    YIFY_URL_BROWSE_URL: str = "https://en.yts-official.mx/browse-movies"
-    RARBG_URL: str = "https://en.rarbg-official.com/{path}"
-    REQUEST_RATE_LIMIT: int = 3  # requests per second
+    yify_url: str = "https://en.yts-official.mx"
+    yify_url_browse_url: str = "https://en.yts-official.mx/browse-movies"
+    rarbg_url: str = "https://en.rarbg-official.com/{path}"
+    request_rate_limit: int = 3  # requests per second
     
     # External API keys (set these in environment variables)
-    OMDB_API_KEY: str = os.environ.get("OMDB_API_KEY", "")
-    TMDB_API_KEY: str = os.environ.get("TMDB_API_KEY", "")
+    omdb_api_key: Optional[str] = None
+    tmdb_api_key: Optional[str] = None
     
     # Torrent settings
-    BASE_APP_BATH: Path = Path(__file__).parent.parent
-    DEFAULT_DOWNLOAD_PATH: Path = Path(os.environ.get("DOWNLOAD_PATH", "/opt/yify_downloader/downloads"))
-    LISTEN_INTERFACES: str = "0.0.0.0:6881"
-    PORT_RANGE_START: int = 6881
-    PORT_RANGE_END: int = 6891
-    MAX_ACTIVE_DOWNLOADS: int = 3
-    RESUME_DATA_PATH: Path = BASE_APP_BATH / "resume_data"
+    base_app_path: Path = Path(__file__).parent.parent
+    default_download_path: Path = Path(os.environ.get("DOWNLOAD_PATH", "/opt/yify_downloader/downloads"))
+    listen_interfaces: str = "0.0.0.0:6881"
+    port_range_start: int = 6881
+    port_range_end: int = 6891
+    max_active_downloads: int = 3
+    resume_data_path: Path = base_app_path / "resume_data"
     
     # Logging settings
-    LOG_LEVEL: str = "INFO"
-    if os.environ.get("LOG_PATH"):
-        LOG_PATH: Path = Path(os.environ.get("LOG_PATH"))
-    else:
-        LOG_PATH: Path = BASE_APP_BATH / "logs"
+    log_level: str = "INFO"
+    log_path: Path = base_app_path / "logs"
     
     # Database settings (for storing torrent status and schedule)
-    DB_PATH: Path = BASE_APP_BATH / "torrents.db"
+    db_path: Path = base_app_path / "torrents.db"
     
     # Cron settings
-    CRON_ENABLED: bool = True
+    cron_enabled: bool = True
     
-    CACHE_MOVIES_FOR: int = 365  # 365 days
+    cache_movies_for: int = 365  # 365 days
     
     # Create necessary directories on startup
     def initialize(self):
-        self.DEFAULT_DOWNLOAD_PATH.mkdir(parents=True, exist_ok=True)
-        self.RESUME_DATA_PATH.mkdir(parents=True, exist_ok=True)
-        self.LOG_PATH.mkdir(parents=True, exist_ok=True)
-        self.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self.default_download_path.mkdir(parents=True, exist_ok=True)
+        self.resume_data_path.mkdir(parents=True, exist_ok=True)
+        self.log_path.mkdir(parents=True, exist_ok=True)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

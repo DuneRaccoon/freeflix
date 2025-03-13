@@ -8,10 +8,10 @@ from loguru import logger
 from app.config import settings
 
 # Create the database directory if it doesn't exist
-settings.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+settings.db_path.parent.mkdir(parents=True, exist_ok=True)
 
 # Create SQLAlchemy engine
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{settings.DB_PATH}"
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{settings.db_path}"
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, 
     connect_args={"check_same_thread": False}  # Needed for SQLite

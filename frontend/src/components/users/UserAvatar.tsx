@@ -1,6 +1,7 @@
 import React from 'react';
 import { User } from '@/services/users';
 import { twMerge } from 'tailwind-merge';
+import { handleAvatarError, DEFAULT_AVATAR_DATA_URI, getInitials } from '@/utils/avatarHelper';
 
 interface UserAvatarProps {
   user: User;
@@ -26,18 +27,8 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
     xl: 'h-32 w-32'
   };
   
-  // Set fallback if image fails to load
-  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    e.currentTarget.src = '/avatars/default.png';
-  };
-  
   // Generate initials from display name
-  const initials = user.display_name
-    .split(' ')
-    .map(n => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  const initials = getInitials(user.display_name);
     
   return (
     <div 
@@ -53,7 +44,7 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
           src={avatarSrc} 
           alt={user.display_name}
           className="h-full w-full object-cover" 
-          onError={handleImageError}
+          onError={handleAvatarError}
         />
       ) : (
         <span className="text-white font-bold text-xl">{initials}</span>

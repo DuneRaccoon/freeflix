@@ -1,29 +1,24 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { AVATAR_OPTIONS, handleAvatarError, preloadAvatars } from '@/utils/avatarHelper';
 
 interface AvatarSelectorProps {
   selectedAvatar: string | null;
   onChange: (avatar: string) => void;
 }
 
-// Available avatar options
-const avatarOptions = [
-  '/avatars/avatar1.png',
-  '/avatars/avatar2.png',
-  '/avatars/avatar3.png',
-  '/avatars/avatar4.png',
-  '/avatars/avatar5.png',
-  '/avatars/avatar6.png',
-  '/avatars/avatar7.png',
-  '/avatars/avatar8.png',
-];
+// Preload avatars to check availability
 
 const AvatarSelector: React.FC<AvatarSelectorProps> = ({ selectedAvatar, onChange }) => {
+  // Preload avatars on component mount
+  useEffect(() => {
+    preloadAvatars();
+  }, []);
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-gray-200">Select Avatar</label>
       
       <div className="grid grid-cols-4 gap-3">
-        {avatarOptions.map((avatar, index) => (
+        {AVATAR_OPTIONS.map((avatar, index) => (
           <div 
             key={index}
             className={`
@@ -37,10 +32,7 @@ const AvatarSelector: React.FC<AvatarSelectorProps> = ({ selectedAvatar, onChang
               src={avatar} 
               alt={`Avatar ${index + 1}`} 
               className="w-full h-full object-cover"
-              onError={(e) => {
-                // Fallback to a default if image fails to load
-                e.currentTarget.src = '/avatars/default.png';
-              }}
+              onError={handleAvatarError}
             />
           </div>
         ))}

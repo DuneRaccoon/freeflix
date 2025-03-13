@@ -23,6 +23,82 @@ class TorrentState(str, Enum):
     ERROR = "error"
     STOPPED = "stopped"
 
+OrderByLiteral = Literal[
+    'latest',
+    'oldest',
+    'featured',
+    'year',
+    'rating',
+    'likes',
+    'alphabetical'
+]
+
+GenreLiteral = Literal[
+    "all",
+    "action",
+    "adventure",
+    "animation",
+    "biography",
+    "comedy",
+    "crime",
+    "documentary",
+    "drama",
+    "family",
+    "fantasy",
+    "film-noir",
+    "game-show",
+    "history",
+    "horror",
+    "music",
+    "musical",
+    "mystery",
+    "news",
+    "reality-tv",
+    "romance",
+    "sci-fi",
+    "sport",
+    "talk-show",
+    "thriller",
+    "war",
+    "western"
+]
+
+QualityLiteral = Literal['all', '720p', '1080p', '2160p', '3d']
+RatingLiteral = Literal['all', '9', '8', '7', '6', '5', '4', '3', '2', '1']
+YearLiteral = Literal[
+    "all",
+    "2024",
+    "2023",
+    "2022",
+    "2021",
+    "2020",
+    "2019",
+    "2018",
+    "2017",
+    "2016",
+    "2015",
+    "2014",
+    "2013",
+    "2012",
+    "2011",
+    "2010",
+    "2000-2009",
+    "1990-1999",
+    "1980-1989",
+    "1970-1979",
+    "1950-1969",
+    "1900-1949"
+]
+
+class SearchParams(BaseModel):
+    keyword: Optional[str] = None
+    quality: Optional[QualityLiteral] = 'all'
+    genre: Optional[GenreLiteral] = 'all'
+    rating: Optional[RatingLiteral] = 0
+    year: Optional[YearLiteral] = None
+    order_by: Optional[OrderByLiteral] = 'featured'
+    page: Optional[int] = 1
+
 
 class Torrent(BaseModel):
     model_config = ConfigDict(
@@ -152,17 +228,6 @@ class TorrentRequest(BaseModel):
     quality: Literal['720p', '1080p', '2160p'] = '1080p'
     save_path: Optional[str] = None
 
-
-class SearchParams(BaseModel):
-    keyword: Optional[str] = None
-    quality: Optional[str] = 'all'
-    genre: Optional[str] = 'all'
-    rating: Optional[int] = 0
-    year: Optional[int] = None
-    order_by: Optional[str] = 'featured'
-    page: Optional[int] = 1
-
-
 class TorrentAction(BaseModel):
     action: Literal['pause', 'resume', 'stop', 'remove']
 
@@ -252,16 +317,16 @@ class UserUpdate(BaseModel):
 class UserSettingsModel(BaseModel):
     maturity_restriction: str = "none"
     require_passcode: bool = False
-    passcode: str = None
+    passcode: Optional[str] = None
     theme: str = "dark"
-    default_quality: str = "1080p"
-    download_path: str = None
+    default_quality: Literal['720p', '1080p', '2160p'] = "1080p"
+    download_path: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
     username: str
     display_name: str
-    avatar: str = None
+    avatar: Optional[str] = None
     created_at: str
 
 class UserSettingsResponse(BaseModel):
@@ -271,4 +336,4 @@ class UserSettingsResponse(BaseModel):
     require_passcode: bool
     theme: str
     default_quality: str
-    download_path: str = None
+    download_path: Optional[str] = None

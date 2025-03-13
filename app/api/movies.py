@@ -1,6 +1,6 @@
 import datetime
 from fastapi import APIRouter, HTTPException, Query, Depends, Path
-from typing import List, Optional
+from typing import List, Optional, Annotated
 from pydantic import HttpUrl
 from sqlalchemy.orm import Session
 import uuid
@@ -43,7 +43,7 @@ async def search_movies(title: str = Query(..., description="Movie title to sear
 
 
 @router.post("/browse", response_model=List[Movie], summary="Browse movies with filters")
-async def browse_movies(params: SearchParams, db: Session = Depends(get_db)):
+async def browse_movies(params: SearchParams, db: Annotated[Session, Depends(get_db)]):
     """
     Browse movies with various filters.
     
@@ -171,7 +171,7 @@ async def get_movie_details(
                         
                     # Store in cache
                     now = datetime.datetime.now(datetime.timezone.utc)
-                    expires = now + datetime.timedelta(days=settings.CACHE_MOVIES_FOR)
+                    expires = now + datetime.timedelta(days=settings.cache_movies_for)
                     
                     movie_cache = MovieCache(
                         id=str(uuid.uuid4()),
@@ -195,8 +195,8 @@ async def get_movie_details(
             # Check if we need to fetch extended data
             extended_data_fresh = (
                 movie_cache.extended_data_fetched_at is not None and
-                # (datetime.datetime.now(datetime.timezone.utc) - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.CACHE_MOVIES_FOR)
-                (datetime.datetime.now() - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.CACHE_MOVIES_FOR)
+                # (datetime.datetime.now(datetime.timezone.utc) - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.cache_movies_for)
+                (datetime.datetime.now() - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.cache_movies_for)
             )
             
             if not extended_data_fresh:

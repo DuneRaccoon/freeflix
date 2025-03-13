@@ -1,8 +1,9 @@
 # app/api/users.py
 from fastapi import APIRouter, HTTPException, Path, Depends
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Annotated, Optional
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from loguru import logger
 
 from app.database.session import get_db
 from app.database.models import User, UserSettings
@@ -18,10 +19,10 @@ router = APIRouter()
 
 # Create a new user
 @router.post("/", response_model=UserResponse)
-async def create_user(user: UserCreate, db: Session = Depends(get_db)):
+async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]):
     with db as session:
         # Check if username already exists
-        existing_user = session.query(User).filter(User.username == user.username).first()
+        existing_user: User = session.query(User).filter(User.username == user.username).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Username already exists")
         
@@ -37,25 +38,26 @@ async def create_user(user: UserCreate, db: Session = Depends(get_db)):
 
 # Get all users
 @router.get("/", response_model=List[UserResponse])
-async def get_users(db: Session = Depends(get_db)):
+async def get_users(db: Annotated[Session, Depends(get_db)]):
     with db as session:
-        users = session.query(User).all()
+        users: List[User] = session.query(User).all()
+        logger.info(users)
         return users
 
 # Get user by ID
 @router.get("/{user_id}", response_model=UserResponse)
-async def get_user(user_id: str, db: Session = Depends(get_db)):
+async def get_user(user_id: str, db: Annotated[Session, Depends(get_db)]):
     with db as session:
-        user = session.query(User).filter(User.id == user_id).first()
+        user: Optional[User] = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         return user
 
 # Update user
 @router.put("/{user_id}", response_model=UserResponse)
-async def update_user(user_id: str, user_update: UserUpdate, db: Session = Depends(get_db)):
+async def update_user(user_id: str, user_update: UserUpdate, db: Annotated[Session, Depends(get_db)]):
     with db as session:
-        user = session.query(User).filter(User.id == user_id).first()
+        user: Optional[User] = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -71,9 +73,9 @@ async def update_user(user_id: str, user_update: UserUpdate, db: Session = Depen
 
 # Delete user
 @router.delete("/{user_id}")
-async def delete_user(user_id: str, db: Session = Depends(get_db)):
+async def delete_user(user_id: str, db: Annotated[Session, Depends(get_db)]):
     with db as session:
-        user = session.query(User).filter(User.id == user_id).first()
+        user: Optional[User] = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -83,9 +85,9 @@ async def delete_user(user_id: str, db: Session = Depends(get_db)):
 
 # Get user settings
 @router.get("/{user_id}/settings", response_model=UserSettingsResponse)
-async def get_user_settings(user_id: str, db: Session = Depends(get_db)):
+async def get_user_settings(user_id: str, db: Annotated[Session, Depends(get_db)]):
     with db as session:
-        user = session.query(User).filter(User.id == user_id).first()
+        user: Optional[User] = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -100,10 +102,10 @@ async def get_user_settings(user_id: str, db: Session = Depends(get_db)):
 async def update_user_settings(
     user_id: str, 
     settings_update: UserSettingsModel, 
-    db: Session = Depends(get_db)
+    db: Annotated[Session, Depends(get_db)]
 ):
     with db as session:
-        user = session.query(User).filter(User.id == user_id).first()
+        user: Optional[User] = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         

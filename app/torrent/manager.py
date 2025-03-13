@@ -38,7 +38,7 @@ class TorrentManager:
     def __init__(self):
         # Initialize libtorrent session
         self.session = lt.session({
-            'listen_interfaces': settings.LISTEN_INTERFACES,
+            'listen_interfaces': settings.listen_interfaces,
             'alert_mask': lt.alert.category_t.all_categories,
             'enable_dht': True,
             'dht_bootstrap_nodes': (
@@ -56,7 +56,7 @@ class TorrentManager:
         self.session.add_dht_router("dht.transmissionbt.com", 6881)
         
         # Try to load the resume data
-        settings.RESUME_DATA_PATH.mkdir(parents=True, exist_ok=True)
+        settings.resume_data_path.mkdir(parents=True, exist_ok=True)
         
         # Dictionary to store active torrents: {torrent_id: (handle, metadata)}
         self.active_torrents: Dict[str, Tuple[lt.torrent_handle, Dict[str, Any]]] = {}
@@ -523,7 +523,7 @@ class TorrentManager:
         Args:
             movie: Movie information
             torrent: Torrent information
-            save_path: Custom save path (defaults to settings.DEFAULT_DOWNLOAD_PATH/movie.title)
+            save_path: Custom save path (defaults to settings.default_download_path/movie.title)
             
         Returns:
             torrent_id: Unique identifier for the torrent
@@ -533,7 +533,7 @@ class TorrentManager:
         
         # Determine save path
         if save_path is None:
-            save_path = settings.DEFAULT_DOWNLOAD_PATH / movie.title
+            save_path = settings.default_download_path / movie.title
         
         # Ensure save path exists
         save_path.mkdir(parents=True, exist_ok=True)

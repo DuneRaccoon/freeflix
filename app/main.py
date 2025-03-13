@@ -22,12 +22,12 @@ settings.initialize()
 logger.remove()  # Remove default handler
 logger.add(
     sys.stdout,
-    level=settings.LOG_LEVEL,
+    level=settings.log_level,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <cyan>{level}</cyan> | <blue>{file}:{line}</blue> | {message}",
 )
 logger.add(
-    settings.LOG_PATH / "{time:YYYY-MM-DD}.log",
-    level=settings.LOG_LEVEL,
+    settings.log_path / "{time:YYYY-MM-DD}.log",
+    level=settings.log_level,
     rotation="1 day",
     retention="7 days",
     compression="zip",
@@ -41,15 +41,15 @@ if is_raspberry_pi:
     # Optimize for Raspberry Pi
     os.environ["MALLOC_MMAP_THRESHOLD_"] = "16384"  # Optimize memory allocation
     # Restrict number of parallel downloads
-    max_active_downloads = min(settings.MAX_ACTIVE_DOWNLOADS, 2)
+    max_active_downloads = min(settings.max_active_downloads, 2)
 else:
-    max_active_downloads = settings.MAX_ACTIVE_DOWNLOADS
+    max_active_downloads = settings.max_active_downloads
 
 logger.info(f"Maximum active downloads set to {max_active_downloads}")
 
 # Create FastAPI app
 app = FastAPI(
-    title=settings.PROJECT_NAME,
+    title=settings.project_name,
     description="API for downloading and managing YTS torrents",
     version="1.0.0",
 )
@@ -66,27 +66,27 @@ app.add_middleware(
 # Include routers
 app.include_router(
     movies.router,
-    prefix=f"{settings.API_V1_STR}/movies",
+    prefix=f"{settings.api_v1_str}/movies",
     tags=["Movies"],
 )
 app.include_router(
     torrents.router,
-    prefix=f"{settings.API_V1_STR}/torrents",
+    prefix=f"{settings.api_v1_str}/torrents",
     tags=["Torrents"],
 )
 app.include_router(
     schedules.router,
-    prefix=f"{settings.API_V1_STR}/schedules",
+    prefix=f"{settings.api_v1_str}/schedules",
     tags=["Schedules"],
 )
 app.include_router(
     streaming.router,
-    prefix=f"{settings.API_V1_STR}/streaming",
+    prefix=f"{settings.api_v1_str}/streaming",
     tags=["Streaming"],
 )
 app.include_router(
     users.router,
-    prefix=f"{settings.API_V1_STR}/users",
+    prefix=f"{settings.api_v1_str}/users",
     tags=["Users"],
 )
 
@@ -119,7 +119,7 @@ async def startup_event():
     await torrent_manager.start_update_task()
     
     # Start scheduler if enabled
-    if settings.CRON_ENABLED:
+    if settings.cron_enabled:
         await schedule_manager.start_scheduler()
         logger.info("Scheduler enabled and started")
     else:
@@ -132,7 +132,7 @@ async def shutdown_event():
     logger.info("Shutting down YIFY Torrent Downloader...")
     
     # Shutdown scheduler
-    if settings.CRON_ENABLED:
+    if settings.cron_enabled:
         await schedule_manager.shutdown()
     
     # Shutdown torrent manager
@@ -144,7 +144,7 @@ async def root():
     """Root endpoint for health check"""
     return {
         "status": "running",
-        "service": settings.PROJECT_NAME,
+        "service": settings.project_name,
         "platform": platform.system(),
         "hardware": platform.machine(),
     }
@@ -158,7 +158,7 @@ async def health_check():
         return {
             "status": "healthy",
             "active_torrents": active_torrents,
-            "scheduler_enabled": settings.CRON_ENABLED,
+            "scheduler_enabled": settings.cron_enabled,
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")

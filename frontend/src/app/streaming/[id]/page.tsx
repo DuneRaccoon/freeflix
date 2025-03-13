@@ -1,4 +1,3 @@
-// frontend/src/app/streaming/[id]/page.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -34,6 +33,7 @@ export default function StreamingPage() {
   const [forceStreaming, setForceStreaming] = useState(false);
   const [showStreamingStats, setShowStreamingStats] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [videoFileProgress, setVideoFileProgress] = useState<number>(0);
   
   // Check if torrent exists and get initial status
   useEffect(() => {
@@ -58,13 +58,20 @@ export default function StreamingPage() {
         await torrentsService.prioritizeForStreaming(torrentId);
         
         // Check if streaming is possible
-        const readyToStream = await isStreamingReady(torrentId) || forceStreaming;
+        const readyToStream = await isStreamingReady(torrentId, 2) || forceStreaming; // Reduced minimum progress to 2%
         setIsStreamReady(readyToStream);
         
         if (readyToStream) {
           try {
             const info = await streamingService.getStreamingInfo(torrentId);
             setStreamingInfo(info);
+            
+            // Set video file specific progress
+            if (info?.video_file) {
+              setVideoFileProgress(info.video_file.progress);
+            } else {
+              setVideoFileProgress(status.progress);
+            }
           } catch (err) {
             console.error('Error fetching streaming info:', err);
             // Don't set error yet, we'll retry
@@ -85,7 +92,7 @@ export default function StreamingPage() {
     
     getTorrentStatus();
     
-    // Set up interval to refresh status
+    // Set up interval to refresh status and progress
     const interval = setInterval(async () => {
       if (!torrentId) return;
       
@@ -98,13 +105,20 @@ export default function StreamingPage() {
         
         // Check streaming status if not ready yet
         if (!isStreamReady && !forceStreaming) {
-          const readyToStream = await isStreamingReady(torrentId);
+          const readyToStream = await isStreamingReady(torrentId, 2);
           setIsStreamReady(readyToStream);
           
           if (readyToStream) {
             try {
               const info = await streamingService.getStreamingInfo(torrentId);
               setStreamingInfo(info);
+              
+              // Set video file specific progress
+              if (info?.video_file) {
+                setVideoFileProgress(info.video_file.progress);
+              } else {
+                setVideoFileProgress(status.progress);
+              }
             } catch (err) {
               console.error('Error fetching streaming info during retry:', err);
             }
@@ -114,6 +128,13 @@ export default function StreamingPage() {
           try {
             const info = await streamingService.getStreamingInfo(torrentId);
             setStreamingInfo(info);
+            
+            // Update video file specific progress
+            if (info?.video_file) {
+              setVideoFileProgress(info.video_file.progress);
+            } else {
+              setVideoFileProgress(status.progress);
+            }
           } catch (err) {
             console.error('Error updating streaming info:', err);
           }
@@ -147,6 +168,14 @@ export default function StreamingPage() {
       
       const info = await streamingService.getStreamingInfo(torrentId);
       setStreamingInfo(info);
+      
+      // Set video file specific progress
+      if (info?.video_file) {
+        setVideoFileProgress(info.video_file.progress);
+      } else if (torrentStatus) {
+        setVideoFileProgress(torrentStatus.progress);
+      }
+      
       setIsStreamReady(true);
       setError(null);
     } catch (err) {
@@ -170,6 +199,14 @@ export default function StreamingPage() {
       if (status) {
         const info = await streamingService.getStreamingInfo(torrentId);
         setStreamingInfo(info);
+        
+        // Update video file specific progress
+        if (info?.video_file) {
+          setVideoFileProgress(info.video_file.progress);
+        } else {
+          setVideoFileProgress(status.progress);
+        }
+        
         setIsStreamReady(true);
       } else {
         setError('Torrent not found. It may have been deleted or never existed.');
@@ -179,6 +216,19 @@ export default function StreamingPage() {
       setError('Failed to refresh streaming data. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+  
+  // Handle video player error
+  const handleVideoError = (error: string) => {
+    // For minor errors during active downloads, don't show the error screen
+    if (torrentStatus && torrentStatus.progress < 100 && 
+        (error.includes('network error') || error.includes('buffering'))) {
+      // Just log the error but don't show the error screen
+      console.warn('Video playback issue during download:', error);
+    } else {
+      // For serious errors, show the error screen
+      setError(error);
     }
   };
   
@@ -274,7 +324,9 @@ export default function StreamingPage() {
             movieId={torrentStatus.movie_title}
             movieTitle={torrentStatus.movie_title}
             subtitle={`${torrentStatus.quality} • ${streamingInfo.video_file.name}`}
-            onError={(error) => setError(error)}
+            onError={handleVideoError}
+            downloadProgress={videoFileProgress} // Pass the video-specific progress
+            streamingInfo={streamingInfo} // Pass the full streaming info
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-black">
@@ -323,13 +375,21 @@ export default function StreamingPage() {
               <span className="text-muted-foreground">Progress Rate:</span>
               <span className="ml-2">
                 {torrentStatus.download_rate > 0 
-                  ? `~${(torrentStatus.download_rate / streamingInfo.video_file.size * 100).toFixed(2)}%/s`
+                  ? `~${(torrentStatus.download_rate / streamingInfo.video_file.size * 100).toFixed(4)}%/s`
                   : 'N/A'}
               </span>
             </div>
             <div>
               <span className="text-muted-foreground">Format:</span>
               <span className="ml-2">{streamingInfo.video_file.mime_type.split('/')[1].toUpperCase()}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">ETA:</span>
+              <span className="ml-2">
+                {torrentStatus.eta 
+                  ? `${Math.floor(torrentStatus.eta / 60)} min ${torrentStatus.eta % 60} sec`
+                  : 'Unknown'}
+              </span>
             </div>
           </div>
         </div>

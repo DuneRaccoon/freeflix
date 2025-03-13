@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import Navigation from '@/components/ui/Navigation';
 import { Toaster } from 'react-hot-toast';
 import { UserProvider } from '@/context/UserContext';
 import { ThemeProvider } from '@/context/ThemeContext';
+import AuthenticatedLayout from '@/components/layout/AuthenticatedLayout';
 
 import './globals.css';
 
@@ -24,10 +24,9 @@ export default function RootLayout({
       <body className={`${inter.className} min-h-screen`}>
         <UserProvider>
           <ThemeProvider>
-            <Navigation />
-            <main className="container mx-auto py-6 px-4">
+            <AuthenticatedLayout>
               {children}
-            </main>
+            </AuthenticatedLayout>
             <Toaster 
               position="top-right"
               toastOptions={{

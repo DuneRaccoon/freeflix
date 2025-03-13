@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import { streamingService } from '@/services/streaming';
 import { useUser } from '@/context/UserContext';
-import { StreamingProgress } from '@/types';
+import { StreamingProgress, StreamingInfo } from '@/types';
 import Button from '@/components/ui/Button';
 import { PlayIcon, ForwardIcon } from '@heroicons/react/24/solid';
 import { toast } from 'react-hot-toast';
@@ -15,6 +15,8 @@ interface PatchedVideoPlayerProps {
   subtitle?: string;
   poster?: string;
   onError?: (error: string) => void;
+  downloadProgress?: number; // Add download progress prop
+  streamingInfo?: StreamingInfo; // Add streaming info prop
 }
 
 const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
@@ -24,7 +26,9 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   movieTitle,
   subtitle,
   poster,
-  onError
+  onError,
+  downloadProgress = 0, // Default to 0% downloaded
+  streamingInfo
 }) => {
   const { currentUser } = useUser();
   const [savedProgress, setSavedProgress] = useState<StreamingProgress | null>(null);
@@ -32,6 +36,8 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
   const [progressId, setProgressId] = useState<string | null>(null);
+  const [currentDownloadProgress, setCurrentDownloadProgress] = useState(downloadProgress);
+  const [shouldRetry, setShouldRetry] = useState(false);
   
   // Reference to the original VideoPlayer component
   const playerRef = useRef<{
@@ -42,6 +48,33 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentTimeRef = useRef<number>(0);
   const durationRef = useRef<number>(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Update download progress when prop changes
+  useEffect(() => {
+    setCurrentDownloadProgress(downloadProgress);
+  }, [downloadProgress]);
+
+  // Set up interval for checking streaming info updates
+  useEffect(() => {
+    // Don't need to run if we're already at 100%
+    if (downloadProgress >= 100) return;
+    
+    const infoInterval = setInterval(async () => {
+      try {
+        // Get updated streaming info
+        const info = await streamingService.getStreamingInfo(torrentId);
+        if (info) {
+          // Update download progress based on overall progress
+          setCurrentDownloadProgress(info.progress);
+        }
+      } catch (error) {
+        console.error('Error updating streaming info:', error);
+      }
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(infoInterval);
+  }, [torrentId, downloadProgress]);
   
   // Fetch saved progress on mount
   useEffect(() => {
@@ -216,6 +249,37 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     playerRef.current = methods;
   };
   
+  // Handle video error with retry logic
+  const handleVideoError = (error: string) => {
+    console.error('Video player error:', error);
+    
+    // If error occurred and we're still downloading, set retry flag
+    if (currentDownloadProgress < 100) {
+      setShouldRetry(true);
+      
+      // Set up a retry timeout
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+      
+      retryTimeoutRef.current = setTimeout(() => {
+        // Try reloading the player
+        setShouldRetry(false);
+        
+        // Force a component re-render by updating state
+        setIsLoading(true);
+        setTimeout(() => setIsLoading(false), 100);
+        
+        toast.success('Retrying playback...');
+      }, 3000); // Retry after 3 seconds
+    } else {
+      // If download is complete, pass the error to the parent
+      if (onError) {
+        onError(error);
+      }
+    }
+  };
+  
   // Auto-resume after a timeout if user doesn't choose
   useEffect(() => {
     if (showResumePrompt) {
@@ -227,10 +291,36 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     }
   }, [showResumePrompt, resumeTime]);
   
+  // Clean up retry timeout
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
+  
   if (isLoading) {
     return (
       <div className="w-full h-full bg-black flex items-center justify-center">
         <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full"></div>
+      </div>
+    );
+  }
+  
+  // If we're retrying, show a friendly message
+  if (shouldRetry) {
+    return (
+      <div className="w-full h-full bg-black flex flex-col items-center justify-center text-white text-center p-6">
+        <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full mb-4"></div>
+        <h3 className="text-xl font-bold mb-2">Buffering Content</h3>
+        <p className="mb-4">
+          Your video is still downloading ({Math.round(currentDownloadProgress)}% complete).
+          We're preparing to resume playback...
+        </p>
+        <p className="text-sm text-gray-400">
+          Playback will automatically resume in a few moments.
+        </p>
       </div>
     );
   }
@@ -245,8 +335,9 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
         autoPlay={!showResumePrompt}
         onProgress={handleProgress}
         onEnded={handleEnded}
-        onError={onError}
+        onError={handleVideoError}
         registerMethods={registerPlayerMethods}
+        downloadProgress={currentDownloadProgress}
       />
       
       {/* Resume playback prompt */}

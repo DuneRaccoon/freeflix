@@ -24,6 +24,7 @@ interface VideoPlayerProps {
   onError?: (error: string) => void;
   onProgress?: (state: PlayerState) => void;
   registerMethods?: (methods: { seekTo: (time: number) => void }) => void;
+  downloadProgress?: number; // Optional prop to indicate download progress
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -36,7 +37,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onEnded,
   onError,
   onProgress,
-  registerMethods
+  registerMethods,
+  downloadProgress = 100 // Default to 100% (fully downloaded) if not provided
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -47,6 +49,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const userInteractedRef = useRef<boolean>(false);
   const volumeChangeInProgressRef = useRef<boolean>(false);
   const isDraggingVolumeRef = useRef<boolean>(false);
+  const bufferingRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPlayheadPositionRef = useRef<number>(0);
+  const stallTimeRef = useRef<number | null>(null);
+  const maxStallTime = 10000; // Maximum time (ms) to wait before showing stall warning
   
   const [playerState, setPlayerState] = useState<PlayerState>({
     isPlaying: false,
@@ -68,10 +74,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [videoIsReady, setVideoIsReady] = useState(false);
   const [showUnmuteButton, setShowUnmuteButton] = useState(false);
   const [hideCursor, setHideCursor] = useState(false);
-  
-  // Keep track of clicks for double-click detection
-  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastClickTimeRef = useRef<number>(0);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [isStalled, setIsStalled] = useState(false);
+  const [showBufferingMessage, setShowBufferingMessage] = useState(false);
 
   // Helper to safely interact with video element
   const safeVideoOperation = useCallback((operation: (video: HTMLVideoElement) => void) => {
@@ -85,6 +90,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       console.error("Video operation error:", e);
       return false;
     }
+  }, []);
+
+  // Determine if a specific time is buffered
+  const isTimeBuffered = useCallback((time: number): boolean => {
+    const video = videoRef.current;
+    if (!video || !video.buffered || video.buffered.length === 0) return false;
+    
+    // Check if the time is within any of the buffered ranges
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (time >= video.buffered.start(i) && time <= video.buffered.end(i)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }, []);
+
+  // Get the buffered range ahead of current time
+  const getBufferedAhead = useCallback((): number => {
+    const video = videoRef.current;
+    if (!video || !video.buffered || video.buffered.length === 0) return 0;
+    
+    const currentTime = video.currentTime;
+    let maxBufferedEnd = currentTime;
+    
+    // Find the buffered range that includes current time
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (currentTime >= video.buffered.start(i) && currentTime <= video.buffered.end(i)) {
+        maxBufferedEnd = Math.max(maxBufferedEnd, video.buffered.end(i));
+      }
+    }
+    
+    return maxBufferedEnd - currentTime;
   }, []);
 
   // Enable audio playback after user interaction
@@ -136,7 +174,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     safeVideoOperation(video => {
       if (video.paused || video.ended) {
         if (debug) console.log("Video is paused, playing");
-        video.play().catch(err => console.error("Play error:", err));
+        // Check if the current time is buffered before playing
+        const isCurrentTimeBuffered = isTimeBuffered(video.currentTime);
+        if (isCurrentTimeBuffered || downloadProgress >= 5) {
+          video.play().catch(err => console.error("Play error:", err));
+        } else {
+          // Show buffering message if trying to play unbuffered content
+          setShowBufferingMessage(true);
+          setIsBuffering(true);
+          // Try to play after a short delay
+          setTimeout(() => {
+            video.play().catch(err => {
+              console.error("Delayed play error:", err);
+              setIsBuffering(false);
+            });
+          }, 1000);
+        }
       } else {
         if (debug) console.log("Video is playing, pausing");
         video.pause();
@@ -145,7 +198,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     
     // Reset the cursor hide timer
     resetCursorTimeout();
-  }, [safeVideoOperation, debug]);
+  }, [safeVideoOperation, isTimeBuffered, downloadProgress, debug]);
 
   // Toggle fullscreen
   const toggleFullscreen = useCallback(() => {
@@ -167,13 +220,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     resetCursorTimeout();
   }, []);
 
-  // CRITICAL FIX: Improved click handler with proper double-click detection
+  // Improved click handler with proper double-click detection
   const handleVideoClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    console.log('Video clicked');
-    
     const currentTime = Date.now();
     const isDoubleClick = currentTime - lastClickTimeRef.current < 300; // 300ms threshold
     
@@ -236,14 +287,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const skip = useCallback((seconds: number) => {
     safeVideoOperation(video => {
       const newTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
-      video.currentTime = newTime;
+      
+      // Check if the new time is within a buffered range
+      const isNewTimeBuffered = isTimeBuffered(newTime);
+      
+      // Only allow seeking to buffered regions or if we have sufficient download progress
+      if (isNewTimeBuffered || downloadProgress > (newTime / video.duration) * 100) {
+        video.currentTime = newTime;
+      } else {
+        // Show buffering message for unbuffered regions
+        setShowBufferingMessage(true);
+        setIsBuffering(true);
+        
+        // Still try to seek but be prepared for buffering
+        video.currentTime = newTime;
+      }
     });
     
     // Reset the cursor hide timer
     resetCursorTimeout();
-  }, [safeVideoOperation]);
+  }, [safeVideoOperation, isTimeBuffered, downloadProgress]);
 
-  // CRITICAL FIX: Volume control with drag support
+  // Volume control with drag support
   const startVolumeDrag = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -318,7 +383,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     document.removeEventListener('mouseup', stopVolumeDrag);
   }, [updateVolumeFromMouseMove]);
 
-  // Handle progress bar click
+  // Handle progress bar click with buffering awareness
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     if (!video || !progressBarRef.current) return;
@@ -331,15 +396,76 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const pos = (e.clientX - rect.left) / rect.width;
       const newTime = pos * video.duration;
       
-      // Set new time on video element
-      video.currentTime = newTime;
+      // Check if the new time point is buffered
+      const isNewTimeBuffered = isTimeBuffered(newTime);
+      
+      // Only seek if the time is buffered or we have sufficient download progress
+      if (isNewTimeBuffered || downloadProgress > pos * 100) {
+        video.currentTime = newTime;
+      } else {
+        // Indicate buffering for unbuffered regions
+        setShowBufferingMessage(true);
+        setIsBuffering(true);
+        
+        // Try to seek but prepare for buffering
+        video.currentTime = newTime;
+      }
     } catch (e) {
       console.error("Error handling progress click:", e);
     }
     
     // Reset the cursor hide timer
     resetCursorTimeout();
-  }, []);
+  }, [isTimeBuffered, downloadProgress]);
+
+  // Helper to detect stalled playback
+  const checkForStall = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !playerState.isPlaying) return;
+    
+    // Compare current position with last known position
+    const currentPosition = video.currentTime;
+    const hasMoved = Math.abs(currentPosition - lastPlayheadPositionRef.current) > 0.01;
+    
+    if (!hasMoved && !video.paused && !video.ended) {
+      // Video is stalled
+      if (stallTimeRef.current === null) {
+        // Start tracking stall time
+        stallTimeRef.current = Date.now();
+        setIsBuffering(true);
+      } else {
+        // Check if stall has lasted too long
+        const stallDuration = Date.now() - stallTimeRef.current;
+        
+        if (stallDuration > 2000 && !showBufferingMessage) {
+          // After 2 seconds, show buffering message
+          setShowBufferingMessage(true);
+        }
+        
+        if (stallDuration > maxStallTime && !isStalled) {
+          // After max stall time (10 seconds by default), show stall warning
+          setIsStalled(true);
+        }
+      }
+    } else {
+      // Reset stall tracking if playhead moved
+      lastPlayheadPositionRef.current = currentPosition;
+      
+      if (stallTimeRef.current !== null) {
+        // Clear stall state
+        stallTimeRef.current = null;
+        setIsBuffering(false);
+        setShowBufferingMessage(false);
+        setIsStalled(false);
+      }
+    }
+  }, [playerState.isPlaying]);
+
+  // Set up stall detection interval
+  useEffect(() => {
+    const checkInterval = setInterval(checkForStall, 1000);
+    return () => clearInterval(checkInterval);
+  }, [checkForStall]);
 
   // Init video and handle source changes
   useEffect(() => {
@@ -353,6 +479,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setShowUnmuteButton(false);
     volumeChangeInProgressRef.current = false;
     isDraggingVolumeRef.current = false;
+    stallTimeRef.current = null;
+    lastPlayheadPositionRef.current = 0;
+    setIsBuffering(false);
+    setShowBufferingMessage(false);
+    setIsStalled(false);
     
     // Ensure it starts muted for autoplay
     video.muted = true;
@@ -377,6 +508,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Also clean up volume drag handlers if they exist
       document.removeEventListener('mousemove', updateVolumeFromMouseMove);
       document.removeEventListener('mouseup', stopVolumeDrag);
+      
+      // Clear any buffering retry timeouts
+      if (bufferingRetryTimeoutRef.current) {
+        clearTimeout(bufferingRetryTimeoutRef.current);
+      }
     };
   }, [src, debug, updateVolumeFromMouseMove, stopVolumeDrag]);
 
@@ -486,7 +622,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePlay, toggleFullscreen, skip, safeVideoOperation, debug]);
 
-  // Set up video event listeners
+  // Set up video event listeners with enhanced buffering handling
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -498,6 +634,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           currentTime: video.currentTime,
           duration: video.duration || 0
         }));
+        
+        // Update last known position for stall detection
+        lastPlayheadPositionRef.current = video.currentTime;
         
         if (onProgress) {
           onProgress({
@@ -514,7 +653,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handlePlay = () => {
       try {
         if (debug) console.log("Play event triggered");
-        setPlayerState(prev => ({ ...prev, isPlaying: true, isLoading: false }));
+        setPlayerState(prev => ({ ...prev, isPlaying: true }));
+        
+        // Only hide the loading indicator if we're not in a buffering state
+        if (!isBuffering) {
+          setPlayerState(prev => ({ ...prev, isLoading: false }));
+        }
       } catch (e) {
         console.error("Error in play event:", e);
       }
@@ -554,6 +698,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (debug) console.log("Load start event");
         setPlayerState(prev => ({ ...prev, isLoading: true }));
         setVideoIsReady(false);
+        setIsBuffering(true);
+        setShowBufferingMessage(false);
         
         // Ensure video starts muted for autoplay policies
         video.muted = true;
@@ -567,6 +713,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (debug) console.log("Can play event");
         setPlayerState(prev => ({ ...prev, isLoading: false }));
         setVideoIsReady(true);
+        setIsBuffering(false);
+        setShowBufferingMessage(false);
         
         // Apply playback speed
         video.playbackRate = playbackSpeed;
@@ -610,23 +758,67 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const handleError = () => {
       try {
-        const errorMessage = 'An error occurred while playing the video.';
-        console.error("Video error:", errorMessage, video.error);
-        setPlayerState(prev => ({ 
-          ...prev, 
-          isLoading: false, 
-          error: errorMessage 
-        }));
-        if (onError) onError(errorMessage);
+        // Don't treat network errors during active downloads as fatal
+        if (downloadProgress < 100 && (video.error?.code === 2 || video.error?.code === 4)) {
+          if (debug) console.log("Network error during download, treating as buffering");
+          setIsBuffering(true);
+          setShowBufferingMessage(true);
+          
+          // Retry playback after a delay if the video was playing
+          if (playerState.isPlaying) {
+            if (bufferingRetryTimeoutRef.current) {
+              clearTimeout(bufferingRetryTimeoutRef.current);
+            }
+            
+            bufferingRetryTimeoutRef.current = setTimeout(() => {
+              if (debug) console.log("Retrying playback after network error");
+              video.play().catch(e => {
+                if (debug) console.error("Retry playback failed:", e);
+              });
+            }, 2000);
+          }
+        } else {
+          // Handle other errors normally
+          const errorCode = video.error ? video.error.code : "unknown";
+          const errorMessage = `Video playback error (${errorCode}): ${video.error ? video.error.message : "Unknown error"}`;
+          console.error("Video error:", errorMessage, video.error);
+          
+          setPlayerState(prev => ({ 
+            ...prev, 
+            isLoading: false, 
+            error: errorMessage 
+          }));
+          
+          if (onError) onError(errorMessage);
+        }
       } catch (e) {
         console.error("Error in error event:", e);
+        
+        // Fallback error handling
+        if (onError) onError("An unexpected error occurred during playback");
       }
     };
 
     const handleWaiting = () => {
       try {
         if (debug) console.log("Waiting for data");
-        setPlayerState(prev => ({ ...prev, isLoading: true }));
+        
+        // Check if we're near the end of the buffered region
+        const bufferedAhead = getBufferedAhead();
+        if (debug) console.log(`Buffered ahead: ${bufferedAhead.toFixed(2)} seconds`);
+        
+        // If we have a decent buffer, don't show loading yet (prevents flickering)
+        if (bufferedAhead < 0.5) {
+          setIsBuffering(true);
+          setPlayerState(prev => ({ ...prev, isLoading: true }));
+          
+          // Show buffering message after a short delay if still buffering
+          setTimeout(() => {
+            if (isBuffering) {
+              setShowBufferingMessage(true);
+            }
+          }, 500);
+        }
       } catch (e) {
         console.error("Error in waiting event:", e);
       }
@@ -636,25 +828,41 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       try {
         if (debug) console.log("Playing event");
         setPlayerState(prev => ({ ...prev, isLoading: false, isPlaying: true }));
+        setIsBuffering(false);
+        setShowBufferingMessage(false);
+        setIsStalled(false);
+        stallTimeRef.current = null;
       } catch (e) {
         console.error("Error in playing event:", e);
       }
     };
 
-    // Helper to track buffered data
+    // Helper to track buffered data with improved accuracy
     const updateBuffered = () => {
       try {
-        let buffered = 0;
+        let bufferedEnd = 0;
+        let currentTime = video.currentTime;
+        
         if (video.buffered.length > 0) {
+          // Find the buffered range that contains the current playback position
           for (let i = 0; i < video.buffered.length; i++) {
-            if (video.buffered.start(i) <= video.currentTime && 
-                video.currentTime <= video.buffered.end(i)) {
-              buffered = video.buffered.end(i) / video.duration * 100;
+            if (currentTime >= video.buffered.start(i) && currentTime <= video.buffered.end(i)) {
+              bufferedEnd = video.buffered.end(i);
               break;
             }
           }
         }
+        
+        // Calculate buffer percentage relative to video duration
+        const buffered = video.duration ? (bufferedEnd / video.duration) * 100 : 0;
+        
         setPlayerState(prev => ({ ...prev, buffered }));
+        
+        // If we now have sufficient buffer, reset buffering states
+        if (bufferedEnd - currentTime > 5) { // If we have at least 5 seconds buffered ahead
+          setIsBuffering(false);
+          setShowBufferingMessage(false);
+        }
       } catch (e) {
         console.error("Error updating buffer:", e);
       }
@@ -687,7 +895,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('playing', handlePlaying);
       video.removeEventListener('progress', updateBuffered);
     };
-  }, [autoPlay, onEnded, onError, onProgress, playerState, playbackSpeed, debug]);
+  }, [autoPlay, onEnded, onError, onProgress, playerState, playbackSpeed, debug, isBuffering, getBufferedAhead]);
 
   // Apply playback speed when changed
   useEffect(() => {
@@ -696,19 +904,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     });
   }, [playbackSpeed, safeVideoOperation]);
 
+  // Register external methods for the parent component
   useEffect(() => {
     if (registerMethods) {
       registerMethods({
         seekTo: (time: number) => {
           safeVideoOperation(video => {
-            video.currentTime = time;
+            // Check if seeking to a buffered region
+            const timeBuffered = isTimeBuffered(time);
+            
+            if (timeBuffered || downloadProgress > (time / video.duration) * 100) {
+              video.currentTime = time;
+            } else {
+              // Indicate buffering for unbuffered seeks
+              setIsBuffering(true);
+              setShowBufferingMessage(true);
+              
+              // Still perform the seek but be prepared for buffering
+              video.currentTime = time;
+            }
           });
         }
       });
     }
-  }, [registerMethods, safeVideoOperation]);
+  }, [registerMethods, safeVideoOperation, isTimeBuffered, downloadProgress]);
   
-  // CRITICAL FIX: Reset cursor timeout function
+  // Reset cursor timeout function
   const resetCursorTimeout = useCallback(() => {
     // Show cursor and controls
     setHideCursor(false);
@@ -789,6 +1010,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Keep track of clicks for double-click detection
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastClickTimeRef = useRef<number>(0);
+
   return (
     <div 
       ref={playerRef}
@@ -812,10 +1037,43 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onClick={handleVideoClick}
       />
 
-      {/* Loading Overlay */}
-      {playerState.isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 z-40">
-          <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full"></div>
+      {/* Loading/Buffering Overlay */}
+      {(playerState.isLoading || isBuffering) && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-60 z-40">
+          <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full mb-4"></div>
+          
+          {/* Buffering Message */}
+          {showBufferingMessage && (
+            <div className="text-white text-center">
+              <p className="text-lg font-semibold mb-1">Buffering...</p>
+              <p className="text-sm text-gray-300">
+                {downloadProgress < 100 
+                  ? `Downloading (${Math.round(downloadProgress)}%)` 
+                  : "Loading video data"}
+              </p>
+            </div>
+          )}
+          
+          {/* Stall Warning */}
+          {isStalled && (
+            <div className="mt-4 bg-yellow-900/70 text-yellow-200 p-3 rounded-md max-w-md text-center">
+              <p>Playback seems stuck. The video might still be downloading.</p>
+              <button
+                className="mt-2 px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded-md text-sm"
+                onClick={() => {
+                  safeVideoOperation(video => {
+                    // Try to resume playback
+                    video.currentTime += 0.1; // Tiny seek forward to refresh the buffer
+                    video.play().catch(e => console.error("Resume error:", e));
+                  });
+                  setIsStalled(false);
+                  stallTimeRef.current = null;
+                }}
+              >
+                Try to Resume
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -843,13 +1101,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {debug && (
         <div className="absolute top-0 left-0 bg-black/80 text-white text-xs p-2 z-50">
           Volume: {playerState.volume.toFixed(2)} | Muted: {playerState.isMuted.toString()} | 
-          Ready: {videoIsReady.toString()} | Interact: {userInteractedRef.current.toString()} |
-          Dragging: {isDraggingVolumeRef.current.toString()}
+          Ready: {videoIsReady.toString()} | Buffering: {isBuffering.toString()} |
+          Download: {downloadProgress.toFixed(1)}% | Stalled: {isStalled.toString()}
         </div>
       )}
 
       {/* Big Play/Pause Button */}
-      {(!playerState.isPlaying || playerState.showControls) && !playerState.isLoading && !playerState.error && (
+      {(!playerState.isPlaying || playerState.showControls) && !playerState.isLoading && !isBuffering && !playerState.error && (
         <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
           <div 
             className={`${playerState.isPlaying ? 'opacity-0' : 'opacity-90'} 
@@ -881,6 +1139,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {/* Bottom Controls */}
         <div className="p-4 space-y-2">
+          {/* Download Progress Bar */}
+          {downloadProgress < 100 && (
+            <div className="h-1 bg-gray-800 rounded overflow-hidden mb-1">
+              <div 
+                className="h-full bg-primary-700/60"
+                style={{ width: `${downloadProgress}%` }}
+              />
+            </div>
+          )}
+          
           {/* Progress Bar */}
           <div 
             ref={progressBarRef}
@@ -986,6 +1254,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             
             {/* Right Side Controls */}
             <div className="flex items-center space-x-3">
+              {/* Download Progress Indicator */}
+              {downloadProgress < 100 && (
+                <span className="text-white/80 text-sm mr-2">
+                  {Math.round(downloadProgress)}%
+                </span>
+              )}
+              
               {/* Settings Button */}
               <div className="relative">
                 <button 

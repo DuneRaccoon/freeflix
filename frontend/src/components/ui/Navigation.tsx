@@ -48,7 +48,7 @@ const Navigation: React.FC<{
           <div className="flex items-center">
             <Link href="/">
               <span className="flex items-center">
-                <ArrowDownTrayIcon className="h-8 w-8 text-primary-500" />
+                {/* <ArrowDownTrayIcon className="h-8 w-8 text-primary-500" /> */}
                 <span className="ml-2 text-xl font-bold">Freeflix</span>
               </span>
             </Link>

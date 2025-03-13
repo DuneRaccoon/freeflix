@@ -4,7 +4,6 @@ import React, { Suspense } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/context/UserContext';
-import UserSelectScreen from '@/components/users/UserSelectScreen';
 import LoadingScreen from '@/components/ui/LoadingScreen';
 
 // Create a separate client component for the actual content
@@ -64,15 +63,10 @@ const HomePageSkeleton = () => (
 );
 
 export default function HomePage() {
-  const { currentUser, isLoading } = useUser();
-  const router = useRouter();
+  const { isLoading } = useUser();
 
   if (isLoading) {
     return <LoadingScreen message="Loading..." />;
-  }
-
-  if (!currentUser) {
-    return <UserSelectScreen />;
   }
 
   return (

@@ -42,6 +42,9 @@
   --color-muted-foreground: #94a3b8;
   --color-border: #1e293b;
   --color-danger: #ef4444;
+  
+  /* User select screen variable */
+  --vh: 1vh;
 }
 
 /* Light theme */
@@ -351,4 +354,110 @@ body {
   transition-property: opacity, transform, background-color, color, box-shadow;
   transition-duration: 0.3s;
   transition-timing-function: ease-in-out;
+}
+
+/* User select screen styles */
+.full-viewport-height {
+  height: 100vh; /* Fallback */
+  height: calc(var(--vh, 1vh) * 100);
+}
+
+/* Override padding in user selection mode */
+body.user-selection-mode {
+  padding: 0;
+  margin: 0;
+}
+
+body.user-selection-mode main {
+  padding: 0;
+  margin: 0;
+  max-width: 100%;
+}
+
+/* Ensure avatar grid stays centered */
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 1.5rem;
+  max-width: 800px;
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .avatar-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .avatar-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
+}
+
+/* Smooth animation for user selection */
+.user-avatar-container {
+  transition: transform 0.2s ease-in-out;
+}
+
+.user-avatar-container:hover {
+  transform: scale(1.05);
+}
+
+.user-avatar-container:active {
+  transform: scale(0.95);
+}
+
+/* Add these animations to your globals.css file */
+
+@keyframes ripple1 {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  25% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
+}
+
+@keyframes ripple2 {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  50% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
+}
+
+.animate-ripple-1 {
+  animation: ripple1 2s ease-out infinite;
+}
+
+.animate-ripple-2 {
+  animation: ripple2 2s ease-out 0.5s infinite;
+}
+
+/* Enhanced buffering pulse animation */
+@keyframes buffering-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.animate-buffering-pulse {
+  animation: buffering-pulse 1.5s ease-in-out infinite;
+}
+
+/* Subtle loading dots animation */
+.loading-dots:after {
+  content: '.';
+  animation: loading-dots 1.5s infinite;
+  display: inline-block;
+  width: 1em;
+  text-align: left;
+}
+
+@keyframes loading-dots {
+  0% { content: '.'; }
+  33% { content: '..'; }
+  66% { content: '...'; }
+}
+
+/* Add this to your transition utilities */
+.transition-buffer {
+  transition-property: opacity, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
 }

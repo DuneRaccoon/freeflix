@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     
     # API settings
     api_v1_str: str = "/api/v1"
-    project_name: str = "YIFY Torrent Downloader"
+    project_name: str = "Freeflix API"
     environment: str = "development"
     
     # YTS scraping settings
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     log_path: Path = base_app_path / "logs"
     
     # Database settings (for storing torrent status and schedule)
-    db_path: Path = base_app_path / "torrents.db"
+    db_path: Path = base_app_path / "freeflix.db"
     
     # Cron settings
     cron_enabled: bool = True

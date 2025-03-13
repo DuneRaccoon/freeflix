@@ -6,7 +6,7 @@ After=network.target
 User=pi
 Group=pi
 WorkingDirectory=/opt/freeflix
-ExecStart=/opt/freeflix/venv/bin/python /opt/freeflix/downloader.py
+ExecStart=/opt/freeflix/venv/bin/python /opt/freeflix/serve.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

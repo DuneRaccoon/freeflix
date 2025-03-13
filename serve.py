@@ -10,6 +10,7 @@ import os
 import sys
 import uvicorn
 from pathlib import Path
+from app.config import settings
 
 # Add the application directory to the Python path
 app_path = Path(__file__).resolve().parent
@@ -26,7 +27,7 @@ def main():
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=False,  # Disable reload in production
+        reload=settings.environment == 'development',  # Disable reload in production
         workers=1,     # Use a single worker for consistency with torrents
     )
 

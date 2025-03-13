@@ -295,7 +295,7 @@ EOL
   # Copy Python files
   for file in $(find "$SCRIPT_DIR" -name "*.py" -type f); do
     filename=$(basename "$file")
-    if [ "$filename" = "downloader.py" ]; then
+    if [ "$filename" = "serve.py" ]; then
       cp "$file" "$INSTALL_DIR/"
     else
       module_path=$(echo "$file" | sed -e "s|$SCRIPT_DIR/||")
@@ -340,8 +340,8 @@ python-multipart==0.0.6
 sqlalchemy==1.4.31
 EOL
 
-  # Make downloader.py executable
-  chmod +x "$INSTALL_DIR/downloader.py"
+  # Make serve.py executable
+  chmod +x "$INSTALL_DIR/serve.py"
   
   print_success "Backend application files set up"
 }
@@ -448,7 +448,7 @@ After=network.target
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/downloader.py
+ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/serve.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

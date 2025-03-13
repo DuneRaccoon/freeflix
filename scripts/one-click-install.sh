@@ -172,7 +172,7 @@ git clone https://github.com/yourusername/yify-downloader.git
 # Copy backend files
 echo -e "\n${CYAN}Setting up backend...${NC}"
 cp -r /tmp/yify-downloader/app $INSTALL_DIR/backend/
-cp -r /tmp/yify-downloader/downloader.py $INSTALL_DIR/backend/
+cp -r /tmp/yify-downloader/serve.py $INSTALL_DIR/backend/
 cp -r /tmp/yify-downloader/requirements.txt $INSTALL_DIR/backend/
 
 # Create backend app files if they don't exist (in case the repository doesn't contain them)
@@ -219,9 +219,9 @@ fi
 cd $INSTALL_DIR/backend
 pip3 install -r requirements.txt
 
-# Create downloader.py if it doesn't exist
-if [ ! -f "$INSTALL_DIR/backend/downloader.py" ]; then
-  cat > $INSTALL_DIR/backend/downloader.py << EOF
+# Create serve.py if it doesn't exist
+if [ ! -f "$INSTALL_DIR/backend/serve.py" ]; then
+  cat > $INSTALL_DIR/backend/serve.py << EOF
 #!/usr/bin/env python
 """
 YIFY Torrent Downloader Service
@@ -256,7 +256,7 @@ if __name__ == "__main__":
 EOF
 
   # Make it executable
-  chmod +x $INSTALL_DIR/backend/downloader.py
+  chmod +x $INSTALL_DIR/backend/serve.py
 fi
 
 # Create minimal config.py if it doesn't exist
@@ -449,7 +449,7 @@ After=network.target
 User=root
 Group=root
 WorkingDirectory=${INSTALL_DIR}/backend
-ExecStart=${INSTALL_DIR}/backend/venv/bin/python ${INSTALL_DIR}/backend/downloader.py
+ExecStart=${INSTALL_DIR}/backend/venv/bin/python ${INSTALL_DIR}/backend/serve.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -518,7 +518,7 @@ if [[ "$SETUP_SYSTEMD" == "y" || "$SETUP_SYSTEMD" == "Y" ]]; then
 else
   echo -e "${YELLOW}To start the backend manually:${NC}"
   echo -e "${CYAN}source ${INSTALL_DIR}/backend/venv/bin/activate${NC}"
-  echo -e "${CYAN}python ${INSTALL_DIR}/backend/downloader.py${NC}"
+  echo -e "${CYAN}python ${INSTALL_DIR}/backend/serve.py${NC}"
   echo -e ""
   echo -e "${YELLOW}To start the frontend manually:${NC}"
   echo -e "${CYAN}cd ${INSTALL_DIR}/frontend${NC}"

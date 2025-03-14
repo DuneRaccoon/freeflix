@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     
     # Torrent settings
     base_app_path: Path = Path(__file__).parent.parent
-    default_download_path: Path = Path(os.environ.get("DOWNLOAD_PATH", "/opt/freeflix/downloads"))
+    default_download_path: Path = Path("./downloads")
     listen_interfaces: str = "0.0.0.0:6881"
     port_range_start: int = 6881
     port_range_end: int = 6891

@@ -143,7 +143,7 @@ def setup_shell():
             print(f"  Torrent Manager: {'Initialized' if torrent_manager else 'Not initialized'}")
             print(f"  Schedule Manager: {'Initialized' if schedule_manager else 'Not initialized'}")
             print(f"  Download Path: {settings.default_download_path}")
-            print(f"  Max Active Downloads: {settings.MAX_ACTIVE_DOWNLOADS}")
+            print(f"  Max Active Downloads: {settings.max_active_downloads}")
             print(f"  Log Level: {settings.log_level}")
             print(f"  Scheduler Enabled: {settings.cron_enabled}")
             

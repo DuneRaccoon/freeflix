@@ -1040,44 +1040,45 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Loading/Buffering Overlay */}
       {(playerState.isLoading || isBuffering) && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-60 z-40">
-          <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full mb-4"></div>
-          
-          {/* Buffering Message */}
-          {showBufferingMessage && (
-            <div className="text-white text-center">
-              <p className="text-lg font-semibold mb-1">Buffering...</p>
-              <p className="text-sm text-gray-300">
-                {downloadProgress < 100 
-                  ? `Downloading (${Math.round(downloadProgress)}%)` 
-                  : "Loading video data"}
-              </p>
-            </div>
-          )}
 
-          <BufferingAnimation downloadProgress={downloadProgress} />
+        <BufferingAnimation downloadProgress={downloadProgress} />
+
+        // <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-60 z-40">
+        //   <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full mb-4"></div>
           
-          {/* Stall Warning */}
-          {isStalled && (
-            <div className="mt-4 bg-yellow-900/70 text-yellow-200 p-3 rounded-md max-w-md text-center">
-              <p>Playback seems stuck. The video might still be downloading.</p>
-              <button
-                className="mt-2 px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded-md text-sm"
-                onClick={() => {
-                  safeVideoOperation(video => {
-                    // Try to resume playback
-                    video.currentTime += 0.1; // Tiny seek forward to refresh the buffer
-                    video.play().catch(e => console.error("Resume error:", e));
-                  });
-                  setIsStalled(false);
-                  stallTimeRef.current = null;
-                }}
-              >
-                Try to Resume
-              </button>
-            </div>
-          )}
-        </div>
+        //   {/* Buffering Message */}
+        //   {showBufferingMessage && (
+        //     <div className="text-white text-center">
+        //       <p className="text-lg font-semibold mb-1">Buffering...</p>
+        //       <p className="text-sm text-gray-300">
+        //         {downloadProgress < 100 
+        //           ? `Downloading (${Math.round(downloadProgress)}%)` 
+        //           : "Loading video data"}
+        //       </p>
+        //     </div>
+        //   )}
+
+        //   {/* Stall Warning */}
+        //   {isStalled && (
+        //     <div className="mt-4 bg-yellow-900/70 text-yellow-200 p-3 rounded-md max-w-md text-center">
+        //       <p>Playback seems stuck. The video might still be downloading.</p>
+        //       <button
+        //         className="mt-2 px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded-md text-sm"
+        //         onClick={() => {
+        //           safeVideoOperation(video => {
+        //             // Try to resume playback
+        //             video.currentTime += 0.1; // Tiny seek forward to refresh the buffer
+        //             video.play().catch(e => console.error("Resume error:", e));
+        //           });
+        //           setIsStalled(false);
+        //           stallTimeRef.current = null;
+        //         }}
+        //       >
+        //         Try to Resume
+        //       </button>
+        //     </div>
+        //   )}
+        // </div>
       )}
 
       {/* Error Overlay */}

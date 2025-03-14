@@ -182,6 +182,7 @@ node_modules
 .next/*.js
 .next/*/**/*.js
 
+assets/*
 resume_data/
 torrents.db
 freeflix.db

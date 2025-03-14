@@ -9,7 +9,8 @@ import {
   UserIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 
@@ -81,8 +82,17 @@ const UserDropdown: React.FC = () => {
             <p className="truncate text-sm font-medium text-white">{currentUser.username}</p>
           </div>
 
-          {/* Settings and Logout */}
+          {/* Dropdown Items */}
           <div className="py-1">
+            <Link
+              href="/downloads"
+              className="flex items-center px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+              onClick={() => setIsOpen(false)}
+            >
+              <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+              Downloads
+            </Link>
+            
             <Link
               href={`/users/${currentUser.id}/settings`}
               className="flex items-center px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
@@ -91,6 +101,7 @@ const UserDropdown: React.FC = () => {
               <Cog6ToothIcon className="h-5 w-5 mr-2" />
               Settings
             </Link>
+            
             <button
               className="flex w-full items-center px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
               onClick={handleLogout}

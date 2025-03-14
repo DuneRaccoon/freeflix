@@ -7,7 +7,7 @@ import { twMerge } from 'tailwind-merge';
 import {
   HomeIcon,
   MagnifyingGlassIcon,
-  ArrowDownTrayIcon,
+  FilmIcon,
   ClockIcon,
   Cog6ToothIcon,
   Bars3Icon,
@@ -31,7 +31,7 @@ const Navigation: React.FC<{
   const navItems = [
     { href: '/', label: 'Home', icon: HomeIcon },
     { href: '/search', label: 'Search', icon: MagnifyingGlassIcon },
-    { href: '/downloads', label: 'Downloads', icon: ArrowDownTrayIcon },
+    { href: '/my-movies', label: 'My Movies', icon: FilmIcon },
     { href: '/schedules', label: 'Schedules', icon: ClockIcon },
     { href: '/settings', label: 'Settings', icon: Cog6ToothIcon },
   ];
@@ -48,7 +48,6 @@ const Navigation: React.FC<{
           <div className="flex items-center">
             <Link href="/">
               <span className="flex items-center">
-                {/* <ArrowDownTrayIcon className="h-8 w-8 text-primary-500" /> */}
                 <span className="ml-2 text-xl font-bold">Freeflix</span>
               </span>
             </Link>

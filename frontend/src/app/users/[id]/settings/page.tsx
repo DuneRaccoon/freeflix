@@ -13,13 +13,11 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 
 interface UserSettingsPageProps {
-  params: {
-    id: string;
-  };
+  params: Promise<{ id: string }>;
 }
 
-const UserSettingsPage: React.FC<UserSettingsPageProps> = ({ params }) => {
-  const { id } = params;
+const UserSettingsPage: React.FC<UserSettingsPageProps> = async ({ params }) => {
+  const { id } = await params;
   const router = useRouter();
   const { 
     currentUser, 

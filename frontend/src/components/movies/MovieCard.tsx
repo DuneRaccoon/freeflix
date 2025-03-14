@@ -97,7 +97,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
               className="absolute top-2 right-2 z-20"
               onClick={handleQuickViewClick}
             >
-              <div className="bg-black/70 hover:bg-primary-600 rounded-full p-2 transition-all duration-300 opacity-100">
+              <div className="bg-black/70 hover:bg-primary-600 rounded-full p-2 transition-opacity duration-300 opacity-100">
                 <EyeIcon className="h-5 w-5 text-white" />
               </div>
             </div>

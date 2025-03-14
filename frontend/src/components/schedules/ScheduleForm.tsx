@@ -21,8 +21,8 @@ const defaultValues: ScheduleConfig = {
     keyword: '',
     quality: 'all',
     genre: 'all',
-    rating: 7,
-    year: new Date().getFullYear(),
+    rating: '7',
+    year: 'all',
     order_by: 'rating'
   },
   quality: '1080p',

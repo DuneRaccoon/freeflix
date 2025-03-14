@@ -119,8 +119,25 @@ class TorrentManager:
             
             # Try to use resume data if available
             if resume_data:
-                handle = lt.add_torrent(self.session, params)
-                handle.set_metadata(resume_data)
+                # Using add_torrent_params with resume data
+                # In newer libtorrent versions, we need to create params properly
+                atp = lt.add_torrent_params()
+                atp.save_path = str(save_path)
+                atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
+                
+                # Parse the resume data if available
+                if resume_data:
+                    try:
+                        # For libtorrent 2.0+, we need to use bdecode to parse the resume data
+                        atp.resume_data = lt.bdecode(resume_data)
+                    except Exception as e:
+                        logger.error(f"Error parsing resume data: {e}")
+                
+                # Add the magnet URI
+                atp.url = magnet_uri
+                
+                # Add the torrent to the session
+                handle = self.session.add_torrent(atp)
             else:
                 handle = lt.add_magnet_uri(self.session, magnet_uri, params)
             
@@ -362,8 +379,13 @@ class TorrentManager:
                         with get_db() as db:
                             torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                             if torrent:
-                                torrent.resume_data = lt.bencode(resume_data)
-                                db.commit()
+                                try:
+                                    # In libtorrent 2.0+, resume_data is already a bytes object
+                                    # We need to store it as-is
+                                    torrent.resume_data = resume_data
+                                    db.commit()
+                                except Exception as e:
+                                    logger.error(f"Error saving resume data: {e}")
                         break
             
             elif isinstance(alert, lt.torrent_error_alert):
@@ -418,17 +440,18 @@ class TorrentManager:
             
             elif isinstance(alert, lt.state_changed_alert):
                 torrent_handle = alert.handle
-                state_value = alert.state.value
+                # Fix: Use the state directly, not trying to access a value attribute
+                state_value = alert.state
                 
                 # Map libtorrent state to our state names
                 state_map = {
-                    1: "checking",  # checking_files
-                    2: "downloading_metadata",  # downloading_metadata
-                    3: "downloading",  # downloading
-                    4: "finished",  # finished
-                    5: "seeding",  # seeding
-                    6: "allocating",  # allocating
-                    7: "checking"  # checking_resume_data
+                    lt.torrent_status.checking_files: "checking",
+                    lt.torrent_status.downloading_metadata: "downloading_metadata",
+                    lt.torrent_status.downloading: "downloading",
+                    lt.torrent_status.finished: "finished",
+                    lt.torrent_status.seeding: "seeding",
+                    lt.torrent_status.allocating: "allocating",
+                    lt.torrent_status.checking_resume_data: "checking"
                 }
                 
                 if state_value in state_map:
@@ -1157,9 +1180,22 @@ class TorrentManager:
             file_info = torrent_info.file_at(video_file_index)
             file_size = file_info.size
             
-            # Get the first and last piece of the file
-            first_piece = handle.get_file_priorities()[video_file_index].piece_index
-            num_pieces = file_size // torrent_info.piece_length() + 1
+            # Get the piece range information for the file
+            # In libtorrent 2.0+, you need to get this information differently
+            try:
+                # Get file bytes range
+                file_offset = file_info.offset
+                file_size = file_info.size
+                piece_length = torrent_info.piece_length()
+                
+                # Calculate which pieces belong to our file
+                first_piece = int(file_offset / piece_length)
+                last_piece = int((file_offset + file_size - 1) / piece_length)
+                num_pieces = last_piece - first_piece + 1
+            except Exception as e:
+                logger.error(f"Error calculating piece range: {e}")
+                first_piece = 0
+                num_pieces = 10  # Fallback to prioritize a few pieces at the beginning
             
             # Set higher priority for pieces at the beginning (first 5%)
             initial_buffer_pieces = max(5, int(num_pieces * 0.05))

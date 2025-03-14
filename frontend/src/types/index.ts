@@ -123,13 +123,13 @@ export type QualityLiteral = 'all' | '720p' | '1080p' | '2160p' | '3d'
 export type YearLiteral = 'all' | '2024' | '2023' | '2022' | '2021' | '2020' | '2019' | '2018' | '2017' | '2016' | '2015' | '2014' | '2013' | '2012' | '2011' | '2010' | '2000-2009' | '1990-1999' | '1980-1989' | '1970-1979' | '1950-1969' | '1900-1949'
 export type RatingLiteral = 'all' | '9' | '8' | '7' | '6' | '5' | '4' | '3' | '2' | '1'
 export interface SearchParams {
-  keyword?: string;
-  quality?: QualityLiteral;
-  genre?: GenreLiteral;
-  rating?: RatingLiteral;
-  year?: YearLiteral;
-  order_by?: OrderByLiteral;
-  page?: number;
+  keyword?: string | undefined | string;
+  quality?: QualityLiteral | undefined | string;
+  genre?: GenreLiteral | undefined | string;
+  rating?: RatingLiteral | undefined | string;
+  year?: YearLiteral | undefined | string;
+  order_by?: OrderByLiteral | string;
+  page?: number | undefined | string;
 }
 
 

@@ -12,6 +12,7 @@ import {
 } from '@heroicons/react/24/solid';
 import { formatTime } from '@/utils/format';
 import { PlayerState } from '@/types';
+import BufferingAnimation from '@/components/streaming/BufferingAnimation';
 
 interface VideoPlayerProps {
   src: string;
@@ -1053,6 +1054,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </p>
             </div>
           )}
+
+          <BufferingAnimation downloadProgress={downloadProgress} />
           
           {/* Stall Warning */}
           {isStalled && (

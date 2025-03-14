@@ -134,7 +134,7 @@ const ScheduleItem: React.FC<ScheduleItemProps> = ({
                 <span className="text-gray-300">{scheduleParams.quality}</span>
               </div>
             )}
-            {scheduleParams.rating !== undefined && scheduleParams.rating > 0 && (
+            {scheduleParams.rating !== undefined && (
               <div>
                 <span className="block">Min Rating:</span>
                 <span className="text-gray-300">{scheduleParams.rating}</span>

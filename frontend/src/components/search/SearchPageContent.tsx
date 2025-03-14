@@ -41,7 +41,7 @@ export default function SearchPageContent() {
   // Filter states
   const [quality, setQuality] = useState<QualityLiteral>(initialQuality);
   const [genre, setGenre] = useState<GenreLiteral>(initialGenre);
-  const [minRating, setMinRating] = useState<RatingLiteral>(initialRating);
+  const [minRating, setMinRating] = useState<RatingLiteral | string>(initialRating);
   const [year, setYear] = useState<YearLiteral | undefined>(initialYear);
   const [orderBy, setOrderBy] = useState<OrderByLiteral>(initialOrderBy);
   

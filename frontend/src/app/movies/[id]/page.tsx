@@ -1,14 +1,13 @@
-// src/app/movies/[id]/page.tsx
+import type PageProps from 'next';
 import { Metadata } from 'next';
 import { moviesService } from '@/services/movies';
 import MovieDetailsContent from '@/components/movies/MovieDetailsContent';
 import { notFound } from 'next/navigation';
 
 type Props = {
-  params: {
-    id: string;
-  };
-};
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {

@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Movie } from '@/types';
 import { moviesService } from '@/services/movies';
-import MovieGrid from '@/components/movies/MovieGrid';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Link from 'next/link';
@@ -17,14 +16,21 @@ import RecentlyWatchedMovies from '@/components/home/RecentlyWatchedMovies';
 import { useUser } from '@/context/UserContext';
 import { useProgress } from '@/context/ProgressContext';
 import ContinueWatchingSection from '@/components/home/ContinueWatchingSection';
+import MovieCarousel from '@/components/movies/MovieCarousel';
+import FeatureCarousel from '@/components/movies/FeatureCarousel';
 
+// Import the custom Swiper styles
+import '@/styles/swiper-custom.css';
 
 export default function HomePageContent() {
   const { currentUser } = useUser();
   const { progressData } = useProgress();
+
+  const [featuredHighlights, setFeaturedHighlights] = useState<Movie[]>([]);
   const [featuredMovies, setFeaturedMovies] = useState<Movie[]>([]);
   const [latestMovies, setLatestMovies] = useState<Movie[]>([]);
   const [topRatedMovies, setTopRatedMovies] = useState<Movie[]>([]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -51,20 +57,29 @@ export default function HomePageContent() {
         setError(null);
         
         // Fetch latest and top-rated movies in parallel
-        const [featured, latest, topRated] = await Promise.all([
-          moviesService.getFeaturedMovies(10),
-          moviesService.getLatestMovies(10),
-          moviesService.getTopRatedMovies(10)
+        const [featured, latest, topRated, highlights] = await Promise.all([
+          moviesService.getFeaturedMovies(15),
+          moviesService.getLatestMovies(15),
+          moviesService.getTopRatedMovies(15),
+          moviesService.browseMovies({
+            rating: '7',
+            limit: 5,
+            quality: '1080p',
+            year: (new Date().getFullYear() - 1).toString(),
+            order_by: 'featured'
+          })
+          // moviesService.getTopRatedMovies(5, '1080p', undefined, undefined, 1)
         ]);
         
         setFeaturedMovies(featured);
         setLatestMovies(latest);
         setTopRatedMovies(topRated);
+        setFeaturedHighlights(highlights);
         
         // Check if there might be more movies
-        setHasMoreFeaturedMovies(featured.length === 10);
-        setHasMoreLatestMovies(latest.length === 10);
-        setHasMoreTopRatedMovies(topRated.length === 10);
+        setHasMoreFeaturedMovies(featured.length === 15);
+        setHasMoreLatestMovies(latest.length === 15);
+        setHasMoreTopRatedMovies(topRated.length === 15);
       } catch (err) {
         console.error('Error fetching movies:', err);
         setError('Failed to fetch movies. Please try again later.');
@@ -76,58 +91,7 @@ export default function HomePageContent() {
     fetchMovies();
   }, []);
 
-  // Load more latest movies
-  const loadMoreLatestMovies = useCallback(async () => {
-    if (loadingMoreLatest || !hasMoreLatestMovies) return;
-    
-    try {
-      setLoadingMoreLatest(true);
-      
-      // Increment the page
-      const nextPage = latestMoviesPage + 1;
-      setLatestMoviesPage(nextPage);
-      
-      // Fetch more movies
-      const moreMovies = await moviesService.getLatestMovies(10, undefined, nextPage);
-      
-      // Append new movies
-      setLatestMovies(prev => [...prev, ...moreMovies]);
-      
-      // Check if there are more movies to load
-      setHasMoreLatestMovies(moreMovies.length === 10);
-    } catch (err) {
-      console.error('Error loading more latest movies:', err);
-    } finally {
-      setLoadingMoreLatest(false);
-    }
-  }, [latestMoviesPage, loadingMoreLatest, hasMoreLatestMovies]);
-
-  // Load more top rated movies
-  const loadMoreTopRatedMovies = useCallback(async () => {
-    if (loadingMoreTopRated || !hasMoreTopRatedMovies) return;
-    
-    try {
-      setLoadingMoreTopRated(true);
-      
-      // Increment the page
-      const nextPage = topRatedMoviesPage + 1;
-      setTopRatedMoviesPage(nextPage);
-      
-      // Fetch more movies
-      const moreMovies = await moviesService.getTopRatedMovies(10, undefined, undefined, undefined, nextPage);
-      
-      // Append new movies
-      setTopRatedMovies(prev => [...prev, ...moreMovies]);
-      
-      // Check if there are more movies to load
-      setHasMoreTopRatedMovies(moreMovies.length === 10);
-    } catch (err) {
-      console.error('Error loading more top rated movies:', err);
-    } finally {
-      setLoadingMoreTopRated(false);
-    }
-  }, [topRatedMoviesPage, loadingMoreTopRated, hasMoreTopRatedMovies]);
-
+  // Handle refreshing all content
   const handleRefresh = () => {
     setIsLoading(true);
     setFeaturedMovies([]);
@@ -140,17 +104,17 @@ export default function HomePageContent() {
     const fetchMovies = async () => {
       try {
         const [featured, latest, topRated] = await Promise.all([
-          moviesService.getFeaturedMovies(10),
-          moviesService.getLatestMovies(10),
-          moviesService.getTopRatedMovies(10)
+          moviesService.getFeaturedMovies(15),
+          moviesService.getLatestMovies(15),
+          moviesService.getTopRatedMovies(15)
         ]);
         
         setFeaturedMovies(featured);
         setLatestMovies(latest);
         setTopRatedMovies(topRated);
-        setHasMoreFeaturedMovies(featured.length === 10);
-        setHasMoreLatestMovies(latest.length === 10);
-        setHasMoreTopRatedMovies(topRated.length === 10);
+        setHasMoreFeaturedMovies(featured.length === 15);
+        setHasMoreLatestMovies(latest.length === 15);
+        setHasMoreTopRatedMovies(topRated.length === 15);
         setError(null);
       } catch (err) {
         console.error('Error refreshing movies:', err);
@@ -163,8 +127,6 @@ export default function HomePageContent() {
     fetchMovies();
   };
 
-  console.log(progressData);
-
   const hasInProgressMovies = currentUser && Object.values(progressData).some(
     item => !item.completed && item.percentage > 0
   );
@@ -172,7 +134,12 @@ export default function HomePageContent() {
   return (
     <div className="space-y-8">
       {/* Hero Section */}
-      <div className="bg-gradient-to-r from-primary-900 to-secondary-900 rounded-xl p-6 md:p-10 shadow-lg">
+      <FeatureCarousel 
+        movies={featuredHighlights} 
+        isLoading={isLoading}
+      />
+
+      {/* <div className="bg-gradient-to-r from-primary-900 to-secondary-900 rounded-xl p-6 md:p-10 shadow-lg">
         <div className="max-w-3xl">
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">
             Download YIFY Movies with Ease
@@ -201,7 +168,7 @@ export default function HomePageContent() {
             </Link>
           </div>
         </div>
-      </div>
+      </div> */}
 
       {/* Quick Stats Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -248,97 +215,65 @@ export default function HomePageContent() {
       {/* Recently Watched Section - Only show if user is logged in */}
       {currentUser && <RecentlyWatchedMovies />}
 
+      {/* Error Message */}
+      {error && (
+        <div className="text-center py-8 bg-gray-800/50 rounded-lg">
+          <p className="text-red-500 mb-4">{error}</p>
+          <Button onClick={handleRefresh}>Try Again</Button>
+        </div>
+      )}
+
       {/* Featured Movies Section */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Featured Movies</CardTitle>
-          <Button 
-            size="sm" 
-            variant="ghost" 
-            leftIcon={<ArrowPathIcon className="w-4 h-4" />}
-            onClick={handleRefresh}
+        <CardContent className="p-4 pb-8">
+          <MovieCarousel
+            title="Featured Movies"
+            movies={featuredMovies}
             isLoading={isLoading}
-          >
-            Refresh
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {error ? (
-            <div className="text-center py-8">
-              <p className="text-red-500 mb-4">{error}</p>
-              <Button onClick={handleRefresh}>Try Again</Button>
-            </div>
-          ) : (
-            <MovieGrid 
-              movies={featuredMovies} 
-              isLoading={isLoading || loadingMoreFeatured}
-              // hasMorePages={hasMoreLatestMovies}
-              // onLoadMore={loadMoreLatestMovies}
-            />
-          )}
-          <div className="mt-6 text-center">
-            <Link href="/search?order_by=featured">
-              <Button variant="outline">View All Featured Movies</Button>
-            </Link>
-          </div>
+            viewAllLink="/search?order_by=featured"
+            viewAllLabel="View All Featured Movies"
+          />
         </CardContent>
       </Card>
 
       {/* Latest Movies Section */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Latest Movies</CardTitle>
-          <Button 
-            size="sm" 
-            variant="ghost" 
-            leftIcon={<ArrowPathIcon className="w-4 h-4" />}
-            onClick={handleRefresh}
+        <CardContent className="p-4 pb-8">
+          <MovieCarousel
+            title="Latest Movies"
+            movies={latestMovies}
             isLoading={isLoading}
-          >
-            Refresh
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {error ? (
-            <div className="text-center py-8">
-              <p className="text-red-500 mb-4">{error}</p>
-              <Button onClick={handleRefresh}>Try Again</Button>
-            </div>
-          ) : (
-            <MovieGrid 
-              movies={latestMovies} 
-              isLoading={isLoading || loadingMoreLatest}
-              // hasMorePages={hasMoreLatestMovies}
-              // onLoadMore={loadMoreLatestMovies}
-            />
-          )}
-          <div className="mt-6 text-center">
-            <Link href="/search">
-              <Button variant="outline">View All Latest Movies</Button>
-            </Link>
-          </div>
+            viewAllLink="/search?order_by=latest"
+            viewAllLabel="View All Latest Movies"
+          />
         </CardContent>
       </Card>
 
       {/* Top Rated Movies Section */}
       <Card>
-        <CardHeader>
-          <CardTitle>Top Rated Movies</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <MovieGrid 
-            movies={topRatedMovies} 
-            isLoading={isLoading || loadingMoreTopRated}
-            // hasMorePages={hasMoreTopRatedMovies}
-            // onLoadMore={loadMoreTopRatedMovies}
+        <CardContent className="p-4 pb-8">
+          <MovieCarousel
+            title="Top Rated Movies"
+            movies={topRatedMovies}
+            isLoading={isLoading}
+            viewAllLink="/search?order_by=rating"
+            viewAllLabel="View All Top Rated Movies"
           />
-          <div className="mt-6 text-center">
-            <Link href="/search?order_by=rating">
-              <Button variant="outline">View All Top Rated Movies</Button>
-            </Link>
-          </div>
         </CardContent>
       </Card>
+
+      {/* Refresh Button for all content */}
+      <div className="flex justify-center">
+        <Button
+          variant="outline"
+          leftIcon={<ArrowPathIcon className="w-5 h-5" />}
+          onClick={handleRefresh}
+          isLoading={isLoading}
+          className="mb-6"
+        >
+          Refresh All Content
+        </Button>
+      </div>
     </div>
   );
 }

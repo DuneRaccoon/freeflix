@@ -130,6 +130,7 @@ export interface SearchParams {
   year?: YearLiteral | undefined | string;
   order_by?: OrderByLiteral | string;
   page?: number | undefined | string;
+  limit?: number | undefined;
 }
 
 

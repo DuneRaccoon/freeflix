@@ -1,0 +1,91 @@
+/* Custom styles for Swiper carousels */
+
+.movie-carousel {
+  padding-bottom: 2.5rem; /* Make room for pagination */
+  margin: 0 -0.5rem; /* Offset the slide padding */
+}
+
+.movie-carousel .swiper-slide {
+  height: auto;
+  opacity: 0.85;
+  transition: transform 0.3s, opacity 0.3s;
+  padding: 0.5rem;
+}
+
+.movie-carousel .swiper-slide-active {
+  opacity: 1;
+}
+
+.movie-carousel .swiper-slide:hover {
+  opacity: 1;
+  transform: scale(1.02);
+  z-index: 1;
+}
+
+/* Custom pagination styles */
+.movie-carousel .swiper-pagination {
+  bottom: 0;
+}
+
+.movie-carousel .swiper-pagination-bullet {
+  background-color: var(--color-muted);
+  opacity: 0.5;
+  width: 8px;
+  height: 8px;
+  transition: all 0.3s;
+}
+
+.movie-carousel .swiper-pagination-bullet-active {
+  background-color: var(--color-primary);
+  opacity: 1;
+  width: 12px;
+  height: 12px;
+}
+
+/* For dynamic bullets pagination */
+.movie-carousel .swiper-pagination-bullet-active-main {
+  background-color: var(--color-primary);
+}
+
+.movie-carousel .swiper-pagination-bullet-active-prev,
+.movie-carousel .swiper-pagination-bullet-active-next {
+  background-color: var(--color-primary);
+  opacity: 0.8;
+  transform: scale(0.9);
+}
+
+/* Better navigation buttons */
+.movie-carousel .swiper-button-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Make sure the MovieCard hover effect doesn't interfere with swiper behaviors */
+.movie-carousel .swiper-slide a {
+  display: block;
+  height: 100%;
+}
+
+/* Animation for new slides */
+.movie-carousel .swiper-slide {
+  transform: scale(0.95);
+  transition: transform 0.3s ease;
+}
+
+.movie-carousel .swiper-slide-active,
+.movie-carousel .swiper-slide-next,
+.movie-carousel .swiper-slide-prev {
+  transform: scale(1);
+}
+
+/* Add a subtle tilt effect when hovering over carousel items */
+.movie-carousel .swiper-slide:hover {
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* Improve keyboard navigation focus styles */
+.movie-carousel .swiper-slide a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 8px;
+}

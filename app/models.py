@@ -100,6 +100,7 @@ class SearchParams(BaseModel):
     year: Optional[YearLiteral] = None
     order_by: Optional[OrderByLiteral] = 'featured'
     page: Optional[int] = 1
+    limit: Optional[int] = 20
 
 
 class Torrent(BaseModel):

@@ -130,7 +130,7 @@ async def browse_yts(params: SearchParams) -> List[Movie]:
                 return []
             
             movies = await scrape_movies(soup)
-            return movies
+            return movies[:params.limit] if params.limit else movies
             
         except httpx.RequestError as e:
             logger.error(f"Request error: {e}")

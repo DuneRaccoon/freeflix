@@ -186,3 +186,5 @@ assets/*
 resume_data/
 torrents.db
 freeflix.db
+freeflix.db-journal
+*-journal

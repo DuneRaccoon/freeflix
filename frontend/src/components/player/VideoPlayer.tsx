@@ -79,7 +79,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isStalled, setIsStalled] = useState(false);
   const [showBufferingMessage, setShowBufferingMessage] = useState(false);
 
-  // Helper to safely interact with video element
+  /**
+   * A utility hook that safely performs operations on the video element with error handling.
+   * 
+   * @param operation - A function that takes an HTMLVideoElement and performs some operation on it
+   * @returns {boolean} - Returns true if the operation was successful, false if the video reference
+   *                     is not available or if the operation throws an error
+   * 
+   * @example
+   * // Example usage:
+   * safeVideoOperation((video) => video.play());
+   */
   const safeVideoOperation = useCallback((operation: (video: HTMLVideoElement) => void) => {
     const video = videoRef.current;
     if (!video) return false;
@@ -1315,7 +1325,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* "Unmute" Button */}
-      {showUnmuteButton && playerState.isPlaying && (
+      {/* {showUnmuteButton && playerState.isPlaying && (
         <div className="absolute bottom-20 right-4 z-50">
           <button
             className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-full flex items-center shadow-lg transition-colors"
@@ -1345,7 +1355,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             Unmute
           </button>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

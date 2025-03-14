@@ -35,6 +35,18 @@ export const moviesService = {
     return response.data;
   },
 
+  getFeaturedMovies: async (
+    limit: number = 10, 
+    quality?: string, 
+    page: number = 1
+  ): Promise<Movie[]> => {
+    const params: Record<string, any> = { limit, page, order_by: 'featured' };
+    if (quality) params.quality = quality;
+    
+    const response = await apiClient.post(`/movies/browse`, { params });
+    return response.data.slice(0, limit);
+  },
+
   // Get latest movies
   getLatestMovies: async (
     limit: number = 10, 

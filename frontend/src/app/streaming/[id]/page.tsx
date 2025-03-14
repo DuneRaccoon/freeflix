@@ -321,6 +321,7 @@ export default function StreamingPage() {
           <PatchedVideoPlayer 
             src={streamingUrl}
             torrentId={torrentId}
+            torrentInfo={torrentStatus}
             movieId={torrentStatus.movie_title}
             movieTitle={torrentStatus.movie_title}
             subtitle={`${torrentStatus.quality} • ${streamingInfo.video_file.name}`}

@@ -1,4 +1,3 @@
-// src/components/movies/MovieCard.tsx
 import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -7,7 +6,10 @@ import { Movie } from '@/types';
 import { Card, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
+import WatchProgressBar from '@/components/ui/WatchProgressBar';
+import { useProgress } from '@/context/ProgressContext';
 import { StarIcon, EyeIcon, ArrowDownTrayIcon, PlayIcon } from '@heroicons/react/24/solid';
+import { ClockIcon } from '@heroicons/react/24/outline';
 import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import MovieDetailsModal from './MovieDetailsModal';
@@ -20,9 +22,14 @@ interface MovieCardProps {
 
 const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
   const router = useRouter();
+  const { getProgressForMovie } = useProgress();
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+
+  const movieProgress = getProgressForMovie(movie);
+  const hasProgress = !!movieProgress && movieProgress.percentage > 0;
+  const isCompleted = movieProgress?.completed || false;
 
   // Handle download button click
   const handleDownload = async (quality: string, e: React.MouseEvent) => {
@@ -80,11 +87,19 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
   // Encode movie ID for URL
   const movieId = encodeURIComponent(movie.link);
   
-  // Handle quick view button click (for modal)
   const handleQuickViewClick = (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent navigation
-    e.stopPropagation(); // Prevent parent click handlers
+    e.preventDefault();
+    e.stopPropagation();
     setShowDetailsModal(true);
+  };
+
+  const handleContinueWatching = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (movieProgress?.torrent_id) {
+      router.push(`/streaming/${movieProgress.torrent_id}`);
+    }
   };
 
   return (
@@ -101,6 +116,28 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                 <EyeIcon className="h-5 w-5 text-white" />
               </div>
             </div>
+            
+            {/* Continue watching button for movies in progress */}
+            {hasProgress && !isCompleted && (
+              <div 
+                className="absolute top-2 left-2 z-20"
+                onClick={handleContinueWatching}
+              >
+                <div className="bg-primary-600 hover:bg-primary-700 rounded-full p-2 transition-opacity duration-300 opacity-100 shadow-lg">
+                  <PlayIcon className="h-5 w-5 text-white" />
+                </div>
+              </div>
+            )}
+            
+            {/* Watched badge */}
+            {isCompleted && (
+              <div className="absolute top-2 left-2 z-20">
+                <Badge variant="success" size="sm" className="px-2 py-1">
+                  <ClockIcon className="h-3 w-3 mr-1" />
+                  Watched
+                </Badge>
+              </div>
+            )}
             
             <Image
               src={movie.img}
@@ -119,6 +156,17 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                   <span>{movie.rating}</span>
                 </div>
               </div>
+              
+              {/* Progress bar if movie has been watched partially */}
+              {hasProgress && (
+                <div className="mt-2">
+                  <WatchProgressBar 
+                    progress={movieProgress.percentage} 
+                    height="h-1"
+                    showTooltip={false}
+                  />
+                </div>
+              )}
             </div>
           </div>
           

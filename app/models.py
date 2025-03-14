@@ -68,6 +68,7 @@ QualityLiteral = Literal['all', '720p', '1080p', '2160p', '3d']
 RatingLiteral = Literal['all', '9', '8', '7', '6', '5', '4', '3', '2', '1']
 YearLiteral = Literal[
     "all",
+    "2025",
     "2024",
     "2023",
     "2022",

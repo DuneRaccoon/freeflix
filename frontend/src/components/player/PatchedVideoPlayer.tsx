@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import { streamingService } from '@/services/streaming';
 import { useUser } from '@/context/UserContext';
-import { StreamingProgress, StreamingInfo } from '@/types';
+import { useProgress } from '@/context/ProgressContext';
+import { StreamingProgress, StreamingInfo, TorrentStatus } from '@/types';
 import Button from '@/components/ui/Button';
 import { PlayIcon, ForwardIcon } from '@heroicons/react/24/solid';
 import { toast } from 'react-hot-toast';
@@ -10,27 +12,30 @@ import { toast } from 'react-hot-toast';
 interface PatchedVideoPlayerProps {
   src: string;
   torrentId: string;
+  torrentInfo?: TorrentStatus;
   movieId: string;
   movieTitle?: string;
   subtitle?: string;
   poster?: string;
   onError?: (error: string) => void;
-  downloadProgress?: number; // Add download progress prop
-  streamingInfo?: StreamingInfo; // Add streaming info prop
+  downloadProgress?: number;
+  streamingInfo?: StreamingInfo;
 }
 
 const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   src,
   torrentId,
+  torrentInfo,
   movieId,
   movieTitle,
   subtitle,
   poster,
   onError,
-  downloadProgress = 0, // Default to 0% downloaded
+  downloadProgress = 0,
   streamingInfo
 }) => {
   const { currentUser } = useUser();
+  const { updateLocalProgress } = useProgress();
   const [savedProgress, setSavedProgress] = useState<StreamingProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
@@ -38,6 +43,8 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   const [progressId, setProgressId] = useState<string | null>(null);
   const [currentDownloadProgress, setCurrentDownloadProgress] = useState(downloadProgress);
   const [shouldRetry, setShouldRetry] = useState(false);
+  
+  const router = useRouter();
   
   // Reference to the original VideoPlayer component
   const playerRef = useRef<{
@@ -49,6 +56,8 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   const currentTimeRef = useRef<number>(0);
   const durationRef = useRef<number>(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveInProgressRef = useRef<boolean>(false);
+  const lastSaveTimeRef = useRef<number>(0);
   
   // Update download progress when prop changes
   useEffect(() => {
@@ -129,9 +138,28 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
         clearInterval(saveIntervalRef.current);
       }
       // Save progress on unmount
-      saveCurrentProgress();
+      saveCurrentProgress(true);
     };
   }, [currentUser, torrentId, movieId, progressId]);
+  
+  // Save progress when user navigates away or closes browser
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Save progress right before the page unloads
+      saveCurrentProgress(true); // Force immediate save
+    };
+    
+    // Add event listeners
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      // Clean up event listeners
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      
+      // Final progress save on component unmount
+      saveCurrentProgress(true); // Force immediate save
+    };
+  }, []);
   
   // Handler for progress updates from the VideoPlayer
   const handleProgress = useCallback((playerState: any) => {
@@ -156,7 +184,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
         };
         
         if (progressId) {
-          await streamingService.updateProgress(
+          const updatedProgress = await streamingService.updateProgress(
             currentUser.id,
             progressId,
             {
@@ -166,12 +194,18 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
               completed: true
             }
           );
+          
+          // Update local progress context
+          updateLocalProgress(updatedProgress);
         } else {
           const newProgress = await streamingService.saveProgress(
             currentUser.id,
             progressData
           );
           setProgressId(newProgress.id);
+          
+          // Update local progress context
+          updateLocalProgress(newProgress);
         }
       } catch (error) {
         console.error('Failed to save completed progress:', error);
@@ -179,23 +213,35 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     };
     
     saveCompletedProgress();
-  }, [currentUser, torrentId, movieId, progressId]);
+  }, [currentUser, torrentId, movieId, progressId, updateLocalProgress]);
   
   // Save current progress
-  const saveCurrentProgress = async () => {
-    if (!currentUser || currentTimeRef.current < 5) return;
+  const saveCurrentProgress = async (forceSave: boolean = false) => {
+    if (saveInProgressRef.current || !currentUser || currentTimeRef.current < 5) return;
     
-    const currentTime = currentTimeRef.current;
-    const duration = durationRef.current || 0;
-    const percentage = duration > 0 ? (currentTime / duration) * 100 : 0;
-    
-    // Don't save if we're at the very beginning
-    if (currentTime < 5) return;
-    
-    // Don't mark as completed unless we're very close to the end
-    const completed = percentage > 98;
+    // Set flag to avoid concurrent saves
+    saveInProgressRef.current = true;
     
     try {
+      const currentTime = currentTimeRef.current;
+      const duration = durationRef.current || 0;
+      const percentage = duration > 0 ? (currentTime / duration) * 100 : 0;
+      
+      // Don't save if we're at the very beginning
+      if (currentTime < 5) {
+        saveInProgressRef.current = false;
+        return;
+      }
+      
+      // Don't save too frequently unless forced
+      if (!forceSave && Date.now() - lastSaveTimeRef.current < 5000) {
+        saveInProgressRef.current = false;
+        return;
+      }
+      
+      // Don't mark as completed unless we're very close to the end
+      const completed = percentage > 98;
+      
       const progressData = {
         torrent_id: torrentId,
         movie_id: movieId,
@@ -206,7 +252,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
       };
       
       if (progressId) {
-        await streamingService.updateProgress(
+        const updatedProgress = await streamingService.updateProgress(
           currentUser.id,
           progressId,
           {
@@ -216,15 +262,26 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             completed
           }
         );
+        
+        // Update local progress context
+        updateLocalProgress(updatedProgress);
       } else {
         const newProgress = await streamingService.saveProgress(
           currentUser.id,
           progressData
         );
         setProgressId(newProgress.id);
+        
+        // Update local progress context
+        updateLocalProgress(newProgress);
       }
+      
+      // Update last save time
+      lastSaveTimeRef.current = Date.now();
     } catch (error) {
       console.error('Failed to save progress:', error);
+    } finally {
+      saveInProgressRef.current = false;
     }
   };
   
@@ -249,57 +306,22 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     playerRef.current = methods;
   };
   
-  // Handle video error with retry logic
+  // Handle video player error
   const handleVideoError = (error: string) => {
-    console.error('Video player error:', error);
-    
-    // If error occurred and we're still downloading, set retry flag
-    if (currentDownloadProgress < 100) {
-      setShouldRetry(true);
-      
-      // Set up a retry timeout
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
-      
-      retryTimeoutRef.current = setTimeout(() => {
-        // Try reloading the player
-        setShouldRetry(false);
-        
-        // Force a component re-render by updating state
-        setIsLoading(true);
-        setTimeout(() => setIsLoading(false), 100);
-        
-        toast.success('Retrying playback...');
-      }, 3000); // Retry after 3 seconds
+    // For minor errors during active downloads, don't show the error screen
+    if (torrentInfo && torrentInfo.progress < 100 && 
+        (error.includes('network error') || error.includes('buffering'))) {
+      // Just log the error but don't show the error screen
+      console.warn('Video playback issue during download:', error);
     } else {
-      // If download is complete, pass the error to the parent
+      // For serious errors, show the error screen
       if (onError) {
         onError(error);
       }
     }
   };
   
-  // Auto-resume after a timeout if user doesn't choose
-  useEffect(() => {
-    if (showResumePrompt) {
-      const timeout = setTimeout(() => {
-        handleResume();
-      }, 10000); // Auto-resume after 10 seconds
-      
-      return () => clearTimeout(timeout);
-    }
-  }, [showResumePrompt, resumeTime]);
-  
-  // Clean up retry timeout
-  useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
-    };
-  }, []);
-  
+  // Loading state
   if (isLoading) {
     return (
       <div className="w-full h-full bg-black flex items-center justify-center">
@@ -308,39 +330,38 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     );
   }
   
-  // If we're retrying, show a friendly message
-  if (shouldRetry) {
-    return (
-      <div className="w-full h-full bg-black flex flex-col items-center justify-center text-white text-center p-6">
-        <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full mb-4"></div>
-        <h3 className="text-xl font-bold mb-2">Buffering Content</h3>
-        <p className="mb-4">
-          Your video is still downloading ({Math.round(currentDownloadProgress)}% complete).
-          We're preparing to resume playback...
-        </p>
-        <p className="text-sm text-gray-400">
-          Playback will automatically resume in a few moments.
-        </p>
-      </div>
-    );
-  }
+  // Get the streaming URL if info is available
+  const streamingUrl = src;
   
+  // Ready for streaming
   return (
-    <div className="relative w-full h-full">
-      <VideoPlayer
-        src={src}
-        poster={poster}
-        movieTitle={movieTitle}
-        subtitle={subtitle}
-        autoPlay={!showResumePrompt}
-        onProgress={handleProgress}
-        onEnded={handleEnded}
-        onError={handleVideoError}
-        registerMethods={registerPlayerMethods}
-        downloadProgress={currentDownloadProgress}
-      />
-      
-      {/* Resume playback prompt */}
+    <div className="h-screen flex flex-col bg-black">
+      {/* Player Area */}
+      <div className="flex-grow relative overflow-hidden">
+        {streamingUrl ? (
+          <VideoPlayer 
+            src={streamingUrl}
+            poster={poster}
+            movieTitle={movieTitle}
+            subtitle={subtitle}
+            autoPlay={!showResumePrompt}
+            onProgress={handleProgress}
+            onEnded={handleEnded}
+            onError={handleVideoError}
+            registerMethods={registerPlayerMethods}
+            downloadProgress={currentDownloadProgress}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-black">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-6 w-6 border-4 border-primary-500 border-t-transparent"></div>
+              <p className="text-white mt-2">Loading video player...</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Resume Playback Prompt */}
       {showResumePrompt && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-80 z-50">
           <div className="bg-card rounded-lg shadow-xl p-6 m-4 max-w-sm mx-auto text-center">

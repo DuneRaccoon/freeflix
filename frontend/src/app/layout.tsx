@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
 import { UserProvider } from '@/context/UserContext';
 import { ThemeProvider } from '@/context/ThemeContext';
+import { ProgressProvider } from '@/context/ProgressContext';
 import AuthenticatedLayout from '@/components/layout/AuthenticatedLayout';
 
 import './globals.css';
@@ -24,31 +25,33 @@ export default function RootLayout({
       <body className={`${inter.className} min-h-screen`}>
         <UserProvider>
           <ThemeProvider>
-            <AuthenticatedLayout>
-              {children}
-            </AuthenticatedLayout>
-            <Toaster 
-              position="top-right"
-              toastOptions={{
-                style: {
-                  background: 'var(--color-card)',
-                  color: 'var(--color-foreground)',
-                  border: '1px solid var(--color-border)',
-                },
-                success: {
-                  iconTheme: {
-                    primary: 'var(--color-primary)',
-                    secondary: 'var(--color-primary-foreground)',
+            <ProgressProvider>
+              <AuthenticatedLayout>
+                {children}
+              </AuthenticatedLayout>
+              <Toaster 
+                position="top-right"
+                toastOptions={{
+                  style: {
+                    background: 'var(--color-card)',
+                    color: 'var(--color-foreground)',
+                    border: '1px solid var(--color-border)',
                   },
-                },
-                error: {
-                  iconTheme: {
-                    primary: 'var(--color-danger)',
-                    secondary: 'var(--color-primary-foreground)',
+                  success: {
+                    iconTheme: {
+                      primary: 'var(--color-primary)',
+                      secondary: 'var(--color-primary-foreground)',
+                    },
                   },
-                },
-              }}
-            />
+                  error: {
+                    iconTheme: {
+                      primary: 'var(--color-danger)',
+                      secondary: 'var(--color-primary-foreground)',
+                    },
+                  },
+                }}
+              />
+            </ProgressProvider>
           </ThemeProvider>
         </UserProvider>
       </body>

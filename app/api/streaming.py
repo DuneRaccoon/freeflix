@@ -209,7 +209,7 @@ async def create_streaming_progress(
             existing_progress.duration = progress.duration
             existing_progress.percentage = progress.percentage
             existing_progress.completed = progress.completed
-            existing_progress.last_watched_at = db.func.now()
+            existing_progress.last_watched_at = session.func.now()
             
             session.commit()
             session.refresh(existing_progress)
@@ -265,7 +265,7 @@ async def update_streaming_progress(
         progress_entry.duration = progress_update.duration
         progress_entry.percentage = progress_update.percentage
         progress_entry.completed = progress_update.completed
-        progress_entry.last_watched_at = db.func.now()
+        progress_entry.last_watched_at = session.func.now()
         
         session.commit()
         session.refresh(progress_entry)

@@ -9,12 +9,15 @@ from leakybucket.persistence import InMemoryLeakyBucketStorage
 
 from app.models import Movie, Torrent, SearchParams
 from app.config import settings
+from app.utils.user_agent import get_random_user_agent
 
 # Initialize rate limiter
 throttler = LeakyBucket(InMemoryLeakyBucketStorage(
     max_rate=settings.request_rate_limit, 
     time_period=1
 ))
+
+user_agent = get_random_user_agent()
 
 throttler.throttle()
 async def browse_rarbg(path: Literal['movies', 'series'], params: SearchParams) -> List[Movie]:
@@ -33,7 +36,7 @@ async def browse_rarbg(path: Literal['movies', 'series'], params: SearchParams) 
     if params.page:
         query_params['page'] = params.page
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={'User-Agent': user_agent}) as client:
         try:
             logger.info(f'Browsing RARBG {path} with parameters:')
             logger.info(f"{query_params}")

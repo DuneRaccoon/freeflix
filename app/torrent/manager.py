@@ -3,6 +3,7 @@ import asyncio
 import time
 import json
 import uuid
+import shutil
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
@@ -883,6 +884,10 @@ class TorrentManager:
                     if delete_files:
                         # Delete the torrent
                         torrent.delete(db)
+                        
+                        path = Path(torrent.save_path)
+                        if path.exists():
+                            shutil.rmtree(path)
             
             logger.info(f"Removed torrent {torrent_id} (delete_files={delete_files})")
             return True

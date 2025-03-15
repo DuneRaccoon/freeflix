@@ -102,7 +102,6 @@ class SearchParams(BaseModel):
     page: Optional[int] = 1
     limit: Optional[int] = 20
 
-
 class Torrent(BaseModel):
     model_config = ConfigDict(
         allow_mutation=True,

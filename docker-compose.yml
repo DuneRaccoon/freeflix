@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    networks:
+      - freeflix-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - download-data:/opt/freeflix/downloads
+      - resume-data:/opt/freeflix/resume_data
+      - logs:/opt/freeflix/logs
+    depends_on:
+      - db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=freeflix
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - DOWNLOAD_PATH=/opt/freeflix/downloads
+    networks:
+      - freeflix-network
+
+  db:
+    image: postgres:14-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=freeflix
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - freeflix-network
+
+networks:
+  freeflix-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  download-data:
+  resume-data:
+  logs:

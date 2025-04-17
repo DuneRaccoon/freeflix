@@ -1,6 +1,12 @@
 import os
-from typing import Optional
+from typing import Optional, Union
 from pathlib import Path
+from pydantic import (
+    HttpUrl,
+    PostgresDsn, 
+    ValidationInfo, 
+    field_validator
+)
 from pydantic_settings import BaseSettings
 
 
@@ -39,6 +45,34 @@ class Settings(BaseSettings):
     
     # Database settings (for storing torrent status and schedule)
     db_path: Path = base_app_path / "freeflix.db"
+    
+    postgres_user: Optional[str] = None
+    postgres_password: Optional[str] = None
+    postgres_host: Optional[str] = None
+    postgres_port: Optional[Union[str, int]] = None
+    postgres_db: Optional[str] = None
+    postgres_dsn: Optional[PostgresDsn] = None
+    
+    # mail_connection_config: ConnectionConfig
+    
+    sentry_dsn: Optional[HttpUrl] = None
+    
+    @field_validator('postgres_dsn', mode='after')
+    def assemble_postgres_dsn(cls, v, info: ValidationInfo):
+        if v is None:
+            try:
+                port = info.data.get('postgres_port')
+                return PostgresDsn.build(
+                    scheme="postgresql+asyncpg",
+                    username=info.data.get('postgres_user'),
+                    password=info.data.get('postgres_password'),
+                    host=info.data.get('postgres_host'),
+                    port=int(port),
+                    path=info.data.get('postgres_db')
+                )
+            except:
+                return v
+        return v
     
     # Cron settings
     cron_enabled: bool = True

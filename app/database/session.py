@@ -4,18 +4,26 @@ from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from pathlib import Path
 from loguru import logger
+import os
 
 from app.config import settings
 
 # Create the database directory if it doesn't exist
 settings.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-# Create SQLAlchemy engine
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{settings.db_path}"
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, 
-    connect_args={"check_same_thread": False}  # Needed for SQLite
-)
+# Create SQLAlchemy engine based on environment
+if settings.postgres_host and settings.postgres_dsn:
+    logger.info(f"Using PostgreSQL database at {settings.postgres_dsn}")
+    engine = create_engine(str(settings.postgres_dsn))
+else:
+    # SQLite connection for local development
+    SQLALCHEMY_DATABASE_URL = f"sqlite:///{settings.db_path}"
+    logger.info(f"Using SQLite database at {settings.db_path}")
+    
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL, 
+        connect_args={"check_same_thread": False}  # Needed for SQLite
+    )
 
 # Create sessionmaker
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

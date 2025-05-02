@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Yify movie scraper"
 authors = ["DuneRaccoon <benjamincsherro@hotmail.com>"]
 readme = "README.md"
+license = "MIT"
+packages = [
+    { include = "app" }
+]
+
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -25,6 +30,7 @@ pytest-cov = "^6.0.0"
 pytest-mock = "^3.14.0"
 ipython = "8.0.0"
 nest-asyncio = "1.5.1"
+asyncpg = "^0.30.0"
 playwright = "^1.50.0"
 
 

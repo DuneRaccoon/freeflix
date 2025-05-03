@@ -193,11 +193,17 @@ async def get_movie_details(
                     raise HTTPException(status_code=404, detail="Movie not found in cache")
             
             # Check if we need to fetch extended data
-            extended_data_fresh = (
-                movie_cache.extended_data_fetched_at is not None and
-                # (datetime.datetime.now(datetime.timezone.utc) - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.cache_movies_for)
-                (datetime.datetime.now() - movie_cache.extended_data_fetched_at) < datetime.timedelta(days=settings.cache_movies_for)
-            )
+            extended_data_fresh = False
+            if movie_cache.extended_data_fetched_at is not None:
+                # Always use UTC timezone for consistency
+                if movie_cache.extended_data_fetched_at.tzinfo is None:
+                    # Convert naive datetime to aware datetime with UTC timezone
+                    fetched_at_utc = movie_cache.extended_data_fetched_at.replace(tzinfo=datetime.timezone.utc)
+                else:
+                    fetched_at_utc = movie_cache.extended_data_fetched_at
+                
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                extended_data_fresh = (now_utc - fetched_at_utc) < datetime.timedelta(days=settings.cache_movies_for)
             
             if not extended_data_fresh:
                 # Fetch extended data from external sources

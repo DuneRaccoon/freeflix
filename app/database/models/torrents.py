@@ -308,23 +308,40 @@ class MovieCache(Model):
     @classmethod
     def update_extended_data(cls, db: Session, movie_id: str, extended_data: Dict[str, Any]) -> Optional["MovieCache"]:
         """Update a movie with extended data from external sources."""
-        movie = db.query(cls).filter(cls.id == movie_id).first()
-        if not movie:
-            return None
-            
-        # Update all provided fields
-        for key, value in extended_data.items():
-            if hasattr(movie, key):
-                if key in {'reviews', 'related_movies'}:
-                    setattr(movie, key, [model.model_dump(mode='json') for model in value])
-                else:
-                    setattr(movie, key, value)
+        try:
+            # Use get_by_id from our CRUDMixin for consistent data access
+            movie = cls.get_by_id(db, movie_id)
+            if not movie:
+                return None
                 
-        # movie.extended_data_fetched_at = datetime.datetime.now(datetime.timezone.utc)
-        movie.extended_data_fetched_at = datetime.datetime.now()
-        db.commit()
-        db.refresh(movie)
-        return movie
+            # Update all provided fields
+            for key, value in extended_data.items():
+                if hasattr(movie, key):
+                    try:
+                        if key in {'reviews', 'related_movies'} and value is not None:
+                            # Handle list of models properly
+                            setattr(movie, key, [model.model_dump(mode='json') for model in value])
+                        elif value is not None:  # Skip None values to avoid overwriting existing data
+                            setattr(movie, key, value)
+                    except Exception as field_error:
+                        from loguru import logger
+                        logger.warning(f"Error updating field {key} for movie {movie_id}: {field_error}")
+                        # Continue with other fields rather than failing entirely
+            
+            # Always use UTC for consistency
+            movie.extended_data_fetched_at = datetime.datetime.now(datetime.timezone.utc)
+            db.commit()
+            db.refresh(movie)
+            return movie
+        except Exception as e:
+            from loguru import logger
+            logger.error(f"Error updating extended data for movie {movie_id}: {e}")
+            # Try to rollback the transaction in case of error
+            try:
+                db.rollback()
+            except:
+                pass
+            return None
     
     def to_detailed_dict(self) -> Dict[str, Any]:
         """Convert to dictionary including extended data."""

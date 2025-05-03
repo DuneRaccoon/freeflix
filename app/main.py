@@ -8,12 +8,14 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from typing import Optional
 import platform
+import time
 
 from app.config import settings
 from app.api import movies, torrents, schedules, streaming, users
 from app.torrent.manager import torrent_manager
 from app.cron.jobs import schedule_manager
-from app.database.session import init_db
+from app.database.session import init_db, close_thread_sessions
+from app.middleware import error_handling_middleware
 
 # Initialize directories and settings
 settings.initialize()
@@ -91,19 +93,8 @@ app.include_router(
 )
 
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Log all incoming requests"""
-    logger.info(f"{request.method} {request.url.path}")
-    try:
-        response = await call_next(request)
-        return response
-    except Exception as e:
-        logger.error(f"Request error: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
-        )
+# Use our custom error handling middleware instead
+app.middleware("http")(error_handling_middleware)
 
 
 @app.on_event("startup")
@@ -111,19 +102,28 @@ async def startup_event():
     """Initialize services on startup"""
     logger.info("Starting up YIFY Torrent Downloader...")
     
-    # Initialize database
-    init_db()
-    logger.info("Database initialized")
-    
-    # Start torrent manager update task
-    await torrent_manager.start_update_task()
-    
-    # Start scheduler if enabled
-    if settings.cron_enabled:
-        await schedule_manager.start_scheduler()
-        logger.info("Scheduler enabled and started")
-    else:
-        logger.info("Scheduler is disabled")
+    try:
+        # Initialize database
+        init_db()
+        logger.info("Database initialized")
+        
+        # Start torrent manager update task
+        await torrent_manager.start_update_task()
+        logger.info("Torrent manager started successfully")
+        
+        # Start scheduler if enabled
+        if settings.cron_enabled:
+            await schedule_manager.start_scheduler()
+            logger.info("Scheduler enabled and started")
+        else:
+            logger.info("Scheduler is disabled")
+            
+        logger.info("Initialization complete - service ready to accept requests")
+    except Exception as e:
+        logger.critical(f"Startup failed: {e}")
+        logger.exception("Detailed error information:")
+        # In a production environment, consider gracefully shutting down the app
+        # if critical initialization fails
 
 
 @app.on_event("shutdown")
@@ -131,12 +131,40 @@ async def shutdown_event():
     """Gracefully shutdown services"""
     logger.info("Shutting down YIFY Torrent Downloader...")
     
-    # Shutdown scheduler
-    if settings.cron_enabled:
-        await schedule_manager.shutdown()
+    shutdown_tasks = []
     
-    # Shutdown torrent manager
-    await torrent_manager.shutdown()
+    # Collect tasks to run in parallel
+    if settings.cron_enabled:
+        shutdown_tasks.append(graceful_shutdown(schedule_manager.shutdown(), "scheduler"))
+    
+    # Add torrent manager shutdown
+    shutdown_tasks.append(graceful_shutdown(torrent_manager.shutdown(), "torrent manager"))
+    
+    # Run all shutdown tasks with a timeout
+    if shutdown_tasks:
+        try:
+            # Wait for all tasks to complete with a timeout
+            await asyncio.wait_for(asyncio.gather(*shutdown_tasks), timeout=10.0)
+            logger.info("All services shut down successfully")
+        except asyncio.TimeoutError:
+            logger.warning("Shutdown timed out - some services may not have cleaned up properly")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+    
+    # Final cleanup for database
+    from app.database.session import close_thread_sessions
+    close_thread_sessions()
+    
+    logger.info("Shutdown complete")
+
+async def graceful_shutdown(coro, service_name):
+    """Helper to gracefully handle shutdown of a service"""
+    try:
+        await coro
+        logger.info(f"Successfully shut down {service_name}")
+    except Exception as e:
+        logger.error(f"Error shutting down {service_name}: {e}")
+        # Don't re-raise, we want to continue shutting down other services
 
 
 @app.get("/", tags=["Status"])

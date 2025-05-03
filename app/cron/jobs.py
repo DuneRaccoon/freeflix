@@ -161,6 +161,19 @@ class ScheduleManager:
         except Exception as e:
             logger.error(f"Error updating next run for schedule {schedule_id}: {e}")
     
+    async def _execute_and_cleanup(self, schedule_id: str) -> bool:
+        """Execute a schedule and ensure cleanup even if errors occur"""
+        try:
+            # Execute the schedule
+            result = await self.execute_schedule(schedule_id)
+            return result
+        except Exception as e:
+            logger.error(f"Unhandled error in schedule execution {schedule_id}: {e}")
+            return False
+        finally:
+            # Always remove from currently executing set
+            self._currently_executing.discard(schedule_id)
+    
     async def execute_schedule(self, schedule_id: str) -> bool:
         """Execute a scheduled job immediately"""
         try:
@@ -170,12 +183,19 @@ class ScheduleManager:
                 logger.error(f"Schedule {schedule_id} not found")
                 return False
             
-            # Mark as running
+            # Mark as running with optimistic locking to prevent race conditions
             with get_db() as db:
-                schedule_db = db.query(DbSchedule).filter(DbSchedule.id == schedule_id).first()
-                if schedule_db:
-                    schedule_db.last_run_status = "running"
-                    db.commit()
+                schedule_db = db.query(DbSchedule).filter(
+                    DbSchedule.id == schedule_id,
+                    DbSchedule.last_run_status != "running"
+                ).first()
+                
+                if not schedule_db:
+                    logger.warning(f"Schedule {schedule_id} was already running or modified by another process")
+                    return False
+                    
+                schedule_db.last_run_status = "running"
+                db.commit()
             
             logger.info(f"Executing schedule {schedule_id}")
             
@@ -270,6 +290,9 @@ class ScheduleManager:
             self.running_task = asyncio.create_task(self._scheduler_task())
             logger.info("Started scheduler task")
     
+    # Set to keep track of schedules currently being executed
+    _currently_executing = set()
+    
     async def _scheduler_task(self):
         """Background task that checks and executes scheduled jobs"""
         logger.info("Scheduler task started")
@@ -281,19 +304,29 @@ class ScheduleManager:
                     schedules = db.query(DbSchedule).filter(
                         DbSchedule.enabled == True
                     ).all()
-                
-                now = datetime.now()
-                
-                for schedule in schedules:
-                    # Check if it's time to run the schedule and it's not already running
-                    if schedule.next_run <= now and schedule.last_run_status != "running":
-                        logger.info(f"Schedule {schedule.id} is due to run")
-                        
-                        # Execute in a separate task to avoid blocking
-                        asyncio.create_task(self.execute_schedule(schedule.id))
-                        
-                        # Add a small delay to avoid overloading
-                        await asyncio.sleep(2)
+                    
+                    # Use UTC time for consistent comparison
+                    now = datetime.now()
+                    
+                    for schedule in schedules:
+                        # Check if it's time to run the schedule, not already running in DB,
+                        # and not currently being executed by another task
+                        if (schedule.next_run <= now and 
+                            schedule.last_run_status != "running" and
+                            schedule.id not in self._currently_executing):
+                            
+                            logger.info(f"Schedule {schedule.id} is due to run")
+                            
+                            # Mark as being executed to prevent race conditions
+                            self._currently_executing.add(schedule.id)
+                            
+                            # Execute in a separate task to avoid blocking
+                            task = asyncio.create_task(
+                                self._execute_and_cleanup(schedule.id)
+                            )
+                            
+                            # Add a small delay to avoid overloading
+                            await asyncio.sleep(2)
                 
                 # Sleep for a while before checking again
                 await asyncio.sleep(30)  # Check every 30 seconds

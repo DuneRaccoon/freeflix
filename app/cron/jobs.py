@@ -174,13 +174,36 @@ class ScheduleManager:
             # Always remove from currently executing set
             self._currently_executing.discard(schedule_id)
     
+    async def _execute_and_cleanup(self, schedule_id: str) -> bool:
+        """Execute a schedule and ensure cleanup even if errors occur"""
+        try:
+            # Execute the schedule
+            result = await self.execute_schedule(schedule_id)
+            return result
+        except Exception as e:
+            logger.error(f"Unhandled error in schedule execution {schedule_id}: {e}")
+            logger.exception("Exception details:")
+            return False
+        finally:
+            # Always remove from currently executing set
+            self._currently_executing.discard(schedule_id)
+
     async def execute_schedule(self, schedule_id: str) -> bool:
         """Execute a scheduled job immediately"""
+        # Prevent concurrent execution of the same schedule
+        if schedule_id in self._currently_executing:
+            logger.warning(f"Schedule {schedule_id} is already being executed")
+            return False
+            
+        # Add to currently executing set
+        self._currently_executing.add(schedule_id)
+        
         try:
             # Get the schedule
             schedule = self.get_schedule(schedule_id)
             if not schedule:
                 logger.error(f"Schedule {schedule_id} not found")
+                self._currently_executing.discard(schedule_id)
                 return False
             
             # Mark as running with optimistic locking to prevent race conditions
@@ -192,6 +215,7 @@ class ScheduleManager:
                 
                 if not schedule_db:
                     logger.warning(f"Schedule {schedule_id} was already running or modified by another process")
+                    self._currently_executing.discard(schedule_id)
                     return False
                     
                 schedule_db.last_run_status = "running"
@@ -292,6 +316,7 @@ class ScheduleManager:
     
     # Set to keep track of schedules currently being executed
     _currently_executing = set()
+    _active_tasks = set()  # Keep track of active tasks for proper cleanup
     
     async def _scheduler_task(self):
         """Background task that checks and executes scheduled jobs"""
@@ -307,6 +332,9 @@ class ScheduleManager:
                     
                     # Use UTC time for consistent comparison
                     now = datetime.now()
+                    
+                    # Clean up completed tasks
+                    self._active_tasks = {task for task in self._active_tasks if not task.done()}
                     
                     for schedule in schedules:
                         # Check if it's time to run the schedule, not already running in DB,
@@ -324,6 +352,8 @@ class ScheduleManager:
                             task = asyncio.create_task(
                                 self._execute_and_cleanup(schedule.id)
                             )
+                            # Keep track of the task
+                            self._active_tasks.add(task)
                             
                             # Add a small delay to avoid overloading
                             await asyncio.sleep(2)
@@ -333,21 +363,75 @@ class ScheduleManager:
                 
             except asyncio.CancelledError:
                 logger.info("Scheduler task cancelled")
+                # Clean up any open sessions before exiting
+                from app.database.session import close_thread_sessions
+                close_thread_sessions()
                 break
             except Exception as e:
                 logger.error(f"Error in scheduler task: {e}")
+                logger.exception("Exception details:")
                 await asyncio.sleep(60)  # Longer sleep on error
     
     async def shutdown(self):
         """Gracefully shut down the scheduler"""
         logger.info("Shutting down scheduler...")
         
+        # Cancel the main scheduler task
         if self.running_task and not self.running_task.done():
             self.running_task.cancel()
             try:
                 await self.running_task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                logger.error(f"Error cancelling scheduler task: {e}")
+        
+        # Cancel any active schedule tasks
+        active_tasks = list(self._active_tasks)
+        if active_tasks:
+            logger.info(f"Cancelling {len(active_tasks)} active schedule tasks")
+            for task in active_tasks:
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for all tasks to complete or be cancelled
+            if active_tasks:
+                try:
+                    await asyncio.gather(*active_tasks, return_exceptions=True)
+                except Exception as e:
+                    logger.error(f"Error waiting for tasks to cancel: {e}")
+        
+        # Update any running schedules to be paused
+        try:
+            with get_db() as db:
+                running_schedules = db.query(DbSchedule).filter(
+                    DbSchedule.last_run_status == "running"
+                ).all()
+                
+                for schedule in running_schedules:
+                    schedule.last_run_status = "interrupted"
+                    # Log interruption
+                    log_entry = DbScheduleLog(
+                        schedule_id=schedule.id,
+                        execution_time=datetime.now(),
+                        status="interrupted",
+                        message="Execution interrupted by application shutdown"
+                    )
+                    db.add(log_entry)
+                
+                db.commit()
+        except Exception as e:
+            logger.error(f"Error updating running schedules: {e}")
+        
+        # Clear tracking sets
+        self._currently_executing.clear()
+        self._active_tasks.clear()
+        
+        # Make sure to close any open database sessions
+        from app.database.session import close_thread_sessions
+        close_thread_sessions()
+        
+        logger.info("Scheduler shutdown complete")
 
 
 # Create a singleton instance

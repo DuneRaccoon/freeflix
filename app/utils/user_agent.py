@@ -5,7 +5,11 @@ def generate_user_agent(
   browser: Optional[Union[str, List[str]]] = None,
   os: Optional[Union[str, List[str]]] = None,
   device_type: Optional[Union[str, List[str]]] = None,
+  random_seed: Optional[int] = None,
 ) -> str:
+  # Set random seed if provided for reproducible user agents
+  if random_seed is not None:
+    random.seed(random_seed)
   """
   Generate a random User-Agent string.
   
@@ -157,7 +161,8 @@ def get_random_user_agent() -> str:
   Returns:
     A randomly generated User-Agent string.
   """
-  return generate_user_agent()
+  # Fix: Use a more popular browser for stability in web scraping
+  return generate_user_agent(browser=["chrome", "firefox"])
 
 
 def get_desktop_user_agent() -> str:

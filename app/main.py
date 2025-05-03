@@ -108,13 +108,23 @@ async def startup_event():
         logger.info("Database initialized")
         
         # Start torrent manager update task
-        await torrent_manager.start_update_task()
-        logger.info("Torrent manager started successfully")
+        try:
+            await torrent_manager.start_update_task()
+            logger.info("Torrent manager started successfully")
+        except Exception as torrent_error:
+            logger.critical(f"Failed to start torrent manager: {torrent_error}")
+            logger.exception("Torrent manager startup error:")
+            # Continue with other services - we might still be able to function
         
         # Start scheduler if enabled
         if settings.cron_enabled:
-            await schedule_manager.start_scheduler()
-            logger.info("Scheduler enabled and started")
+            try:
+                await schedule_manager.start_scheduler()
+                logger.info("Scheduler enabled and started")
+            except Exception as scheduler_error:
+                logger.critical(f"Failed to start scheduler: {scheduler_error}")
+                logger.exception("Scheduler startup error:")
+                # Continue - the application can still function without the scheduler
         else:
             logger.info("Scheduler is disabled")
             
@@ -131,29 +141,50 @@ async def shutdown_event():
     """Gracefully shutdown services"""
     logger.info("Shutting down YIFY Torrent Downloader...")
     
-    shutdown_tasks = []
+    # Create a list to track services that failed to shut down
+    failed_services = []
     
-    # Collect tasks to run in parallel
+    # First shut down the scheduler (if enabled)
     if settings.cron_enabled:
-        shutdown_tasks.append(graceful_shutdown(schedule_manager.shutdown(), "scheduler"))
-    
-    # Add torrent manager shutdown
-    shutdown_tasks.append(graceful_shutdown(torrent_manager.shutdown(), "torrent manager"))
-    
-    # Run all shutdown tasks with a timeout
-    if shutdown_tasks:
         try:
-            # Wait for all tasks to complete with a timeout
-            await asyncio.wait_for(asyncio.gather(*shutdown_tasks), timeout=10.0)
-            logger.info("All services shut down successfully")
+            logger.info("Shutting down scheduler...")
+            await asyncio.wait_for(schedule_manager.shutdown(), timeout=5.0)
+            logger.info("Scheduler shut down successfully")
         except asyncio.TimeoutError:
-            logger.warning("Shutdown timed out - some services may not have cleaned up properly")
+            logger.warning("Scheduler shutdown timed out")
+            failed_services.append("scheduler")
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
+            logger.error(f"Error shutting down scheduler: {e}")
+            logger.exception("Scheduler shutdown error details:")
+            failed_services.append("scheduler")
     
-    # Final cleanup for database
-    from app.database.session import close_thread_sessions
-    close_thread_sessions()
+    # Then shut down the torrent manager
+    try:
+        logger.info("Shutting down torrent manager...")
+        await asyncio.wait_for(torrent_manager.shutdown(), timeout=10.0)
+        logger.info("Torrent manager shut down successfully")
+    except asyncio.TimeoutError:
+        logger.warning("Torrent manager shutdown timed out")
+        failed_services.append("torrent manager")
+    except Exception as e:
+        logger.error(f"Error shutting down torrent manager: {e}")
+        logger.exception("Torrent manager shutdown error details:")
+        failed_services.append("torrent manager")
+    
+    # Final cleanup for database - do this even if other services failed
+    try:
+        logger.info("Closing remaining database sessions...")
+        from app.database.session import close_thread_sessions
+        close_thread_sessions()
+        logger.info("Database sessions closed")
+    except Exception as db_error:
+        logger.error(f"Error closing database sessions: {db_error}")
+        failed_services.append("database")
+    
+    if failed_services:
+        logger.warning(f"The following services may not have shut down properly: {', '.join(failed_services)}")
+    else:
+        logger.info("All services shut down successfully")
     
     logger.info("Shutdown complete")
 

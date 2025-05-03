@@ -15,9 +15,35 @@ from app.config import settings
 settings.db_path.parent.mkdir(parents=True, exist_ok=True)
 
 # Create SQLAlchemy engine based on environment
-if settings.postgres_host and settings.postgres_dsn:
-    logger.info(f"Using PostgreSQL database at {settings.postgres_dsn}")
-    engine = create_engine(str(settings.postgres_dsn), pool_pre_ping=True)
+if settings.postgres_host and settings.postgres_user:
+    try:
+        # Build connection string for PostgreSQL without asyncpg
+        if settings.postgres_dsn:
+            # Ensure we're not using asyncpg
+            connection_string = str(settings.postgres_dsn)
+            if 'asyncpg' in connection_string:
+                connection_string = connection_string.replace('postgresql+asyncpg', 'postgresql')
+        else:
+            # Manually build connection string
+            db_name = settings.postgres_db or 'postgres'
+            port = settings.postgres_port or 5432
+            connection_string = f"postgresql://{settings.postgres_user}"
+            if settings.postgres_password:
+                connection_string += f":{settings.postgres_password}"
+            connection_string += f"@{settings.postgres_host}:{port}/{db_name}"
+        
+        logger.info(f"Using PostgreSQL database at {connection_string.split('@')[0]}@********")
+        engine = create_engine(connection_string, pool_pre_ping=True, pool_size=10, max_overflow=5)
+    except Exception as e:
+        logger.error(f"Failed to connect to PostgreSQL: {e}")
+        # Fall back to SQLite
+        logger.warning("Falling back to SQLite database")
+        SQLALCHEMY_DATABASE_URL = f"sqlite:///{settings.db_path}"
+        engine = create_engine(
+            SQLALCHEMY_DATABASE_URL,
+            connect_args={"check_same_thread": False},  # Needed for SQLite
+            pool_pre_ping=True
+        )
 else:
     # SQLite connection for local development
     SQLALCHEMY_DATABASE_URL = f"sqlite:///{settings.db_path}"
@@ -98,7 +124,7 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created")
 
-# Decorator for safely handling database sessions in async functions
+# Decorator for safely handling database operations in async functions
 def safe_db_operation(func):
     """Decorator to safely handle database operations in async functions"""
     @functools.wraps(func)

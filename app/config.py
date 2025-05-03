@@ -62,15 +62,17 @@ class Settings(BaseSettings):
         if v is None:
             try:
                 port = info.data.get('postgres_port')
+                print(info)
                 return PostgresDsn.build(
-                    scheme="postgresql+asyncpg",
+                    scheme="postgresql",  # Use standard postgresql scheme without asyncpg
                     username=info.data.get('postgres_user'),
                     password=info.data.get('postgres_password'),
                     host=info.data.get('postgres_host'),
-                    port=int(port),
-                    path=info.data.get('postgres_db')
+                    port=int(port) if port else None,
+                    path=info.data.get('postgres_db') or ''
                 )
-            except:
+            except Exception as e:
+                print(f"Error building PostgreSQL DSN: {e}")
                 return v
         return v
     

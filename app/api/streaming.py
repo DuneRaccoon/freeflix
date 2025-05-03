@@ -341,7 +341,8 @@ async def get_recent_streaming_progress(
         
         # Get recent progress entries
         progress_entries = UserStreamingProgress.get_recent_for_user(session, user_id, limit)
-        return StreamingProgressResponse(**progress_entries.to_dict())
+        # Fix: Handle the list of entries correctly
+        return [StreamingProgressResponse(**entry.to_dict()) for entry in progress_entries]
 
 @router.delete("/progress/{user_id}/{progress_id}")
 async def delete_streaming_progress(

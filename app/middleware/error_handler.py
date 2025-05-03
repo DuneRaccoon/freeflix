@@ -46,12 +46,22 @@ async def error_handling_middleware(
         logger.error(f"Error details: {str(e)}")
         logger.error(traceback.format_exc())
         
-        # Close any open database sessions
+        # Make sure to properly close all database sessions
         try:
             from app.database.session import close_thread_sessions
             close_thread_sessions()
-        except:
-            pass
+        except Exception as session_error:
+            logger.error(f"Error closing database sessions: {session_error}")
+        
+        # Clean up any torrent-related resources if possible
+        try:
+            # Only attempt cleanup if this is a torrent-related endpoint
+            if '/torrents/' in request.url.path:
+                from app.torrent.manager import torrent_manager
+                # Just log any active torrents for debugging
+                logger.info(f"Active torrents during error: {list(torrent_manager.active_torrents.keys())}")
+        except Exception as resource_error:
+            logger.error(f"Error cleaning up resources: {resource_error}")
         
         # Return a JSON error response
         return JSONResponse(

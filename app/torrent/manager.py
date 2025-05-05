@@ -162,10 +162,10 @@ class TorrentManager:
     async def _update_torrents_status(self):
         """Background task to update the status of all active torrents"""
         while True:
+            
+            self._refresh_active_torrents()
+            
             try:
-                # Refresh the list of active torrents to match database
-                self._refresh_active_torrents()
-                
                 # Process libtorrent alerts
                 alerts = self.session.pop_alerts()
                 for alert in alerts:
@@ -184,8 +184,6 @@ class TorrentManager:
                             torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                             if not torrent:
                                 logger.warning(f"Torrent {torrent_id} not found in database, but exists in active_torrents")
-                                # Remove from active torrents to avoid processing it again
-                                self.active_torrents.pop(torrent_id, None)
                                 continue
                             
                             # Update basic state and progress
@@ -197,8 +195,6 @@ class TorrentManager:
                             updated_metadata.update({
                                 'download_rate': status.download_rate / 1000,  # B/s to kB/s
                                 'upload_rate': status.upload_rate / 1000,  # B/s to kB/s
-                                'total_downloaded': status.total_downloaded,
-                                'total_uploaded': status.total_uploaded,
                                 'num_peers': status.num_peers
                             })
                             
@@ -213,11 +209,10 @@ class TorrentManager:
                             torrent.meta_data = updated_metadata
                             db.commit()
                             
-                            # Periodic logging - only log every 30 seconds to avoid database bloat
+                            # Periodic logging
                             current_time = time.time()
-                            if not hasattr(self, '_last_logged'):
-                                self._last_logged = {}
-                            if torrent_id not in self._last_logged:
+                            if torrent_id not in getattr(self, '_last_logged', {}):
+                                self._last_logged = getattr(self, '_last_logged', {})
                                 self._last_logged[torrent_id] = 0
                             
                             if current_time - self._last_logged.get(torrent_id, 0) > 30:  # Log every 30 seconds
@@ -256,8 +251,8 @@ class TorrentManager:
                                     
                                 self._last_logged[torrent_id] = current_time
                             
-                            # Check for completed downloads
-                            if status.state == lt.torrent_status.finished and torrent.state != 'finished':
+                            # Check for completed downloads in its own session
+                            if status.state == lt.torrent_status.finished:
                                 logger.info(f"Torrent {torrent_id} finished downloading")
                                 torrent.state = 'finished'
                                 # Log completion
@@ -273,11 +268,9 @@ class TorrentManager:
                     
                     except Exception as e:
                         logger.error(f"Error updating status for torrent {torrent_id}: {e}")
-                        logger.exception("Exception details:")
-                        
                         # Handle error in a separate session
-                        try:
-                            with get_db() as error_db:
+                        with get_db() as error_db:
+                            try:
                                 error_torrent = error_db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                                 if error_torrent:
                                     error_torrent.state = 'error'
@@ -291,8 +284,8 @@ class TorrentManager:
                                     )
                                     error_db.add(error_log)
                                     error_db.commit()
-                        except Exception as inner_e:
-                            logger.error(f"Failed to update error state for torrent {torrent_id}: {inner_e}")
+                            except Exception as inner_e:
+                                logger.error(f"Failed to update error state for torrent {torrent_id}: {inner_e}")
                         
                         # Remove from active torrents
                         self.active_torrents.pop(torrent_id, None)
@@ -302,13 +295,9 @@ class TorrentManager:
             
             except asyncio.CancelledError:
                 logger.info("Torrent status update task cancelled")
-                # Make sure to clean up before exiting
-                from app.database.session import close_thread_sessions
-                close_thread_sessions()
                 break
             except Exception as e:
                 logger.error(f"Error in torrent status update task: {e}")
-                logger.exception("Exception details:")
                 await asyncio.sleep(5)  # Longer sleep on error
                 
     def _get_fresh_torrent(self, db: Session, torrent_id: str) -> Optional[DbTorrent]:
@@ -337,7 +326,7 @@ class TorrentManager:
         """
         try:
             with get_db() as db:
-                # Get all active torrent IDs from the database - exclude finished, errors, and stopped torrents
+                # Get all active torrent IDs from the database
                 active_ids = set(
                     row[0] for row in db.query(DbTorrent.id).filter(
                         ~DbTorrent.state.in_(['error', 'finished', 'stopped'])
@@ -348,18 +337,9 @@ class TorrentManager:
                 for torrent_id in list(self.active_torrents.keys()):
                     if torrent_id not in active_ids:
                         logger.info(f"Removing torrent {torrent_id} from active_torrents as it's no longer active in the database")
-                        try:
-                            # Properly clean up resources by removing from session if needed
-                            handle, _ = self.active_torrents[torrent_id]
-                            self.session.remove_torrent(handle)
-                        except Exception as cleanup_error:
-                            logger.error(f"Error cleaning up torrent {torrent_id}: {cleanup_error}")
-                        finally:
-                            # Always remove from active_torrents
-                            self.active_torrents.pop(torrent_id, None)
+                        self.active_torrents.pop(torrent_id, None)
         except Exception as e:
             logger.error(f"Error refreshing active torrents: {e}")
-            logger.exception("Exception details:")
 
 
     def _handle_alert(self, alert):
@@ -655,18 +635,89 @@ class TorrentManager:
     def get_torrent_status(self, torrent_id: str) -> Optional[TorrentStatus]:
         """Get the current status of a torrent"""
         try:
+            # Use a dedicated session
             with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                 if not torrent:
                     return None
                 
-                # Use model's to_status method to get base status
-                status = torrent.to_status()
+                # Build status object
+                status = TorrentStatus(
+                    id=torrent.id,
+                    movie_title=torrent.movie_title,
+                    quality=torrent.quality,
+                    state=TorrentState(torrent.state),
+                    magnet=torrent.magnet,
+                    progress=torrent.progress,
+                    download_rate=torrent.meta_data.get('download_rate', 0.0) if torrent.meta_data else 0.0,
+                    upload_rate=torrent.meta_data.get('upload_rate', 0.0) if torrent.meta_data else 0.0,
+                    total_downloaded=torrent.meta_data.get('total_downloaded', 0) if torrent.meta_data else 0,
+                    total_uploaded=torrent.meta_data.get('total_uploaded', 0) if torrent.meta_data else 0,
+                    num_peers=torrent.meta_data.get('num_peers', 0) if torrent.meta_data else 0,
+                    save_path=torrent.save_path,
+                    created_at=torrent.created_at,
+                    updated_at=torrent.updated_at,
+                    eta=torrent.meta_data.get('eta') if torrent.meta_data else None,
+                    error_message=torrent.error_message
+                )
                 
                 # Update with real-time information if the torrent is active
                 if torrent_id in self.active_torrents:
                     handle, _ = self.active_torrents[torrent_id]
-                    try:
+                    lt_status = handle.status()
+                    
+                    # Update real-time fields
+                    status.download_rate = lt_status.download_rate / 1000  # B/s to kB/s
+                    status.upload_rate = lt_status.upload_rate / 1000  # B/s to kB/s
+                    status.num_peers = lt_status.num_peers
+                    
+                    # Calculate ETA if downloading
+                    if status.state == TorrentState.DOWNLOADING and lt_status.download_rate > 0:
+                        total_size = lt_status.total_wanted
+                        downloaded = lt_status.total_wanted_done
+                        remaining = total_size - downloaded
+                        status.eta = int(remaining / lt_status.download_rate)
+                
+                return status
+        except Exception as e:
+            logger.error(f"Error getting status for torrent {torrent_id}: {e}")
+            return None
+
+    # Improved get_all_torrents method
+    def get_all_torrents(self) -> List[TorrentStatus]:
+        """Get the status of all torrents"""
+        try:
+            results = []
+            
+            # Use a dedicated session
+            with get_db() as db:
+                # Get all torrents from the database
+                torrents = db.query(DbTorrent).all()
+                
+                for torrent in torrents:
+                    # Build status object
+                    status = TorrentStatus(
+                        id=torrent.id,
+                        movie_title=torrent.movie_title,
+                        quality=torrent.quality,
+                        state=TorrentState(torrent.state),
+                        magnet=torrent.magnet,
+                        progress=torrent.progress,
+                        download_rate=torrent.meta_data.get('download_rate', 0.0) if torrent.meta_data else 0.0,
+                        upload_rate=torrent.meta_data.get('upload_rate', 0.0) if torrent.meta_data else 0.0,
+                        total_downloaded=torrent.meta_data.get('total_downloaded', 0) if torrent.meta_data else 0,
+                        total_uploaded=torrent.meta_data.get('total_uploaded', 0) if torrent.meta_data else 0,
+                        num_peers=torrent.meta_data.get('num_peers', 0) if torrent.meta_data else 0,
+                        save_path=torrent.save_path,
+                        created_at=torrent.created_at,
+                        updated_at=torrent.updated_at,
+                        eta=torrent.meta_data.get('eta') if torrent.meta_data else None,
+                        error_message=torrent.error_message
+                    )
+                    
+                    # Update with real-time information if the torrent is active
+                    if torrent.id in self.active_torrents:
+                        handle, _ = self.active_torrents[torrent.id]
                         lt_status = handle.status()
                         
                         # Update real-time fields
@@ -680,34 +731,10 @@ class TorrentManager:
                             downloaded = lt_status.total_wanted_done
                             remaining = total_size - downloaded
                             status.eta = int(remaining / lt_status.download_rate)
-                    except Exception as handle_error:
-                        logger.warning(f"Error getting handle status for torrent {torrent_id}: {handle_error}")
-                        # Continue with database status if handle access fails
+                    
+                    results.append(status)
                 
-                return status
-        except Exception as e:
-            logger.error(f"Error getting status for torrent {torrent_id}: {e}")
-            return None
-
-    # Improved get_all_torrents method
-    def get_all_torrents(self) -> List[TorrentStatus]:
-        """Get the status of all torrents"""
-        try:
-            with get_db() as db:
-                torrents = DbTorrent.get_all(db)
-                results = []
-                
-                for torrent in torrents:
-                    # Use the existing get_torrent_status method to avoid code duplication
-                    # This is more efficient than recreating the logic here
-                    status = self.get_torrent_status(torrent.id)
-                    if status:
-                        results.append(status)
-                    else:
-                        # Fallback to basic status if detailed status retrieval fails
-                        results.append(torrent.to_status())
-                
-                return results
+            return results
         except Exception as e:
             logger.error(f"Error getting all torrents: {e}")
             return []
@@ -868,24 +895,86 @@ class TorrentManager:
             logger.error(f"Error removing torrent {torrent_id}: {e}")
             return False
     
-    # This section is removed as it's a duplicate of the methods above
+    def get_torrent_status(self, torrent_id: str) -> Optional[TorrentStatus]:
+        """Get the current status of a torrent"""
+        try:
+            with get_db() as db:
+                torrent = DbTorrent.get_by_id(db, torrent_id)
+                if not torrent:
+                    return None
+                
+                # Use model's to_status method to get base status
+                status = torrent.to_status()
+                
+                # Update with real-time information if the torrent is active
+                if torrent_id in self.active_torrents:
+                    handle, _ = self.active_torrents[torrent_id]
+                    lt_status = handle.status()
+                    
+                    # Update real-time fields
+                    status.download_rate = lt_status.download_rate / 1000  # B/s to kB/s
+                    status.upload_rate = lt_status.upload_rate / 1000  # B/s to kB/s
+                    status.num_peers = lt_status.num_peers
+                    
+                    # Calculate ETA if downloading
+                    if status.state == TorrentState.DOWNLOADING and lt_status.download_rate > 0:
+                        total_size = lt_status.total_wanted
+                        downloaded = lt_status.total_wanted_done
+                        remaining = total_size - downloaded
+                        status.eta = int(remaining / lt_status.download_rate)
+                
+                return status
+        except Exception as e:
+            logger.error(f"Error getting status for torrent {torrent_id}: {e}")
+            return None
+    
+    def get_all_torrents(self) -> List[TorrentStatus]:
+        """Get the status of all torrents"""
+        try:
+            with get_db() as db:
+                torrents = DbTorrent.get_all(db)
+                
+                results = []
+                for torrent in torrents:
+                    # Use model's to_status method 
+                    status = torrent.to_status()
+                    
+                    # Update with real-time information if the torrent is active
+                    if torrent.id in self.active_torrents:
+                        handle, _ = self.active_torrents[torrent.id]
+                        lt_status = handle.status()
+                        
+                        # Update real-time fields
+                        status.download_rate = lt_status.download_rate / 1000  # B/s to kB/s
+                        status.upload_rate = lt_status.upload_rate / 1000  # B/s to kB/s
+                        status.num_peers = lt_status.num_peers
+                        
+                        # Calculate ETA if downloading
+                        if status.state == TorrentState.DOWNLOADING and lt_status.download_rate > 0:
+                            total_size = lt_status.total_wanted
+                            downloaded = lt_status.total_wanted_done
+                            remaining = total_size - downloaded
+                            status.eta = int(remaining / lt_status.download_rate)
+                    
+                    results.append(status)
+                
+                return results
+        except Exception as e:
+            logger.error(f"Error getting all torrents: {e}")
+            return []
     
     async def shutdown(self):
         """Gracefully shut down the torrent manager"""
         logger.info("Shutting down TorrentManager...")
         
-        # Cancel update task first
         if self.update_task and not self.update_task.done():
             self.update_task.cancel()
             try:
                 await self.update_task
             except asyncio.CancelledError:
                 pass
-            except Exception as e:
-                logger.error(f"Error cancelling update task: {e}")
         
         # Save all torrent states
-        shutdown_errors = []
         for torrent_id, (handle, _) in list(self.active_torrents.items()):
             try:
                 # Request resume data
@@ -905,33 +994,14 @@ class TorrentManager:
                         )
             except Exception as e:
                 logger.error(f"Error saving resume data for torrent {torrent_id}: {e}")
-                shutdown_errors.append((torrent_id, str(e)))
         
         # Give a moment for resume data alerts to be processed
-        try:
-            await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            # Even if cancelled, continue with cleanup
-            pass
+        time.sleep(1)
         
         # Process any remaining alerts
-        try:
-            alerts = self.session.pop_alerts()
-            for alert in alerts:
-                self._handle_alert(alert)
-        except Exception as e:
-            logger.error(f"Error processing final alerts: {e}")
-            
-        # Clear active torrents dictionary
-        self.active_torrents.clear()
-        
-        # Make sure all database sessions are closed
-        from app.database.session import close_thread_sessions
-        close_thread_sessions()
-        
-        logger.info("TorrentManager shutdown complete")
-        if shutdown_errors:
-            logger.warning(f"Encountered {len(shutdown_errors)} errors during shutdown")
+        alerts = self.session.pop_alerts()
+        for alert in alerts:
+            self._handle_alert(alert)
 
     def _is_video_file(self, file_path: str) -> bool:
         """Check if a file is a video based on its extension"""

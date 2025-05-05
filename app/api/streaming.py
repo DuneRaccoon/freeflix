@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from typing import Optional
 from pathlib import Path as PathLib
+import datetime
 import os
 import stat
 import mimetypes
@@ -209,7 +210,7 @@ async def create_streaming_progress(
             existing_progress.duration = progress.duration
             existing_progress.percentage = progress.percentage
             existing_progress.completed = progress.completed
-            existing_progress.last_watched_at = session.func.now()
+            existing_progress.last_watched_at = datetime.datetime.now()
             
             session.commit()
             session.refresh(existing_progress)
@@ -265,11 +266,11 @@ async def update_streaming_progress(
         progress_entry.duration = progress_update.duration
         progress_entry.percentage = progress_update.percentage
         progress_entry.completed = progress_update.completed
-        progress_entry.last_watched_at = session.func.now()
+        progress_entry.last_watched_at = datetime.datetime.now()
         
         session.commit()
         session.refresh(progress_entry)
-        return StreamingProgressUpdate(**progress_entry.to_dict())
+        return StreamingProgressResponse(**progress_entry.to_dict())
 
 @router.get("/progress/{user_id}/{torrent_id}", response_model=Optional[StreamingProgressResponse])
 async def get_streaming_progress(

@@ -309,8 +309,8 @@ class MovieCache(Model):
     def update_extended_data(cls, db: Session, movie_id: str, extended_data: Dict[str, Any]) -> Optional["MovieCache"]:
         """Update a movie with extended data from external sources."""
         try:
-            # Use get_by_id from our CRUDMixin for consistent data access
-            movie = cls.get_by_id(db, movie_id)
+            # Direct query instead of using get_by_id to avoid nested session contexts
+            movie = db.query(cls).filter(cls.id == movie_id).first()
             if not movie:
                 return None
                 
@@ -330,6 +330,7 @@ class MovieCache(Model):
             
             # Always use UTC for consistency
             movie.extended_data_fetched_at = datetime.datetime.now(datetime.timezone.utc)
+            
             db.commit()
             db.refresh(movie)
             return movie

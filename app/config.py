@@ -11,9 +11,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    class Config:
-        env_file = ".env"
-        env_file_encoding = 'utf-8'
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8"
+    }
     
     # API settings
     api_v1_str: str = "/api/v1"

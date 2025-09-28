@@ -104,7 +104,6 @@ class SearchParams(BaseModel):
 
 class Torrent(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -116,7 +115,6 @@ class Torrent(BaseModel):
 
 class Movie(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -171,7 +169,6 @@ class RelatedMovie(BaseModel):
 
 class DetailedMovie(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -203,7 +200,6 @@ class DetailedMovie(BaseModel):
 
 class TorrentStatus(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -236,7 +232,6 @@ class TorrentAction(BaseModel):
 
 class ScheduleConfig(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -250,7 +245,6 @@ class ScheduleConfig(BaseModel):
 
 class ScheduleResponse(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -265,7 +259,6 @@ class ScheduleResponse(BaseModel):
 # Log models
 class TorrentLogEntry(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -281,7 +274,6 @@ class TorrentLogEntry(BaseModel):
 
 class ScheduleLogEntry(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -296,7 +288,6 @@ class ScheduleLogEntry(BaseModel):
 # Settings model
 class AppSetting(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     
@@ -360,7 +351,6 @@ class StreamingProgressUpdate(BaseModel):
 
 class StreamingProgressResponse(BaseModel):
     model_config = ConfigDict(
-        allow_mutation=True,
         from_attributes=True,
     )
     

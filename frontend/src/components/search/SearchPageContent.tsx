@@ -6,6 +6,9 @@ import { Movie, SearchParams, OrderByLiteral, GenreLiteral, QualityLiteral, Year
 import { moviesService } from '@/services/movies';
 import MovieGrid from '@/components/movies/MovieGrid';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { motion } from 'framer-motion';
+import SectionHeader from '@/components/ui/SectionHeader';
+import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -255,7 +258,19 @@ export default function SearchPageContent() {
 
   return (
     <div className="space-y-6">
-      <Card>
+      {/* Banner */}
+      <div className="relative overflow-hidden rounded-xl theater-shadow bg-card">
+        <motion.div className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <div className="absolute -top-20 -left-20 w-96 h-96 bg-primary/10 rounded-full blur-3xl" />
+          <div className="absolute -bottom-20 -right-10 w-96 h-96 bg-secondary/10 rounded-full blur-3xl" />
+        </motion.div>
+        <div className="relative p-6 md:p-8">
+          <motion.h1 className="text-2xl md:text-3xl font-bold" variants={slideUp} initial="hidden" animate="visible">Find your next favorite</motion.h1>
+          <motion.p className="text-gray-400 mt-1" variants={fadeIn} initial="hidden" animate="visible">Filter by quality, genre, rating, and year with live results.</motion.p>
+        </div>
+      </div>
+
+      <Card className="glass-card">
         <CardHeader>
           <CardTitle>Search Movies</CardTitle>
         </CardHeader>
@@ -355,26 +370,15 @@ export default function SearchPageContent() {
       </Card>
       
       <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-semibold">
-            Results
-            {movies.length > 0 && (
-              <span className="ml-2 text-sm font-normal text-gray-400">
-                ({movies.length} movies found)
-              </span>
-            )}
-          </h2>
-          
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon={<ArrowPathIcon className="h-4 w-4" />}
-            onClick={() => handleSearch()}
-            disabled={isLoading}
-          >
-            Refresh
-          </Button>
-        </div>
+        <SectionHeader 
+          title="Results"
+          subtitle={movies.length > 0 ? `(${movies.length} movies found)` : undefined}
+          right={(
+            <Button size="sm" variant="ghost" leftIcon={<ArrowPathIcon className="h-4 w-4" />} onClick={() => handleSearch()} disabled={isLoading}>
+              Refresh
+            </Button>
+          )}
+        />
         
         {error ? (
           <div className="text-center py-8 bg-gray-800/50 rounded-lg">

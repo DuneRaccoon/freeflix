@@ -14,8 +14,8 @@ import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import MovieDetailsModal from './MovieDetailsModal';
 import { handleStreamingStart } from '@/utils/streaming';
-import { motion } from 'framer-motion';
-import { hoverLiftVariants, slideUp, fadeIn } from '@/components/ui/Motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { hoverLiftVariants, slideUp, fadeIn, revealOnHover, expandIn } from '@/components/ui/Motion';
 
 interface MovieCardProps {
   movie: Movie;
@@ -119,8 +119,10 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
             <motion.div 
               className="absolute top-2 right-2 z-20"
               onClick={handleQuickViewClick}
-              initial={{ opacity: 0, y: -6 }}
-              whileHover={{ opacity: 1, y: 0 }}
+              variants={revealOnHover}
+              initial="hidden"
+              whileHover="hover"
+              animate="hidden"
             >
               <div className="bg-black/70 hover:bg-primary-600 rounded-full p-2 transition-colors duration-300">
                 <EyeIcon className="h-5 w-5 text-white" />
@@ -132,8 +134,10 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
               <motion.div 
                 className="absolute top-2 left-2 z-20"
                 onClick={handleContinueWatching}
-                initial={{ opacity: 0, y: -6 }}
-                whileHover={{ opacity: 1, y: 0 }}
+                variants={revealOnHover}
+                initial="hidden"
+                whileHover="hover"
+                animate="hidden"
               >
                 <div className="bg-primary-600 hover:bg-primary-700 rounded-full p-2 shadow-lg">
                   <PlayIcon className="h-5 w-5 text-white" />
@@ -159,7 +163,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
               priority={false}
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end pointer-events-none">
               <motion.h3 className="text-lg font-bold text-white line-clamp-2" variants={slideUp}>{movie.title}</motion.h3>
               <motion.div className="flex items-center mt-1 text-sm text-gray-300" variants={fadeIn}>
                 <span className="mr-2">{movie.year}</span>
@@ -206,9 +210,10 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
             
             <div className="mt-2">
               {expanded ? (
-                <motion.div className="grid gap-2" variants={slideUp}>
-                  {availableQualities.map(quality => (
-                    <div key={quality} className="flex gap-2">
+                <AnimatePresence mode="popLayout">
+                  <motion.div className="grid gap-2" variants={expandIn} initial="hidden" animate="visible" exit="exit">
+                    {availableQualities.map(quality => (
+                      <div key={quality} className="flex gap-2">
                       <Button 
                         size="sm" 
                         variant={quality === '1080p' ? 'primary' : quality === '2160p' ? 'secondary' : 'outline'}
@@ -233,7 +238,8 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                       </Button>
                     </div>
                   ))}
-                </motion.div>
+                  </motion.div>
+                </AnimatePresence>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   <Button 

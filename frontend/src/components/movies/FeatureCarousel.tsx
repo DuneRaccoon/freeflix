@@ -82,7 +82,7 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
   // Loading skeleton
   if (isLoading || movies.length === 0) {
     return (
-      <div className="w-full h-[400px] md:h-[500px] bg-gray-800 animate-pulse rounded-xl overflow-hidden">
+      <div className="w-full h-[50vh] md:h-[65vh] bg-gray-800 animate-pulse overflow-hidden">
         <div className="h-full w-full flex items-center justify-center">
           <div className="text-center">
             <div className="rounded-full h-12 w-12 bg-gray-700 animate-pulse mx-auto mb-4"></div>
@@ -94,7 +94,7 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
   }
 
   return (
-    <div className="w-full h-[400px] md:h-[500px] overflow-hidden rounded-xl relative theater-shadow">
+    <div className="w-full h-[50vh] md:h-[65vh] overflow-hidden relative">
       <Swiper
         modules={[Autoplay, Navigation, Pagination, EffectFade]}
         slidesPerView={1}
@@ -123,6 +123,7 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
                   priority
                 />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-transparent"></div>
+                <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-background/80 to-transparent" />
               </div>
 
               {/* Content */}

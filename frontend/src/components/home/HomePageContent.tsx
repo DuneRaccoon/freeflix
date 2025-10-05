@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Movie } from '@/types';
 import { moviesService } from '@/services/movies';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import SectionHeader from '@/components/ui/SectionHeader';
 import Button from '@/components/ui/Button';
 import Link from 'next/link';
 import {
@@ -224,43 +225,40 @@ export default function HomePageContent() {
       )}
 
       {/* Featured Movies Section */}
-      <Card>
-        <CardContent className="p-4 pb-8">
-          <MovieCarousel
-            title="Featured Movies"
-            movies={featuredMovies}
-            isLoading={isLoading}
-            viewAllLink="/search?order_by=featured"
-            viewAllLabel="View All Featured Movies"
-          />
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <SectionHeader title="Featured Movies" />
+        <MovieCarousel
+          title="Featured Movies"
+          movies={featuredMovies}
+          isLoading={isLoading}
+          viewAllLink="/search?order_by=featured"
+          viewAllLabel="View All Featured Movies"
+        />
+      </div>
 
       {/* Latest Movies Section */}
-      <Card>
-        <CardContent className="p-4 pb-8">
-          <MovieCarousel
-            title="Latest Movies"
-            movies={latestMovies}
-            isLoading={isLoading}
-            viewAllLink="/search?order_by=latest"
-            viewAllLabel="View All Latest Movies"
-          />
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <SectionHeader title="Latest Movies" />
+        <MovieCarousel
+          title="Latest Movies"
+          movies={latestMovies}
+          isLoading={isLoading}
+          viewAllLink="/search?order_by=latest"
+          viewAllLabel="View All Latest Movies"
+        />
+      </div>
 
       {/* Top Rated Movies Section */}
-      <Card>
-        <CardContent className="p-4 pb-8">
-          <MovieCarousel
-            title="Top Rated Movies"
-            movies={topRatedMovies}
-            isLoading={isLoading}
-            viewAllLink="/search?order_by=rating"
-            viewAllLabel="View All Top Rated Movies"
-          />
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <SectionHeader title="Top Rated Movies" />
+        <MovieCarousel
+          title="Top Rated Movies"
+          movies={topRatedMovies}
+          isLoading={isLoading}
+          viewAllLink="/search?order_by=rating"
+          viewAllLabel="View All Top Rated Movies"
+        />
+      </div>
 
       {/* Refresh Button for all content */}
       <div className="flex justify-center">

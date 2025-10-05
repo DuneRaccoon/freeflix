@@ -2,6 +2,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 import { useRouter } from 'next/navigation';
 import { DetailedMovie } from '@/types';
 import { torrentsService } from '@/services/torrents';
@@ -234,19 +236,20 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
           backgroundPosition: 'center top'
         }}
       >
-        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-gray-900 to-transparent">
+        <motion.div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-gray-900 to-transparent"
+          variants={staggerContainer(0.06, 0.1)} initial="hidden" animate="visible">
           <div className="container mx-auto flex items-end gap-6">
             {/* Poster thumbnail */}
-            <div className="hidden sm:block w-32 h-48 md:w-48 md:h-72 rounded-md overflow-hidden shadow-lg flex-shrink-0 border border-gray-700 transform -translate-y-6">
+            <motion.div className="hidden sm:block w-32 h-48 md:w-48 md:h-72 rounded-md overflow-hidden shadow-lg flex-shrink-0 border border-gray-700 transform -translate-y-6" variants={slideUp}>
               <img src={movie.media.poster} alt={movie.title} className="w-full h-full object-cover" />
-            </div>
+            </motion.div>
             
             {/* Title and metadata */}
             <div className="flex-1">
-              <h1 className="text-3xl md:text-5xl font-bold text-white drop-shadow-lg mb-3">
+              <motion.h1 className="text-3xl md:text-5xl font-bold text-white drop-shadow-lg mb-3" variants={slideUp}>
                 {movie.title} <span className="text-gray-300">({movie.year})</span>
-              </h1>
-              <div className="flex flex-wrap gap-2 mb-4">
+              </motion.h1>
+              <motion.div className="flex flex-wrap gap-2 mb-4" variants={fadeIn}>
                 {movie.genre.split(', ').map((genre) => (
                   <Badge key={genre} variant="secondary" size="md">
                     {genre}
@@ -258,10 +261,10 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
                     {movie.runtime}
                   </Badge>
                 )}
-              </div>
+              </motion.div>
               
               {/* Ratings bar */}
-              <div className="flex flex-wrap gap-4">
+              <motion.div className="flex flex-wrap gap-4" variants={fadeIn}>
                 {movie.ratings.imdb && (
                   <div className="flex items-center gap-1">
                     <img 
@@ -284,10 +287,10 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
                     {renderMetacritic(movie.ratings.metacritic)}
                   </div>
                 )}
-              </div>
+              </motion.div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
       
       {/* Tabs Navigation */}

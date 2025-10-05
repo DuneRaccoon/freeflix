@@ -2,45 +2,45 @@
 
 /* Base theme (dark) */
 :root {
-  --background: 222.2 84% 4.9%;
+  --background: 222 47% 5%;
   --foreground: 210 40% 98%;
   
-  --card: 222.2 84% 9.8%;
+  --card: 222 40% 10%;
   --card-foreground: 210 40% 98%;
   
-  --primary: 221.2 83.2% 53.3%;
+  --primary: 262 83% 60%;
   --primary-foreground: 210 40% 98%;
   
-  --secondary: 346.8 77.2% 49.8%;
+  --secondary: 192 90% 45%;
   --secondary-foreground: 210 40% 98%;
   
-  --accent: 261.4 72.2% 55.3%;
+  --accent: 340 82% 52%;
   --accent-foreground: 210 40% 98%;
   
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
+  --muted: 217 25% 18%;
+  --muted-foreground: 215 20% 65%;
   
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 212.7 26.8% 83.9%;
+  --border: 217 25% 18%;
+  --input: 217 25% 18%;
+  --ring: 262 83% 60%;
   
-  --radius: 0.5rem;
-  --scrollbar-track: #1e293b;
-  --scrollbar-thumb: #334155;
-  --scrollbar-thumb-hover: #475569;
+  --radius: 0.75rem;
+  --scrollbar-track: #111827;
+  --scrollbar-thumb: #1f2937;
+  --scrollbar-thumb-hover: #374151;
 
   /* Named color variables for easier usage */
-  --color-background: #0f172a;
+  --color-background: #0b1020;
   --color-foreground: #f8fafc;
-  --color-card: #1e293b;
+  --color-card: #111831;
   --color-card-foreground: #f8fafc;
-  --color-primary: #3b82f6;
+  --color-primary: #7c3aed;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #ec4899;
-  --color-secondary-foreground: #ffffff;
-  --color-muted: #334155;
+  --color-secondary: #06b6d4;
+  --color-secondary-foreground: #06202a;
+  --color-muted: #1f2a44;
   --color-muted-foreground: #94a3b8;
-  --color-border: #1e293b;
+  --color-border: #17203a;
   --color-danger: #ef4444;
   
   /* User select screen variable */
@@ -55,13 +55,13 @@
   --card: 0 0% 100%;
   --card-foreground: 222.2 84% 4.9%;
   
-  --primary: 221.2 83.2% 53.3%;
+  --primary: 262 83% 60%;
   --primary-foreground: 210 40% 98%;
   
-  --secondary: 346.8 77.2% 49.8%;
+  --secondary: 192 90% 45%;
   --secondary-foreground: 210 40% 98%;
   
-  --accent: 261.4 72.2% 55.3%;
+  --accent: 340 82% 52%;
   --accent-foreground: 210 40% 98%;
   
   --muted: 210 40% 96.1%;
@@ -69,7 +69,7 @@
   
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
-  --ring: 221.2 83.2% 53.3%;
+  --ring: 262 83% 60%;
   
   --scrollbar-track: #f1f5f9;
   --scrollbar-thumb: #cbd5e1;
@@ -80,10 +80,10 @@
   --color-foreground: #0f172a;
   --color-card: #ffffff;
   --color-card-foreground: #0f172a;
-  --color-primary: #3b82f6;
+  --color-primary: #7c3aed;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #ec4899;
-  --color-secondary-foreground: #ffffff;
+  --color-secondary: #06b6d4;
+  --color-secondary-foreground: #06202a;
   --color-muted: #f1f5f9;
   --color-muted-foreground: #64748b;
   --color-border: #e2e8f0;
@@ -92,44 +92,44 @@
 
 /* Dark theme (explicitly defined for specificity) */
 .dark {
-  --background: 222.2 84% 4.9%;
+  --background: 222 47% 5%;
   --foreground: 210 40% 98%;
   
-  --card: 222.2 84% 9.8%;
+  --card: 222 40% 10%;
   --card-foreground: 210 40% 98%;
   
-  --primary: 221.2 83.2% 53.3%;
+  --primary: 262 83% 60%;
   --primary-foreground: 210 40% 98%;
   
-  --secondary: 346.8 77.2% 49.8%;
+  --secondary: 192 90% 45%;
   --secondary-foreground: 210 40% 98%;
   
-  --accent: 261.4 72.2% 55.3%;
+  --accent: 340 82% 52%;
   --accent-foreground: 210 40% 98%;
   
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
+  --muted: 217 25% 18%;
+  --muted-foreground: 215 20% 65%;
   
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 212.7 26.8% 83.9%;
+  --border: 217 25% 18%;
+  --input: 217 25% 18%;
+  --ring: 262 83% 60%;
   
-  --scrollbar-track: #1e293b;
-  --scrollbar-thumb: #334155;
-  --scrollbar-thumb-hover: #475569;
+  --scrollbar-track: #111827;
+  --scrollbar-thumb: #1f2937;
+  --scrollbar-thumb-hover: #374151;
   
   /* Named color variables for easier usage */
-  --color-background: #0f172a;
+  --color-background: #0b1020;
   --color-foreground: #f8fafc;
-  --color-card: #1e293b;
+  --color-card: #111831;
   --color-card-foreground: #f8fafc;
-  --color-primary: #3b82f6;
+  --color-primary: #7c3aed;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #ec4899;
-  --color-secondary-foreground: #ffffff;
-  --color-muted: #334155;
+  --color-secondary: #06b6d4;
+  --color-secondary-foreground: #06202a;
+  --color-muted: #1f2a44;
   --color-muted-foreground: #94a3b8;
-  --color-border: #1e293b;
+  --color-border: #17203a;
   --color-danger: #ef4444;
 }
 
@@ -137,6 +137,30 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* App-wide gradient cinematic background utilities */
+.bg-app-gradient {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(124, 58, 237, 0.18), transparent 60%),
+    radial-gradient(1200px 600px at 110% 10%, rgba(6, 182, 212, 0.15), transparent 60%),
+    radial-gradient(800px 400px at 50% 120%, rgba(236, 72, 153, 0.08), transparent 60%),
+    linear-gradient(180deg, rgba(2, 6, 23, 0) 0%, rgba(2, 6, 23, 0.6) 35%, rgba(2, 6, 23, 1) 100%);
+}
+
+.glass-card {
+  background: color-mix(in oklab, var(--color-card) 90%, rgba(255,255,255,0.03));
+  backdrop-filter: saturate(130%) blur(8px);
+  -webkit-backdrop-filter: saturate(130%) blur(8px);
+  border: 1px solid color-mix(in oklab, var(--color-border) 70%, rgba(255,255,255,0.06));
+}
+
+.hover-lift {
+  transform: translateZ(0);
+}
+.hover-lift:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
 }
 
 /* Custom scrollbar */

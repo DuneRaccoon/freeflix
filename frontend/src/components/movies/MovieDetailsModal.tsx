@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 import { useRouter } from 'next/navigation';
-import { Dialog, DialogPanel } from '@headlessui/react';
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/react';
 import { 
   XMarkIcon, 
   StarIcon, 
@@ -282,7 +284,7 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
         <div className="fixed inset-0 bg-black/70" aria-hidden="true" />
         
         <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+          <DialogPanel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
             <div className="animate-pulse">
               <div className="h-64 bg-gray-800 w-full"></div>
               <div className="p-6">
@@ -299,7 +301,7 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
                 </div>
               </div>
             </div>
-          </Dialog.Panel>
+          </DialogPanel>
         </div>
       </Dialog>
     );
@@ -316,18 +318,18 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
         <div className="fixed inset-0 bg-black/70" aria-hidden="true" />
         
         <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-md overflow-hidden">
+          <DialogPanel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-md overflow-hidden">
             <div className="p-6">
               <div className="text-center">
                 <QuestionMarkCircleIcon className="h-16 w-16 text-red-500 mx-auto mb-4" />
-                <Dialog.Title as="h3" className="text-xl font-semibold mb-2">
+                <DialogTitle as="h3" className="text-xl font-semibold mb-2">
                   Error Loading Movie
-                </Dialog.Title>
+                </DialogTitle>
                 <p className="text-gray-400 mb-6">{error}</p>
                 <Button onClick={onClose}>Close</Button>
               </div>
             </div>
-          </Dialog.Panel>
+          </DialogPanel>
         </div>
       </Dialog>
     );
@@ -349,7 +351,7 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
       <div className="fixed inset-0 bg-black/80" aria-hidden="true" />
       
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden">
+        <DialogPanel className="mx-auto rounded-lg bg-gray-900 shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden glass-card">
           {/* Header with backdrop */}
           <div 
             className="relative h-72 w-full bg-cover bg-center"
@@ -369,19 +371,20 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
             </button>
             
             {/* Movie title and metadata */}
-            <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-gray-900 to-transparent">
+            <motion.div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-gray-900 to-transparent"
+              variants={staggerContainer(0.06, 0.1)} initial="hidden" animate="visible">
               <div className="flex items-end gap-6">
                 {/* Poster thumbnail */}
-                <div className="hidden sm:block w-32 h-48 rounded-md overflow-hidden shadow-lg flex-shrink-0 border border-gray-700 transform -translate-y-6">
+                <motion.div className="hidden sm:block w-32 h-48 rounded-md overflow-hidden shadow-lg flex-shrink-0 border border-gray-700 transform -translate-y-6" variants={slideUp}>
                   <img src={movie.media.poster} alt={movie.title} className="w-full h-full object-cover" />
-                </div>
+                </motion.div>
                 
                 {/* Title and metadata */}
                 <div className="flex-1">
-                  <h2 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg mb-2">
+                  <motion.h2 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg mb-2" variants={slideUp}>
                     {movie.title} <span className="text-gray-300">({movie.year})</span>
-                  </h2>
-                  <div className="flex flex-wrap gap-2 mb-3">
+                  </motion.h2>
+                  <motion.div className="flex flex-wrap gap-2 mb-3" variants={fadeIn}>
                     {movie.genre.split(', ').map((genre) => (
                       <Badge key={genre} variant="secondary" size="md">
                         {genre}
@@ -393,10 +396,10 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
                         {movie.runtime}
                       </Badge>
                     )}
-                  </div>
+                  </motion.div>
                   
                   {/* Ratings bar */}
-                  <div className="flex flex-wrap gap-4">
+                  <motion.div className="flex flex-wrap gap-4" variants={fadeIn}>
                     {movie.ratings.imdb && (
                       <div className="flex items-center gap-1">
                         <img 
@@ -419,10 +422,10 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
                         {renderMetacritic(movie.ratings.metacritic)}
                       </div>
                     )}
-                  </div>
+                  </motion.div>
                 </div>
               </div>
-            </div>
+            </motion.div>
           </div>
           
           {/* Tabs */}

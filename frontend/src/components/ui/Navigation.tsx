@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { twMerge } from 'tailwind-merge';
+import { motion } from 'framer-motion';
+import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 import {
   HomeIcon,
   MagnifyingGlassIcon,
@@ -41,42 +43,47 @@ const Navigation: React.FC<{
   };
 
   return (
-    <nav className="border-b border-gray-800 sticky top-0 z-10 bg-card">
+    <nav className="border-b border-gray-800/60 sticky top-0 z-20 bg-card/70 backdrop-blur-md">
       <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center h-16">
+        <motion.div 
+          className="flex justify-between items-center h-16"
+          variants={staggerContainer(0.06, 0)}
+          initial="hidden"
+          animate="visible"
+        >
           {/* Logo and Brand */}
-          <div className="flex items-center">
+          <motion.div className="flex items-center" variants={slideUp}>
             <Link href="/">
               <span className="flex items-center">
                 <span className="ml-2 text-xl font-bold">Freeflix</span>
               </span>
             </Link>
-          </div>
+          </motion.div>
 
           {/* Desktop Menu */}
-          <div className="hidden md:flex space-x-4">
+          <motion.div className="hidden md:flex space-x-2" variants={fadeIn}>
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
                 className={twMerge(
-                  'flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors',
+                  'flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover-lift',
                   isActive(item.href)
-                    ? 'bg-gray-800 text-white dark:bg-gray-700 dark:text-white'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white dark:text-gray-700 dark:hover:bg-gray-200 dark:hover:text-gray-900'
+                    ? 'bg-gray-800/70 text-white border border-gray-700'
+                    : 'text-gray-300 hover:bg-gray-700/60 hover:text-white'
                 )}
               >
                 <item.icon className="h-5 w-5 mr-1" />
                 {item.label}
               </Link>
             ))}
-          </div>
+          </motion.div>
 
           {/* User Dropdown and Theme Toggle (Desktop) */}
-          <div className="hidden md:flex items-center space-x-2">
+          <motion.div className="hidden md:flex items-center space-x-2" variants={fadeIn}>
             <ThemeToggle />
             <UserDropdown />
-          </div>
+          </motion.div>
 
           {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center space-x-3">
@@ -93,7 +100,7 @@ const Navigation: React.FC<{
               )}
             </button>
           </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* Mobile Menu */}

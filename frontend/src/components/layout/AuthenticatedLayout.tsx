@@ -40,12 +40,14 @@ const AuthenticatedLayout: React.FC<AuthenticatedLayoutProps> = ({ children }) =
   }
 
   return (
-    <>
+    <div className="min-h-screen bg-background bg-app-gradient">
       <Navigation />
-      <main className="container mx-auto py-6 px-4">
+      <main className="container mx-auto py-6 px-4 relative">
+        {/* Subtle film grain overlay */}
+        <div className="film-grain" />
         {children}
       </main>
-    </>
+    </div>
   );
 };
 

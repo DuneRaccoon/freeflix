@@ -11,6 +11,8 @@ import { torrentsService } from '@/services/torrents';
 import { handleStreamingStart } from '@/utils/streaming';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
+import { motion } from 'framer-motion';
+import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 
 // Import required Swiper styles
 import 'swiper/css';
@@ -92,7 +94,7 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
   }
 
   return (
-    <div className="w-full h-[400px] md:h-[500px] overflow-hidden rounded-xl relative">
+    <div className="w-full h-[400px] md:h-[500px] overflow-hidden rounded-xl relative theater-shadow">
       <Swiper
         modules={[Autoplay, Navigation, Pagination, EffectFade]}
         slidesPerView={1}
@@ -124,33 +126,40 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
               </div>
 
               {/* Content */}
-              <div className="relative z-10 h-full w-full flex flex-col justify-end p-8 md:p-12">
+              <motion.div 
+                className="relative z-10 h-full w-full flex flex-col justify-end p-8 md:p-12"
+                variants={staggerContainer(0.08, 0.1)}
+                initial="hidden"
+                animate="visible"
+              >
                 <div className="max-w-2xl">
-                  <div className="flex flex-wrap gap-2 mb-3">
+                  <motion.div className="flex flex-wrap gap-2 mb-3" variants={fadeIn}>
                     {movie.genre.split(', ').slice(0, 3).map((genre, idx) => (
-                      <Badge key={idx} variant="secondary" size="sm">
-                        {genre}
-                      </Badge>
+                      <motion.div key={idx} variants={slideUp}>
+                        <Badge variant="secondary" size="sm">
+                          {genre}
+                        </Badge>
+                      </motion.div>
                     ))}
-                  </div>
+                  </motion.div>
                   
-                  <h2 className="text-3xl md:text-4xl font-bold text-white mb-2">
+                  <motion.h2 className="text-3xl md:text-4xl font-bold text-white mb-2" variants={slideUp}>
                     {movie.title} <span className="text-xl md:text-2xl text-gray-300">({movie.year})</span>
-                  </h2>
+                  </motion.h2>
                   
-                  <div className="flex items-center mb-4">
+                  <motion.div className="flex items-center mb-4" variants={slideUp}>
                     <div className="flex items-center mr-4">
                       <StarIcon className="w-5 h-5 text-yellow-500 mr-1" />
                       <span className="text-white">{movie.rating}</span>
                     </div>
                     <span className="text-gray-300">{bestQuality}</span>
-                  </div>
+                  </motion.div>
                   
-                  <p className="text-gray-300 text-base mb-6 line-clamp-2 md:line-clamp-3">
+                  <motion.p className="text-gray-300 text-base mb-6 line-clamp-2 md:line-clamp-3" variants={fadeIn}>
                     {movie.description || 'No description available.'}
-                  </p>
+                  </motion.p>
                   
-                  <div className="flex flex-wrap gap-4">
+                  <motion.div className="flex flex-wrap gap-4" variants={slideUp}>
                     <Button
                       size="lg"
                       variant="primary"
@@ -176,9 +185,9 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
                         More Info
                       </Button>
                     </Link>
-                  </div>
+                  </motion.div>
                 </div>
-              </div>
+              </motion.div>
             </SwiperSlide>
           );
         })}

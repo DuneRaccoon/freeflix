@@ -6,6 +6,8 @@ import { Navigation, Pagination, Keyboard, A11y, Autoplay } from 'swiper/modules
 import MovieCard from '@/components/movies/MovieCard';
 import Button from '@/components/ui/Button';
 import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
+import { motion } from 'framer-motion';
+import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 
 import 'swiper/css';
 import 'swiper/css/navigation';
@@ -84,9 +86,15 @@ const MovieCarousel: React.FC<MovieCarouselProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">{title}</h2>
-        <div className="flex items-center space-x-2">
+      <motion.div 
+        className="flex justify-between items-center"
+        variants={staggerContainer(0.06, 0)}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, amount: 0.4 }}
+      >
+        <motion.h2 className="text-xl font-semibold" variants={slideUp}>{title}</motion.h2>
+        <motion.div className="flex items-center space-x-2" variants={fadeIn}>
           {/* Custom navigation buttons */}
           <button
             ref={navigationPrevRef}
@@ -120,8 +128,8 @@ const MovieCarousel: React.FC<MovieCarouselProps> = ({
               </Button>
             </Link>
           )}
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {isLoading && movies.length === 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">

@@ -14,6 +14,8 @@ import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import MovieDetailsModal from './MovieDetailsModal';
 import { handleStreamingStart } from '@/utils/streaming';
+import { motion } from 'framer-motion';
+import { hoverLiftVariants, slideUp, fadeIn } from '@/components/ui/Motion';
 
 interface MovieCardProps {
   movie: Movie;
@@ -105,28 +107,38 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
   return (
     <>
       <Link href={`/movies/${movieId}`} prefetch={false}>
-        <Card className="h-full flex flex-col transform transition-all duration-300 hover:scale-[1.02] hover:shadow-lg cursor-pointer group">
+        <motion.div
+          variants={hoverLiftVariants}
+          initial="initial"
+          whileHover="hover"
+          className="h-full cursor-pointer group"
+        >
+        <Card className="h-full flex flex-col glass-card transition-all duration-300 hover:shadow-xl theater-shadow">
           <div className="relative pb-[150%] overflow-hidden">
             {/* Quick view button overlay */}
-            <div 
+            <motion.div 
               className="absolute top-2 right-2 z-20"
               onClick={handleQuickViewClick}
+              initial={{ opacity: 0, y: -6 }}
+              whileHover={{ opacity: 1, y: 0 }}
             >
-              <div className="bg-black/70 hover:bg-primary-600 rounded-full p-2 transition-opacity duration-300 opacity-100">
+              <div className="bg-black/70 hover:bg-primary-600 rounded-full p-2 transition-colors duration-300">
                 <EyeIcon className="h-5 w-5 text-white" />
               </div>
-            </div>
+            </motion.div>
             
             {/* Continue watching button for movies in progress */}
             {hasProgress && !isCompleted && (
-              <div 
+              <motion.div 
                 className="absolute top-2 left-2 z-20"
                 onClick={handleContinueWatching}
+                initial={{ opacity: 0, y: -6 }}
+                whileHover={{ opacity: 1, y: 0 }}
               >
-                <div className="bg-primary-600 hover:bg-primary-700 rounded-full p-2 transition-opacity duration-300 opacity-100 shadow-lg">
+                <div className="bg-primary-600 hover:bg-primary-700 rounded-full p-2 shadow-lg">
                   <PlayIcon className="h-5 w-5 text-white" />
                 </div>
-              </div>
+              </motion.div>
             )}
             
             {/* Watched badge */}
@@ -143,56 +155,58 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
               src={movie.img}
               alt={movie.title}
               fill
-              className="object-cover rounded-t-lg"
+              className="object-cover rounded-t-lg transition-transform duration-500 group-hover:scale-105"
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
               priority={false}
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex flex-col justify-end">
-              <h3 className="text-lg font-bold text-white line-clamp-2">{movie.title}</h3>
-              <div className="flex items-center mt-1 text-sm text-gray-300">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end">
+              <motion.h3 className="text-lg font-bold text-white line-clamp-2" variants={slideUp}>{movie.title}</motion.h3>
+              <motion.div className="flex items-center mt-1 text-sm text-gray-300" variants={fadeIn}>
                 <span className="mr-2">{movie.year}</span>
                 <div className="flex items-center">
                   <StarIcon className="w-4 h-4 text-yellow-500 mr-1" />
                   <span>{movie.rating}</span>
                 </div>
-              </div>
+              </motion.div>
               
               {/* Progress bar if movie has been watched partially */}
               {hasProgress && (
-                <div className="mt-2">
+                <motion.div className="mt-2" variants={fadeIn}>
                   <WatchProgressBar 
                     progress={movieProgress.percentage} 
                     height="h-1"
                     showTooltip={false}
                   />
-                </div>
+                </motion.div>
               )}
             </div>
           </div>
           
           <CardContent className="flex-grow flex flex-col justify-between p-3">
             <div>
-              <div className="flex flex-wrap gap-1 mb-2">
+              <motion.div className="flex flex-wrap gap-1 mb-2" variants={fadeIn}>
                 {movie.genre.split(', ').map((genre, index) => (
-                  <Badge key={index} variant="secondary" size="sm">
-                    {genre}
-                  </Badge>
+                  <motion.div key={index} variants={slideUp}>
+                    <Badge variant="secondary" size="sm">
+                      {genre}
+                    </Badge>
+                  </motion.div>
                 ))}
-              </div>
+              </motion.div>
               
               {expanded && (
-                <div className="text-sm text-gray-400 mb-4 animate-slide-up">
+                <motion.div className="text-sm text-gray-400 mb-4" variants={slideUp}>
                   <p className="text-xs mb-2">Available in: {availableQualities.join(', ')}</p>
                   <p className="text-xs">
                     Size: {movie.torrents.find(t => t.quality === '1080p')?.sizes[0] || 'N/A'}
                   </p>
-                </div>
+                </motion.div>
               )}
             </div>
             
             <div className="mt-2">
               {expanded ? (
-                <div className="grid gap-2 animate-slide-up">
+                <motion.div className="grid gap-2" variants={slideUp}>
                   {availableQualities.map(quality => (
                     <div key={quality} className="flex gap-2">
                       <Button 
@@ -219,7 +233,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                       </Button>
                     </div>
                   ))}
-                </div>
+                </motion.div>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   <Button 
@@ -250,6 +264,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
             </div>
           </CardContent>
         </Card>
+        </motion.div>
       </Link>
       
       {/* Movie Details Modal */}

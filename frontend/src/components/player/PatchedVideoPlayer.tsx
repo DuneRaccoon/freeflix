@@ -335,9 +335,9 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   
   // Ready for streaming
   return (
-    <div className="h-screen flex flex-col bg-black">
+    <div className="h-full flex flex-col bg-black relative">
       {/* Player Area */}
-      <div className="flex-grow relative overflow-hidden">
+      <div className="flex-grow relative overflow-hidden z-[100]">
         {streamingUrl ? (
           <VideoPlayer 
             src={streamingUrl}
@@ -345,6 +345,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             movieTitle={movieTitle}
             subtitle={subtitle}
             autoPlay={!showResumePrompt}
+            debug
             onProgress={handleProgress}
             onEnded={handleEnded}
             onError={handleVideoError}
@@ -359,36 +360,36 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             </div>
           </div>
         )}
-      </div>
 
-      {/* Resume Playback Prompt */}
-      {showResumePrompt && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-80 z-50">
-          <div className="bg-card rounded-lg shadow-xl p-6 m-4 max-w-sm mx-auto text-center">
-            <h3 className="text-xl font-bold text-foreground mb-2">Resume Playback</h3>
-            <p className="text-muted-foreground mb-6">
-              Would you like to resume watching from where you left off? 
-              ({Math.floor(resumeTime / 60)}m {Math.floor(resumeTime % 60)}s)
-            </p>
-            <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-3">
-              <Button
-                variant="outline"
-                onClick={handleStartFromBeginning}
-                leftIcon={<PlayIcon className="w-5 h-5" />}
-              >
-                Start from Beginning
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleResume}
-                leftIcon={<ForwardIcon className="w-5 h-5" />}
-              >
-                Resume
-              </Button>
+        {/* Resume Playback Prompt - inside player area with high z-index */}
+        {showResumePrompt && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-[800]">
+            <div className="bg-card rounded-lg shadow-xl p-6 m-4 max-w-sm mx-auto text-center">
+              <h3 className="text-xl font-bold text-foreground mb-2">Resume Playback</h3>
+              <p className="text-muted-foreground mb-6">
+                Would you like to resume watching from where you left off? 
+                ({Math.floor(resumeTime / 60)}m {Math.floor(resumeTime % 60)}s)
+              </p>
+              <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-3">
+                <Button
+                  variant="outline"
+                  onClick={handleStartFromBeginning}
+                  leftIcon={<PlayIcon className="w-5 h-5" />}
+                >
+                  Start from Beginning
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleResume}
+                  leftIcon={<ForwardIcon className="w-5 h-5" />}
+                >
+                  Resume
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

@@ -1,16 +1,16 @@
 services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-    networks:
-      - freeflix-network
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile.frontend
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - backend
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+  #   networks:
+  #     - freeflix-network
 
   backend:
     build:
@@ -19,7 +19,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - download-data:/opt/freeflix/downloads
+      # - download-data:/opt/freeflix/downloads
+      - ./downloads:/opt/freeflix/downloads
       - resume-data:/opt/freeflix/resume_data
       - logs:/opt/freeflix/logs
     depends_on:

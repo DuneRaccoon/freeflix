@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { usePathname } from 'next/navigation';
 import { useUser } from '@/context/UserContext';
 import UserSelectScreen from '@/components/users/UserSelectScreen';
 import Navigation from '@/components/ui/Navigation';
@@ -11,6 +12,8 @@ interface AuthenticatedLayoutProps {
 
 const AuthenticatedLayout: React.FC<AuthenticatedLayoutProps> = ({ children }) => {
   const { currentUser, isLoading } = useUser();
+  const pathname = usePathname();
+  const isStreamingRoute = pathname?.startsWith('/streaming');
   
   // If loading, show loading indicator
   if (isLoading) {
@@ -28,6 +31,14 @@ const AuthenticatedLayout: React.FC<AuthenticatedLayoutProps> = ({ children }) =
   }
   
   // User is authenticated, show the regular layout with navigation
+  if (isStreamingRoute) {
+    return (
+      <main className="w-screen h-screen bg-black">
+        {children}
+      </main>
+    );
+  }
+
   return (
     <>
       <Navigation />

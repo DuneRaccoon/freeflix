@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+"use client";
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -20,28 +21,38 @@ const ContinueWatchingSection: React.FC = () => {
   const [movieImages, setMovieImages] = useState<Record<string, string>>({});
   
   // Get in-progress movies (not completed and with progress > 0)
-  const inProgressItems = Object.values(progressData)
-    .filter(item => !item.completed && item.percentage > 0)
-    .sort((a, b) => new Date(b.last_watched_at).getTime() - new Date(a.last_watched_at).getTime())
-    .slice(0, 6); // Only show up to 6 items
-  
-  // If no items, don't render the section
-  if (inProgressItems.length === 0) return null;
+  const inProgressItems = useMemo(() => {
+    return Object.values(progressData)
+      .filter(item => !item.completed && item.percentage > 0)
+      .sort((a, b) => new Date(b.last_watched_at).getTime() - new Date(a.last_watched_at).getTime())
+      .slice(0, 6);
+  }, [progressData]);
   
   // Fetch movie images
   useEffect(() => {
+    if (inProgressItems.length === 0) {
+      // Clear images if nothing to show and avoid unnecessary work
+      if (Object.keys(movieImages).length > 0) {
+        setMovieImages({});
+      }
+      return;
+    }
+
+    const nextImageKeys = inProgressItems.map(item => item.movie_id).sort();
+    const currentKeys = Object.keys(movieImages).sort();
+    const keysUnchanged = nextImageKeys.length === currentKeys.length && nextImageKeys.every((k, i) => k === currentKeys[i]);
+    if (keysUnchanged) return; // nothing new to load
+
     const fetchMovieImages = async () => {
       setIsLoading(true);
       const newImages: Record<string, string> = {};
       
       for (const item of inProgressItems) {
         try {
-          // Try to get movie details - this would typically come from your API
-          // For now, we'll just use placeholder images
+          // Placeholder for now; replace with real posters when available
           newImages[item.movie_id] = `/api/placeholder/${400}/${600}`;
         } catch (error) {
           console.error('Failed to fetch movie image:', error);
-          // Use a placeholder image as fallback
           newImages[item.movie_id] = `/api/placeholder/${400}/${600}`;
         }
       }
@@ -51,7 +62,7 @@ const ContinueWatchingSection: React.FC = () => {
     };
     
     fetchMovieImages();
-  }, [inProgressItems]);
+  }, [inProgressItems, movieImages]);
   
   // Handle continue watching
   const handleContinueWatching = (item: StreamingProgress) => {
@@ -72,6 +83,9 @@ const ContinueWatchingSection: React.FC = () => {
     }
   };
   
+  // If no items, don't render the section
+  if (inProgressItems.length === 0) return null;
+
   return (
     <Card className="mb-8">
       <CardHeader className="flex flex-row items-center justify-between">

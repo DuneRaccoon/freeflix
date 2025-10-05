@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException, Query, Depends, Path
 from typing import List, Optional, Annotated
 from pydantic import HttpUrl
 from sqlalchemy.orm import Session
-import uuid
 
 from app.models import Movie, SearchParams
 from app.scrapers.yts import browse_yts, search_movie, get_movie_by_url
@@ -169,12 +168,9 @@ async def get_movie_details(
                     if not basic_movie:
                         raise HTTPException(status_code=404, detail="Movie not found")
                         
-                    # Store in cache
-                    now = datetime.datetime.now(datetime.timezone.utc)
-                    expires = now + datetime.timedelta(days=settings.cache_movies_for)
-                    
-                    movie_cache = MovieCache(
-                        id=str(uuid.uuid4()),
+                    # Store in cache via safe get-or-create to avoid race duplicates
+                    movie_cache = MovieCache.get_or_create_from_basic(
+                        session,
                         title=basic_movie.title,
                         year=basic_movie.year,
                         link=str(basic_movie.link),
@@ -183,12 +179,8 @@ async def get_movie_details(
                         img=str(basic_movie.img),
                         description=basic_movie.description,
                         torrents_json=[t.model_dump(mode='json') for t in basic_movie.torrents],
-                        fetched_at=now,
-                        expires_at=expires
+                        ttl_days=settings.cache_movies_for,
                     )
-                    session.add(movie_cache)
-                    session.commit()
-                    session.refresh(movie_cache)
                 else:
                     raise HTTPException(status_code=404, detail="Movie not found in cache")
             
@@ -240,7 +232,6 @@ async def get_movie_details(
                 country=movie_cache.country,
                 imdb_id=movie_cache.imdb_id,
                 awards=movie_cache.awards,
-                movie_info_json=movie_cache.movie_info_json,
                 
                 # Nested structures
                 torrents=[Torrent(**t) for t in movie_cache.torrents_json],

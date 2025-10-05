@@ -1,7 +1,7 @@
 // src/components/movies/MovieDetailsContent.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 import { useRouter } from 'next/navigation';
@@ -10,6 +10,7 @@ import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import { handleStreamingStart } from '@/utils/streaming';
 import Button from '@/components/ui/Button';
+import { extractPaletteFromImage, applyPaletteToCssVars } from '@/utils/palette';
 import Badge from '@/components/ui/Badge';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Card';
 import { 
@@ -43,10 +44,30 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'overview' | 'cast' | 'reviews' | 'related'>('overview');
   const [downloadQuality, setDownloadQuality] = useState<string | null>(null);
+  const [paletteApplied, setPaletteApplied] = useState(false);
   const [streamingQuality, setStreamingQuality] = useState<string | null>(null);
   const [reviewSort, setReviewSort] = useState<'date' | 'rating'>('rating');
   const [reviewSortDirection, setReviewSortDirection] = useState<'asc' | 'desc'>('desc');
   const [reviewFilter, setReviewFilter] = useState<string>('all');
+
+  // Extract and apply dynamic palette from backdrop/poster (scoped to container)
+  useEffect(() => {
+    if (!movie || paletteApplied) return;
+    const img = movie.media.backdrop || movie.media.poster;
+    if (!img) return;
+    extractPaletteFromImage(img).then((pal) => {
+      if (pal) {
+        const el = document.getElementById('movie-details-root');
+        if (el) {
+          el.style.setProperty('--color-primary', pal.primary);
+          el.style.setProperty('--color-secondary', pal.secondary);
+          el.style.setProperty('--color-background', pal.background);
+          el.style.setProperty('--color-muted', pal.muted);
+        }
+        setPaletteApplied(true);
+      }
+    });
+  }, [movie, paletteApplied]);
 
   // Handle download button click
   const handleDownload = async (quality: string) => {
@@ -226,7 +247,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
   const backdropImage = movie.media.backdrop || movie.media.poster;
 
   return (
-    <div className="container mx-auto px-4 pb-16">
+    <div className="container mx-auto px-4 pb-16" id="movie-details-root">
       {/* Movie Hero Section - Header with backdrop */}
       <div 
         className="relative h-[40vh] md:h-[50vh] w-full bg-cover bg-center rounded-xl overflow-hidden mb-6"

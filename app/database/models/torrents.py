@@ -3,6 +3,7 @@ from sqlalchemy import (
     Integer, String, Text, JSON, func
 )
 from sqlalchemy.orm import relationship, Session
+from sqlalchemy.exc import IntegrityError
 import datetime
 from typing import Dict, Any, Optional, List
 
@@ -304,6 +305,73 @@ class MovieCache(Model):
             cls.link == url,
             cls.expires_at > now
         ).first()
+    
+    @classmethod
+    def get_or_create_from_basic(
+        cls,
+        db: Session,
+        *,
+        title: str,
+        year: int,
+        link: str,
+        rating: str,
+        genre: str,
+        img: str,
+        description: Optional[str],
+        torrents_json: list,
+        ttl_days: int,
+    ) -> "MovieCache":
+        """Get existing row by link or create/update it with basic fields.
+
+        Handles concurrent insert races by catching IntegrityError and re-querying.
+        Also refreshes expired rows instead of inserting new ones (unique link).
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        expires = now + datetime.timedelta(days=ttl_days)
+
+        existing: Optional[MovieCache] = db.query(cls).filter(cls.link == link).first()
+        if existing:
+            # Refresh basic info if expired or missing essential fields
+            should_refresh = (existing.expires_at is None) or (existing.expires_at <= now)
+            if should_refresh:
+                existing.title = title
+                existing.year = year
+                existing.rating = rating
+                existing.genre = genre
+                existing.img = img
+                existing.description = description
+                existing.torrents_json = torrents_json
+                existing.fetched_at = now
+                existing.expires_at = expires
+                db.add(existing)
+                db.commit()
+                db.refresh(existing)
+            return existing
+
+        # Not found: attempt to insert
+        try:
+            movie_cache = cls()
+            movie_cache.title = title
+            movie_cache.year = year
+            movie_cache.link = link
+            movie_cache.rating = rating
+            movie_cache.genre = genre
+            movie_cache.img = img
+            movie_cache.description = description
+            movie_cache.torrents_json = torrents_json
+            movie_cache.fetched_at = now
+            movie_cache.expires_at = expires
+            db.add(movie_cache)
+            db.commit()
+            db.refresh(movie_cache)
+            return movie_cache
+        except IntegrityError:
+            # Another request inserted it concurrently; fetch existing and return
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            return db.query(cls).filter(cls.link == link).first()
         
     @classmethod
     def update_extended_data(cls, db: Session, movie_id: str, extended_data: Dict[str, Any]) -> Optional["MovieCache"]:

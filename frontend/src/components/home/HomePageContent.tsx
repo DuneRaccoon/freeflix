@@ -227,6 +227,7 @@ export default function HomePageContent() {
       {/* Featured Movies Section */}
       <div className="space-y-3">
         <SectionHeader title="Featured Movies" />
+        <div className="h-px bg-gradient-to-r from-white/10 via-white/5 to-transparent" />
         <MovieCarousel
           title="Featured Movies"
           movies={featuredMovies}
@@ -239,6 +240,7 @@ export default function HomePageContent() {
       {/* Latest Movies Section */}
       <div className="space-y-3">
         <SectionHeader title="Latest Movies" />
+        <div className="h-px bg-gradient-to-r from-white/10 via-white/5 to-transparent" />
         <MovieCarousel
           title="Latest Movies"
           movies={latestMovies}
@@ -251,6 +253,7 @@ export default function HomePageContent() {
       {/* Top Rated Movies Section */}
       <div className="space-y-3">
         <SectionHeader title="Top Rated Movies" />
+        <div className="h-px bg-gradient-to-r from-white/10 via-white/5 to-transparent" />
         <MovieCarousel
           title="Top Rated Movies"
           movies={topRatedMovies}

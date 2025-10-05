@@ -69,10 +69,11 @@ export async function extractPaletteFromImage(imageUrl: string): Promise<Extract
     const accent = toHex(palette.Muted, '#ec4899');
     const background = toHex(palette.DarkMuted, '#0b1020');
     const muted = toHex(palette.DarkVibrant, '#17203a');
-
+    console.log('Palette:', { primary, secondary, background, muted, accent });
     return { primary, secondary, background, muted, accent };
   } catch (e) {
     // Fallback to average-only
+    console.error('Error extracting palette from image:', e);
     const avg = await computeAverageColor(imageUrl);
     if (!avg) return null;
     return {

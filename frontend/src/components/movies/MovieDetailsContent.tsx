@@ -10,7 +10,7 @@ import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import { handleStreamingStart } from '@/utils/streaming';
 import Button from '@/components/ui/Button';
-import { extractPaletteFromImage, applyPaletteToCssVars } from '@/utils/palette';
+import { extractPaletteFromImage } from '@/utils/palette';
 import Badge from '@/components/ui/Badge';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Card';
 import { 
@@ -45,6 +45,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
   const [activeTab, setActiveTab] = useState<'overview' | 'cast' | 'reviews' | 'related'>('overview');
   const [downloadQuality, setDownloadQuality] = useState<string | null>(null);
   const [paletteApplied, setPaletteApplied] = useState(false);
+  const [palette, setPalette] = useState<{ primary: string; secondary: string; background: string; muted: string; accent: string } | null>(null);
   const [streamingQuality, setStreamingQuality] = useState<string | null>(null);
   const [reviewSort, setReviewSort] = useState<'date' | 'rating'>('rating');
   const [reviewSortDirection, setReviewSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -59,11 +60,18 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
       if (pal) {
         const el = document.getElementById('movie-details-root');
         if (el) {
+          // Core theme vars
           el.style.setProperty('--color-primary', pal.primary);
           el.style.setProperty('--color-secondary', pal.secondary);
           el.style.setProperty('--color-background', pal.background);
           el.style.setProperty('--color-muted', pal.muted);
+          // Derived vars used by components
+          const card = pal.background;
+          const border = pal.muted;
+          el.style.setProperty('--color-card', card);
+          el.style.setProperty('--color-border', border);
         }
+        setPalette(pal);
         setPaletteApplied(true);
       }
     });
@@ -247,18 +255,24 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
   const backdropImage = movie.media.backdrop || movie.media.poster;
 
   return (
-    <div className="container mx-auto px-4 pb-16" id="movie-details-root">
+    <div className="container mx-auto px-4 pb-16 bg-background text-foreground" id="movie-details-root">
       {/* Movie Hero Section - Header with backdrop */}
       <div 
         className="relative h-[40vh] md:h-[50vh] w-full bg-cover bg-center rounded-xl overflow-hidden mb-6"
         style={{ 
-          backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.3), rgba(23, 23, 23, 0.8)), url(${backdropImage})`,
+          backgroundImage: `linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.7)), url(${backdropImage})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center top'
         }}
       >
-        <motion.div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-gray-900 to-transparent"
+        {/* Dynamic overlay tint from palette */}
+        <div 
+          className="absolute inset-0"
+          style={{ background: palette ? `radial-gradient(1000px 400px at 10% 10%, ${palette.primary}22, transparent 60%), radial-gradient(1000px 400px at 90% 20%, ${palette.secondary}22, transparent 60%)` : undefined }}
+        />
+        <motion.div className="absolute bottom-0 left-0 right-0 p-6"
           variants={staggerContainer(0.06, 0.1)} initial="hidden" animate="visible">
+          <div className="absolute inset-x-0 bottom-0 h-32" style={{ background: palette ? `linear-gradient(to top, ${palette.background}F2, transparent)` : undefined }} />
           <div className="container mx-auto flex items-end gap-6">
             {/* Poster thumbnail */}
             <motion.div className="hidden sm:block w-32 h-48 md:w-48 md:h-72 rounded-md overflow-hidden shadow-lg flex-shrink-0 border border-gray-700 transform -translate-y-6" variants={slideUp}>
@@ -272,10 +286,14 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
               </motion.h1>
               <motion.div className="flex flex-wrap gap-2 mb-4" variants={fadeIn}>
                 {movie.genre.split(', ').map((genre) => (
-                  <Badge key={genre} variant="secondary" size="md">
-                    {genre}
-                  </Badge>
-                ))}
+                <span
+                  key={genre}
+                  className="border rounded px-2 py-0.5 text-xs"
+                  style={{ borderColor: palette?.secondary, backgroundColor: palette ? `${palette.secondary}22` : undefined }}
+                >
+                  {genre}
+                </span>
+                    ))}
                 {movie.runtime && (
                   <Badge variant="default" size="md" className="flex items-center">
                     <ClockIcon className="w-3 h-3 mr-1" />
@@ -325,6 +343,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
                   ? 'border-primary-500 text-primary-500' 
                   : 'border-transparent text-gray-400 hover:text-gray-300'
               }`}
+              style={activeTab === 'overview' ? { borderColor: palette?.primary, color: palette?.primary } : undefined}
             >
               <InformationCircleIcon className="w-4 h-4 inline mr-1" />
               Overview
@@ -336,6 +355,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
                   ? 'border-primary-500 text-primary-500' 
                   : 'border-transparent text-gray-400 hover:text-gray-300'
               }`}
+              style={activeTab === 'cast' ? { borderColor: palette?.primary, color: palette?.primary } : undefined}
             >
               <UserGroupIcon className="w-4 h-4 inline mr-1" />
               Cast & Crew
@@ -347,6 +367,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
                   ? 'border-primary-500 text-primary-500' 
                   : 'border-transparent text-gray-400 hover:text-gray-300'
               }`}
+              style={activeTab === 'reviews' ? { borderColor: palette?.primary, color: palette?.primary } : undefined}
             >
               <ChatBubbleLeftRightIcon className="w-4 h-4 inline mr-1" />
               Reviews
@@ -364,6 +385,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
                     ? 'border-primary-500 text-primary-500' 
                     : 'border-transparent text-gray-400 hover:text-gray-300'
                 }`}
+                style={activeTab === 'related' ? { borderColor: palette?.primary, color: palette?.primary } : undefined}
               >
                 <FilmIcon className="w-4 h-4 inline mr-1" />
                 Related Movies

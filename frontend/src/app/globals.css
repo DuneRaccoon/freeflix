@@ -385,6 +385,17 @@ body {
   color: var(--color-foreground);
 }
 
+/* Scoped movie page variables (fallbacks) */
+#movie-details-root {
+  --color-background: var(--color-background);
+  --color-card: var(--color-card);
+  --color-border: var(--color-border);
+  --color-primary: var(--color-primary);
+  --color-secondary: var(--color-secondary);
+  --color-muted: var(--color-muted);
+}
+
+
 /* Smooth transitions for all elements */
 * {
   transition-property: opacity, transform, background-color, color, box-shadow;

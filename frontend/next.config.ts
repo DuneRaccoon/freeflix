@@ -48,6 +48,10 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      // Keep internal Next API routes (like /api/palette) on the frontend
+      { source: '/api/palette', destination: '/api/palette' },
+      { source: '/api/palette/:path*', destination: '/api/palette/:path*' },
+      // Proxy other API routes to backend
       {
         source: '/api/:path*',
         destination: 'http://localhost:8000/api/:path*',

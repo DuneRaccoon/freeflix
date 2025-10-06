@@ -255,12 +255,12 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
   const backdropImage = movie.media.backdrop || movie.media.poster;
 
   return (
-    <div className="container mx-auto px-4 pb-16 bg-background text-foreground" id="movie-details-root">
+    <div className="w-screen pb-16 bg-background text-foreground" id="movie-details-root">
       {/* Movie Hero Section - Header with backdrop */}
       <div 
-        className="relative h-[40vh] md:h-[50vh] w-full bg-cover bg-center rounded-xl overflow-hidden mb-6"
+        className="relative h-[70vh] md:h-[85vh] w-screen bg-cover bg-center overflow-hidden mb-0"
         style={{ 
-          backgroundImage: `linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.7)), url(${backdropImage})`,
+          backgroundImage: `linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.65)), url(${backdropImage})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center top'
         }}
@@ -270,10 +270,12 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
           className="absolute inset-0"
           style={{ background: palette ? `radial-gradient(1000px 400px at 10% 10%, ${palette.primary}22, transparent 60%), radial-gradient(1000px 400px at 90% 20%, ${palette.secondary}22, transparent 60%)` : undefined }}
         />
+        {/* Top gradient for nav readability */}
+        <div className="absolute inset-x-0 top-0 h-24" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.6), transparent)' }} />
         <motion.div className="absolute bottom-0 left-0 right-0 p-6"
           variants={staggerContainer(0.06, 0.1)} initial="hidden" animate="visible">
-          <div className="absolute inset-x-0 bottom-0 h-32" style={{ background: palette ? `linear-gradient(to top, ${palette.background}F2, transparent)` : undefined }} />
-          <div className="container mx-auto flex items-end gap-6">
+          <div className="absolute inset-x-0 bottom-0 h-40" style={{ background: palette ? `linear-gradient(to top, ${palette.background}F2, transparent)` : undefined }} />
+          <div className="max-w-7xl mx-auto px-6 flex items-end gap-6">
             {/* Poster thumbnail */}
             <motion.div className="hidden sm:block w-32 h-48 md:w-48 md:h-72 rounded-md overflow-hidden shadow-lg flex-shrink-0 border border-gray-700 transform -translate-y-6" variants={slideUp}>
               <img src={movie.media.poster} alt={movie.title} className="w-full h-full object-cover" />
@@ -334,7 +336,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
       
       {/* Tabs Navigation */}
       <div className="border-b border-gray-800 mb-6">
-        <div className="container mx-auto">
+        <div className="max-w-7xl mx-auto px-6">
           <nav className="flex overflow-x-auto scrollbar-hide">
             <button
               onClick={() => setActiveTab('overview')}
@@ -396,7 +398,7 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
       </div>
       
       {/* Main Content with Sidebar */}
-      <div className="container mx-auto">
+      <div className="max-w-7xl mx-auto px-6">
         <div className="flex flex-col md:flex-row gap-8">
           {/* Sidebar */}
           <div className="w-full md:w-1/3 lg:w-1/4 space-y-6">

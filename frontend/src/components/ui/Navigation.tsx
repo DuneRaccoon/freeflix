@@ -20,8 +20,10 @@ import ThemeToggle from '@/components/ui/ThemeToggle';
 
 const Navigation: React.FC<{
   sticky?: boolean;
+  overlay?: boolean;
 }> = ({
-  sticky = false
+  sticky = false,
+  overlay = false
 }) => {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -43,7 +45,10 @@ const Navigation: React.FC<{
   };
 
   return (
-    <nav className="border-b border-gray-800/60 sticky top-0 z-20 bg-card/70 backdrop-blur-md">
+    <nav className={twMerge(
+      'top-0 z-30',
+      overlay ? 'fixed w-full bg-transparent border-none' : 'border-b border-gray-800/60 sticky bg-card/70 backdrop-blur-md'
+    )}>
       <div className="container mx-auto px-4">
         <motion.div 
           className="flex justify-between items-center h-16"
@@ -69,8 +74,8 @@ const Navigation: React.FC<{
                 className={twMerge(
                   'flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors hover-lift',
                   isActive(item.href)
-                    ? 'bg-gray-800/70 text-white border border-gray-700'
-                    : 'text-gray-300 hover:bg-gray-700/60 hover:text-white'
+                    ? overlay ? 'bg-white/10 text-white border border-white/20' : 'bg-gray-800/70 text-white border border-gray-700'
+                    : overlay ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-gray-300 hover:bg-gray-700/60 hover:text-white'
                 )}
               >
                 <item.icon className="h-5 w-5 mr-1" />
@@ -105,7 +110,7 @@ const Navigation: React.FC<{
 
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
-        <div className="md:hidden bg-card pb-3 px-4 animate-fade-in">
+        <div className={twMerge('md:hidden pb-3 px-4 animate-fade-in', overlay ? 'bg-black/50 backdrop-blur-sm' : 'bg-card')}>
           <div className="space-y-1">
             {navItems.map((item) => (
               <Link
@@ -114,8 +119,8 @@ const Navigation: React.FC<{
                 className={twMerge(
                   'flex items-center px-3 py-2 rounded-md text-base font-medium',
                   isActive(item.href)
-                    ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white dark:text-gray-700 dark:hover:bg-gray-200 dark:hover:text-gray-900'
+                    ? overlay ? 'bg-white/10 text-white' : 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : overlay ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white dark:text-gray-700 dark:hover:bg-gray-200 dark:hover:text-gray-900'
                 )}
                 onClick={() => setIsMobileMenuOpen(false)}
               >

@@ -14,6 +14,7 @@ const AuthenticatedLayout: React.FC<AuthenticatedLayoutProps> = ({ children }) =
   const { currentUser, isLoading } = useUser();
   const pathname = usePathname();
   const isStreamingRoute = pathname?.startsWith('/streaming');
+  const isMovieRoute = pathname?.startsWith('/movies/');
   
   // If loading, show loading indicator
   if (isLoading) {
@@ -36,6 +37,20 @@ const AuthenticatedLayout: React.FC<AuthenticatedLayoutProps> = ({ children }) =
       <main className="w-screen h-screen bg-black">
         {children}
       </main>
+    );
+  }
+
+  // Full-bleed movie route with overlaid navigation
+  if (isMovieRoute) {
+    return (
+      <div className="min-h-screen bg-background bg-app-gradient">
+        <Navigation sticky={false} overlay />
+        <main className="w-screen min-h-screen relative">
+          {/* Subtle film grain overlay */}
+          <div className="film-grain" />
+          {children}
+        </main>
+      </div>
     );
   }
 

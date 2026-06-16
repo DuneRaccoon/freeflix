@@ -3,59 +3,77 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path as PathLib
 from sqlalchemy.orm import Session
 
+import uuid as _uuid
+from dataclasses import dataclass
+from typing import Optional as _Optional, Tuple as _Tuple
+
 from app.models import TorrentRequest, TorrentStatus, TorrentAction
-from app.scrapers.yts import search_movie, get_movie_by_url
+from app.services import movies as movie_service
+from app.services.torrents_select import select_best, available_qualities
+from app.providers import catalog
 from app.torrent.manager import torrent_manager
 from app.config import settings
 from app.database.session import get_db
 
+
+def _human_size(num: int) -> str:
+    size = float(num or 0)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+
+@dataclass
+class _DlMovie:
+    title: str
+    year: _Optional[int]
+    genre: str
+
+
+@dataclass
+class _DlTorrent:
+    id: str
+    quality: str
+    magnet: str
+    url: str
+    sizes: _Tuple[str, str]
+
 router = APIRouter()
 
 
-@router.post("/download/movie", response_model=TorrentStatus, summary="Download a movie")
+@router.post("/download", response_model=TorrentStatus, summary="Download a movie")
 async def download_movie(request: TorrentRequest, background_tasks: BackgroundTasks):
-    """
-    Start downloading a movie.
-    
-    - **movie_id**: URL or ID of the movie
-    - **quality**: Desired quality (720p, 1080p, 2160p)
-    - **save_path**: Optional custom save path
-    
-    ###Download a Movie
-    ```bash
-    curl -X POST "http://localhost:8000/api/v1/torrents/download/movie" \
-     -H "Content-Type: application/json" \
-     -d '{"movie_id": "https://en.yts-official.mx/movies/the-matrix-1999", "quality": "1080p"}'
-     ```
-    """
+    """Start downloading a movie by TMDB id at the requested quality bucket."""
     try:
-        # Get movie details
-        movie = await get_movie_by_url(request.movie_id)
-        if not movie:
+        title, year = await movie_service._resolve_title_year(request.tmdb_id)
+        if not title:
             raise HTTPException(status_code=404, detail="Movie not found")
-        
-        # Find the torrent with the requested quality
-        matching_torrents = [t for t in movie.torrents if t.quality == request.quality]
-        
-        if not matching_torrents:
+
+        name = f"{title} {year}".strip() if year else title
+        hits = await catalog.torrents(name)
+        best = select_best(hits, request.quality)
+        if best is None:
+            avail = available_qualities(hits)
             raise HTTPException(
-                status_code=400, 
-                detail=f"No {request.quality} torrent available for this movie"
+                status_code=422,
+                detail=f"No {request.quality} release found. Available: {avail or 'none'}",
             )
-        
-        torrent = matching_torrents[0]
-        
-        # Create save path
+
+        dl_movie = _DlMovie(title=title, year=year, genre="")
+        dl_torrent = _DlTorrent(
+            id=str(_uuid.uuid4()),
+            quality=request.quality,
+            magnet=best.magnet,
+            url=best.magnet,
+            sizes=(_human_size(best.bytes), ""),
+        )
         save_path = PathLib(request.save_path) if request.save_path else None
-        
-        # Start the download
-        torrent_id = await torrent_manager.add_torrent(movie, torrent, save_path)
-        
-        # Get initial status
+        torrent_id = await torrent_manager.add_torrent(dl_movie, dl_torrent, save_path)
+
         status = torrent_manager.get_torrent_status(torrent_id)
         if not status:
             raise HTTPException(status_code=500, detail="Failed to get torrent status")
-        
         return status
     except HTTPException:
         raise

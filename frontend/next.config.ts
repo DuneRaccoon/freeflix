@@ -47,6 +47,9 @@ const nextConfig: NextConfig = {
     ]
   },
   async rewrites() {
+    // In Docker the backend is reachable at http://backend:8000; locally it
+    // defaults to http://localhost:8000. Set BACKEND_INTERNAL_URL to override.
+    const backendUrl = process.env.BACKEND_INTERNAL_URL ?? 'http://localhost:8000';
     return [
       // Keep internal Next API routes (like /api/palette) on the frontend
       { source: '/api/palette', destination: '/api/palette' },
@@ -54,7 +57,7 @@ const nextConfig: NextConfig = {
       // Proxy other API routes to backend
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
       },
     ];
   },

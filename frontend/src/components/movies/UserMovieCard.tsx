@@ -2,7 +2,7 @@ import React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Movie, TorrentStatus, TorrentState } from '@/types';
+import { CatalogItem, TorrentStatus, TorrentState } from '@/types';
 import { Card } from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -13,7 +13,7 @@ import { toast } from 'react-hot-toast';
 
 interface UserMovieCardProps {
   torrent: TorrentStatus;
-  movie?: Movie;
+  movie?: CatalogItem;
 }
 
 const UserMovieCard: React.FC<UserMovieCardProps> = ({ torrent, movie }) => {
@@ -96,7 +96,7 @@ const UserMovieCard: React.FC<UserMovieCardProps> = ({ torrent, movie }) => {
       {/* Image container */}
       <div className="relative pb-[150%] overflow-hidden">
         <Image
-          src={movie?.img || defaultImage}
+          src={movie?.poster_url || defaultImage}
           alt={torrent.movie_title}
           fill
           className="object-cover"
@@ -113,7 +113,7 @@ const UserMovieCard: React.FC<UserMovieCardProps> = ({ torrent, movie }) => {
             {movie && (
               <div className="flex items-center">
                 <StarIcon className="w-4 h-4 text-yellow-500 mr-1" />
-                <span>{movie.rating}</span>
+                <span>{movie.vote_average.toFixed(1)}</span>
               </div>
             )}
           </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Button from '@/components/ui/Button';
 import Progress from '@/components/ui/Progress';
-import { DetailedMovie } from '@/types/index';
+import { MovieDetail } from '@/types/index';
 import { 
   ArrowLeftIcon,
   PlayIcon,
@@ -84,7 +84,7 @@ const PreStreamingAnimation: React.FC<PreStreamingAnimationProps> = ({
   const [previousScene, setPreviousScene] = useState<AnimationScene | null>(null);
   const [message, setMessage] = useState(LOADING_MESSAGES[0]);
   const [prevMessage, setPrevMessage] = useState("");
-  const [movie, setMovie] = useState<DetailedMovie | null>(null);
+  const [movie, setMovie] = useState<MovieDetail | null>(null);
   const [fact, setFact] = useState(MOVIE_FACTS[0]);
   const [prevFact, setPrevFact] = useState("");
   const [showFact, setShowFact] = useState(false);

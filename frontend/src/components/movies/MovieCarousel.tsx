@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Movie } from '@/types';
+import { CatalogItem } from '@/types';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination, Keyboard, A11y, Autoplay } from 'swiper/modules';
 import MovieCard from '@/components/movies/MovieCard';
@@ -14,7 +14,7 @@ import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 
 interface MovieCarouselProps {
-  movies: Movie[];
+  movies: CatalogItem[];
   title: string;
   isLoading?: boolean;
   viewAllLink?: string;
@@ -181,7 +181,7 @@ const MovieCarousel: React.FC<MovieCarouselProps> = ({
           onSwiper={setSwiper}
         >
           {movies.map((movie) => (
-            <SwiperSlide key={movie.link} className="h-auto">
+            <SwiperSlide key={movie.tmdb_id.toString()} className="h-auto">
               <MovieCard movie={movie} onDownload={onDownload} />
             </SwiperSlide>
           ))}

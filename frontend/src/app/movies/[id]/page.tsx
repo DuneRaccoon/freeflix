@@ -13,16 +13,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
     const { id } = await params;
     const movieId = decodeURIComponent(id);
-    const movie = await moviesService.getMovieDetails(movieId);
-    console.log(movie);
-    
+    const movie = await moviesService.getDetail(Number(movieId));
+
     return {
-      title: `${movie.title} (${movie.year}) | Freeflix`,
-      description: movie.description || movie.plot || `Watch and download ${movie.title}`,
+      title: `${movie.title} (${movie.year ?? 'N/A'}) | Freeflix`,
+      description: movie.overview || `Watch and download ${movie.title}`,
       openGraph: {
-        images: [movie.media.poster || movie.img],
-        title: `${movie.title} (${movie.year})`,
-        description: movie.description || movie.plot || '',
+        images: movie.poster_url ? [movie.poster_url] : [],
+        title: `${movie.title} (${movie.year ?? 'N/A'})`,
+        description: movie.overview || '',
       },
     };
   } catch (error) {
@@ -38,11 +37,8 @@ export default async function MoviePage({ params }: Props) {
 
     // Fetch movie data server-side
     const movieId = decodeURIComponent(id);
-    const movie = await moviesService.getMovieDetails(movieId);
+    const movie = await moviesService.getDetail(Number(movieId));
 
-    console.log(id);
-    console.log(movie);
-    
     // Pass data to client component
     return <MovieDetailsContent movie={movie} />;
   } catch (error) {

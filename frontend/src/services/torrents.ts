@@ -1,10 +1,16 @@
 import apiClient from './api-client';
-import { TorrentStatus, TorrentRequest, TorrentAction } from '@/types';
+import { TorrentStatus, TorrentRequest, TorrentAction, CatalogTorrentRequest } from '@/types';
 
 export const torrentsService = {
-  // Download a movie
+  // Download a movie (legacy YTS-shaped request)
   downloadMovie: async (request: TorrentRequest): Promise<TorrentStatus> => {
     const response = await apiClient.post(`/torrents/download/movie`, request);
+    return response.data;
+  },
+
+  // Download a movie using the new TMDB catalog API
+  downloadCatalogMovie: async (request: CatalogTorrentRequest): Promise<TorrentStatus> => {
+    const response = await apiClient.post(`/torrents/download`, request);
     return response.data;
   },
 

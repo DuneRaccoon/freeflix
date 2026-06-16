@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Movie } from '@/types';
+import { CatalogItem } from '@/types';
 import { Card, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
@@ -18,18 +18,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { hoverLiftVariants, slideUp, fadeIn, revealOnHover, expandIn } from '@/components/ui/Motion';
 
 interface MovieCardProps {
-  movie: Movie;
+  movie: CatalogItem;
   onDownload?: (movieId: string, quality: string) => void;
 }
 
 const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
   const router = useRouter();
-  const { getProgressForMovie } = useProgress();
+  const { getMovieProgress } = useProgress();
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
-  const movieProgress = getProgressForMovie(movie);
+  const movieProgress = getMovieProgress(movie.tmdb_id.toString());
   const hasProgress = !!movieProgress && movieProgress.percentage > 0;
   const isCompleted = movieProgress?.completed || false;
 
@@ -38,18 +38,18 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
     e.stopPropagation(); // Prevent navigation when clicking download
     try {
       setLoading(`download-${quality}`);
-      
+
       // Call the API to download the movie
-      await torrentsService.downloadMovie({
-        movie_id: movie.link,
+      await torrentsService.downloadCatalogMovie({
+        tmdb_id: movie.tmdb_id,
         quality: quality as '720p' | '1080p' | '2160p',
       });
-      
+
       toast.success(`Added ${movie.title} (${quality}) to download queue`);
-      
+
       // Call the onDownload callback if provided
       if (onDownload) {
-        onDownload(movie.link, quality);
+        onDownload(movie.tmdb_id.toString(), quality);
       }
     } catch (error) {
       console.error('Error downloading movie:', error);
@@ -68,10 +68,10 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
       setLoading(`stream-${quality}`);
       // Start the download and navigate to streaming page
       const torrentStatus = await handleStreamingStart({
-        movie_id: movie.link,
+        movie_id: movie.tmdb_id.toString(),
         quality: quality as '720p' | '1080p' | '2160p'
       });
-      
+
       if (torrentStatus?.id) {
         router.push(`/streaming/${torrentStatus.id}`);
       }
@@ -83,12 +83,12 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
     }
   };
 
-  // Get available qualities
-  const availableQualities = movie.torrents.map(t => t.quality);
-  
+  // Default qualities for catalog items (no torrent list)
+  const availableQualities = ['720p', '1080p'];
+
   // Encode movie ID for URL
-  const movieId = encodeURIComponent(movie.link);
-  
+  const movieId = movie.tmdb_id.toString();
+
   const handleQuickViewClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -98,7 +98,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
   const handleContinueWatching = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (movieProgress?.torrent_id) {
       router.push(`/streaming/${movieProgress.torrent_id}`);
     }
@@ -116,7 +116,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
         <Card className="h-full flex flex-col glass-card transition-all duration-300 hover:shadow-xl theater-shadow">
           <div className="relative pb-[150%] overflow-hidden">
             {/* Quick view button overlay */}
-            <motion.div 
+            <motion.div
               className="absolute top-2 right-2 z-20"
               onClick={handleQuickViewClick}
               variants={revealOnHover}
@@ -128,10 +128,10 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                 <EyeIcon className="h-5 w-5 text-white" />
               </div>
             </motion.div>
-            
+
             {/* Continue watching button for movies in progress */}
             {hasProgress && !isCompleted && (
-              <motion.div 
+              <motion.div
                 className="absolute top-2 left-2 z-20"
                 onClick={handleContinueWatching}
                 variants={revealOnHover}
@@ -144,7 +144,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                 </div>
               </motion.div>
             )}
-            
+
             {/* Watched badge */}
             {isCompleted && (
               <div className="absolute top-2 left-2 z-20">
@@ -154,9 +154,9 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                 </Badge>
               </div>
             )}
-            
+
             <Image
-              src={movie.img}
+              src={movie.poster_url || '/images/movie-placeholder.jpg'}
               alt={movie.title}
               fill
               className="object-cover rounded-t-lg transition-transform duration-500 group-hover:scale-105"
@@ -166,18 +166,18 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-4 flex flex-col justify-end pointer-events-none">
               <motion.h3 className="text-lg font-bold text-white line-clamp-2" variants={slideUp}>{movie.title}</motion.h3>
               <motion.div className="flex items-center mt-1 text-sm text-gray-300" variants={fadeIn}>
-                <span className="mr-2">{movie.year}</span>
+                <span className="mr-2">{movie.year ?? ''}</span>
                 <div className="flex items-center">
                   <StarIcon className="w-4 h-4 text-yellow-500 mr-1" />
-                  <span>{movie.rating}</span>
+                  <span>{movie.vote_average.toFixed(1)}</span>
                 </div>
               </motion.div>
-              
+
               {/* Progress bar if movie has been watched partially */}
               {hasProgress && (
                 <motion.div className="mt-2" variants={fadeIn}>
-                  <WatchProgressBar 
-                    progress={movieProgress.percentage} 
+                  <WatchProgressBar
+                    progress={movieProgress.percentage}
                     height="h-1"
                     showTooltip={false}
                   />
@@ -185,11 +185,11 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
               )}
             </div>
           </div>
-          
+
           <CardContent className="flex-grow flex flex-col justify-between p-3">
             <div>
               <motion.div className="flex flex-wrap gap-1 mb-2" variants={fadeIn}>
-                {movie.genre.split(', ').map((genre, index) => (
+                {movie.genres.map((genre, index) => (
                   <motion.div key={index} variants={slideUp}>
                     <Badge variant="secondary" size="sm">
                       {genre}
@@ -197,25 +197,22 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                   </motion.div>
                 ))}
               </motion.div>
-              
+
               {expanded && (
                 <motion.div className="text-sm text-gray-400 mb-4" variants={slideUp}>
                   <p className="text-xs mb-2">Available in: {availableQualities.join(', ')}</p>
-                  <p className="text-xs">
-                    Size: {movie.torrents.find(t => t.quality === '1080p')?.sizes[0] || 'N/A'}
-                  </p>
                 </motion.div>
               )}
             </div>
-            
+
             <div className="mt-2">
               {expanded ? (
                 <AnimatePresence mode="popLayout">
                   <motion.div className="grid gap-2" variants={expandIn} initial="hidden" animate="visible" exit="exit">
                     {availableQualities.map(quality => (
                       <div key={quality} className="flex gap-2">
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant={quality === '1080p' ? 'primary' : quality === '2160p' ? 'secondary' : 'outline'}
                         className="flex-1"
                         leftIcon={<ArrowDownTrayIcon className="w-4 h-4" />}
@@ -225,8 +222,8 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                       >
                         Download {quality}
                       </Button>
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant={quality === '1080p' ? 'primary' : quality === '2160p' ? 'secondary' : 'outline'}
                         className="flex-1"
                         leftIcon={<PlayIcon className="w-4 h-4" />}
@@ -242,9 +239,9 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                 </AnimatePresence>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
-                  <Button 
-                    size="sm" 
-                    variant="ghost" 
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     className="w-full"
                     leftIcon={<ArrowDownTrayIcon className="w-4 h-4" />}
                     onClick={(e) => {
@@ -254,9 +251,9 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
                   >
                     Download
                   </Button>
-                  <Button 
-                    size="sm" 
-                    variant="primary" 
+                  <Button
+                    size="sm"
+                    variant="primary"
                     className="w-full"
                     leftIcon={<PlayIcon className="w-4 h-4" />}
                     onClick={(e) => handleStream('1080p', e)}
@@ -272,12 +269,12 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
         </Card>
         </motion.div>
       </Link>
-      
+
       {/* Movie Details Modal */}
       <MovieDetailsModal
         isOpen={showDetailsModal}
         onClose={() => setShowDetailsModal(false)}
-        movieId={movie.link}
+        movieId={movie.tmdb_id.toString()}
         onDownload={onDownload}
       />
     </>

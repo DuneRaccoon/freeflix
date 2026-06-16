@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Movie, SearchParams, OrderByLiteral, GenreLiteral, QualityLiteral, YearLiteral, RatingLiteral } from '@/types';
+import { CatalogItem, GENRE_OPTIONS, SORT_OPTIONS, YEAR_OPTIONS } from '@/types';
 import { moviesService } from '@/services/movies';
 import MovieGrid from '@/components/movies/MovieGrid';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -12,88 +12,115 @@ import { fadeIn, slideUp, staggerContainer } from '@/components/ui/Motion';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
-import { 
-  MagnifyingGlassIcon, 
+import {
+  MagnifyingGlassIcon,
   XMarkIcon,
   FunnelIcon,
-  ArrowPathIcon 
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 
 export default function SearchPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
   // Get initial search parameters from URL
   const initialKeyword = searchParams.get('keyword') || '';
-  const initialQuality = (searchParams.get('quality') || 'all') as QualityLiteral;
-  const initialGenre = (searchParams.get('genre') || 'all') as GenreLiteral;
-  const initialRating = (searchParams.get('rating') || 'all') as RatingLiteral;
-  const initialYear = searchParams.get('year') as YearLiteral || undefined;
-  const initialOrderBy = (searchParams.get('order_by') || 'featured') as OrderByLiteral;
-  
+  const initialGenre = Number(searchParams.get('genre') || '0');
+  const initialYear = Number(searchParams.get('year') || '0');
+  const initialSort = searchParams.get('sort') || '';
+  const initialApi = (searchParams.get('api') || 'popular') as 'popular' | 'top_rated';
+
   const [searchTerm, setSearchTerm] = useState(initialKeyword);
   const [showFilters, setShowFilters] = useState(false);
-  const [movies, setMovies] = useState<Movie[]>([]);
+  const [movies, setMovies] = useState<CatalogItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
-  const [hasMorePages, setHasMorePages] = useState(true);
-  
-  // Filter states
-  const [quality, setQuality] = useState<QualityLiteral>(initialQuality);
-  const [genre, setGenre] = useState<GenreLiteral>(initialGenre);
-  const [minRating, setMinRating] = useState<RatingLiteral | string>(initialRating);
-  const [year, setYear] = useState<YearLiteral | undefined>(initialYear);
-  const [orderBy, setOrderBy] = useState<OrderByLiteral>(initialOrderBy);
-  
-  // Function to get current search parameters
-  const getCurrentSearchParams = useCallback((): SearchParams => {
-    return {
-      keyword: searchTerm,
-      quality,
-      genre,
-      rating: minRating,
-      year,
-      order_by: orderBy,
-      page: currentPage
-    };
-  }, [searchTerm, quality, genre, minRating, year, orderBy, currentPage]);
+  const [hasMorePages, setHasMorePages] = useState(false);
 
-  // Fetch movies based on search parameters
-  const searchMovies = useCallback(async (params: SearchParams, resetList: boolean = true) => {
+  // Filter states
+  const [api, setApi] = useState<'popular' | 'top_rated'>(initialApi);
+  const [genre, setGenre] = useState<number>(initialGenre);
+  const [year, setYear] = useState<number>(initialYear);
+  const [sort, setSort] = useState<string>(initialSort);
+
+  // Genre options formatted for Select component (string values)
+  const genreSelectOptions = GENRE_OPTIONS.map(g => ({ value: String(g.value), label: g.label }));
+
+  // Sort options formatted for Select component
+  const sortSelectOptions = [
+    { value: '', label: 'Default' },
+    ...SORT_OPTIONS.map(s => ({ value: s.value, label: s.label }))
+  ];
+
+  // Year options formatted for Select component
+  const yearSelectOptions = YEAR_OPTIONS.map(y => ({
+    value: String(y),
+    label: y === 0 ? 'All Years' : String(y)
+  }));
+
+  // Api toggle options
+  const apiOptions = [
+    { value: 'popular', label: 'Popular' },
+    { value: 'top_rated', label: 'Top Rated' },
+  ];
+
+  // Core fetch function
+  const fetchMovies = useCallback(async (
+    keyword: string,
+    apiMode: 'popular' | 'top_rated',
+    genreId: number,
+    yearVal: number,
+    sortVal: string,
+    page: number,
+    resetList: boolean
+  ) => {
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Update URL with search parameters (excluding page for cleaner URLs)
-      const queryParams = new URLSearchParams();
-      if (params.keyword) queryParams.set('keyword', params.keyword);
-      if (params.quality !== 'all') queryParams.set('quality', params.quality!);
-      if (params.genre !== 'all') queryParams.set('genre', params.genre!);
-      if (params.rating !== 'all') queryParams.set('rating', params.rating!);
-      if (params.year) queryParams.set('year', params.year);
-      if (params.order_by !== 'featured') queryParams.set('order_by', params.order_by!);
-      
-      // Only update the URL on initial search or filter changes
+
+      let results: CatalogItem[] = [];
+      let totalPages = 1;
+
+      if (keyword.trim()) {
+        // Search mode
+        const data = await moviesService.search(keyword.trim(), page);
+        results = data.results;
+        totalPages = data.total_pages;
+      } else {
+        // Browse mode
+        const data = await moviesService.browse({
+          api: apiMode,
+          sort: sortVal || undefined,
+          genre: genreId || undefined,
+          year: yearVal || undefined,
+          page,
+        });
+        results = data.results;
+        totalPages = data.total_pages;
+      }
+
+      // Update URL
       if (resetList) {
+        const queryParams = new URLSearchParams();
+        if (keyword) queryParams.set('keyword', keyword);
+        if (genreId) queryParams.set('genre', String(genreId));
+        if (yearVal) queryParams.set('year', String(yearVal));
+        if (sortVal) queryParams.set('sort', sortVal);
+        if (apiMode !== 'popular') queryParams.set('api', apiMode);
         router.push(`/search?${queryParams.toString()}`);
       }
-      
-      // Fetch movies
-      const results = await moviesService.browseMovies(params);
-      
-      // Update movies list (either replace or append)
+
       if (resetList) {
         setMovies(results);
         setCurrentPage(1);
       } else {
-        setMovies(prevMovies => [...prevMovies, ...results]);
+        setMovies(prev => [...prev, ...results]);
       }
-      
-      // Check if there might be more pages
-      setHasMorePages(results.length > 0);
+
+      setHasMorePages(page < totalPages);
     } catch (err) {
       console.error('Error searching movies:', err);
       setError('Failed to search movies. Please try again later.');
@@ -101,160 +128,39 @@ export default function SearchPageContent() {
       setIsLoading(false);
     }
   }, [router]);
-  
+
   // Handle search form submission
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    
-    // Reset the movies list and start from page 1
-    const params = getCurrentSearchParams();
-    params.page = 1;
-    searchMovies(params, true);
+    fetchMovies(searchTerm, api, genre, year, sort, 1, true);
   };
-  
+
   // Handle filter reset
   const handleResetFilters = () => {
-    setQuality('all');
-    setGenre('all');
-    setMinRating('all');
-    setYear(undefined);
-    setOrderBy('featured');
-    
-    // Perform search with reset filters
-    searchMovies({
-      keyword: searchTerm,
-      quality: 'all',
-      genre: 'all',
-      rating: 'all',
-      year: undefined,
-      order_by: 'featured',
-      page: 1
-    }, true);
+    setGenre(0);
+    setYear(0);
+    setSort('');
+    setApi('popular');
+    fetchMovies(searchTerm, 'popular', 0, 0, '', 1, true);
   };
-  
+
   // Handle loading more movies
   const handleLoadMore = useCallback(() => {
     if (isLoading || !hasMorePages) return;
-    
     const nextPage = currentPage + 1;
     setCurrentPage(nextPage);
-    
-    const params = getCurrentSearchParams();
-    params.page = nextPage;
-    searchMovies(params, false);
-  }, [currentPage, isLoading, hasMorePages, getCurrentSearchParams, searchMovies]);
-  
+    fetchMovies(searchTerm, api, genre, year, sort, nextPage, false);
+  }, [currentPage, isLoading, hasMorePages, fetchMovies, searchTerm, api, genre, year, sort]);
+
   // Toggle filters visibility
   const toggleFilters = () => {
     setShowFilters(!showFilters);
   };
-  
+
   // Initial search on mount
   useEffect(() => {
-    const params: SearchParams = {
-      keyword: initialKeyword,
-      quality: initialQuality,
-      genre: initialGenre,
-      rating: initialRating,
-      year: initialYear,
-      order_by: initialOrderBy,
-      page: 1
-    };
-    
-    searchMovies(params, true);
+    fetchMovies(initialKeyword, initialApi, initialGenre, initialYear, initialSort, 1, false);
   }, []);
-  
-  // Quality options
-  const qualityOptions = [
-    { value: 'all', label: 'All Qualities' },
-    { value: '720p', label: '720p' },
-    { value: '1080p', label: '1080p' },
-    { value: '2160p', label: '4K (2160p)' },
-    { value: '3d', label: '3D' }
-  ];
-  
-  // Genre options
-  const genreOptions = [
-    { value: 'all', label: 'All Genres' },
-    { value: 'action', label: 'Action' },
-    { value: 'adventure', label: 'Adventure' },
-    { value: 'animation', label: 'Animation' },
-    { value: 'biography', label: 'Biography' },
-    { value: 'comedy', label: 'Comedy' },
-    { value: 'crime', label: 'Crime' },
-    { value: 'documentary', label: 'Documentary' },
-    { value: 'drama', label: 'Drama' },
-    { value: 'family', label: 'Family' },
-    { value: 'fantasy', label: 'Fantasy' },
-    { value: 'film-noir', label: 'Film-Noir' },
-    { value: 'game-show', label: 'Game Show' },
-    { value: 'history', label: 'History' },
-    { value: 'horror', label: 'Horror' },
-    { value: 'music', label: 'Music' },
-    { value: 'musical', label: 'Musical' },
-    { value: 'mystery', label: 'Mystery' },
-    { value: 'news', label: 'News' },
-    { value: 'reality-tv', label: 'Reality TV' },
-    { value: 'romance', label: 'Romance' },
-    { value: 'sci-fi', label: 'Sci-Fi' },
-    { value: 'sport', label: 'Sport' },
-    { value: 'talk-show', label: 'Talk Show' },
-    { value: 'thriller', label: 'Thriller' },
-    { value: 'war', label: 'War' },
-    { value: 'western', label: 'Western' }
-  ];
-  
-  // Rating options
-  const ratingOptions = [
-    { value: 'all', label: 'All Ratings' },
-    { value: '9', label: '9+' },
-    { value: '8', label: '8+' },
-    { value: '7', label: '7+' },
-    { value: '6', label: '6+' },
-    { value: '5', label: '5+' },
-    { value: '4', label: '4+' },
-    { value: '3', label: '3+' },
-    { value: '2', label: '2+' },
-    { value: '1', label: '1+' }
-  ];
-  
-  // Year options
-  const yearOptions = [
-    { value: 'all', label: 'All Years' },
-    { value: '2025', label: '2025' },
-    { value: '2024', label: '2024' },
-    { value: '2023', label: '2023' },
-    { value: '2022', label: '2022' },
-    { value: '2021', label: '2021' },
-    { value: '2020', label: '2020' },
-    { value: '2019', label: '2019' },
-    { value: '2018', label: '2018' },
-    { value: '2017', label: '2017' },
-    { value: '2016', label: '2016' },
-    { value: '2015', label: '2015' },
-    { value: '2014', label: '2014' },
-    { value: '2013', label: '2013' },
-    { value: '2012', label: '2012' },
-    { value: '2011', label: '2011' },
-    { value: '2010', label: '2010' },
-    { value: '2000-2009', label: '2000-2009' },
-    { value: '1990-1999', label: '1990-1999' },
-    { value: '1980-1989', label: '1980-1989' },
-    { value: '1970-1979', label: '1970-1979' },
-    { value: '1950-1969', label: '1950-1969' },
-    { value: '1900-1949', label: '1900-1949' }
-  ];
-  
-  // Order by options
-  const orderByOptions = [
-    { value: 'featured', label: 'Featured' },
-    { value: 'latest', label: 'Latest' },
-    { value: 'oldest', label: 'Oldest' },
-    { value: 'year', label: 'Year' },
-    { value: 'rating', label: 'Rating' },
-    { value: 'likes', label: 'Likes' },
-    { value: 'alphabetical', label: 'Title (A-Z)' }
-  ];
 
   return (
     <div className="space-y-6">
@@ -266,7 +172,7 @@ export default function SearchPageContent() {
         </motion.div>
         <div className="relative p-6 md:p-8">
           <motion.h1 className="text-2xl md:text-3xl font-bold" variants={slideUp} initial="hidden" animate="visible">Find your next favorite</motion.h1>
-          <motion.p className="text-gray-400 mt-1" variants={fadeIn} initial="hidden" animate="visible">Filter by quality, genre, rating, and year with live results.</motion.p>
+          <motion.p className="text-gray-400 mt-1" variants={fadeIn} initial="hidden" animate="visible">Filter by genre, year, and sort order with live results.</motion.p>
         </div>
       </div>
 
@@ -287,7 +193,7 @@ export default function SearchPageContent() {
                 />
                 <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               </div>
-              
+
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -298,7 +204,7 @@ export default function SearchPageContent() {
                 >
                   Filters
                 </Button>
-                
+
                 <Button
                   type="submit"
                   variant="primary"
@@ -308,11 +214,11 @@ export default function SearchPageContent() {
                 </Button>
               </div>
             </div>
-            
+
             {showFilters && (
               <div className="bg-gray-800/50 p-4 rounded-md animate-fade-in">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-medium">Advanced Filters</h3>
+                  <h3 className="text-lg font-medium">Filters</h3>
                   <Button
                     type="button"
                     variant="ghost"
@@ -322,45 +228,47 @@ export default function SearchPageContent() {
                     Reset Filters
                   </Button>
                 </div>
-                
+
+                {/* API toggle (Popular / Top Rated) */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Browse Mode</label>
+                  <div className="flex gap-2">
+                    {apiOptions.map(opt => (
+                      <Button
+                        key={opt.value}
+                        type="button"
+                        variant={api === opt.value ? 'primary' : 'outline'}
+                        size="sm"
+                        onClick={() => setApi(opt.value as 'popular' | 'top_rated')}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Select
-                    label="Quality"
-                    options={qualityOptions}
-                    value={quality}
-                    onChange={(e) => setQuality(e.target.value as QualityLiteral)}
-                  />
-                  
-                  <Select
                     label="Genre"
-                    options={genreOptions}
-                    value={genre}
-                    onChange={(e) => setGenre(e.target.value as GenreLiteral)}
+                    options={genreSelectOptions}
+                    value={String(genre)}
+                    onChange={(e) => setGenre(Number(e.target.value))}
                   />
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <Select
-                    label="Minimum Rating"
-                    options={ratingOptions}
-                    value={minRating}
-                    onChange={(e) => setMinRating(e.target.value)}
-                  />
-                  
-                  <Select
-                    label="Year"
-                    options={yearOptions}
-                    value={year || 'all'}
-                    onChange={(e) => setYear(e.target.value as YearLiteral)}
-                  />
-                </div>
-                
-                <div className="mt-4">
+
                   <Select
                     label="Sort By"
-                    options={orderByOptions}
-                    value={orderBy}
-                    onChange={(e) => setOrderBy(e.target.value as OrderByLiteral)}
+                    options={sortSelectOptions}
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                  />
+                </div>
+
+                <div className="mt-4">
+                  <Select
+                    label="Year"
+                    options={yearSelectOptions}
+                    value={String(year)}
+                    onChange={(e) => setYear(Number(e.target.value))}
                   />
                 </div>
               </div>
@@ -368,9 +276,9 @@ export default function SearchPageContent() {
           </form>
         </CardContent>
       </Card>
-      
+
       <div className="space-y-4">
-        <SectionHeader 
+        <SectionHeader
           title="Results"
           subtitle={movies.length > 0 ? `(${movies.length} movies found)` : undefined}
           right={(
@@ -379,7 +287,7 @@ export default function SearchPageContent() {
             </Button>
           )}
         />
-        
+
         {error ? (
           <div className="text-center py-8 bg-gray-800/50 rounded-lg">
             <p className="text-red-500 mb-4">{error}</p>
@@ -388,8 +296,8 @@ export default function SearchPageContent() {
             </Button>
           </div>
         ) : (
-          <MovieGrid 
-            movies={movies} 
+          <MovieGrid
+            movies={movies}
             isLoading={isLoading}
             hasMorePages={hasMorePages}
             onLoadMore={handleLoadMore}

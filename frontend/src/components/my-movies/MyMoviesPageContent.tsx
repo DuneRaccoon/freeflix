@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useUser } from '@/context/UserContext';
-import { TorrentStatus, Movie } from '@/types';
+import { TorrentStatus, CatalogItem } from '@/types';
 import { torrentsService } from '@/services/torrents';
 import { moviesService } from '@/services/movies';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -15,7 +15,7 @@ import { toast } from 'react-hot-toast';
 export default function MyMoviesPageContent() {
   const { currentUser } = useUser();
   const [torrents, setTorrents] = useState<TorrentStatus[]>([]);
-  const [movieDetails, setMovieDetails] = useState<{[key: string]: Movie} | null>({});
+  const [movieDetails, setMovieDetails] = useState<{[key: string]: CatalogItem} | null>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshInterval, setRefreshInterval] = useState<number>(5000);
@@ -40,9 +40,9 @@ export default function MyMoviesPageContent() {
         try {
           // For now, use the movie title as the key
           // In a real implementation, you might want to store the movie ID in the torrent metadata
-          const movie = await moviesService.searchMovies(torrent.movie_title);
-          if (movie && movie.length > 0) {
-            return { [torrent.movie_title]: movie[0] };
+          const page = await moviesService.search(torrent.movie_title, 1);
+          if (page && page.results.length > 0) {
+            return { [torrent.movie_title]: page.results[0] };
           }
           return null;
         } catch (err) {

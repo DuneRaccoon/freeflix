@@ -1,22 +1,22 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useProgress } from '@/context/ProgressContext';
-import { DetailedMovie } from '@/types';
+import { MovieDetail } from '@/types';
 import WatchProgressBar from '@/components/ui/WatchProgressBar';
 import Button from '@/components/ui/Button';
 import { PlayIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
 import { formatTime } from '@/utils/format';
 
 interface MovieDetailsProgressSectionProps {
-  movie: DetailedMovie;
+  movie: MovieDetail;
 }
 
 const MovieDetailsProgressSection: React.FC<MovieDetailsProgressSectionProps> = ({ movie }) => {
   const router = useRouter();
   const { getMovieProgress } = useProgress();
-  
-  // Get progress data - try by ID first, then by title
-  const progress = getMovieProgress(movie.id) || getMovieProgress(movie.title);
+
+  // Get progress data - try by tmdb_id first, then by title
+  const progress = getMovieProgress(movie.tmdb_id.toString()) || getMovieProgress(movie.title);
   
   // If no progress, don't render this section
   if (!progress || progress.percentage <= 0) return null;

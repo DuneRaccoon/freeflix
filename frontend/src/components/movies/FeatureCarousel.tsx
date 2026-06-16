@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Movie } from '@/types';
+import { CatalogItem } from '@/types';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Autoplay, Navigation, Pagination, EffectFade } from 'swiper/modules';
 import Button from '@/components/ui/Button';
@@ -22,7 +22,7 @@ import 'swiper/css/effect-fade';
 import '@/styles/feature-carousel.css';
 
 interface FeatureCarouselProps {
-  movies: Movie[];
+  movies: CatalogItem[];
   isLoading?: boolean;
 }
 
@@ -31,16 +31,16 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
   // Handle stream button click
-  const handleStream = async (movie: Movie, quality: string) => {
+  const handleStream = async (movie: CatalogItem, quality: string) => {
     try {
-      setLoadingId(`stream-${movie.link}`);
-      
+      setLoadingId(`stream-${movie.tmdb_id}`);
+
       // Start the download and navigate to streaming page
       const torrentStatus = await handleStreamingStart({
-        movie_id: movie.link,
+        movie_id: movie.tmdb_id.toString(),
         quality: quality as '720p' | '1080p' | '2160p'
       });
-      
+
       if (torrentStatus?.id) {
         router.push(`/streaming/${torrentStatus.id}`);
       }
@@ -53,16 +53,16 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
   };
 
   // Handle download button click
-  const handleDownload = async (movie: Movie, quality: string) => {
+  const handleDownload = async (movie: CatalogItem, quality: string) => {
     try {
-      setLoadingId(`download-${movie.link}`);
-      
+      setLoadingId(`download-${movie.tmdb_id}`);
+
       // Call the API to download the movie
-      await torrentsService.downloadMovie({
-        movie_id: movie.link,
+      await torrentsService.downloadCatalogMovie({
+        tmdb_id: movie.tmdb_id,
         quality: quality as '720p' | '1080p' | '2160p',
       });
-      
+
       toast.success(`Added ${movie.title} (${quality}) to download queue`);
     } catch (error) {
       console.error('Error downloading movie:', error);
@@ -72,11 +72,9 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
     }
   };
 
-  // Get best available quality for a movie
-  const getBestQuality = (movie: Movie): string => {
-    if (movie.torrents.some(t => t.quality === '2160p')) return '2160p';
-    if (movie.torrents.some(t => t.quality === '1080p')) return '1080p';
-    return '720p';
+  // Get best quality — catalog items don't have torrent info, default to 1080p
+  const getBestQuality = (_movie: CatalogItem): string => {
+    return '1080p';
   };
 
   // Loading skeleton
@@ -110,13 +108,13 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
       >
         {movies.map((movie) => {
           const bestQuality = getBestQuality(movie);
-          
+
           return (
-            <SwiperSlide key={movie.link} className="relative h-full">
+            <SwiperSlide key={movie.tmdb_id.toString()} className="relative h-full">
               {/* Background Image with Gradient Overlay */}
               <div className="absolute inset-0 z-0">
                 <Image
-                  src={movie.img}
+                  src={movie.poster_url || '/images/movie-placeholder.jpg'}
                   alt={movie.title}
                   fill
                   className="object-cover"
@@ -127,7 +125,7 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
               </div>
 
               {/* Content */}
-              <motion.div 
+              <motion.div
                 className="relative z-10 h-full w-full flex flex-col justify-end p-8 md:p-12"
                 variants={staggerContainer(0.08, 0.1)}
                 initial="hidden"
@@ -135,7 +133,7 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
               >
                 <div className="max-w-2xl">
                   <motion.div className="flex flex-wrap gap-2 mb-3" variants={fadeIn}>
-                    {movie.genre.split(', ').slice(0, 3).map((genre, idx) => (
+                    {movie.genres.slice(0, 3).map((genre, idx) => (
                       <motion.div key={idx} variants={slideUp}>
                         <Badge variant="secondary" size="sm">
                           {genre}
@@ -143,45 +141,45 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
                       </motion.div>
                     ))}
                   </motion.div>
-                  
+
                   <motion.h2 className="text-3xl md:text-4xl font-bold text-white mb-2" variants={slideUp}>
-                    {movie.title} <span className="text-xl md:text-2xl text-gray-300">({movie.year})</span>
+                    {movie.title} <span className="text-xl md:text-2xl text-gray-300">({movie.year ?? ''})</span>
                   </motion.h2>
-                  
+
                   <motion.div className="flex items-center mb-4" variants={slideUp}>
                     <div className="flex items-center mr-4">
                       <StarIcon className="w-5 h-5 text-yellow-500 mr-1" />
-                      <span className="text-white">{movie.rating}</span>
+                      <span className="text-white">{movie.vote_average.toFixed(1)}</span>
                     </div>
                     <span className="text-gray-300">{bestQuality}</span>
                   </motion.div>
-                  
+
                   <motion.p className="text-gray-300 text-base mb-6 line-clamp-2 md:line-clamp-3" variants={fadeIn}>
-                    {movie.description || 'No description available.'}
+                    {movie.overview || 'No description available.'}
                   </motion.p>
-                  
+
                   <motion.div className="flex flex-wrap gap-4" variants={slideUp}>
                     <Button
                       size="lg"
                       variant="primary"
                       leftIcon={<PlayIcon className="w-5 h-5" />}
-                      isLoading={loadingId === `stream-${movie.link}`}
+                      isLoading={loadingId === `stream-${movie.tmdb_id}`}
                       onClick={() => handleStream(movie, bestQuality)}
                     >
                       Watch Now
                     </Button>
-                    
+
                     <Button
                       size="lg"
                       variant="outline"
                       leftIcon={<ArrowDownTrayIcon className="w-5 h-5" />}
-                      isLoading={loadingId === `download-${movie.link}`}
+                      isLoading={loadingId === `download-${movie.tmdb_id}`}
                       onClick={() => handleDownload(movie, bestQuality)}
                     >
                       Download
                     </Button>
-                    
-                    <Link href={`/movies/${encodeURIComponent(movie.link)}`} className="hidden md:block">
+
+                    <Link href={`/movies/${movie.tmdb_id}`} className="hidden md:block">
                       <Button size="lg" variant="ghost">
                         More Info
                       </Button>

@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Movie } from '@/types';
+import { CatalogItem } from '@/types';
 import { moviesService } from '@/services/movies';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import SectionHeader from '@/components/ui/SectionHeader';
 import Button from '@/components/ui/Button';
 import Link from 'next/link';
@@ -27,28 +27,13 @@ export default function HomePageContent() {
   const { currentUser } = useUser();
   const { progressData } = useProgress();
 
-  const [featuredHighlights, setFeaturedHighlights] = useState<Movie[]>([]);
-  const [featuredMovies, setFeaturedMovies] = useState<Movie[]>([]);
-  const [latestMovies, setLatestMovies] = useState<Movie[]>([]);
-  const [topRatedMovies, setTopRatedMovies] = useState<Movie[]>([]);
+  const [featuredHighlights, setFeaturedHighlights] = useState<CatalogItem[]>([]);
+  const [featuredMovies, setFeaturedMovies] = useState<CatalogItem[]>([]);
+  const [latestMovies, setLatestMovies] = useState<CatalogItem[]>([]);
+  const [topRatedMovies, setTopRatedMovies] = useState<CatalogItem[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Pagination states for featured movies
-  const [featuredMoviesPage, setFeaturedMoviesPage] = useState(1);
-  const [hasMoreFeaturedMovies, setHasMoreFeaturedMovies] = useState(true);
-  const [loadingMoreFeatured, setLoadingMoreFeatured] = useState(false);
-  
-  // Pagination states for latest movies
-  const [latestMoviesPage, setLatestMoviesPage] = useState(1);
-  const [hasMoreLatestMovies, setHasMoreLatestMovies] = useState(true);
-  const [loadingMoreLatest, setLoadingMoreLatest] = useState(false);
-  
-  // Pagination states for top rated movies
-  const [topRatedMoviesPage, setTopRatedMoviesPage] = useState(1);
-  const [hasMoreTopRatedMovies, setHasMoreTopRatedMovies] = useState(true);
-  const [loadingMoreTopRated, setLoadingMoreTopRated] = useState(false);
 
   // Fetch initial movies
   useEffect(() => {
@@ -56,31 +41,19 @@ export default function HomePageContent() {
       try {
         setIsLoading(true);
         setError(null);
-        
-        // Fetch latest and top-rated movies in parallel
-        const [featured, latest, topRated, highlights] = await Promise.all([
-          moviesService.getFeaturedMovies(15),
-          moviesService.getLatestMovies(15),
-          moviesService.getTopRatedMovies(15),
-          moviesService.browseMovies({
-            rating: '7',
-            limit: 5,
-            quality: '1080p',
-            year: (new Date().getFullYear() - 1).toString(),
-            order_by: 'featured'
-          })
-          // moviesService.getTopRatedMovies(5, '1080p', undefined, undefined, 1)
+
+        // Fetch in parallel using the new catalog API
+        const [featuredPage, latestPage, topRatedPage, highlightsPage] = await Promise.all([
+          moviesService.browse({ api: 'popular' }),
+          moviesService.browse({ api: 'popular', sort: 'primary_release_date.desc' }),
+          moviesService.browse({ api: 'top_rated' }),
+          moviesService.browse({ api: 'popular' }),
         ]);
-        
-        setFeaturedMovies(featured);
-        setLatestMovies(latest);
-        setTopRatedMovies(topRated);
-        setFeaturedHighlights(highlights);
-        
-        // Check if there might be more movies
-        setHasMoreFeaturedMovies(featured.length === 15);
-        setHasMoreLatestMovies(latest.length === 15);
-        setHasMoreTopRatedMovies(topRated.length === 15);
+
+        setFeaturedMovies(featuredPage.results);
+        setLatestMovies(latestPage.results);
+        setTopRatedMovies(topRatedPage.results);
+        setFeaturedHighlights(highlightsPage.results.slice(0, 5));
       } catch (err) {
         console.error('Error fetching movies:', err);
         setError('Failed to fetch movies. Please try again later.');
@@ -98,24 +71,18 @@ export default function HomePageContent() {
     setFeaturedMovies([]);
     setLatestMovies([]);
     setTopRatedMovies([]);
-    setFeaturedMoviesPage(1);
-    setLatestMoviesPage(1);
-    setTopRatedMoviesPage(1);
-    
+
     const fetchMovies = async () => {
       try {
-        const [featured, latest, topRated] = await Promise.all([
-          moviesService.getFeaturedMovies(15),
-          moviesService.getLatestMovies(15),
-          moviesService.getTopRatedMovies(15)
+        const [featuredPage, latestPage, topRatedPage] = await Promise.all([
+          moviesService.browse({ api: 'popular' }),
+          moviesService.browse({ api: 'popular', sort: 'primary_release_date.desc' }),
+          moviesService.browse({ api: 'top_rated' }),
         ]);
-        
-        setFeaturedMovies(featured);
-        setLatestMovies(latest);
-        setTopRatedMovies(topRated);
-        setHasMoreFeaturedMovies(featured.length === 15);
-        setHasMoreLatestMovies(latest.length === 15);
-        setHasMoreTopRatedMovies(topRated.length === 15);
+
+        setFeaturedMovies(featuredPage.results);
+        setLatestMovies(latestPage.results);
+        setTopRatedMovies(topRatedPage.results);
         setError(null);
       } catch (err) {
         console.error('Error refreshing movies:', err);
@@ -135,41 +102,10 @@ export default function HomePageContent() {
   return (
     <div className="space-y-8">
       {/* Hero Section */}
-      <FeatureCarousel 
-        movies={featuredHighlights} 
+      <FeatureCarousel
+        movies={featuredHighlights}
         isLoading={isLoading}
       />
-
-      {/* <div className="bg-gradient-to-r from-primary-900 to-secondary-900 rounded-xl p-6 md:p-10 shadow-lg">
-        <div className="max-w-3xl">
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">
-            Download YIFY Movies with Ease
-          </h1>
-          <p className="text-gray-100 text-lg mb-6">
-            Browse, search, and download movies from YTS in a simple and intuitive interface.
-            Schedule automatic downloads of your favorite genres.
-          </p>
-          <div className="flex flex-wrap gap-4">
-            <Link href="/search">
-              <Button 
-                size="lg" 
-                leftIcon={<MagnifyingGlassIcon className="w-5 h-5" />}
-              >
-                Search Movies
-              </Button>
-            </Link>
-            <Link href="/schedules">
-              <Button 
-                size="lg" 
-                variant="outline" 
-                leftIcon={<ClockIcon className="w-5 h-5" />}
-              >
-                Schedule Downloads
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </div> */}
 
       {/* Quick Stats Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -184,7 +120,7 @@ export default function HomePageContent() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardContent className="p-4 flex items-center">
             <div className="bg-secondary-900 p-3 rounded-full mr-4">
@@ -196,7 +132,7 @@ export default function HomePageContent() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardContent className="p-4 flex items-center">
             <div className="bg-muted p-3 rounded-full mr-4">
@@ -232,7 +168,7 @@ export default function HomePageContent() {
           title="Featured Movies"
           movies={featuredMovies}
           isLoading={isLoading}
-          viewAllLink="/search?order_by=featured"
+          viewAllLink="/search"
           viewAllLabel="View All Featured Movies"
         />
       </div>
@@ -245,7 +181,7 @@ export default function HomePageContent() {
           title="Latest Movies"
           movies={latestMovies}
           isLoading={isLoading}
-          viewAllLink="/search?order_by=latest"
+          viewAllLink="/search"
           viewAllLabel="View All Latest Movies"
         />
       </div>
@@ -258,7 +194,7 @@ export default function HomePageContent() {
           title="Top Rated Movies"
           movies={topRatedMovies}
           isLoading={isLoading}
-          viewAllLink="/search?order_by=rating"
+          viewAllLink="/search"
           viewAllLabel="View All Top Rated Movies"
         />
       </div>

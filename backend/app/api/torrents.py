@@ -9,6 +9,7 @@ from typing import Optional as _Optional, Tuple as _Tuple
 
 from app.models import TorrentRequest, TorrentStatus, TorrentAction
 from app.services import movies as movie_service
+from app.services import tv as tv_service
 from app.services.torrents_select import select_best, available_qualities
 from app.providers import catalog
 from app.torrent.manager import torrent_manager
@@ -46,11 +47,21 @@ router = APIRouter()
 async def download_movie(request: TorrentRequest, background_tasks: BackgroundTasks):
     """Start downloading a movie by TMDB id at the requested quality bucket."""
     try:
-        title, year = await movie_service.resolve_title_year(request.tmdb_id)
-        if not title:
-            raise HTTPException(status_code=404, detail="Movie not found")
+        if request.media_type == "tv":
+            if request.season is None or request.episode is None:
+                raise HTTPException(status_code=422, detail="season and episode are required for TV downloads")
+            show = await tv_service.resolve_show_name(request.tmdb_id)
+            if not show:
+                raise HTTPException(status_code=404, detail="Show not found")
+            name = f"{show} S{request.season:02d}E{request.episode:02d}"
+            label, year = name, None
+        else:
+            title, year = await movie_service.resolve_title_year(request.tmdb_id)
+            if not title:
+                raise HTTPException(status_code=404, detail="Movie not found")
+            name = f"{title} {year}".strip() if year else title
+            label = title
 
-        name = f"{title} {year}".strip() if year else title
         hits = await catalog.torrents(name)
         best = select_best(hits, request.quality)
         if best is None:
@@ -60,7 +71,7 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
                 detail=f"No {request.quality} release found. Available: {avail or 'none'}",
             )
 
-        dl_movie = _DlMovie(title=title, year=year, genre="")
+        dl_movie = _DlMovie(title=label, year=year, genre="")
         dl_torrent = _DlTorrent(
             id=str(_uuid.uuid4()),
             quality=request.quality,

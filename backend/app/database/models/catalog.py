@@ -34,13 +34,13 @@ class CatalogItemCache(Model):
     expires_at = Column(DateTime, nullable=True)
 
     @classmethod
-    def get(cls, db: Session, media_type: str, tmdb_id: int):
+    def get_one(cls, db: Session, media_type: str, tmdb_id: int):
         return db.query(cls).filter_by(media_type=media_type, tmdb_id=tmdb_id).first()
 
     @classmethod
     def upsert_list_item(cls, db: Session, *, tmdb_id: int, media_type: str = "movie", **fields):
         now = datetime.datetime.now(datetime.timezone.utc)
-        row = cls.get(db, media_type, tmdb_id)
+        row = cls.get_one(db, media_type, tmdb_id)
         if row is None:
             row = cls(id=generate_uuid(), media_type=media_type, tmdb_id=tmdb_id)
             db.add(row)

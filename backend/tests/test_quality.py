@@ -16,6 +16,10 @@ def test_parse_quality_4k_and_uhd_map_to_2160p():
 def test_parse_quality_unknown_returns_none():
     assert parse_quality("Movie.2020.DVDRip.XviD") is None
     assert parse_quality("Your.Name.2016.BDRip.x264-HAiKU") is None
+    # codecs/audio/interlaced must NOT be mistaken for a quality bucket
+    assert parse_quality("Movie.2020.x264-GRP") is None
+    assert parse_quality("Movie.2020.480i.HDTV") is None
+    assert parse_quality("Concert.2020.FLAC.24bit.48kHz") is None
 
 
 def test_parse_release_info_extracts_fields():

@@ -2,8 +2,6 @@
 import httpx
 from typing import List, Optional, Dict, Any
 from loguru import logger
-from leakybucket import LeakyBucket
-from leakybucket.persistence import InMemoryLeakyBucketStorage
 
 from app.config import settings
 from app.models import CatalogItem, TorrentHit, CatalogPage
@@ -22,10 +20,6 @@ TMDB_GENRES: Dict[int, str] = {
     10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk",
     10768: "War & Politics",
 }
-
-_throttler = LeakyBucket(InMemoryLeakyBucketStorage(
-    max_rate=settings.request_rate_limit, time_period=1))
-
 
 def image_url(path: Optional[str], size: str) -> Optional[str]:
     if not path:
@@ -74,7 +68,8 @@ def normalize_hit(raw: Dict[str, Any]) -> TorrentHit:
 
 
 async def _get(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    _throttler.throttle()
+    # NOTE: no client-side rate limiting (low-volume personal use). If the upstream
+    # starts 429-ing, add an async limiter here rather than a blocking one.
     headers = {"User-Agent": get_random_user_agent()}
     async with httpx.AsyncClient(headers=headers) as client:
         try:
@@ -96,7 +91,7 @@ async def browse(api: str = "popular", sort: str = "popularity.desc",
     data = await _get(params) or {}
     return CatalogPage(
         page=data.get("page", page),
-        results=[normalize_item(r) for r in data.get("results", [])],
+        results=[normalize_item(r) for r in data.get("results", []) if r.get("id")],
         total_pages=data.get("total_pages", 0),
         total_results=data.get("total_results", 0),
     )
@@ -106,7 +101,7 @@ async def search(q: str, page: int = 1) -> CatalogPage:
     data = await _get({"api": "search", "mode": "movie", "q": q, "page": page}) or {}
     return CatalogPage(
         page=data.get("page", page),
-        results=[normalize_item(r) for r in data.get("results", [])],
+        results=[normalize_item(r) for r in data.get("results", []) if r.get("id")],
         total_pages=data.get("total_pages", 0),
         total_results=data.get("total_results", 0),
     )

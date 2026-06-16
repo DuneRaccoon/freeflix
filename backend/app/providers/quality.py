@@ -39,8 +39,9 @@ def parse_release_info(title: str) -> Dict[str, Any]:
 
 def _normalize_source(raw: str) -> str:
     s = raw.lower().replace("-", "")
-    if s in ("bluray", "bluray"):
-        return "BluRay"
-    if s in ("webdl", "web"):
-        return "WEB-DL"
-    return raw.title()
+    mapping = {
+        "bluray": "BluRay", "bdrip": "BDRip", "brrip": "BRRip", "hdrip": "HDRip",
+        "webdl": "WEB-DL", "web": "WEB-DL", "webrip": "WEBRip", "hdtv": "HDTV",
+        "dvdrip": "DVDRip", "remux": "REMUX", "cam": "CAM",
+    }
+    return mapping.get(s, raw.title())

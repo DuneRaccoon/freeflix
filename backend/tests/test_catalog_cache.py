@@ -16,7 +16,7 @@ def test_upsert_then_get_roundtrips():
                                           genre_ids=[18], genres=["Drama"], vote_average=7.5,
                                           vote_count=10, popularity=5.0, original_language="en")
     with get_db() as db:
-        row = CatalogItemCache.get(db, "movie", 999001)
+        row = CatalogItemCache.get_one(db, "movie", 999001)
         assert row is not None
         assert row.title == "Test Movie" and row.year == 2020
 

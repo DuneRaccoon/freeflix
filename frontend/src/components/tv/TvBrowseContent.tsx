@@ -83,7 +83,12 @@ export default function TvBrowseContent() {
         setShows(data.results);
         setCurrentPage(1);
       } else {
-        setShows(prev => [...prev, ...data.results]);
+        // Dedupe by tmdb_id: guards against React StrictMode double-mount and
+        // against the TMDB popularity lists returning the same show across pages.
+        setShows(prev => {
+          const seen = new Set(prev.map(s => s.tmdb_id));
+          return [...prev, ...data.results.filter(s => !seen.has(s.tmdb_id))];
+        });
       }
 
       setHasMorePages(page < data.total_pages);

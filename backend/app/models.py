@@ -326,8 +326,8 @@ class TorrentRequest(BaseModel):
     quality: Literal['720p', '1080p', '2160p'] = '1080p'
     save_path: Optional[str] = None
     media_type: Literal['movie', 'tv'] = 'movie'
-    season: Optional[int] = None
-    episode: Optional[int] = None
+    season: Optional[int] = Field(None, ge=0)
+    episode: Optional[int] = Field(None, ge=1)
 
 class TorrentAction(BaseModel):
     action: Literal['pause', 'resume', 'stop', 'remove']

@@ -188,3 +188,12 @@ torrents.db
 freeflix.db
 freeflix.db-journal
 *-journal
+
+# macOS
+.DS_Store
+
+# Freeflix runtime data (provided via Docker volumes / created at runtime)
+/downloads/
+/resume_data/
+/logs/
+docker-compose.override.local.yml

@@ -4,7 +4,9 @@ from typing import List, Optional, Dict, Any
 from loguru import logger
 
 from app.config import settings
-from app.models import CatalogItem, TorrentHit, CatalogPage
+from app.models import (
+    CatalogItem, TorrentHit, CatalogPage, ShowDetail, SeasonSummary, SeasonDetail, Episode,
+)
 from app.providers.quality import parse_quality
 from app.utils.user_agent import get_random_user_agent
 
@@ -82,8 +84,8 @@ async def _get(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 async def browse(api: str = "popular", sort: str = "popularity.desc",
-                 genre: int = 0, year: int = 0, page: int = 1) -> CatalogPage:
-    params = {"api": api, "mode": "movie", "page": page, "sort": sort}
+                 genre: int = 0, year: int = 0, page: int = 1, mode: str = "movie") -> CatalogPage:
+    params = {"api": api, "mode": mode, "page": page, "sort": sort}
     if genre:
         params["genre"] = genre
     if year:
@@ -97,8 +99,8 @@ async def browse(api: str = "popular", sort: str = "popularity.desc",
     )
 
 
-async def search(q: str, page: int = 1) -> CatalogPage:
-    data = await _get({"api": "search", "mode": "movie", "q": q, "page": page}) or {}
+async def search(q: str, page: int = 1, mode: str = "movie") -> CatalogPage:
+    data = await _get({"api": "search", "mode": mode, "q": q, "page": page}) or {}
     return CatalogPage(
         page=data.get("page", page),
         results=[normalize_item(r) for r in data.get("results", []) if r.get("id")],
@@ -110,3 +112,63 @@ async def search(q: str, page: int = 1) -> CatalogPage:
 async def torrents(name: str) -> List[TorrentHit]:
     data = await _get({"api": "torrents", "name": name}) or {}
     return [normalize_hit(h) for h in data.get("hits", [])]
+
+
+async def tv_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
+    return await _get({"api": "tv_details", "mode": "tv", "id": tmdb_id})
+
+
+async def season_details(tmdb_id: int, season: int) -> Optional[Dict[str, Any]]:
+    return await _get({"api": "season_details", "mode": "tv", "id": tmdb_id, "season": season})
+
+
+def normalize_season_summary(s: Dict[str, Any]) -> SeasonSummary:
+    return SeasonSummary(
+        season_number=s.get("season_number", 0),
+        name=s.get("name") or "",
+        episode_count=s.get("episode_count") or 0,
+        overview=s.get("overview"),
+        poster_url=image_url(s.get("poster_path"), "w300"),
+        air_date=s.get("air_date"),
+    )
+
+
+def normalize_show(raw: Dict[str, Any]) -> ShowDetail:
+    genres = [g["name"] for g in raw.get("genres", []) if g.get("name")] or genre_names(raw.get("genre_ids") or [])
+    return ShowDetail(
+        tmdb_id=raw["id"],
+        name=raw.get("name") or raw.get("title") or "",
+        year=_year_from(raw),
+        overview=raw.get("overview"),
+        poster_url=image_url(raw.get("poster_path"), "w500"),
+        backdrop_url=image_url(raw.get("backdrop_path"), "w1280"),
+        genres=genres,
+        status=raw.get("status"),
+        first_air_date=raw.get("first_air_date"),
+        last_air_date=raw.get("last_air_date"),
+        number_of_seasons=raw.get("number_of_seasons") or 0,
+        vote_average=raw.get("vote_average") or 0.0,
+        vote_count=raw.get("vote_count") or 0,
+        seasons=[normalize_season_summary(s) for s in raw.get("seasons", [])],
+    )
+
+
+def normalize_episode(e: Dict[str, Any]) -> Episode:
+    return Episode(
+        episode_number=e.get("episode_number", 0),
+        name=e.get("name") or "",
+        overview=e.get("overview"),
+        runtime=e.get("runtime"),
+        still_url=image_url(e.get("still_path"), "w300"),
+        air_date=e.get("air_date"),
+        vote_average=e.get("vote_average") or 0.0,
+    )
+
+
+def normalize_season(raw: Dict[str, Any]) -> SeasonDetail:
+    return SeasonDetail(
+        season_number=raw.get("season_number", 0),
+        name=raw.get("name") or "",
+        overview=raw.get("overview"),
+        episodes=[normalize_episode(e) for e in raw.get("episodes", [])],
+    )

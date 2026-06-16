@@ -18,7 +18,7 @@ from app.models import (
 router = APIRouter()
 
 # Create a new user
-@router.post("/", response_model=UserResponse)
+@router.post("", response_model=UserResponse)
 async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]):
     with db as session:
         # Check if username already exists
@@ -37,7 +37,7 @@ async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)])
         return UserResponse(**new_user.to_dict(), settings=new_user.settings.to_dict())
 
 # Get all users
-@router.get("/", response_model=List[UserResponse])
+@router.get("", response_model=List[UserResponse])
 async def get_users(db: Annotated[Session, Depends(get_db)]):
     with db as session:
         users: List[User] = session.query(User).all()

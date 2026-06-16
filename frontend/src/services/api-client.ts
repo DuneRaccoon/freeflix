@@ -1,16 +1,22 @@
 import axios from 'axios';
 
-// Determine if we're running on the server
+// Determine if we're running on the server (SSR inside the frontend container)
 const isServer = typeof window === 'undefined';
 
-// Set the API base URL based on environment
-const baseURL = isServer 
-  ? process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1' // Full URL for server
-  : '/api/v1'; // Relative URL for client
+// On the server, reach the backend directly over the Docker network
+// (BACKEND_INTERNAL_URL=http://backend:8000); locally it falls back to localhost.
+// In the browser, everything is same-origin and proxied by the next.config rewrites
+// (/api/* and /_backend/* both forward to the backend), so no host is hard-coded.
+const serverBackendOrigin = process.env.BACKEND_INTERNAL_URL || 'http://localhost:8000';
 
-// root client exists to get system config and run healthchecks on the API
+// Base for the versioned API
+const baseURL = isServer ? `${serverBackendOrigin}/api/v1` : '/api/v1';
+
+// root client exists to get system config and run healthchecks on the API.
+// The backend's "/" and "/health" live outside /api/v1, so on the client they go
+// through the dedicated /_backend proxy rewrite.
 const rootClient = axios.create({
-  baseURL: 'http://localhost:8000/',
+  baseURL: isServer ? serverBackendOrigin : '/_backend',
   headers: {
     'Content-Type': 'application/json',
   },

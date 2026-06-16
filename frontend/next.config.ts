@@ -59,6 +59,12 @@ const nextConfig: NextConfig = {
         source: '/api/:path*',
         destination: `${backendUrl}/api/:path*`,
       },
+      // Backend system endpoints that live outside /api/v1 (root status + /health),
+      // proxied so the browser reaches them same-origin instead of a hard-coded host.
+      {
+        source: '/_backend/:path*',
+        destination: `${backendUrl}/:path*`,
+      },
     ];
   },
 };

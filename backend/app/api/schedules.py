@@ -12,7 +12,7 @@ from app.cron.jobs import schedule_manager  # We'll still use this for actual sc
 router = APIRouter()
 
 
-@router.post("/", response_model=ScheduleResponse, summary="Create a new schedule")
+@router.post("", response_model=ScheduleResponse, summary="Create a new schedule")
 async def create_schedule(config: ScheduleConfig, db: Session = Depends(get_db)):
     """
     Create a new scheduled job for downloading movies.
@@ -73,7 +73,7 @@ async def create_schedule(config: ScheduleConfig, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/", response_model=List[ScheduleResponse], summary="List all schedules")
+@router.get("", response_model=List[ScheduleResponse], summary="List all schedules")
 async def list_schedules(db: Session = Depends(get_db)):
     """
     List all scheduled jobs.

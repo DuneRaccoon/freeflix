@@ -27,11 +27,6 @@ interface ShowDetailsContentProps {
   show: ShowDetail;
 }
 
-interface EpisodeActionState {
-  downloading: string | null; // `${episode_number}-${quality}`
-  streaming: string | null;
-}
-
 function EpisodeRow({
   episode,
   seasonNumber,
@@ -89,15 +84,11 @@ function EpisodeRow({
       if (torrentStatus?.id) {
         router.push(`/streaming/${torrentStatus.id}`);
       }
-    } catch (error: any) {
+    } catch (error) {
+      // handleCatalogStreamingStart surfaces its own error toast; this is a
+      // defensive fallback for unexpected throws.
       console.error('Error starting stream:', error);
-      const status = error?.response?.status;
-      const detail = error?.response?.data?.detail;
-      if (status === 422 && detail) {
-        toast.error(`No release found: ${detail}`);
-      } else {
-        toast.error('Failed to start streaming. Please try again.');
-      }
+      toast.error('Failed to start streaming. Please try again.');
     } finally {
       setStreaming(false);
     }

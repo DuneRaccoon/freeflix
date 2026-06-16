@@ -138,7 +138,12 @@ export default function SearchPageContent() {
         setMovies(results);
         setCurrentPage(1);
       } else {
-        setMovies(prev => [...prev, ...results]);
+        // Dedupe by tmdb_id: TMDB popularity/search lists can repeat an item
+        // across pages, which would otherwise collide on the React key.
+        setMovies(prev => {
+          const seen = new Set(prev.map(m => m.tmdb_id));
+          return [...prev, ...results.filter(r => !seen.has(r.tmdb_id))];
+        });
       }
 
       setHasMorePages(page < totalPages);

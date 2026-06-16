@@ -116,6 +116,80 @@ export interface TorrentRequest {
 
 export type TorrentAction = 'pause' | 'resume' | 'stop' | 'remove';
 
+// --- Catalog (new TMDB-shaped API) ---
+export interface CatalogItem {
+  tmdb_id: number;
+  media_type: 'movie';
+  title: string;
+  year: number | null;
+  overview: string | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  genre_ids: number[];
+  genres: string[];
+  vote_average: number;
+  vote_count: number;
+  popularity: number;
+  original_language: string | null;
+}
+
+export interface CastMember {
+  name: string;
+  character: string | null;
+  image: string | null;
+}
+
+export interface MovieDetail extends CatalogItem {
+  runtime: number | null;
+  imdb_id: string | null;
+  tagline: string | null;
+  cast: CastMember[];
+  director: string | null;
+  available_qualities: string[];
+}
+
+export interface TorrentHit {
+  title: string;
+  seeds: number;
+  peers: number;
+  bytes: number;
+  magnet: string;
+  hash: string;
+  source: string | null;
+  quality: string | null;
+}
+
+export interface CatalogPage {
+  page: number;
+  results: CatalogItem[];
+  total_pages: number;
+  total_results: number;
+}
+
+// New tmdb-id download request (the legacy TorrentRequest stays until callers migrate)
+export interface CatalogTorrentRequest {
+  tmdb_id: number;
+  quality: '720p' | '1080p' | '2160p';
+  save_path?: string;
+}
+
+// Browse controls for the new API
+export const GENRE_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'All Genres' }, { value: 10759, label: 'Action & Adventure' },
+  { value: 16, label: 'Animation' }, { value: 35, label: 'Comedy' },
+  { value: 80, label: 'Crime' }, { value: 99, label: 'Documentary' },
+  { value: 18, label: 'Drama' }, { value: 10751, label: 'Family' },
+  { value: 9648, label: 'Mystery' }, { value: 10765, label: 'Sci-Fi & Fantasy' },
+  { value: 10768, label: 'War & Politics' }, { value: 37, label: 'Western' },
+];
+export const SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'popularity.desc', label: 'Popular' },
+  { value: 'vote_average.desc', label: 'Top Rated' },
+  { value: 'primary_release_date.desc', label: 'Newest' },
+  { value: 'revenue.desc', label: 'Highest Grossing' },
+];
+export const YEAR_OPTIONS: number[] = [0, ...Array.from({ length: 2026 - 2010 + 1 }, (_, i) => 2026 - i)];
+
 // --- Search Types ---
 export type OrderByLiteral = 'latest' | 'oldest' | 'featured' | 'year' | 'rating' | 'likes' | 'alphabetical'
 export type GenreLiteral = 'all' | 'action' | 'adventure' | 'animation' | 'biography' | 'comedy' | 'crime' | 'documentary' | 'drama' | 'family' | 'fantasy' | 'film-noir' | 'game-show' | 'history' | 'horror' | 'music' | 'musical' | 'mystery' | 'news' | 'reality-tv' | 'romance' | 'sci-fi' | 'sport' | 'talk-show' | 'thriller' | 'war' | 'western'

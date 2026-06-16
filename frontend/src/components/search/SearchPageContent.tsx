@@ -4,7 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { CatalogItem, GENRE_OPTIONS, SORT_OPTIONS, YEAR_OPTIONS } from '@/types';
 import { moviesService } from '@/services/movies';
+import { tvService } from '@/services/tv';
 import MovieGrid from '@/components/movies/MovieGrid';
+import ShowCard from '@/components/tv/ShowCard';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { motion } from 'framer-motion';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -35,6 +37,7 @@ export default function SearchPageContent() {
   const [movies, setMovies] = useState<CatalogItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'movie' | 'tv'>('movie');
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -75,7 +78,8 @@ export default function SearchPageContent() {
     yearVal: number,
     sortVal: string,
     page: number,
-    resetList: boolean
+    resetList: boolean,
+    mediaMode: 'movie' | 'tv' = 'movie'
   ) => {
     try {
       setIsLoading(true);
@@ -86,20 +90,37 @@ export default function SearchPageContent() {
 
       if (keyword.trim()) {
         // Search mode
-        const data = await moviesService.search(keyword.trim(), page);
-        results = data.results;
-        totalPages = data.total_pages;
+        if (mediaMode === 'tv') {
+          const data = await tvService.search(keyword.trim(), page);
+          results = data.results;
+          totalPages = data.total_pages;
+        } else {
+          const data = await moviesService.search(keyword.trim(), page);
+          results = data.results;
+          totalPages = data.total_pages;
+        }
       } else {
-        // Browse mode
-        const data = await moviesService.browse({
-          api: apiMode,
-          sort: sortVal || undefined,
-          genre: genreId || undefined,
-          year: yearVal || undefined,
-          page,
-        });
-        results = data.results;
-        totalPages = data.total_pages;
+        // Browse mode (movies only; TV browse uses tvService.browse but filters still apply)
+        if (mediaMode === 'tv') {
+          const data = await tvService.browse({
+            sort: sortVal || undefined,
+            genre: genreId || undefined,
+            year: yearVal || undefined,
+            page,
+          });
+          results = data.results;
+          totalPages = data.total_pages;
+        } else {
+          const data = await moviesService.browse({
+            api: apiMode,
+            sort: sortVal || undefined,
+            genre: genreId || undefined,
+            year: yearVal || undefined,
+            page,
+          });
+          results = data.results;
+          totalPages = data.total_pages;
+        }
       }
 
       // Update URL
@@ -132,7 +153,7 @@ export default function SearchPageContent() {
   // Handle search form submission
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    fetchMovies(searchTerm, api, genre, year, sort, 1, true);
+    fetchMovies(searchTerm, api, genre, year, sort, 1, true, mode);
   };
 
   // Handle filter reset
@@ -141,7 +162,15 @@ export default function SearchPageContent() {
     setYear(0);
     setSort('');
     setApi('popular');
-    fetchMovies(searchTerm, 'popular', 0, 0, '', 1, true);
+    fetchMovies(searchTerm, 'popular', 0, 0, '', 1, true, mode);
+  };
+
+  // Handle mode toggle — reset results and re-run current query
+  const handleModeChange = (newMode: 'movie' | 'tv') => {
+    setMode(newMode);
+    setMovies([]);
+    setCurrentPage(1);
+    fetchMovies(searchTerm, api, genre, year, sort, 1, true, newMode);
   };
 
   // Handle loading more movies
@@ -149,8 +178,8 @@ export default function SearchPageContent() {
     if (isLoading || !hasMorePages) return;
     const nextPage = currentPage + 1;
     setCurrentPage(nextPage);
-    fetchMovies(searchTerm, api, genre, year, sort, nextPage, false);
-  }, [currentPage, isLoading, hasMorePages, fetchMovies, searchTerm, api, genre, year, sort]);
+    fetchMovies(searchTerm, api, genre, year, sort, nextPage, false, mode);
+  }, [currentPage, isLoading, hasMorePages, fetchMovies, searchTerm, api, genre, year, sort, mode]);
 
   // Toggle filters visibility
   const toggleFilters = () => {
@@ -159,7 +188,7 @@ export default function SearchPageContent() {
 
   // Initial search on mount
   useEffect(() => {
-    fetchMovies(initialKeyword, initialApi, initialGenre, initialYear, initialSort, 1, false);
+    fetchMovies(initialKeyword, initialApi, initialGenre, initialYear, initialSort, 1, false, 'movie');
   }, []);
 
   return (
@@ -178,15 +207,35 @@ export default function SearchPageContent() {
 
       <Card className="glass-card">
         <CardHeader>
-          <CardTitle>Search Movies</CardTitle>
+          <CardTitle>{mode === 'tv' ? 'Search TV Shows' : 'Search Movies'}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSearch} className="space-y-4">
+            {/* Movies / TV toggle */}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={mode === 'movie' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => handleModeChange('movie')}
+              >
+                Movies
+              </Button>
+              <Button
+                type="button"
+                variant={mode === 'tv' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => handleModeChange('tv')}
+              >
+                TV Shows
+              </Button>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="relative flex-grow">
                 <Input
                   type="text"
-                  placeholder="Search for movies..."
+                  placeholder={mode === 'tv' ? 'Search for TV shows...' : 'Search for movies...'}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -280,7 +329,7 @@ export default function SearchPageContent() {
       <div className="space-y-4">
         <SectionHeader
           title="Results"
-          subtitle={movies.length > 0 ? `(${movies.length} movies found)` : undefined}
+          subtitle={movies.length > 0 ? `(${movies.length} ${mode === 'tv' ? 'shows' : 'movies'} found)` : undefined}
           right={(
             <Button size="sm" variant="ghost" leftIcon={<ArrowPathIcon className="h-4 w-4" />} onClick={() => handleSearch()} disabled={isLoading}>
               Refresh
@@ -295,6 +344,54 @@ export default function SearchPageContent() {
               Try Again
             </Button>
           </div>
+        ) : mode === 'tv' ? (
+          <>
+            {isLoading && movies.length === 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                {Array.from({ length: 10 }).map((_, index) => (
+                  <div key={index}>
+                    <div className="relative rounded-lg h-64 overflow-hidden bg-card">
+                      <div className="absolute inset-0 shimmer" />
+                    </div>
+                    <div className="mt-2 h-6 rounded bg-card overflow-hidden relative">
+                      <div className="absolute inset-0 shimmer" />
+                    </div>
+                    <div className="mt-1 h-4 rounded bg-card overflow-hidden relative w-1/2">
+                      <div className="absolute inset-0 shimmer" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : movies.length === 0 ? (
+              <div className="text-center py-12">
+                <h3 className="text-xl font-semibold text-gray-300">No TV shows found</h3>
+                <p className="text-gray-400 mt-2">Try adjusting your search criteria</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                  {movies.map((show) => (
+                    <ShowCard key={show.tmdb_id.toString()} show={show} />
+                  ))}
+                </div>
+                {(isLoading && movies.length > 0) && (
+                  <div className="py-6 flex justify-center">
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-500"></div>
+                      <span className="text-gray-400">Loading more shows...</span>
+                    </div>
+                  </div>
+                )}
+                {hasMorePages && !isLoading && (
+                  <div className="flex justify-center">
+                    <Button variant="outline" onClick={handleLoadMore}>
+                      Load More
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <MovieGrid
             movies={movies}

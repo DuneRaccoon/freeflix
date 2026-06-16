@@ -119,7 +119,7 @@ export type TorrentAction = 'pause' | 'resume' | 'stop' | 'remove';
 // --- Catalog (new TMDB-shaped API) ---
 export interface CatalogItem {
   tmdb_id: number;
-  media_type: 'movie';
+  media_type: 'movie' | 'tv';
   title: string;
   year: number | null;
   overview: string | null;

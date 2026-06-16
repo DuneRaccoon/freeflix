@@ -1093,7 +1093,8 @@ class TorrentManager:
             return None
         return max(files, key=lambda f: f["size"])
         
-    def prioritize_video_files(self, torrent_id: str, piece_prioritization: bool = True) -> bool:
+    def prioritize_video_files(self, torrent_id: str, piece_prioritization: bool = True,
+                               file_index: Optional[int] = None) -> bool:
         """
         Set high priority for video files and enable sequential downloading
         for optimal streaming experience.
@@ -1141,18 +1142,25 @@ class TorrentManager:
             if file_priorities:
                 handle.prioritize_files(file_priorities)
                 logger.info(f"File priorities set for torrent {torrent_id}")
-                
+
+                # Optimise streaming for the requested file (a specific season-pack
+                # episode) when valid, otherwise the first video file.
+                target_index = (
+                    file_index if (file_index is not None and file_index in video_file_indices)
+                    else (video_file_indices[0] if video_file_indices else None)
+                )
+
                 # Piece prioritization for streaming
-                if piece_prioritization and video_file_indices:
-                    self._prioritize_streaming_pieces(handle, video_file_indices[0], torrent_info)
-                
+                if piece_prioritization and target_index is not None:
+                    self._prioritize_streaming_pieces(handle, target_index, torrent_info)
+
                 with get_db() as db:
                     torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                     if torrent:
                         # Update metadata to indicate streaming optimization
                         metadata = torrent.meta_data or {}
                         metadata['streaming_optimized'] = True
-                        metadata['streaming_video_index'] = video_file_indices[0] if video_file_indices else None
+                        metadata['streaming_video_index'] = target_index
                         torrent.meta_data = metadata
                         torrent.update(db)
             

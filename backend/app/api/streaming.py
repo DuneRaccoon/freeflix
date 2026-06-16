@@ -99,7 +99,7 @@ async def stream_video(
         # Prioritize the file for streaming if it's still downloading
         torrent_status = torrent_manager.get_torrent_status(torrent_id)
         if torrent_status and torrent_status.progress < 100:
-            torrent_manager.prioritize_video_files(torrent_id)
+            torrent_manager.prioritize_video_files(torrent_id, file_index=video_info["index"])
             
         # Parse range header if present
         range_header = request.headers.get("Range")

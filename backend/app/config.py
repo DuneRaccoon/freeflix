@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     
     # YTS scraping settings
-    yify_url: str = "https://en.yts-official.mx"
-    yify_url_browse_url: str = "https://en.yts-official.mx/browse-movies"
+    yify_url: str = "https://yts.lu/"
+    yify_url_browse_url: str = "https://en.yts.lu/browse-movies"
     rarbg_url: str = "https://en.rarbg-official.com/{path}"
     request_rate_limit: int = 3  # requests per second
     

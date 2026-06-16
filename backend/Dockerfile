@@ -34,6 +34,8 @@ RUN poetry install --no-root --only main
 COPY app/ ./app/
 COPY serve.py ./
 COPY tests/ ./tests/
+COPY shell.py ./shell.py
+COPY serve.py ./serve.py
 
 # Runtime directories
 RUN mkdir -p downloads resume_data logs

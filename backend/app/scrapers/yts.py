@@ -20,6 +20,13 @@ throttler = LeakyBucket(InMemoryLeakyBucketStorage(
 
 user_agent = get_random_user_agent()
 
+params = dict(
+    api='popular',
+    mode='movie',
+    page=2,
+    sort='popularity.desc'
+)
+
 throttler.throttle()
 async def fetch_available_torrents(movie_url: str) -> List[Torrent]:
     """Fetch available torrents for a specific movie URL"""

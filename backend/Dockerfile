@@ -1,9 +1,15 @@
 FROM python:3.10-slim
 
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    POETRY_VERSION=1.8.3 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_NO_INTERACTION=1
+
 WORKDIR /opt/freeflix
 
-# Install system dependencies including libtorrent requirements
-RUN apt-get update && apt-get install -y \
+# System dependencies (libtorrent + native build toolchain)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libboost-all-dev \
@@ -15,23 +21,23 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Poetry
+RUN pip install "poetry==${POETRY_VERSION}"
 
-# Install psycopg2 for PostgreSQL support
-RUN pip install --no-cache-dir psycopg2-binary
+# Install Python dependencies first (better layer caching).
+# --no-root: do not install the project package itself (we copy app/ below).
+# --only main: this project keeps all deps in the main group.
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --no-root --only main
 
-# Copy the application code
+# Application code + tests (tests are copied so `make test` works in-container)
 COPY app/ ./app/
-COPY serve.py .
-COPY pyproject.toml .
+COPY serve.py ./
+COPY tests/ ./tests/
 
-# Create necessary directories
+# Runtime directories
 RUN mkdir -p downloads resume_data logs
 
-# Expose the port
 EXPOSE 8000
 
-# Command to run the application
 CMD ["python", "serve.py"]

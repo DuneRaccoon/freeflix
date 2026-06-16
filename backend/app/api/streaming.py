@@ -17,6 +17,8 @@ from app.database.models import UserStreamingProgress, Torrent, MovieCache, User
 from app.models import StreamingProgressCreate, StreamingProgressUpdate, StreamingProgressResponse
 
 from app.torrent.manager import torrent_manager
+from app.providers.episodes import parse_episode
+from app.models import VideoFile
 
 router = APIRouter()
 
@@ -68,18 +70,19 @@ def stream_file_generator(file_path: str, start: int, end: int, chunk_size: int 
 async def stream_video(
     request: Request,
     torrent_id: str = Path(..., description="ID of the torrent"),
-    quality: Optional[str] = Query(None, description="Desired quality if multiple options available")
+    quality: Optional[str] = Query(None, description="Desired quality if multiple options available"),
+    file_index: Optional[int] = Query(None, description="Index of the file to stream (season packs)"),
 ):
     """
     Stream a video file from a downloading or completed torrent.
-    
+
     Supports HTTP Range requests for seeking.
-    
+
     - **torrent_id**: ID of the torrent
     - **quality**: Optional quality selector if multiple versions exist
     """
     # Get video file info from torrent manager
-    video_info = torrent_manager.get_video_file_info(torrent_id)
+    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
     if not video_info:
         raise HTTPException(status_code=404, detail="Video file not found or not ready for streaming")
     
@@ -133,22 +136,23 @@ async def stream_video(
 
 @router.get("/{torrent_id}/info", summary="Get video streaming information")
 async def get_video_info(
-    torrent_id: str = Path(..., description="ID of the torrent")
+    torrent_id: str = Path(..., description="ID of the torrent"),
+    file_index: Optional[int] = Query(None, description="Index of the file (season packs)"),
 ):
     """
     Get information about the video file being streamed.
-    
+
     Returns details like progress, total size, and file path.
-    
+
     - **torrent_id**: ID of the torrent
     """
     # Get torrent status
     torrent_status = torrent_manager.get_torrent_status(torrent_id)
     if not torrent_status:
         raise HTTPException(status_code=404, detail="Torrent not found")
-    
+
     # Get video file info
-    video_info = torrent_manager.get_video_file_info(torrent_id)
+    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
     if not video_info:
         raise HTTPException(status_code=404, detail="Video file not found or not ready for streaming")
     
@@ -170,11 +174,37 @@ async def get_video_info(
             "downloaded": video_info["downloaded"],
             "progress": video_info["progress"],
             "mime_type": mime_type,
-            "stream_url": f"/api/v1/streaming/{torrent_id}/video"
+            "stream_url": (
+                f"/api/v1/streaming/{torrent_id}/video"
+                + (f"?file_index={file_index}" if file_index is not None else "")
+            ),
         },
         "total_progress": torrent_status.progress,
         "state": torrent_status.state
     }
+
+@router.get("/{torrent_id}/files", response_model=List[VideoFile], summary="List streamable video files")
+async def list_video_files(torrent_id: str = Path(..., description="ID of the torrent")):
+    """List the video files in a torrent, labeled with parsed season/episode (season packs)."""
+    if not torrent_manager.get_torrent_status(torrent_id):
+        raise HTTPException(status_code=404, detail="Torrent not found")
+    files = torrent_manager.get_video_files(torrent_id)
+    result: List[VideoFile] = []
+    for f in files:
+        ep = parse_episode(f["name"])
+        result.append(VideoFile(
+            index=f["index"], name=f["name"], size=f["size"],
+            downloaded=f["downloaded"], progress=f["progress"],
+            mime_type=get_mime_type(f["name"]),
+            stream_url=f"/api/v1/streaming/{torrent_id}/video?file_index={f['index']}",
+            season=ep[0] if ep else None,
+            episode=ep[1] if ep else None,
+        ))
+    result.sort(key=lambda r: (
+        r.season if r.season is not None else 999,
+        r.episode if r.episode is not None else r.index,
+    ))
+    return result
 
 @router.post("/progress/{user_id}", response_model=StreamingProgressResponse)
 async def create_streaming_progress(

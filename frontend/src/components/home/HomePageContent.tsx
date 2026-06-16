@@ -43,17 +43,17 @@ export default function HomePageContent() {
         setError(null);
 
         // Fetch in parallel using the new catalog API
-        const [featuredPage, latestPage, topRatedPage, highlightsPage] = await Promise.all([
+        const [featuredPage, latestPage, topRatedPage] = await Promise.all([
           moviesService.browse({ api: 'popular' }),
           moviesService.browse({ api: 'popular', sort: 'primary_release_date.desc' }),
           moviesService.browse({ api: 'top_rated' }),
-          moviesService.browse({ api: 'popular' }),
         ]);
 
         setFeaturedMovies(featuredPage.results);
         setLatestMovies(latestPage.results);
         setTopRatedMovies(topRatedPage.results);
-        setFeaturedHighlights(highlightsPage.results.slice(0, 5));
+        // Reuse popular results for the hero carousel (first 5)
+        setFeaturedHighlights(featuredPage.results.slice(0, 5));
       } catch (err) {
         console.error('Error fetching movies:', err);
         setError('Failed to fetch movies. Please try again later.');
@@ -83,6 +83,7 @@ export default function HomePageContent() {
         setFeaturedMovies(featuredPage.results);
         setLatestMovies(latestPage.results);
         setTopRatedMovies(topRatedPage.results);
+        setFeaturedHighlights(featuredPage.results.slice(0, 5));
         setError(null);
       } catch (err) {
         console.error('Error refreshing movies:', err);

@@ -13,7 +13,7 @@ import { ClockIcon } from '@heroicons/react/24/outline';
 import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import MovieDetailsModal from './MovieDetailsModal';
-import { handleStreamingStart } from '@/utils/streaming';
+import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { motion, AnimatePresence } from 'framer-motion';
 import { hoverLiftVariants, slideUp, fadeIn, revealOnHover, expandIn } from '@/components/ui/Motion';
 
@@ -67,8 +67,8 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onDownload }) => {
     try {
       setLoading(`stream-${quality}`);
       // Start the download and navigate to streaming page
-      const torrentStatus = await handleStreamingStart({
-        movie_id: movie.tmdb_id.toString(),
+      const torrentStatus = await handleCatalogStreamingStart({
+        tmdb_id: movie.tmdb_id,
         quality: quality as '720p' | '1080p' | '2160p'
       });
 

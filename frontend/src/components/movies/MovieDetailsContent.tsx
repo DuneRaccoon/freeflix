@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { MovieDetail } from '@/types';
 import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
-import { handleStreamingStart } from '@/utils/streaming';
+import { handleCatalogStreamingStart } from '@/utils/streaming';
 import Button from '@/components/ui/Button';
 import { extractPaletteFromImage } from '@/utils/palette';
 import Badge from '@/components/ui/Badge';
@@ -89,8 +89,8 @@ export default function MovieDetailsContent({ movie }: MovieDetailsContentProps)
     try {
       setStreamingQuality(quality);
 
-      const torrentStatus = await handleStreamingStart({
-        movie_id: movie.tmdb_id.toString(),
+      const torrentStatus = await handleCatalogStreamingStart({
+        tmdb_id: movie.tmdb_id,
         quality: quality as '720p' | '1080p' | '2160p'
       });
 

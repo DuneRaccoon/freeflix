@@ -1,11 +1,11 @@
 // src/utils/streaming.ts
-import { TorrentRequest, TorrentStatus } from '@/types';
+import { TorrentRequest, CatalogTorrentRequest, TorrentStatus } from '@/types';
 import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 
 /**
- * Starts the download process for streaming a movie
- * @param request The torrent request parameters
+ * Starts the download process for streaming a movie (legacy YTS endpoint)
+ * @param request The torrent request parameters (movie_id string)
  * @returns The torrent status if successful
  */
 export const handleStreamingStart = async (
@@ -13,16 +13,44 @@ export const handleStreamingStart = async (
 ): Promise<TorrentStatus | null> => {
   try {
     toast.loading('Preparing your stream...', { id: 'stream-start' });
-    
+
     // Start the download
     const torrentStatus = await torrentsService.downloadMovie(request);
-    
+
     // Notify the user that we're preparing the stream
     toast.success('Stream is being prepared! Please wait a moment...', { id: 'stream-start' });
-    
+
     // Prioritize the file for streaming
     await torrentsService.prioritizeForStreaming(torrentStatus.id);
-    
+
+    return torrentStatus;
+  } catch (error) {
+    console.error('Error starting stream:', error);
+    toast.error('Failed to prepare stream. Please try again.', { id: 'stream-start' });
+    return null;
+  }
+};
+
+/**
+ * Starts the download process for streaming a catalog (TMDB) movie
+ * @param request The catalog torrent request parameters (tmdb_id number)
+ * @returns The torrent status if successful
+ */
+export const handleCatalogStreamingStart = async (
+  request: CatalogTorrentRequest
+): Promise<TorrentStatus | null> => {
+  try {
+    toast.loading('Preparing your stream...', { id: 'stream-start' });
+
+    // Start the download via the catalog endpoint
+    const torrentStatus = await torrentsService.downloadCatalogMovie(request);
+
+    // Notify the user that we're preparing the stream
+    toast.success('Stream is being prepared! Please wait a moment...', { id: 'stream-start' });
+
+    // Prioritize the file for streaming
+    await torrentsService.prioritizeForStreaming(torrentStatus.id);
+
     return torrentStatus;
   } catch (error) {
     console.error('Error starting stream:', error);

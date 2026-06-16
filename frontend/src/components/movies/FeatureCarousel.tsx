@@ -8,7 +8,7 @@ import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { PlayIcon, ArrowDownTrayIcon, StarIcon } from '@heroicons/react/24/solid';
 import { torrentsService } from '@/services/torrents';
-import { handleStreamingStart } from '@/utils/streaming';
+import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { motion } from 'framer-motion';
@@ -36,8 +36,8 @@ const FeatureCarousel: React.FC<FeatureCarouselProps> = ({ movies, isLoading = f
       setLoadingId(`stream-${movie.tmdb_id}`);
 
       // Start the download and navigate to streaming page
-      const torrentStatus = await handleStreamingStart({
-        movie_id: movie.tmdb_id.toString(),
+      const torrentStatus = await handleCatalogStreamingStart({
+        tmdb_id: movie.tmdb_id,
         quality: quality as '720p' | '1080p' | '2160p'
       });
 

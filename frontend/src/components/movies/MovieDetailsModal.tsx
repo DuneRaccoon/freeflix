@@ -24,7 +24,7 @@ import Badge from '@/components/ui/Badge';
 import { torrentsService } from '@/services/torrents';
 import { toast } from 'react-hot-toast';
 import { MovieDetail } from '@/types';
-import { handleStreamingStart } from '@/utils/streaming';
+import { handleCatalogStreamingStart } from '@/utils/streaming';
 
 interface MovieDetailsModalProps {
   isOpen: boolean;
@@ -102,8 +102,8 @@ const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
     try {
       setStreamingQuality(quality);
 
-      const torrentStatus = await handleStreamingStart({
-        movie_id: movie.tmdb_id.toString(),
+      const torrentStatus = await handleCatalogStreamingStart({
+        tmdb_id: movie.tmdb_id,
         quality: quality as '720p' | '1080p' | '2160p'
       });
 

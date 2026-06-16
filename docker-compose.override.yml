@@ -1,0 +1,19 @@
+# Auto-loaded by `docker compose` in development.
+# Adds source bind-mounts + hot reload on top of the base stack.
+# `make prod` bypasses this file (docker compose -f docker-compose.yml ...).
+services:
+  backend:
+    environment:
+      ENVIRONMENT: development   # serve.py runs uvicorn with reload=True
+    volumes:
+      - ./backend/app:/opt/freeflix/app
+      - ./backend/serve.py:/opt/freeflix/serve.py
+
+  frontend:
+    command: npm run dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next

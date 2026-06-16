@@ -142,6 +142,60 @@ class CastMember(BaseModel):
     character: Optional[str] = None
     image: Optional[str] = None
 
+
+class CatalogItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tmdb_id: int
+    media_type: Literal['movie'] = 'movie'
+    title: str
+    year: Optional[int] = None
+    overview: Optional[str] = None
+    poster_url: Optional[str] = None
+    backdrop_url: Optional[str] = None
+    genre_ids: List[int] = []
+    genres: List[str] = []
+    vote_average: float = 0.0
+    vote_count: int = 0
+    popularity: float = 0.0
+    original_language: Optional[str] = None
+
+
+class MovieDetail(CatalogItem):
+    runtime: Optional[int] = None
+    imdb_id: Optional[str] = None
+    tagline: Optional[str] = None
+    cast: List[CastMember] = []
+    director: Optional[str] = None
+    available_qualities: List[str] = []
+
+
+class TorrentHit(BaseModel):
+    title: str
+    seeds: int = 0
+    peers: int = 0
+    bytes: int = 0
+    magnet: str
+    hash: str = ''
+    source: Optional[str] = None
+    quality: Optional[str] = None
+
+
+class CatalogPage(BaseModel):
+    page: int = 1
+    results: List[CatalogItem] = []
+    total_pages: int = 0
+    total_results: int = 0
+
+
+class MovieBrowseParams(BaseModel):
+    api: Literal['popular', 'top_rated'] = 'popular'
+    sort: str = 'popularity.desc'
+    genre: int = 0
+    year: int = 0
+    page: int = 1
+
+
 class MovieCredits(BaseModel):
     director: Optional[str] = None
     cast: List[CastMember] = []
@@ -222,7 +276,7 @@ class TorrentStatus(BaseModel):
 
 
 class TorrentRequest(BaseModel):
-    movie_id: str
+    tmdb_id: int
     quality: Literal['720p', '1080p', '2160p'] = '1080p'
     save_path: Optional[str] = None
 

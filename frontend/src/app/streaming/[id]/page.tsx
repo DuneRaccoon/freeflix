@@ -27,9 +27,11 @@ export default function StreamingPage() {
   const searchParams = useSearchParams();
   const torrentId = Array.isArray(id) ? id[0] : id;
 
-  // File picker state
+  // File picker state. Guard against junk/empty ?file values (e.g. hand-edited
+  // URLs) so they fall back to the default file rather than 404-ing on NaN.
   const fileParam = searchParams.get('file');
-  const fileIndex = fileParam !== null ? Number(fileParam) : undefined;
+  const parsedFileParam = fileParam !== null ? Number(fileParam) : NaN;
+  const fileIndex = Number.isInteger(parsedFileParam) ? parsedFileParam : undefined;
   const [videoFiles, setVideoFiles] = useState<VideoFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
 

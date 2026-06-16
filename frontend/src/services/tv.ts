@@ -27,6 +27,8 @@ export const tvService = {
     return response.data;
   },
 
+  // Available for a future "choose a season-pack source" UI; the season-download
+  // button currently posts straight to /torrents/download (highest-seeded pack).
   getSeasonTorrents: async (tmdbId: number, season: number): Promise<TorrentHit[]> => {
     const response = await apiClient.get(`/tv/${tmdbId}/season/${season}/torrents`);
     return response.data;

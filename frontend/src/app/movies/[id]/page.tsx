@@ -1,4 +1,3 @@
-import type PageProps from 'next';
 import { Metadata } from 'next';
 import { moviesService } from '@/services/movies';
 import MovieDetailsContent from '@/components/movies/MovieDetailsContent';

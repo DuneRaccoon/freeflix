@@ -242,6 +242,18 @@ class SeasonDetail(BaseModel):
     episodes: List[Episode] = []
 
 
+class VideoFile(BaseModel):
+    index: int
+    name: str
+    size: int
+    downloaded: int = 0
+    progress: float = 0.0
+    mime_type: str
+    stream_url: str
+    season: Optional[int] = None
+    episode: Optional[int] = None
+
+
 class MovieCredits(BaseModel):
     director: Optional[str] = None
     cast: List[CastMember] = []

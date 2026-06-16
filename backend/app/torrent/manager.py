@@ -1044,62 +1044,54 @@ class TorrentManager:
             logger.error(f"Error getting file progress for torrent {torrent_id}: {e}")
             return {}
 
-    def get_video_file_info(self, torrent_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get information about the main video file in a torrent
-        
-        Args:
-            torrent_id: ID of the torrent
-            
-        Returns:
-            Dict with video file information or None if not found
-        """
+    def get_video_files(self, torrent_id: str) -> List[Dict[str, Any]]:
+        """List every video file in a torrent (index/path/size/downloaded/progress/name)."""
         if torrent_id not in self.active_torrents:
-            return None
-        
+            return []
         handle, _ = self.active_torrents[torrent_id]
-        
         if not handle.has_metadata():
-            return None
-        
+            return []
         try:
             torrent_info = handle.get_torrent_info()
             file_progress = handle.file_progress()
-            
-            # Find the largest video file
-            largest_video_index = -1
-            largest_video_size = 0
-            
+            base_path = Path(handle.status().save_path)
+            files = []
             for i in range(torrent_info.num_files()):
-                file_info = torrent_info.file_at(i)
-                
-                if self._is_video_file(file_info.path) and file_info.size > largest_video_size:
-                    largest_video_index = i
-                    largest_video_size = file_info.size
-            
-            if largest_video_index >= 0 and largest_video_index < len(file_progress):
-                file_info = torrent_info.file_at(largest_video_index)
-                downloaded = file_progress[largest_video_index]
-                progress = (downloaded / file_info.size) * 100 if file_info.size > 0 else 0
-                
-                # Get absolute path to the file
-                base_path = Path(handle.status().save_path)
-                file_path = base_path / file_info.path
-                
-                return {
-                    "index": largest_video_index,
-                    "path": str(file_path),
-                    "size": file_info.size,
+                fi = torrent_info.file_at(i)
+                if not self._is_video_file(fi.path):
+                    continue
+                downloaded = file_progress[i] if i < len(file_progress) else 0
+                progress = (downloaded / fi.size) * 100 if fi.size > 0 else 0
+                files.append({
+                    "index": i,
+                    "path": str(base_path / fi.path),
+                    "size": fi.size,
                     "downloaded": downloaded,
                     "progress": progress,
-                    "name": Path(file_info.path).name
-                }
-            
-            return None
-        
+                    "name": Path(fi.path).name,
+                })
+            return files
         except Exception as e:
-            logger.error(f"Error getting video file info for torrent {torrent_id}: {e}")
+            logger.error(f"Error listing video files for torrent {torrent_id}: {e}")
+            return []
+
+    def get_video_file_info(self, torrent_id: str, file_index: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get info about one video file in a torrent.
+
+        file_index None -> the largest video file (movie / single-episode default).
+        file_index set  -> that specific file (season-pack episode), or None if it
+                           isn't a video file in this torrent.
+        """
+        files = self.get_video_files(torrent_id)
+        if not files:
             return None
+        if file_index is not None:
+            for f in files:
+                if f["index"] == file_index:
+                    return f
+            return None
+        return max(files, key=lambda f: f["size"])
         
     def prioritize_video_files(self, torrent_id: str, piece_prioritization: bool = True) -> bool:
         """

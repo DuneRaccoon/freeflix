@@ -10,6 +10,7 @@ import {
   HomeIcon,
   MagnifyingGlassIcon,
   FilmIcon,
+  TvIcon,
   ClockIcon,
   Cog6ToothIcon,
   Bars3Icon,
@@ -35,6 +36,7 @@ const Navigation: React.FC<{
   const navItems = [
     { href: '/', label: 'Home', icon: HomeIcon },
     { href: '/search', label: 'Search', icon: MagnifyingGlassIcon },
+    { href: '/tv', label: 'TV Shows', icon: TvIcon },
     { href: '/my-movies', label: 'My Movies', icon: FilmIcon },
     { href: '/schedules', label: 'Schedules', icon: ClockIcon },
     { href: '/settings', label: 'Settings', icon: Cog6ToothIcon },

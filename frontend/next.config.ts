@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
+        hostname: 'image.tmdb.org',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
         hostname: 'en.yts-official.mx',
         pathname: '/**',
       },

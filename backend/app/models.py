@@ -196,6 +196,52 @@ class MovieBrowseParams(BaseModel):
     page: int = 1
 
 
+class SeasonSummary(BaseModel):
+    season_number: int
+    name: str = ""
+    episode_count: int = 0
+    overview: Optional[str] = None
+    poster_url: Optional[str] = None
+    air_date: Optional[str] = None
+
+
+class Episode(BaseModel):
+    episode_number: int
+    name: str = ""
+    overview: Optional[str] = None
+    runtime: Optional[int] = None
+    still_url: Optional[str] = None
+    air_date: Optional[str] = None
+    vote_average: float = 0.0
+
+
+class ShowDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tmdb_id: int
+    media_type: Literal['tv'] = 'tv'
+    name: str
+    year: Optional[int] = None
+    overview: Optional[str] = None
+    poster_url: Optional[str] = None
+    backdrop_url: Optional[str] = None
+    genres: List[str] = []
+    status: Optional[str] = None
+    first_air_date: Optional[str] = None
+    last_air_date: Optional[str] = None
+    number_of_seasons: int = 0
+    vote_average: float = 0.0
+    vote_count: int = 0
+    seasons: List[SeasonSummary] = []
+
+
+class SeasonDetail(BaseModel):
+    season_number: int
+    name: str = ""
+    overview: Optional[str] = None
+    episodes: List[Episode] = []
+
+
 class MovieCredits(BaseModel):
     director: Optional[str] = None
     cast: List[CastMember] = []
@@ -279,6 +325,9 @@ class TorrentRequest(BaseModel):
     tmdb_id: int
     quality: Literal['720p', '1080p', '2160p'] = '1080p'
     save_path: Optional[str] = None
+    media_type: Literal['movie', 'tv'] = 'movie'
+    season: Optional[int] = None
+    episode: Optional[int] = None
 
 class TorrentAction(BaseModel):
     action: Literal['pause', 'resume', 'stop', 'remove']

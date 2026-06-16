@@ -14,8 +14,37 @@ from app.database.models import ScheduleLog as DbScheduleLog
 from app.database.utils import schedule_db_to_response
 from app.models import SearchParams, ScheduleConfig, ScheduleResponse
 from app.config import settings
-from app.scrapers.yts import browse_yts
+from app.providers import catalog
+from app.services.torrents_select import select_best
 from app.torrent.manager import torrent_manager
+
+
+# Map the legacy SearchParams genre names to new numeric TMDB genre ids.
+_GENRE_NAME_TO_ID = {
+    "action": 28, "adventure": 12, "animation": 16, "comedy": 35, "crime": 80,
+    "documentary": 99, "drama": 18, "family": 10751, "fantasy": 14, "history": 36,
+    "horror": 27, "music": 10402, "mystery": 9648, "romance": 10749, "sci-fi": 878,
+    "thriller": 53, "war": 10752, "western": 37,
+}
+_ORDER_TO_SORT = {
+    "rating": "vote_average.desc", "year": "primary_release_date.desc",
+    "latest": "primary_release_date.desc", "likes": "popularity.desc",
+    "featured": "popularity.desc",
+}
+
+
+async def _find_movies_for_schedule(search_params):
+    """Return a list of CatalogItem for a schedule's SearchParams via the new API."""
+    if getattr(search_params, "keyword", None):
+        page = await catalog.search(q=search_params.keyword, page=search_params.page or 1)
+    else:
+        genre = _GENRE_NAME_TO_ID.get((search_params.genre or "all").lower(), 0)
+        year_raw = (search_params.year or "all")
+        year = int(year_raw) if str(year_raw).isdigit() else 0
+        sort = _ORDER_TO_SORT.get(search_params.order_by or "featured", "popularity.desc")
+        page = await catalog.browse(api="popular", sort=sort, genre=genre, year=year,
+                                    page=search_params.page or 1)
+    return page.results
 
 
 class ScheduleManager:
@@ -223,52 +252,50 @@ class ScheduleManager:
             
             logger.info(f"Executing schedule {schedule_id}")
             
-            # Execute the search
-            movies = await browse_yts(schedule.config.search_params)
-            
-            if not movies:
+            # Execute the search via the new catalog API
+            items = await _find_movies_for_schedule(schedule.config.search_params)
+
+            if not items:
                 logger.info(f"No movies found for schedule {schedule_id}")
                 self._update_next_run(schedule_id, datetime.now(), "completed (no movies found)")
                 return True
-            
-            # Sort movies by rating (highest first)
-            movies.sort(key=lambda m: float(m.rating.split('/')[0]), reverse=True)
-            
-            # Take only the number of movies specified by max_downloads
-            selected_movies = movies[:schedule.config.max_downloads]
-            
+
+            # Sort by vote_average (highest first) and cap at max_downloads
+            items = sorted(items, key=lambda m: m.vote_average, reverse=True)[: schedule.config.max_downloads]
+
             # Log results
             results = {
-                "movies_found": len(movies),
-                "movies_selected": len(selected_movies),
-                "selected_titles": [m.title for m in selected_movies]
+                "movies_found": len(items),
+                "movies_selected": len(items),
+                "selected_titles": [m.title for m in items]
             }
-            
-            logger.info(f"Found {len(selected_movies)} movies to download for schedule {schedule_id}")
-            
+
+            logger.info(f"Found {len(items)} movies to download for schedule {schedule_id}")
+
             # Download each movie
-            downloaded_count = 0
-            for movie in selected_movies:
+            from app.api.torrents import _DlMovie, _DlTorrent, _human_size
+            import uuid as _uuid
+            downloaded = 0
+            for item in items:
                 try:
-                    # Find the torrent with the requested quality
-                    matching_torrents = [t for t in movie.torrents if t.quality == schedule.config.quality]
-                    
-                    if not matching_torrents:
-                        logger.warning(f"No {schedule.config.quality} torrent found for {movie.title}")
+                    name = f"{item.title} {item.year}".strip() if item.year else item.title
+                    hits = await catalog.torrents(name)
+                    best = select_best(hits, schedule.config.quality)
+                    if not best:
+                        logger.info(f"No {schedule.config.quality} release for {item.title}; skipping")
                         continue
-                    
-                    torrent = matching_torrents[0]
-                    
-                    # Start the download
-                    await torrent_manager.add_torrent(movie, torrent)
-                    downloaded_count += 1
-                    
-                    logger.info(f"Started download for {movie.title} ({schedule.config.quality})")
+                    dl_movie = _DlMovie(title=item.title, year=item.year, genre="")
+                    dl_torrent = _DlTorrent(id=str(_uuid.uuid4()), quality=schedule.config.quality,
+                                            magnet=best.magnet, url=best.magnet,
+                                            sizes=(_human_size(best.bytes), ""))
+                    await torrent_manager.add_torrent(dl_movie, dl_torrent)
+                    downloaded += 1
+                    logger.info(f"Started download for {item.title} ({schedule.config.quality})")
                 except Exception as e:
-                    logger.error(f"Error downloading {movie.title}: {e}")
-            
+                    logger.error(f"Error downloading {item.title}: {e}")
+
             # Update results
-            results["downloads_started"] = downloaded_count
+            results["downloads_started"] = downloaded
             
             # Store log entry
             with get_db() as db:

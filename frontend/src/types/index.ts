@@ -166,11 +166,59 @@ export interface CatalogPage {
   total_results: number;
 }
 
+// --- TV ---
+export interface SeasonSummary {
+  season_number: number;
+  name: string;
+  episode_count: number;
+  overview: string | null;
+  poster_url: string | null;
+  air_date: string | null;
+}
+
+export interface Episode {
+  episode_number: number;
+  name: string;
+  overview: string | null;
+  runtime: number | null;
+  still_url: string | null;
+  air_date: string | null;
+  vote_average: number;
+}
+
+export interface ShowDetail {
+  tmdb_id: number;
+  media_type: 'tv';
+  name: string;
+  year: number | null;
+  overview: string | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  genres: string[];
+  status: string | null;
+  first_air_date: string | null;
+  last_air_date: string | null;
+  number_of_seasons: number;
+  vote_average: number;
+  vote_count: number;
+  seasons: SeasonSummary[];
+}
+
+export interface SeasonDetail {
+  season_number: number;
+  name: string;
+  overview: string | null;
+  episodes: Episode[];
+}
+
 // New tmdb-id download request (the legacy TorrentRequest stays until callers migrate)
 export interface CatalogTorrentRequest {
   tmdb_id: number;
   quality: '720p' | '1080p' | '2160p';
   save_path?: string;
+  media_type?: 'movie' | 'tv';
+  season?: number;
+  episode?: number;
 }
 
 // Browse controls for the new API

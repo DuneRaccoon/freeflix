@@ -206,8 +206,11 @@ function EpisodeRow({
 }
 
 export default function ShowDetailsContent({ show }: ShowDetailsContentProps) {
+  const router = useRouter();
   const [paletteApplied, setPaletteApplied] = useState(false);
   const [palette, setPalette] = useState<{ primary: string; secondary: string; background: string; muted: string; accent: string } | null>(null);
+  const [seasonDownloadQuality, setSeasonDownloadQuality] = useState<'720p' | '1080p' | '2160p'>('1080p');
+  const [seasonDownloading, setSeasonDownloading] = useState(false);
 
   // Find default season: first with season_number >= 1
   const defaultSeason = show.seasons.find((s) => s.season_number >= 1) ?? show.seasons[0] ?? null;
@@ -261,6 +264,56 @@ export default function ShowDetailsContent({ show }: ShowDetailsContentProps) {
       loadSeason(selectedSeason);
     }
   }, [selectedSeason, loadSeason]);
+
+  const handleSeasonDownload = async () => {
+    if (!selectedSeason) return;
+    const seasonNumber = selectedSeason.season_number;
+    try {
+      setSeasonDownloading(true);
+      const torrentStatus = await torrentsService.downloadCatalogMovie({
+        tmdb_id: show.tmdb_id,
+        quality: seasonDownloadQuality,
+        media_type: 'tv',
+        season: seasonNumber,
+      });
+      toast.success(
+        `Season ${seasonNumber} download started (${seasonDownloadQuality})`,
+        {
+          duration: 6000,
+        }
+      );
+      if (torrentStatus?.id) {
+        toast(
+          (t) => (
+            <span>
+              Season pack queued.{' '}
+              <button
+                className="underline font-semibold"
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  router.push(`/streaming/${torrentStatus.id}`);
+                }}
+              >
+                Open
+              </button>
+            </span>
+          ),
+          { duration: 8000 }
+        );
+      }
+    } catch (error: any) {
+      console.error('Error downloading season:', error);
+      const status = error?.response?.status;
+      const detail = error?.response?.data?.detail;
+      if (status === 422 && detail) {
+        toast.error(`No season pack found: ${detail}`);
+      } else {
+        toast.error('Failed to start season download');
+      }
+    } finally {
+      setTimeout(() => setSeasonDownloading(false), 2000);
+    }
+  };
 
   const backdropImage = show.backdrop_url || show.poster_url;
 
@@ -466,6 +519,39 @@ export default function ShowDetailsContent({ show }: ShowDetailsContentProps) {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Download whole season */}
+            {selectedSeason && (
+              <div
+                className="flex flex-wrap items-center gap-3 mb-6 p-3 rounded-lg border border-gray-700/50 bg-gray-800/30"
+                style={{ borderColor: palette ? `${palette.muted}44` : undefined }}
+              >
+                <span className="text-sm font-medium text-gray-300 mr-1">
+                  Download season pack:
+                </span>
+                <select
+                  value={seasonDownloadQuality}
+                  onChange={(e) =>
+                    setSeasonDownloadQuality(e.target.value as '720p' | '1080p' | '2160p')
+                  }
+                  className="text-xs bg-gray-700 border border-gray-600 rounded px-1.5 py-0.5 text-gray-200"
+                >
+                  <option value="720p">720p</option>
+                  <option value="1080p">1080p</option>
+                  <option value="2160p">2160p</option>
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />}
+                  onClick={handleSeasonDownload}
+                  isLoading={seasonDownloading}
+                  className="text-xs px-3 py-1 h-auto"
+                >
+                  Download whole season
+                </Button>
               </div>
             )}
 

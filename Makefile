@@ -13,8 +13,8 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-up: ## Start the full stack in dev mode, hot reload (d=1 for detached)
-	$(COMPOSE) up $(if $(d),-d,)
+up: ## Build + start the full stack in dev mode, hot reload (d=1 for detached)
+	$(COMPOSE) up --build $(if $(d),-d,)
 
 prod: ## Build + start the production stack (no dev override)
 	$(PROD_COMPOSE) up --build -d

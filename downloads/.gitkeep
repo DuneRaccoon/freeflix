@@ -1,0 +1,2 @@
+# Keeps the bind-mount source dir present on a fresh clone.
+# Downloaded media is gitignored; this file is not.

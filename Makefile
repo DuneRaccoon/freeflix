@@ -7,7 +7,7 @@ s ?=
 d ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help up prod down build logs ps restart sh db test lint clean install
+.PHONY: help up prod down build logs ps restart sh db test clean install
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -42,9 +42,6 @@ db: ## Open psql in the database
 
 test: ## Run backend tests in-container
 	$(COMPOSE) run --rm backend python -m pytest
-
-lint: ## Lint the frontend
-	$(COMPOSE) run --rm frontend npm run lint
 
 clean: ## Stop, remove volumes/orphans, prune images, delete stray .DS_Store
 	$(COMPOSE) down -v --remove-orphans

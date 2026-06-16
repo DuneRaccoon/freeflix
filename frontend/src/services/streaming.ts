@@ -1,20 +1,31 @@
 // frontend/src/services/streaming.ts
 import apiClient from './api-client';
-import { StreamingInfo, StreamingProgress  } from '@/types';
+import { StreamingInfo, StreamingProgress, VideoFile } from '@/types';
 
 export const streamingService = {
   // Get streaming information for a torrent
-  getStreamingInfo: async (torrentId?: string | null): Promise<StreamingInfo | null> => {
+  getStreamingInfo: async (torrentId?: string | null, fileIndex?: number): Promise<StreamingInfo | null> => {
     if (!torrentId) return null;
-    const response = await apiClient.get(`/streaming/${torrentId}/info`);
+    const params = fileIndex !== undefined ? { file_index: fileIndex } : undefined;
+    const response = await apiClient.get(`/streaming/${torrentId}/info`, params !== undefined ? { params } : undefined);
     return response.data;
   },
 
   // Get the streaming URL for a torrent
-  getStreamingUrl: (torrentId?: string | null, quality?: string): string | null => {
+  getStreamingUrl: (torrentId?: string | null, quality?: string, fileIndex?: number): string | null => {
     if (!torrentId) return null;
     const baseUrl = `/api/v1/streaming/${torrentId}/video`;
-    return quality ? `${baseUrl}?quality=${quality}` : baseUrl;
+    const params = new URLSearchParams();
+    if (quality) params.set('quality', quality);
+    if (fileIndex !== undefined) params.set('file_index', String(fileIndex));
+    const qs = params.toString();
+    return qs ? `${baseUrl}?${qs}` : baseUrl;
+  },
+
+  // Get the list of video files in a torrent
+  getFiles: async (torrentId: string): Promise<VideoFile[]> => {
+    const response = await apiClient.get(`/streaming/${torrentId}/files`);
+    return response.data;
   },
 
   // Check if a torrent is ready for streaming

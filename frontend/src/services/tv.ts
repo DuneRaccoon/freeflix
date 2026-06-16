@@ -26,4 +26,9 @@ export const tvService = {
     const response = await apiClient.get(`/tv/${tmdbId}/season/${season}/episode/${episode}/torrents`);
     return response.data;
   },
+
+  getSeasonTorrents: async (tmdbId: number, season: number): Promise<TorrentHit[]> => {
+    const response = await apiClient.get(`/tv/${tmdbId}/season/${season}/torrents`);
+    return response.data;
+  },
 };

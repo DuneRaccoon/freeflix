@@ -211,6 +211,18 @@ export interface SeasonDetail {
   episodes: Episode[];
 }
 
+export interface VideoFile {
+  index: number;
+  name: string;
+  size: number;
+  downloaded: number;
+  progress: number;
+  mime_type: string;
+  stream_url: string;
+  season: number | null;
+  episode: number | null;
+}
+
 // New tmdb-id download request (the legacy TorrentRequest stays until callers migrate)
 export interface CatalogTorrentRequest {
   tmdb_id: number;

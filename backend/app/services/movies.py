@@ -66,12 +66,20 @@ async def detail(tmdb_id: int) -> Optional[MovieDetail]:
     hits = await catalog.torrents(name)
     base.available_qualities = available_qualities(hits)
 
+    # Upsert the base item first so even a never-browsed id (e.g. a direct deep
+    # link enriched via TMDB) gets cached, avoiding a re-fetch on the next load.
     try:
         with get_db() as db:
-            row = CatalogItemCache.get_one(db, "movie", tmdb_id)
-            if row:
-                row.set_detail(db, base.model_dump())
-                row.set_torrents(db, [h.model_dump() for h in hits])
+            row = CatalogItemCache.upsert_list_item(
+                db, tmdb_id=base.tmdb_id, media_type="movie",
+                title=base.title, year=base.year, overview=base.overview,
+                poster_url=base.poster_url, backdrop_url=base.backdrop_url,
+                genre_ids=base.genre_ids, genres=base.genres,
+                vote_average=base.vote_average, vote_count=base.vote_count,
+                popularity=base.popularity, original_language=base.original_language,
+            )
+            row.set_detail(db, base.model_dump())
+            row.set_torrents(db, [h.model_dump() for h in hits])
     except Exception as e:
         logger.error(f"Failed to persist movie detail {tmdb_id}: {e}")
     return base
@@ -79,14 +87,14 @@ async def detail(tmdb_id: int) -> Optional[MovieDetail]:
 
 async def get_torrents(tmdb_id: int):
     """Return parsed torrent hits for a movie (by cached title/year or TMDB fallback)."""
-    title, year = await _resolve_title_year(tmdb_id)
+    title, year = await resolve_title_year(tmdb_id)
     if not title:
         return []
     name = f"{title} {year}".strip() if year else title
     return await catalog.torrents(name)
 
 
-async def _resolve_title_year(tmdb_id: int):
+async def resolve_title_year(tmdb_id: int):
     cached = _cached_item(tmdb_id)
     if cached:
         return cached.title, cached.year

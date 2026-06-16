@@ -46,7 +46,7 @@ router = APIRouter()
 async def download_movie(request: TorrentRequest, background_tasks: BackgroundTasks):
     """Start downloading a movie by TMDB id at the requested quality bucket."""
     try:
-        title, year = await movie_service._resolve_title_year(request.tmdb_id)
+        title, year = await movie_service.resolve_title_year(request.tmdb_id)
         if not title:
             raise HTTPException(status_code=404, detail="Movie not found")
 

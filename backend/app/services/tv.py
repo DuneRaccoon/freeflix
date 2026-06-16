@@ -78,3 +78,10 @@ async def episode_torrents(tmdb_id: int, season: int, episode: int):
     if not show:
         return []
     return await catalog.torrents(f"{show} S{season:02d}E{episode:02d}")
+
+
+async def season_torrents(tmdb_id: int, season: int):
+    show = await resolve_show_name(tmdb_id)
+    if not show:
+        return []
+    return await catalog.torrents(f"{show} S{season:02d}")

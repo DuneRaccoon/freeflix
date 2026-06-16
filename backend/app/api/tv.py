@@ -44,3 +44,9 @@ async def season_detail(tmdb_id: int = Path(..., ge=1), season: int = Path(..., 
 async def episode_torrents(tmdb_id: int = Path(..., ge=1), season: int = Path(..., ge=0),
                            episode: int = Path(..., ge=1)):
     return await tv_service.episode_torrents(tmdb_id, season, episode)
+
+
+@router.get("/{tmdb_id}/season/{season}/torrents",
+            response_model=List[TorrentHit], summary="Season-pack torrents")
+async def season_torrents(tmdb_id: int = Path(..., ge=1), season: int = Path(..., ge=0)):
+    return await tv_service.season_torrents(tmdb_id, season)

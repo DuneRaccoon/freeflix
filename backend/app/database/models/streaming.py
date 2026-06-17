@@ -22,7 +22,9 @@ class UserStreamingProgress(Model):
     duration = Column(Float, nullable=True)  # Total duration in seconds
     percentage = Column(Float, nullable=False, default=0.0)  # Progress percentage
     completed = Column(Boolean, nullable=False, default=False)  # Whether the user has finished watching
-    
+    file_index = Column(Integer, nullable=True)  # which file in a (multi-file) torrent
+    title = Column(String, nullable=True)        # human display title, e.g. "The Boys S01E03"
+
     # Additional metadata
     last_watched_at = Column(DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc))
     

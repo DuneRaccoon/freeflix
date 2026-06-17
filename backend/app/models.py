@@ -457,6 +457,8 @@ class StreamingProgressCreate(BaseModel):
     duration: Optional[float] = None
     percentage: float
     completed: bool = False
+    file_index: Optional[int] = None
+    title: Optional[str] = None
 
 class StreamingProgressUpdate(BaseModel):
     current_time: float
@@ -468,7 +470,7 @@ class StreamingProgressResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
     )
-    
+
     id: str
     user_id: str
     torrent_id: str
@@ -480,3 +482,5 @@ class StreamingProgressResponse(BaseModel):
     last_watched_at: datetime
     created_at: datetime
     updated_at: datetime
+    file_index: Optional[int] = None
+    title: Optional[str] = None

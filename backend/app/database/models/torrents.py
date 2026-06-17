@@ -23,7 +23,13 @@ class Torrent(Model):
     url = Column(String, nullable=False)
     save_path = Column(String, nullable=False)
     sizes = Column(JSON, nullable=True)
-    
+
+    # Media identity (for content_id / continue-watching)
+    tmdb_id = Column(Integer, nullable=True, index=True)
+    media_type = Column(String, nullable=True)   # 'movie' | 'tv'
+    season = Column(Integer, nullable=True)
+    episode = Column(Integer, nullable=True)
+
     # Status information
     state = Column(String, nullable=False, default="queued")
     progress = Column(Float, nullable=False, default=0.0)

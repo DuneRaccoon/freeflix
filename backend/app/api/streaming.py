@@ -248,24 +248,25 @@ async def create_streaming_progress(
         if not torrent:
             raise HTTPException(status_code=404, detail="Torrent not found")
         
-        # Check if progress already exists for this user and torrent
-        existing_progress = UserStreamingProgress.get_by_torrent_and_user(
-            session, progress.torrent_id, user_id
+        # Upsert by (content_id, user): one row per movie/episode, even for a
+        # season pack whose many episodes share a single torrent_id.
+        existing_progress = UserStreamingProgress.get_by_movie_and_user(
+            session, progress.movie_id, user_id
         )
-        
+
         if existing_progress:
-            # Update existing progress
+            existing_progress.torrent_id = progress.torrent_id
             existing_progress.current_time = progress.current_time
             existing_progress.duration = progress.duration
             existing_progress.percentage = progress.percentage
             existing_progress.completed = progress.completed
+            existing_progress.file_index = progress.file_index
+            existing_progress.title = progress.title
             existing_progress.last_watched_at = datetime.datetime.now()
-            
             session.commit()
             session.refresh(existing_progress)
             return StreamingProgressCreate(**existing_progress.to_dict())
         else:
-            # Create new progress entry
             new_progress = UserStreamingProgress(
                 user_id=user_id,
                 torrent_id=progress.torrent_id,
@@ -273,9 +274,10 @@ async def create_streaming_progress(
                 current_time=progress.current_time,
                 duration=progress.duration,
                 percentage=progress.percentage,
-                completed=progress.completed
+                completed=progress.completed,
+                file_index=progress.file_index,
+                title=progress.title,
             )
-            
             session.add(new_progress)
             session.commit()
             session.refresh(new_progress)

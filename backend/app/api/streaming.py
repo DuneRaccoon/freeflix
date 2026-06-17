@@ -265,7 +265,7 @@ async def create_streaming_progress(
             existing_progress.last_watched_at = datetime.datetime.now()
             session.commit()
             session.refresh(existing_progress)
-            return StreamingProgressCreate(**existing_progress.to_dict())
+            return StreamingProgressResponse(**existing_progress.to_dict())
         else:
             new_progress = UserStreamingProgress(
                 user_id=user_id,
@@ -281,7 +281,7 @@ async def create_streaming_progress(
             session.add(new_progress)
             session.commit()
             session.refresh(new_progress)
-            return StreamingProgressCreate(**new_progress.to_dict())
+            return StreamingProgressResponse(**new_progress.to_dict())
 
 @router.put("/progress/{user_id}/{progress_id}", response_model=StreamingProgressResponse)
 async def update_streaming_progress(

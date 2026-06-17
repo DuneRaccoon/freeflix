@@ -284,7 +284,8 @@ class ScheduleManager:
                     if not best:
                         logger.info(f"No {schedule.config.quality} release for {item.title}; skipping")
                         continue
-                    dl_movie = _DlMovie(title=item.title, year=item.year, genre="")
+                    dl_movie = _DlMovie(title=item.title, year=item.year, genre="",
+                                        tmdb_id=item.tmdb_id, media_type="movie")
                     dl_torrent = _DlTorrent(id=str(_uuid.uuid4()), quality=schedule.config.quality,
                                             magnet=best.magnet, url=best.magnet,
                                             sizes=(_human_size(best.bytes), ""))

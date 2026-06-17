@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect as sa_inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
@@ -119,9 +119,47 @@ def close_thread_sessions():
                 logger.error(f"Error closing session: {e}")
         _thread_local.sessions.clear()
 
+def sync_columns(engine_, tables=None):
+    """Lightweight additive migration: add any model columns missing from already-existing
+    tables.
+
+    ``create_all`` only creates tables that don't yet exist — it never alters an existing
+    table. With no migration framework in the project, columns added to a model after a table
+    was first created would otherwise be invisible to the database, causing runtime errors on
+    any query that touches them. This bridges that gap by issuing ``ALTER TABLE ... ADD COLUMN``
+    for each missing column.
+
+    It only ever ADDs columns (never drops or alters), so it is safe to run on every startup
+    and is idempotent. Brand-new tables are skipped here — ``create_all`` handles those.
+    """
+    if tables is None:
+        tables = Base.metadata.sorted_tables
+
+    inspector = sa_inspect(engine_)
+    existing_tables = set(inspector.get_table_names())
+
+    for table in tables:
+        if table.name not in existing_tables:
+            continue  # create_all will/has created the whole table with all columns
+        existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing_cols:
+                continue
+            try:
+                col_type = column.type.compile(dialect=engine_.dialect)
+                with engine_.begin() as conn:
+                    conn.execute(text(
+                        f'ALTER TABLE {table.name} ADD COLUMN {column.name} {col_type}'
+                    ))
+                logger.info(f"Added missing column {table.name}.{column.name} ({col_type})")
+            except Exception as e:
+                logger.warning(f"Could not add column {table.name}.{column.name}: {e}")
+
 def init_db():
     """Initialize the database tables."""
     Base.metadata.create_all(bind=engine)
+    # Apply additive column migrations for tables that pre-date newer model columns.
+    sync_columns(engine)
     logger.info("Database tables created")
 
 # Decorator for safely handling database operations in async functions

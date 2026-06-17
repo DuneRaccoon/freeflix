@@ -30,6 +30,10 @@ class _DlMovie:
     title: str
     year: _Optional[int]
     genre: str
+    tmdb_id: _Optional[int] = None
+    media_type: str = "movie"
+    season: _Optional[int] = None
+    episode: _Optional[int] = None
 
 
 @dataclass
@@ -74,7 +78,11 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
                 detail=f"No {request.quality} release found. Available: {avail or 'none'}",
             )
 
-        dl_movie = _DlMovie(title=label, year=year, genre="")
+        dl_movie = _DlMovie(
+            title=label, year=year, genre="",
+            tmdb_id=request.tmdb_id, media_type=request.media_type,
+            season=request.season, episode=request.episode,
+        )
         dl_torrent = _DlTorrent(
             id=str(_uuid.uuid4()),
             quality=request.quality,

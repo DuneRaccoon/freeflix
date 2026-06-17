@@ -584,7 +584,11 @@ class TorrentManager:
                     save_path=str(save_path),
                     sizes=torrent.sizes,
                     state='queued',
-                    meta_data=metadata
+                    meta_data=metadata,
+                    tmdb_id=getattr(movie, "tmdb_id", None),
+                    media_type=getattr(movie, "media_type", "movie"),
+                    season=getattr(movie, "season", None),
+                    episode=getattr(movie, "episode", None),
                 )
                 
                 db.add(new_torrent)

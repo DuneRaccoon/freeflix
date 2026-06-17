@@ -18,6 +18,7 @@ from app.models import StreamingProgressCreate, StreamingProgressUpdate, Streami
 
 from app.torrent.manager import torrent_manager
 from app.providers.episodes import parse_episode
+from app.services.content_id import build_content_id
 from app.models import VideoFile
 
 router = APIRouter()
@@ -161,7 +162,21 @@ async def get_video_info(
     
     # Get file MIME type
     mime_type = get_mime_type(video_info["path"])
-    
+
+    # Resolve the watch identity (content_id) for progress / continue-watching.
+    content_id = None
+    season = episode = None
+    with get_db() as db:
+        row = db.query(Torrent).filter(Torrent.id == torrent_id).first()
+        if row:
+            season, episode = row.season, row.episode
+            # Season pack (no per-episode on the torrent): derive from the streamed file.
+            if row.media_type == "tv" and episode is None:
+                ep = parse_episode(video_info["name"])
+                if ep:
+                    season, episode = ep
+            content_id = build_content_id(row.media_type, row.tmdb_id, season, episode)
+
     # Return combined information
     return {
         "torrent_id": torrent_id,
@@ -179,6 +194,10 @@ async def get_video_info(
                 + (f"?file_index={file_index}" if file_index is not None else "")
             ),
         },
+        "content_id": content_id,
+        "season": season,
+        "episode": episode,
+        "file_index": file_index if file_index is not None else video_info.get("index"),
         "total_progress": torrent_status.progress,
         "state": torrent_status.state
     }

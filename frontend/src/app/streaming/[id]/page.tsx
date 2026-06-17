@@ -404,6 +404,9 @@ export default function StreamingPage() {
             torrentId={torrentId}
             torrentInfo={torrentStatus}
             movieId={torrentStatus.movie_title}
+            contentId={streamingInfo.content_id ?? undefined}
+            fileIndex={effectiveFileIndex}
+            title={torrentStatus.movie_title ?? streamingInfo.video_file.name}
             movieTitle={torrentStatus.movie_title}
             subtitle={`${torrentStatus.quality} • ${streamingInfo.video_file.name}`}
             onError={handleVideoError}

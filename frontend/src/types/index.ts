@@ -346,6 +346,10 @@ export interface StreamingInfo {
   video_file: VideoFileInfo;
   total_progress: number;
   state: string;
+  content_id?: string | null;
+  season?: number | null;
+  episode?: number | null;
+  file_index?: number | null;
 }
 
 export interface StreamingProgress {
@@ -360,6 +364,8 @@ export interface StreamingProgress {
   last_watched_at: string;
   created_at: string;
   updated_at: string;
+  file_index?: number | null;
+  title?: string | null;
 }
 
 export interface PlayerState {

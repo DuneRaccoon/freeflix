@@ -14,6 +14,9 @@ interface PatchedVideoPlayerProps {
   torrentId: string;
   torrentInfo?: TorrentStatus;
   movieId: string;
+  contentId?: string;
+  fileIndex?: number;
+  title?: string;
   movieTitle?: string;
   subtitle?: string;
   poster?: string;
@@ -27,6 +30,9 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   torrentId,
   torrentInfo,
   movieId,
+  contentId,
+  fileIndex,
+  title,
   movieTitle,
   subtitle,
   poster,
@@ -34,6 +40,8 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   downloadProgress = 0,
   streamingInfo
 }) => {
+  // Prefer the stable content_id; fall back to the legacy title-based movieId
+  const effectiveMovieId = contentId ?? movieId;
   const { currentUser } = useUser();
   const { updateLocalProgress } = useProgress();
   const [savedProgress, setSavedProgress] = useState<StreamingProgress | null>(null);
@@ -94,17 +102,20 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
       }
 
       try {
-        // Try to get progress by torrent first
-        let progress = await streamingService.getProgressByTorrent(
-          currentUser.id,
-          torrentId
-        );
-        
-        // If no progress found by torrent, try by movie
-        if (!progress) {
+        // Prefer lookup by the stable content_id (effectiveMovieId) so per-episode
+        // progress is found even for season packs. Fall back to torrent lookup only
+        // when no stable id is available.
+        let progress: StreamingProgress | null = null;
+        if (effectiveMovieId) {
           progress = await streamingService.getProgressByMovie(
             currentUser.id,
-            movieId
+            effectiveMovieId
+          );
+        }
+        if (!progress) {
+          progress = await streamingService.getProgressByTorrent(
+            currentUser.id,
+            torrentId
           );
         }
         
@@ -122,17 +133,17 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     };
 
     fetchProgress();
-  }, [currentUser, torrentId, movieId]);
-  
+  }, [currentUser, torrentId, effectiveMovieId]);
+
   // Setup and cleanup progress saving interval
   useEffect(() => {
     if (!currentUser) return;
-    
+
     // Save progress every 30 seconds
     saveIntervalRef.current = setInterval(() => {
       saveCurrentProgress();
     }, 30000);
-    
+
     return () => {
       if (saveIntervalRef.current) {
         clearInterval(saveIntervalRef.current);
@@ -140,7 +151,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
       // Save progress on unmount
       saveCurrentProgress(true);
     };
-  }, [currentUser, torrentId, movieId, progressId]);
+  }, [currentUser, torrentId, effectiveMovieId, progressId]);
   
   // Save progress when user navigates away or closes browser
   useEffect(() => {
@@ -176,11 +187,13 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
       try {
         const progressData = {
           torrent_id: torrentId,
-          movie_id: movieId,
+          movie_id: effectiveMovieId,
           current_time: durationRef.current,
           duration: durationRef.current,
           percentage: 100,
-          completed: true
+          completed: true,
+          ...(fileIndex !== undefined ? { file_index: fileIndex } : {}),
+          ...(title !== undefined ? { title } : {}),
         };
         
         if (progressId) {
@@ -213,7 +226,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     };
     
     saveCompletedProgress();
-  }, [currentUser, torrentId, movieId, progressId, updateLocalProgress]);
+  }, [currentUser, torrentId, effectiveMovieId, fileIndex, title, progressId, updateLocalProgress]);
   
   // Save current progress
   const saveCurrentProgress = async (forceSave: boolean = false) => {
@@ -244,13 +257,15 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
       
       const progressData = {
         torrent_id: torrentId,
-        movie_id: movieId,
+        movie_id: effectiveMovieId,
         current_time: currentTime,
         duration: duration > 0 ? duration : null,
         percentage,
-        completed
+        completed,
+        ...(fileIndex !== undefined ? { file_index: fileIndex } : {}),
+        ...(title !== undefined ? { title } : {}),
       };
-      
+
       if (progressId) {
         const updatedProgress = await streamingService.updateProgress(
           currentUser.id,
@@ -262,7 +277,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             completed
           }
         );
-        
+
         // Update local progress context
         updateLocalProgress(updatedProgress);
       } else {
@@ -271,7 +286,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
           progressData
         );
         setProgressId(newProgress.id);
-        
+
         // Update local progress context
         updateLocalProgress(newProgress);
       }

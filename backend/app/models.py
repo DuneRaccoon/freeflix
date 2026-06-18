@@ -505,3 +505,10 @@ class WatchlistItemResponse(BaseModel):
     title: Optional[str] = None
     added_at: datetime
     created_at: datetime
+
+
+# Activity models
+class ActivityCountResponse(BaseModel):
+    """Active-download summary returned by GET /api/v1/activity/count."""
+    active_downloads: int
+    aggregate_progress: float  # 0.0–100.0, mean progress across active torrents

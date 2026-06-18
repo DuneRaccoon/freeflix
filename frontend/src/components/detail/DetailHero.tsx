@@ -114,14 +114,16 @@ const DetailHero: React.FC<DetailHeroProps> = ({
     <section
       className={cn(
         // Bleed under the fixed nav (nav is 72px tall)
-        '-mt-[72px] relative w-full min-h-[92vh] flex items-end',
-        'pb-[clamp(40px,6vw,80px)] px-[clamp(28px,5vw,56px)]',
+        '-mt-[72px] relative w-full',
+        // Desktop/tablet: full-bleed cinematic billboard with content bottom-aligned
+        'sm:min-h-[92vh] sm:flex sm:items-end',
+        'sm:pb-[clamp(40px,6vw,80px)] sm:px-[clamp(28px,5vw,56px)]',
       )}
       aria-label={`${title} hero`}
     >
-      {/* ── Backdrop ── */}
+      {/* ── Desktop backdrop (full-bleed background) ── hidden on mobile ── */}
       <div
-        className="absolute inset-0 -z-20 bg-ink overflow-hidden"
+        className="hidden sm:block absolute inset-0 -z-20 bg-ink overflow-hidden"
         aria-hidden="true"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -142,9 +144,9 @@ const DetailHero: React.FC<DetailHeroProps> = ({
         />
       </div>
 
-      {/* ── AA scrims — horizontal + vertical ── */}
+      {/* ── Desktop AA scrims — horizontal + vertical ── hidden on mobile ── */}
       <div
-        className="absolute inset-0 -z-10 pointer-events-none"
+        className="hidden sm:block absolute inset-0 -z-10 pointer-events-none"
         aria-hidden="true"
         style={{
           background: [
@@ -154,9 +156,37 @@ const DetailHero: React.FC<DetailHeroProps> = ({
         }}
       />
 
-      {/* ── Hero inner ── */}
-      <div className="flex gap-[clamp(28px,4vw,60px)] items-end w-full">
-        {/* Poster inset — hidden on mobile */}
+      {/* ── Mobile media image (top), with a fade ~halfway down ── sm:hidden ── */}
+      <div className="sm:hidden relative w-full" aria-hidden="true">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={posterUrl ?? backdropUrl ?? POSTER_PLACEHOLDER}
+          alt=""
+          loading="eager"
+          decoding="async"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = POSTER_PLACEHOLDER;
+          }}
+          className="w-full h-[68vh] object-cover object-top"
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'linear-gradient(to bottom, transparent 34%, rgba(10,10,11,.45) 54%, rgba(10,10,11,.88) 80%, var(--color-ink) 100%)',
+          }}
+        />
+      </div>
+
+      {/* ── Hero inner ── on mobile, pulled up over the image's lower fade ── */}
+      <div
+        className={cn(
+          'relative z-[1] flex w-full gap-[clamp(28px,4vw,60px)]',
+          'px-6 -mt-[40vh] pb-10',
+          'sm:items-end sm:px-0 sm:mt-0 sm:pb-0',
+        )}
+      >
+        {/* Poster inset — desktop only */}
         <div
           className={cn(
             'hidden sm:block flex-none',
@@ -178,7 +208,7 @@ const DetailHero: React.FC<DetailHeroProps> = ({
         </div>
 
         {/* Text + actions */}
-        <div className="flex-1 max-w-[760px] pb-[6px]">
+        <div className="flex-1 max-w-[760px] sm:pb-[6px]">
           {/* Eyebrow */}
           {eyebrow && (
             <p

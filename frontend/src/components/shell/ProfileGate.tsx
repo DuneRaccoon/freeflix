@@ -67,6 +67,17 @@ const ProfileGate: React.FC = () => {
               <span className="font-ui text-sm tracking-wide text-muted transition-colors group-hover:text-text">{u.display_name}</span>
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => { /* TODO-Phase: open create-profile flow */ }}
+            className="group flex flex-col items-center gap-3 focus:outline-none"
+            aria-label="Add profile"
+          >
+            <span className="grid h-[clamp(110px,13vw,150px)] w-[clamp(110px,13vw,150px)] place-items-center rounded-[22px] border border-dashed border-hairline text-4xl text-muted transition-colors duration-300 group-hover:border-gold group-hover:text-gold group-focus-visible:border-gold group-focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]">
+              <span aria-hidden="true">+</span>
+            </span>
+            <span className="font-ui text-sm tracking-wide text-muted transition-colors group-hover:text-text">Add Profile</span>
+          </button>
         </div>
       </div>
 

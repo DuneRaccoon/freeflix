@@ -15,6 +15,11 @@ import userEvent from '@testing-library/user-event';
 import ResultsGrid from './ResultsGrid';
 import type { CatalogItem } from '@/types';
 
+// Mock WatchlistContext so PosterCard (used inside ResultsGrid) can render without a real provider.
+vi.mock('@/context/WatchlistContext', () => ({
+  useWatchlist: () => ({ isSaved: () => false, toggle: vi.fn() }),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

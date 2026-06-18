@@ -17,6 +17,11 @@ import type { MovieDetail, TorrentHit, CatalogItem } from '@/types';
 
 // ── module mocks ──────────────────────────────────────────────────────────────
 
+// Mock WatchlistContext so MovieDetailView (and PosterCard) can render without a real provider.
+vi.mock('@/context/WatchlistContext', () => ({
+  useWatchlist: () => ({ isSaved: () => false, toggle: vi.fn() }),
+}));
+
 // Mock next/navigation
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({

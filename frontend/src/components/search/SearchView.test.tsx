@@ -27,6 +27,14 @@ vi.mock('next/navigation', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock WatchlistContext so PosterCard (used inside SearchView) can render without a real provider.
+// ---------------------------------------------------------------------------
+
+vi.mock('@/context/WatchlistContext', () => ({
+  useWatchlist: () => ({ isSaved: () => false, toggle: vi.fn() }),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock services
 // ---------------------------------------------------------------------------
 

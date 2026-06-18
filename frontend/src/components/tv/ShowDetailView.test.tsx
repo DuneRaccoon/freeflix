@@ -17,6 +17,11 @@ import type { ShowDetail, SeasonDetail, CatalogItem } from '@/types';
 
 // ── module mocks ──────────────────────────────────────────────────────────────
 
+// Mock WatchlistContext so ShowDetailView (and PosterCard) can render without a real provider.
+vi.mock('@/context/WatchlistContext', () => ({
+  useWatchlist: () => ({ isSaved: () => false, toggle: vi.fn() }),
+}));
+
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),

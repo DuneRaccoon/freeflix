@@ -8,10 +8,21 @@
  *  - missing poster_url → graceful placeholder (no broken img)
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import PosterCard from './PosterCard';
 import type { CatalogItem } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Mock WatchlistContext so PosterCard can render without a real provider.
+// ---------------------------------------------------------------------------
+const mockToggle = vi.fn();
+const mockIsSaved = vi.fn(() => false);
+
+vi.mock('@/context/WatchlistContext', () => ({
+  useWatchlist: () => ({ isSaved: mockIsSaved, toggle: mockToggle }),
+}));
 
 const movieItem: CatalogItem = {
   tmdb_id: 693134,
@@ -134,6 +145,44 @@ describe('PosterCard', () => {
       const infoLinks = screen.getAllByRole('link', { name: /More info about/i });
       expect(infoLinks.length).toBeGreaterThan(0);
       expect(infoLinks[0]).toHaveAttribute('href', '/movies/693134');
+    });
+
+    it('renders the Add to My List button (unsaved state)', () => {
+      mockIsSaved.mockReturnValue(false);
+      render(<PosterCard item={movieItem} />);
+      expect(
+        screen.getByRole('button', { name: /Add .* to My List/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('shows Remove from My List when item is saved', () => {
+      mockIsSaved.mockReturnValue(true);
+      render(<PosterCard item={movieItem} />);
+      expect(
+        screen.getByRole('button', { name: /Remove .* from My List/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('calls toggle with correct content_id for a movie', async () => {
+      mockIsSaved.mockReturnValue(false);
+      mockToggle.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<PosterCard item={movieItem} />);
+      await user.click(screen.getByTestId('postercard-mylist-button'));
+      expect(mockToggle).toHaveBeenCalledWith(
+        expect.objectContaining({ content_id: 'movie:693134', media_type: 'movie' }),
+      );
+    });
+
+    it('calls toggle with tv content_id for a tv item', async () => {
+      mockIsSaved.mockReturnValue(false);
+      mockToggle.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<PosterCard item={tvItem} />);
+      await user.click(screen.getByTestId('postercard-mylist-button'));
+      expect(mockToggle).toHaveBeenCalledWith(
+        expect.objectContaining({ content_id: 'tv:84958', media_type: 'tv' }),
+      );
     });
   });
 

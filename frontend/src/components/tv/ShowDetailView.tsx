@@ -24,6 +24,7 @@ import { ShowDetail, SeasonDetail, CatalogItem, GENRE_OPTIONS } from '@/types';
 import { tvService } from '@/services/tv';
 import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
+import { useWatchlist } from '@/context/WatchlistContext';
 
 import DetailHero from '@/components/detail/DetailHero';
 import EpisodeList from '@/components/tv/EpisodeList';
@@ -84,6 +85,23 @@ function PlusIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="w-[20px] h-[20px]"
+    >
+      <path d="M4.5 12.5l5.5 5.5 9.5-10" />
+    </svg>
+  );
+}
+
 function PackageIcon() {
   return (
     <svg
@@ -125,6 +143,21 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<CatalogItem[]>([]);
+
+  // ── watchlist ──────────────────────────────────────────────────────────────
+  const { isSaved, toggle } = useWatchlist();
+  // Show-level content_id uses tv:{tmdb_id} (no season/episode for hub level)
+  const contentId = `tv:${show.tmdb_id}`;
+  const saved = isSaved(contentId);
+
+  function handleMyList() {
+    toggle({
+      content_id: contentId,
+      tmdb_id: String(show.tmdb_id),
+      media_type: 'tv',
+      title: show.name,
+    });
+  }
 
   // ── on mount: fetch "more like this" ───────────────────────────────────────
   useEffect(() => {
@@ -297,21 +330,25 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
             Download Season
           </Button>
 
-          {/* My List — icon circle (no-op placeholder) */}
+          {/* My List — icon circle, wired to WatchlistContext */}
           <button
             type="button"
-            aria-label="Add to My List"
-            title="Add to My List"
+            aria-label={saved ? 'Remove from My List' : 'Add to My List'}
+            title={saved ? 'Remove from My List' : 'Add to My List'}
             data-testid="show-mylist-button"
+            onClick={handleMyList}
             className={cn(
               'w-[54px] h-[54px] rounded-full grid place-items-center cursor-pointer',
-              'border border-hairline bg-surface-2/50 text-text',
-              'transition-[border-color,color,transform] duration-200',
-              'hover:border-gold hover:text-gold-lite hover:-translate-y-[2px]',
+              'border',
+              'transition-[border-color,color,transform,background-color] duration-200',
+              'hover:-translate-y-[2px]',
               'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+              saved
+                ? 'bg-gold/20 text-gold border-gold/60 hover:bg-gold/30'
+                : 'bg-surface-2/50 text-text border-hairline hover:border-gold hover:text-gold-lite',
             )}
           >
-            <PlusIcon />
+            {saved ? <CheckIcon /> : <PlusIcon />}
           </button>
         </div>
       </DetailHero>

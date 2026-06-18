@@ -25,6 +25,7 @@ import { MovieDetail, TorrentHit, CatalogItem } from '@/types';
 import { moviesService } from '@/services/movies';
 import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
+import { useWatchlist } from '@/context/WatchlistContext';
 
 import DetailHero from '@/components/detail/DetailHero';
 import SourcePicker from '@/components/detail/SourcePicker';
@@ -131,6 +132,23 @@ function PlusIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="w-[20px] h-[20px]"
+    >
+      <path d="M4.5 12.5l5.5 5.5 9.5-10" />
+    </svg>
+  );
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export interface MovieDetailViewProps {
@@ -146,6 +164,20 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<CatalogItem[]>([]);
+
+  // ── watchlist ──────────────────────────────────────────────────────────────
+  const { isSaved, toggle } = useWatchlist();
+  const contentId = `movie:${movie.tmdb_id}`;
+  const saved = isSaved(contentId);
+
+  function handleMyList() {
+    toggle({
+      content_id: contentId,
+      tmdb_id: String(movie.tmdb_id),
+      media_type: 'movie',
+      title: movie.title,
+    });
+  }
 
   // ── on mount: fetch torrents + "more like this" ────────────────────────────
   useEffect(() => {
@@ -294,21 +326,25 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
             Download
           </Button>
 
-          {/* My List — icon circle (no-op placeholder) */}
+          {/* My List — icon circle, wired to WatchlistContext */}
           <button
             type="button"
-            aria-label="Add to My List"
-            title="Add to My List"
+            aria-label={saved ? 'Remove from My List' : 'Add to My List'}
+            title={saved ? 'Remove from My List' : 'Add to My List'}
             data-testid="movie-mylist-button"
+            onClick={handleMyList}
             className={cn(
               'w-[54px] h-[54px] rounded-full grid place-items-center cursor-pointer',
-              'border border-hairline bg-surface-2/50 text-text',
-              'transition-[border-color,color,transform] duration-200',
-              'hover:border-gold hover:text-gold-lite hover:-translate-y-[2px]',
+              'border',
+              'transition-[border-color,color,transform,background-color] duration-200',
+              'hover:-translate-y-[2px]',
               'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+              saved
+                ? 'bg-gold/20 text-gold border-gold/60 hover:bg-gold/30'
+                : 'bg-surface-2/50 text-text border-hairline hover:border-gold hover:text-gold-lite',
             )}
           >
-            <PlusIcon />
+            {saved ? <CheckIcon /> : <PlusIcon />}
           </button>
 
           {/* Streams instantly caption */}

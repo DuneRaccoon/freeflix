@@ -12,10 +12,21 @@
  *  - graceful when backdrop_url is null (uses placeholder)
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import Hero from './Hero';
 import type { CatalogItem } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Mock WatchlistContext so Hero can render without a real provider.
+// ---------------------------------------------------------------------------
+const mockToggle = vi.fn();
+const mockIsSaved = vi.fn(() => false);
+
+vi.mock('@/context/WatchlistContext', () => ({
+  useWatchlist: () => ({ isSaved: mockIsSaved, toggle: mockToggle }),
+}));
 
 const movieItem: CatalogItem = {
   tmdb_id: 693134,
@@ -127,11 +138,42 @@ describe('Hero', () => {
       expect(moreInfo).toHaveAttribute('href', '/tv/84958');
     });
 
-    it('renders the Add to My List button', () => {
+    it('renders the Add to My List button (unsaved state)', () => {
+      mockIsSaved.mockReturnValue(false);
       render(<Hero item={movieItem} />);
       expect(
         screen.getByRole('button', { name: 'Add to My List' }),
       ).toBeInTheDocument();
+    });
+
+    it('shows Remove from My List when item is saved', () => {
+      mockIsSaved.mockReturnValue(true);
+      render(<Hero item={movieItem} />);
+      expect(
+        screen.getByRole('button', { name: 'Remove from My List' }),
+      ).toBeInTheDocument();
+    });
+
+    it('calls toggle with correct content_id for a movie', async () => {
+      mockIsSaved.mockReturnValue(false);
+      mockToggle.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<Hero item={movieItem} />);
+      await user.click(screen.getByTestId('hero-mylist-button'));
+      expect(mockToggle).toHaveBeenCalledWith(
+        expect.objectContaining({ content_id: 'movie:693134', media_type: 'movie' }),
+      );
+    });
+
+    it('calls toggle with tv content_id for a tv item', async () => {
+      mockIsSaved.mockReturnValue(false);
+      mockToggle.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(<Hero item={tvItem} />);
+      await user.click(screen.getByTestId('hero-mylist-button'));
+      expect(mockToggle).toHaveBeenCalledWith(
+        expect.objectContaining({ content_id: 'tv:84958', media_type: 'tv' }),
+      );
     });
   });
 

@@ -15,6 +15,7 @@ import React from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
+import { useWatchlist } from '@/context/WatchlistContext';
 
 export interface PosterCardProps {
   item: CatalogItem;
@@ -58,6 +59,23 @@ function PlusIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="w-[15px] h-[15px]"
+    >
+      <path d="M4.5 12.5l5.5 5.5 9.5-10" />
+    </svg>
+  );
+}
+
 function InfoIcon() {
   return (
     <svg
@@ -94,6 +112,26 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
       ? item.overview.slice(0, 177) + '…'
       : item.overview
     : null;
+
+  // Watchlist wiring
+  const { isSaved, toggle } = useWatchlist();
+  const contentId =
+    item.media_type === 'tv'
+      ? `tv:${item.tmdb_id}`
+      : `movie:${item.tmdb_id}`;
+  const saved = isSaved(contentId);
+
+  function handleMyList(e: React.MouseEvent) {
+    // Prevent the card link from firing when the button is clicked
+    e.preventDefault();
+    e.stopPropagation();
+    toggle({
+      content_id: contentId,
+      tmdb_id: String(item.tmdb_id),
+      media_type: item.media_type as 'movie' | 'tv',
+      title: item.title,
+    });
+  }
 
   return (
     <article
@@ -174,20 +212,25 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
               <PlayIcon />
             </a>
 
-            {/* + My List (no-op placeholder) */}
+            {/* + My List — wired to WatchlistContext */}
             <button
               type="button"
-              aria-label={`Add ${item.title} to My List`}
+              aria-label={saved ? `Remove ${item.title} from My List` : `Add ${item.title} to My List`}
+              data-testid="postercard-mylist-button"
               tabIndex={-1}
+              onClick={handleMyList}
               className={cn(
                 'w-[34px] h-[34px] rounded-full flex-none grid place-items-center cursor-pointer',
-                'border border-hairline bg-surface-2/70 text-text backdrop-blur',
-                'transition-[border-color,color,transform] duration-200',
-                'hover:border-gold/50 hover:text-gold-lite hover:scale-[1.08]',
+                'border backdrop-blur',
+                'transition-[border-color,color,transform,background-color] duration-200',
+                'hover:scale-[1.08]',
                 'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+                saved
+                  ? 'bg-gold/20 text-gold border-gold/60 hover:bg-gold/30'
+                  : 'bg-surface-2/70 text-text border-hairline hover:border-gold/50 hover:text-gold-lite',
               )}
             >
-              <PlusIcon />
+              {saved ? <CheckIcon /> : <PlusIcon />}
             </button>
 
             {/* Info link */}

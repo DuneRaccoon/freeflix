@@ -14,7 +14,7 @@
  *  - Meta row: year · gold star · up to 3 genres
  *  - 2-line overview logline
  *  - Actions: primary Play (links to detail), glass More Info (links to detail),
- *    + My List icon button (no-op placeholder)
+ *    + My List icon button (toggles watchlist via WatchlistContext)
  *
  * Height: clamp(620px, 85vh, 1040px)
  * Content lifted to bottom: clamp(150px, 19vh, 250px) to leave room for the
@@ -28,6 +28,7 @@ import React from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
+import { useWatchlist } from '@/context/WatchlistContext';
 
 export interface HeroProps {
   item: CatalogItem;
@@ -77,6 +78,23 @@ function PlusIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="w-[20px] h-[20px]"
+    >
+      <path d="M4.5 12.5l5.5 5.5 9.5-10" />
+    </svg>
+  );
+}
+
 function StarIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="w-[14px] h-[14px] text-gold">
@@ -96,6 +114,23 @@ const Hero: React.FC<HeroProps> = ({ item }) => {
   const metaGenres = (item.genres ?? []).slice(0, 3);
 
   const backdropSrc = item.backdrop_url ?? BACKDROP_PLACEHOLDER;
+
+  // Watchlist wiring
+  const { isSaved, toggle } = useWatchlist();
+  const contentId =
+    item.media_type === 'tv'
+      ? `tv:${item.tmdb_id}`
+      : `movie:${item.tmdb_id}`;
+  const saved = isSaved(contentId);
+
+  function handleMyList() {
+    toggle({
+      content_id: contentId,
+      tmdb_id: String(item.tmdb_id),
+      media_type: item.media_type as 'movie' | 'tv',
+      title: item.title,
+    });
+  }
 
   return (
     <div
@@ -286,23 +321,28 @@ const Hero: React.FC<HeroProps> = ({ item }) => {
             More Info
           </Link>
 
-          {/* + My List icon button — no-op placeholder */}
+          {/* + My List icon button — wired to WatchlistContext */}
           <button
             type="button"
-            aria-label="Add to My List"
-            title="Add to My List"
+            aria-label={saved ? 'Remove from My List' : 'Add to My List'}
+            title={saved ? 'Remove from My List' : 'Add to My List'}
+            data-testid="hero-mylist-button"
+            onClick={handleMyList}
             className={cn(
               'inline-flex items-center justify-center',
               'w-[50px] h-[50px] rounded-full p-0',
-              'bg-surface-2/50 text-text border border-hairline backdrop-blur-sm',
+              'border backdrop-blur-sm',
               'transition-[transform,border-color,color] duration-200',
-              'hover:-translate-y-0.5 hover:border-gold/60 hover:text-gold-lite',
+              'hover:-translate-y-0.5',
               'focus:outline-none',
               'focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
               'max-sm:w-[46px] max-sm:h-[46px]',
+              saved
+                ? 'bg-gold/20 text-gold border-gold/60 hover:bg-gold/30'
+                : 'bg-surface-2/50 text-text border-hairline hover:border-gold/60 hover:text-gold-lite',
             )}
           >
-            <PlusIcon />
+            {saved ? <CheckIcon /> : <PlusIcon />}
           </button>
         </div>
       </div>

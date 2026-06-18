@@ -47,7 +47,7 @@ const ShowCard: React.FC<ShowCardProps> = ({ show }) => {
         whileHover="hover"
         className="h-full cursor-pointer group"
       >
-        <Card className="h-full flex flex-col glass-card transition-all duration-300 hover:shadow-xl theater-shadow">
+        <Card className="h-full flex flex-col bg-surface/60 border-hairline backdrop-blur transition-all duration-300 hover:shadow-xl theater-shadow">
           <div className="relative pb-[150%] overflow-hidden">
             <Image
               src={show.poster_url || '/images/movie-placeholder.jpg'}

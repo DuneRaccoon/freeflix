@@ -41,24 +41,24 @@ export default function RootLayout({
                 {children}
               </AuthenticatedLayout>
               </WatchlistProvider>
-              <Toaster 
+              <Toaster
                 position="top-right"
                 toastOptions={{
                   style: {
-                    background: 'var(--color-card)',
-                    color: 'var(--color-foreground)',
-                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-surface)',
+                    color: 'var(--color-text)',
+                    border: '1px solid var(--color-hairline)',
                   },
                   success: {
                     iconTheme: {
-                      primary: 'var(--color-primary)',
-                      secondary: 'var(--color-primary-foreground)',
+                      primary: 'var(--color-gold)',
+                      secondary: 'var(--color-ink)',
                     },
                   },
                   error: {
                     iconTheme: {
                       primary: 'var(--color-danger)',
-                      secondary: 'var(--color-primary-foreground)',
+                      secondary: 'var(--color-ink)',
                     },
                   },
                 }}

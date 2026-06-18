@@ -201,7 +201,6 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
             <a
               href={href}
               aria-label={`Play ${item.title}`}
-              tabIndex={-1}
               className={cn(
                 'w-[34px] h-[34px] rounded-full flex-none grid place-items-center',
                 'bg-gradient-to-br from-white to-gold-lite text-ink no-underline',
@@ -217,7 +216,6 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
               type="button"
               aria-label={saved ? `Remove ${item.title} from My List` : `Add ${item.title} to My List`}
               data-testid="postercard-mylist-button"
-              tabIndex={-1}
               onClick={handleMyList}
               className={cn(
                 'w-[34px] h-[34px] rounded-full flex-none grid place-items-center cursor-pointer',
@@ -237,7 +235,6 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
             <a
               href={href}
               aria-label={`More info about ${item.title}`}
-              tabIndex={-1}
               className={cn(
                 'w-[34px] h-[34px] rounded-full flex-none grid place-items-center',
                 'border border-hairline bg-surface-2/70 text-text no-underline backdrop-blur',

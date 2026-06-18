@@ -108,7 +108,7 @@ const UpNextCard: React.FC<UpNextCardProps> = ({
           data-testid="upnext-dismiss"
           onClick={e => { e.stopPropagation(); onDismiss(); }}
           aria-label="Dismiss up-next card"
-          className="w-[22px] h-[22px] rounded-full border border-hairline flex items-center justify-center text-muted hover:text-text hover:border-muted transition-colors"
+          className="w-[22px] h-[22px] rounded-full border border-hairline flex items-center justify-center text-muted hover:text-text hover:border-muted transition-colors focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]"
         >
           <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-[11px] h-[11px]">
             <path d="M2 2l8 8M10 2l-8 8" />
@@ -196,6 +196,7 @@ const UpNextCard: React.FC<UpNextCardProps> = ({
           'text-text hover:text-gold-lite',
           'transition-colors duration-150',
           'bg-transparent hover:bg-surface-2/40',
+          'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
         )}
       >
         {/* Play icon */}

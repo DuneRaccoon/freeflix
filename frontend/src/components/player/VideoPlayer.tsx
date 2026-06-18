@@ -1315,6 +1315,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           aria-valuetext={`${formatTime(playerState.currentTime)} of ${formatTime(playerState.duration)}`}
           className="relative h-[18px] flex items-center cursor-pointer group"
           onClick={handleProgressClick}
+          onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
+            const video = videoRef.current;
+            if (!video) return;
+            switch (e.key) {
+              case 'ArrowRight':
+                e.preventDefault();
+                skip(10);
+                break;
+              case 'ArrowLeft':
+                e.preventDefault();
+                skip(-10);
+                break;
+              case 'Home':
+                e.preventDefault();
+                video.currentTime = 0;
+                resetCursorTimeout();
+                break;
+              case 'End':
+                e.preventDefault();
+                // Seek near-end (1 second before end to avoid auto-advancing immediately)
+                if (video.duration > 0) {
+                  video.currentTime = Math.max(0, video.duration - 1);
+                }
+                resetCursorTimeout();
+                break;
+            }
+          }}
         >
           {/* Track */}
           <div className="relative w-full h-1 rounded-full overflow-visible" style={{ background: 'rgba(244,241,234,.16)' }}>

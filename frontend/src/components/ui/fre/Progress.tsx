@@ -29,15 +29,20 @@ export interface RingProps {
   value: number; // 0–100
   size?: number; // px
   className?: string;
+  /** When provided: role="img" + aria-label. Omit for decorative rings (aria-hidden). */
+  label?: string;
 }
 
-export const Ring: React.FC<RingProps> = ({ value, size = 18, className }) => {
+export const Ring: React.FC<RingProps> = ({ value, size = 18, className, label }) => {
   const v = clamp(value);
   const deg = Math.round((v / 100) * 360);
   return (
     <span
       data-testid="fre-ring"
       data-value={v}
+      role={label ? 'img' : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
       className={cn('inline-block rounded-full', className)}
       style={{
         width: size,

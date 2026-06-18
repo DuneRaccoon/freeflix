@@ -5,8 +5,7 @@ import { streamingService } from '@/services/streaming';
 import { useUser } from '@/context/UserContext';
 import { useProgress } from '@/context/ProgressContext';
 import { StreamingProgress, StreamingInfo, TorrentStatus } from '@/types';
-import Button from '@/components/ui/Button';
-import { PlayIcon, ForwardIcon } from '@heroicons/react/24/solid';
+import { Button as FreButton, Modal } from '@/components/ui/fre';
 import { toast } from 'react-hot-toast';
 
 interface PatchedVideoPlayerProps {
@@ -376,34 +375,40 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
           </div>
         )}
 
-        {/* Resume Playback Prompt - inside player area with high z-index */}
-        {showResumePrompt && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-[800]">
-            <div className="bg-card rounded-lg shadow-xl p-6 m-4 max-w-sm mx-auto text-center">
-              <h3 className="text-xl font-bold text-foreground mb-2">Resume Playback</h3>
-              <p className="text-muted-foreground mb-6">
-                Would you like to resume watching from where you left off? 
-                ({Math.floor(resumeTime / 60)}m {Math.floor(resumeTime % 60)}s)
-              </p>
-              <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-3">
-                <Button
-                  variant="outline"
-                  onClick={handleStartFromBeginning}
-                  leftIcon={<PlayIcon className="w-5 h-5" />}
-                >
-                  Start from Beginning
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleResume}
-                  leftIcon={<ForwardIcon className="w-5 h-5" />}
-                >
-                  Resume
-                </Button>
-              </div>
-            </div>
+        {/* Resume Playback Prompt — FRÈ Modal */}
+        <Modal
+          open={showResumePrompt}
+          onClose={handleStartFromBeginning}
+          label="Resume Playback"
+        >
+          <p className="font-display text-2xl font-light text-text mb-2 tracking-tight">
+            Resume Playback
+          </p>
+          <p className="text-sm text-muted mb-6 leading-relaxed">
+            Would you like to resume watching from where you left off?{' '}
+            <span className="text-gold font-medium">
+              {Math.floor(resumeTime / 60)}m {Math.floor(resumeTime % 60)}s
+            </span>
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <FreButton
+              variant="glass"
+              size="md"
+              onClick={handleStartFromBeginning}
+              className="flex-1"
+            >
+              Start from Beginning
+            </FreButton>
+            <FreButton
+              variant="primary"
+              size="md"
+              onClick={handleResume}
+              className="flex-1"
+            >
+              Resume
+            </FreButton>
           </div>
-        )}
+        </Modal>
       </div>
     </div>
   );

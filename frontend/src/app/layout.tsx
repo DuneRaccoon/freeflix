@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { UserProvider } from '@/context/UserContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ProgressProvider } from '@/context/ProgressContext';
+import { WatchlistProvider } from '@/context/WatchlistContext';
 import AuthenticatedLayout from '@/components/layout/AuthenticatedLayout';
 
 import './globals.css';
@@ -35,9 +36,11 @@ export default function RootLayout({
         <UserProvider>
           <ThemeProvider>
             <ProgressProvider>
+              <WatchlistProvider>
               <AuthenticatedLayout>
                 {children}
               </AuthenticatedLayout>
+              </WatchlistProvider>
               <Toaster 
                 position="top-right"
                 toastOptions={{

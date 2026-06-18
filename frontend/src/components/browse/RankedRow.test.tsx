@@ -154,4 +154,22 @@ describe('RankedRow', () => {
     // No list items
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
   });
+
+  // ── Eyebrow prop regression ─────────────────────────────────────────────────
+
+  it('renders the eyebrow text when eyebrow prop is provided', () => {
+    render(<RankedRow title="Top 10" items={movieItems} eyebrow="Most watched · this week" />);
+    expect(screen.getByText('Most watched · this week')).toBeInTheDocument();
+  });
+
+  it('renders the eyebrow with "Critically acclaimed" text', () => {
+    render(<RankedRow title="Top Rated" items={movieItems} eyebrow="Critically acclaimed" />);
+    expect(screen.getByText('Critically acclaimed')).toBeInTheDocument();
+  });
+
+  it('does NOT render an eyebrow element when eyebrow prop is omitted', () => {
+    render(<RankedRow title="Top 10" items={movieItems} />);
+    expect(screen.queryByText('Most watched · this week')).not.toBeInTheDocument();
+    expect(screen.queryByText('Critically acclaimed')).not.toBeInTheDocument();
+  });
 });

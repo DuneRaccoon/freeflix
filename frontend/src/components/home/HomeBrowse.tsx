@@ -128,6 +128,7 @@ export default function HomeBrowse() {
         {
           key: 'top10',
           title: 'Top 10 Movies This Week',
+          eyebrow: 'Most watched · this week',
           items: topRated.results.slice(0, 10),
           variant: 'ranked',
         },

@@ -138,6 +138,7 @@ const Row: React.FC<RowProps> = ({
           {/* Prev / Next arrow buttons — hidden on mobile (max-sm) */}
           <div
             className="inline-flex items-center gap-2 max-sm:hidden"
+            role="group"
             aria-label="Scroll controls"
           >
             <button

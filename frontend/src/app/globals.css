@@ -591,3 +591,4 @@ body.user-selection-mode main {
 @keyframes ff-drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(-26px,22px,0) scale(1.06); } }
 @keyframes ff-kenburns { from { transform: scale(1) translate3d(0,0,0); } to { transform: scale(1.08) translate3d(-1.6%,-1.2%,0); } }
 @keyframes ff-shine { from { background-position: 0 0; } to { background-position: -240% 0; } }
+@keyframes ff-ctashine { from { transform: translateX(-120%); } to { transform: translateX(120%); } }

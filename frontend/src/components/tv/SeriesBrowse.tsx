@@ -128,6 +128,7 @@ export default function SeriesBrowse() {
         {
           key: 'top-rated',
           title: 'Top Rated Series',
+          eyebrow: 'Critically acclaimed',
           items: topRated.results.slice(0, 10),
           variant: 'ranked',
         },

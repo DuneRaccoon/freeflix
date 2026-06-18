@@ -98,6 +98,7 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
             <RankedRow
               key={row.key}
               title={row.title}
+              eyebrow={row.eyebrow}
               items={row.items}
               seeAllHref={row.seeAllHref}
             />

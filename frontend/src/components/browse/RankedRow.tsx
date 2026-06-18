@@ -21,6 +21,7 @@ import { CatalogItem } from '@/types';
 
 export interface RankedRowProps {
   title: string;
+  eyebrow?: string;
   items: CatalogItem[];
   seeAllHref?: string;
 }
@@ -66,7 +67,7 @@ const ONE_CARD_PX = 300;
 const POSTER_PLACEHOLDER =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"%3E%3Crect width="2" height="3" fill="%230d0d0f"/%3E%3C/svg%3E';
 
-const RankedRow: React.FC<RankedRowProps> = ({ title, items, seeAllHref }) => {
+const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref }) => {
   const trackRef = useRef<HTMLDivElement>(null);
 
   // Cap at 10 items
@@ -91,9 +92,11 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, items, seeAllHref }) => {
       <div className="flex items-end justify-between gap-6 pt-[54px] pb-[22px] max-sm:pt-10 max-sm:pb-[18px]">
         {/* Left: eyebrow + title */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] tracking-[.32em] uppercase text-gold font-semibold">
-            Most watched · this week
-          </span>
+          {eyebrow && (
+            <span className="text-[11px] tracking-[.32em] uppercase text-gold font-semibold">
+              {eyebrow}
+            </span>
+          )}
           <h2
             id={headingId}
             className="font-display font-normal text-[30px] leading-none tracking-[-0.02em] text-text m-0 max-sm:text-[25px]"

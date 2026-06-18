@@ -12,14 +12,12 @@ import {
   ArrowLeftIcon,
   InformationCircleIcon,
   ExclamationTriangleIcon,
-  HomeIcon,
   ArrowPathIcon,
   FilmIcon
 } from '@heroicons/react/24/outline';
 import { formatBytes } from '@/utils/format';
 import { isStreamingReady } from '@/utils/streaming';
 import PreStreamingAnimation from '@/components/streaming/PreStreamingAnimation';
-import { BasicPreStream } from '@/components/streaming/BasicPreStream';
 import { cn } from '@/lib/cn';
 
 export default function StreamingPage() {

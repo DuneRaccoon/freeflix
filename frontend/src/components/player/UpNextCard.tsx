@@ -164,11 +164,15 @@ const UpNextCard: React.FC<UpNextCardProps> = ({
 
         {/* Countdown ring (only when a countdown is active) */}
         {hasCountdown && (
-          <div className="relative flex-shrink-0 flex items-center justify-center w-10 h-10" data-testid="upnext-ring">
+          <div
+            className="relative flex-shrink-0 flex items-center justify-center w-10 h-10"
+            data-testid="upnext-ring"
+            role="timer"
+            aria-label={`${remaining} seconds until next episode`}
+          >
             <Ring
               value={ringValue}
               size={40}
-              aria-label={`${remaining} seconds until next episode`}
             />
             <span
               className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-text"

@@ -345,8 +345,8 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   // Loading state
   if (isLoading) {
     return (
-      <div className="w-full h-full bg-black flex items-center justify-center">
-        <div className="animate-spin w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full"></div>
+      <div className="w-full h-full bg-ink flex items-center justify-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-hairline border-t-gold"></div>
       </div>
     );
   }
@@ -374,9 +374,9 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             downloadProgress={currentDownloadProgress}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-black">
+          <div className="absolute inset-0 flex items-center justify-center bg-ink">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-6 w-6 border-4 border-primary-500 border-t-transparent"></div>
+              <div className="h-12 w-12 animate-spin rounded-full border-4 border-hairline border-t-gold"></div>
               <p className="text-white mt-2">Loading video player...</p>
             </div>
           </div>

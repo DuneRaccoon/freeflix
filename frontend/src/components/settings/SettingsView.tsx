@@ -63,8 +63,9 @@ const SystemCard: React.FC = () => {
   const [healthInfo, setHealthInfo] = useState<HealthInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = React.useRef(true);
 
-  const load = async () => {
+  const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -72,16 +73,22 @@ const SystemCard: React.FC = () => {
         baseService.root() as Promise<SystemInfo>,
         baseService.healthcheck() as Promise<HealthInfo>,
       ]);
+      if (!mountedRef.current) return;
       setSystemInfo(sys);
       setHealthInfo(health);
     } catch {
+      if (!mountedRef.current) return;
       setError('Could not reach the API — check that the backend is running.');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    load();
+    return () => { mountedRef.current = false; };
+  }, [load]);
 
   const rows: { label: string; value: React.ReactNode }[] = systemInfo && healthInfo
     ? [

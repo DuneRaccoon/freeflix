@@ -111,7 +111,7 @@ export const Toggle: React.FC<ToggleProps> = ({
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="sr-only"
+        className="peer sr-only"
       />
       {/* track */}
       <span

@@ -147,11 +147,15 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    const clampedConfig: ScheduleConfig = {
+      ...config,
+      max_downloads: Math.min(10, Math.max(1, Number(config.max_downloads) || 1)),
+    };
     try {
       if (isEditing && scheduleId) {
-        await schedulesService.updateSchedule(scheduleId, config);
+        await schedulesService.updateSchedule(scheduleId, clampedConfig);
       } else {
-        await schedulesService.createSchedule(config);
+        await schedulesService.createSchedule(clampedConfig);
       }
       onSuccess?.();
     } catch {
@@ -181,8 +185,9 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
           Basic
         </h3>
 
-        <Field label="Name (optional)">
+        <Field label="Name (optional)" htmlFor="schedule-name">
           <Input
+            id="schedule-name"
             placeholder="My schedule"
             value={config.name ?? ''}
             onChange={(e) => set('name', e.target.value)}
@@ -190,8 +195,9 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
         </Field>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Schedule pattern">
+          <Field label="Schedule pattern" htmlFor="schedule-cron">
             <Select
+              id="schedule-cron"
               options={CRON_PRESETS}
               value={config.cron_expression}
               onChange={(e) => set('cron_expression', e.target.value)}
@@ -217,8 +223,9 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
           Search criteria
         </h3>
 
-        <Field label="Keyword (optional)" hint="Leave blank to use genre / year filters">
+        <Field label="Keyword (optional)" hint="Leave blank to use genre / year filters" htmlFor="schedule-keyword">
           <Input
+            id="schedule-keyword"
             placeholder="e.g. Oppenheimer"
             value={config.search_params.keyword ?? ''}
             onChange={(e) => setParam('keyword', e.target.value)}
@@ -226,16 +233,18 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
         </Field>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Genre">
+          <Field label="Genre" htmlFor="schedule-genre">
             <Select
+              id="schedule-genre"
               options={GENRE_OPTIONS}
               value={(config.search_params.genre as string) ?? 'all'}
               onChange={(e) => setParam('genre', e.target.value)}
             />
           </Field>
 
-          <Field label="Year" hint="4-digit year, or blank for any">
+          <Field label="Year" hint="4-digit year, or blank for any" htmlFor="schedule-year">
             <Input
+              id="schedule-year"
               type="number"
               placeholder="e.g. 2024"
               min={1900}
@@ -246,8 +255,9 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
           </Field>
         </div>
 
-        <Field label="Sort by">
+        <Field label="Sort by" htmlFor="schedule-order-by">
           <Select
+            id="schedule-order-by"
             options={ORDER_BY_OPTIONS}
             value={(config.search_params.order_by as string) ?? 'rating'}
             onChange={(e) => setParam('order_by', e.target.value)}
@@ -264,8 +274,9 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
         </h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Quality">
+          <Field label="Quality" htmlFor="schedule-quality">
             <Select
+              id="schedule-quality"
               options={QUALITY_OPTIONS}
               value={config.quality}
               onChange={(e) =>
@@ -274,13 +285,16 @@ const ScheduleFormFre: React.FC<ScheduleFormFreProps> = ({
             />
           </Field>
 
-          <Field label="Max downloads" hint="1–10 per run">
+          <Field label="Max downloads" hint="1–10 per run" htmlFor="schedule-max-downloads">
             <Input
+              id="schedule-max-downloads"
               type="number"
               min={1}
               max={10}
               value={config.max_downloads}
-              onChange={(e) => set('max_downloads', Number(e.target.value))}
+              onChange={(e) =>
+                set('max_downloads', Math.min(10, Math.max(1, Number(e.target.value) || 1)))
+              }
             />
           </Field>
         </div>

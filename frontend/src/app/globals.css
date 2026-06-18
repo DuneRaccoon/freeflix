@@ -1,5 +1,47 @@
 @import "tailwindcss";
 
+/* ============================================================
+   FRÈ — Editorial Noir design tokens (Tailwind v4 @theme)
+   Gold is precious. Dark-only. Legacy palette below is removed
+   in the final cleanup phase once all surfaces are migrated.
+   ============================================================ */
+@theme {
+  --color-ink: #0A0A0B;
+  --color-surface: #111113;
+  --color-surface-2: #16161A;
+  --color-text: #F4F1EA;
+  --color-muted: #8C8884;
+  --color-hairline: #26242A;
+  --color-gold: #C9A86A;
+  --color-gold-lite: #E7D6AE;
+  --color-danger: #E5564B;
+  --color-success: #7BDCA0;
+
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-ui: var(--font-inter-tight), system-ui, -apple-system, sans-serif;
+
+  --radius-card: 12px;
+}
+
+/* FRÈ base: dark canvas + UI font (the legacy `body` rule below still
+   runs; this wins by source order for bg/color and adds color-scheme). */
+:root { color-scheme: dark; }
+body {
+  background-color: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+}
+
+/* Global reduced-motion guard (applies app-wide). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Base theme (dark) */
 :root {
   --background: 222 47% 5%;

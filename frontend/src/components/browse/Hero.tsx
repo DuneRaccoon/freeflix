@@ -29,6 +29,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
+import { buildContentId } from '@/lib/contentId';
 
 export interface HeroProps {
   item: CatalogItem;
@@ -117,10 +118,10 @@ const Hero: React.FC<HeroProps> = ({ item }) => {
 
   // Watchlist wiring
   const { isSaved, toggle } = useWatchlist();
-  const contentId =
-    item.media_type === 'tv'
-      ? `tv:${item.tmdb_id}`
-      : `movie:${item.tmdb_id}`;
+  const contentId = buildContentId({
+    kind: item.media_type === 'tv' ? 'tv' : 'movie',
+    tmdbId: item.tmdb_id,
+  });
   const saved = isSaved(contentId);
 
   function handleMyList() {

@@ -16,7 +16,7 @@
  *   await torrentsService.downloadCatalogMovie({ tmdb_id, quality, media_type:'tv', season }) + toast
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 
@@ -25,6 +25,7 @@ import { tvService } from '@/services/tv';
 import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { useWatchlist } from '@/context/WatchlistContext';
+import { buildContentId } from '@/lib/contentId';
 
 import DetailHero from '@/components/detail/DetailHero';
 import EpisodeList from '@/components/tv/EpisodeList';
@@ -137,9 +138,9 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
   const [selectedSeason, setSelectedSeason] = useState<number>(firstSeason);
   const [seasonDetail, setSeasonDetail] = useState<SeasonDetail | null>(null);
   const [seasonLoading, setSeasonLoading] = useState(false);
-  const [seasonCache, setSeasonCache] = useState<Record<number, SeasonDetail>>(
-    {},
-  );
+  // Use a ref for the season cache so fetchSeason doesn't need it in its deps
+  // (avoids an infinite re-creation loop when the cache is updated).
+  const seasonCacheRef = useRef<Record<number, SeasonDetail>>({});
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<CatalogItem[]>([]);
@@ -147,7 +148,7 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
   // ── watchlist ──────────────────────────────────────────────────────────────
   const { isSaved, toggle } = useWatchlist();
   // Show-level content_id uses tv:{tmdb_id} (no season/episode for hub level)
-  const contentId = `tv:${show.tmdb_id}`;
+  const contentId = buildContentId({ kind: 'tv', tmdbId: show.tmdb_id });
   const saved = isSaved(contentId);
 
   function handleMyList() {
@@ -201,14 +202,14 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
   // ── fetch season when selectedSeason changes ───────────────────────────────
   const fetchSeason = useCallback(
     async (season: number) => {
-      if (seasonCache[season]) {
-        setSeasonDetail(seasonCache[season]);
+      if (seasonCacheRef.current[season]) {
+        setSeasonDetail(seasonCacheRef.current[season]);
         return;
       }
       setSeasonLoading(true);
       try {
         const detail = await tvService.getSeason(show.tmdb_id, season);
-        setSeasonCache((prev) => ({ ...prev, [season]: detail }));
+        seasonCacheRef.current = { ...seasonCacheRef.current, [season]: detail };
         setSeasonDetail(detail);
       } catch {
         setSeasonDetail(null);
@@ -216,13 +217,12 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
         setSeasonLoading(false);
       }
     },
-    [show.tmdb_id, seasonCache],
+    [show.tmdb_id],
   );
 
   useEffect(() => {
     fetchSeason(selectedSeason);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSeason]);
+  }, [selectedSeason, fetchSeason]);
 
   // ── action handlers ────────────────────────────────────────────────────────
 

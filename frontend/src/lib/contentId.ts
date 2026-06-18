@@ -19,6 +19,26 @@ export interface ParsedContentId {
   episode?: number;
 }
 
+export interface ContentIdInput {
+  kind: 'movie' | 'tv';
+  tmdbId: number;
+  season?: number;
+  episode?: number;
+}
+
+/**
+ * Build a content_id string from its component parts.
+ *
+ * movie → `movie:{tmdbId}`
+ * tv (show level, no season/episode) → `tv:{tmdbId}`
+ * tv episode → `tv:{tmdbId}:s{season}:e{episode}`
+ */
+export function buildContentId({ kind, tmdbId, season, episode }: ContentIdInput): string {
+  if (kind === 'movie') return `movie:${tmdbId}`;
+  if (season != null && episode != null) return `tv:${tmdbId}:s${season}:e${episode}`;
+  return `tv:${tmdbId}`;
+}
+
 /**
  * Parse a content_id string into its component parts.
  * `tv:{id}:s{n}:e{m}` → tv parts; anything else → movie.

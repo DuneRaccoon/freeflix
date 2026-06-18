@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseContentId, resumeUrlFor, showNameFromTitle } from './contentId';
+import { parseContentId, buildContentId, resumeUrlFor, showNameFromTitle } from './contentId';
 
 // ---------------------------------------------------------------------------
 // parseContentId
@@ -35,6 +35,40 @@ describe('parseContentId', () => {
 
   it('classifies an unrecognised string as movie', () => {
     expect(parseContentId('something:else')).toEqual({ kind: 'movie' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildContentId
+// ---------------------------------------------------------------------------
+describe('buildContentId', () => {
+  it('builds a movie content_id', () => {
+    expect(buildContentId({ kind: 'movie', tmdbId: 12345 })).toBe('movie:12345');
+  });
+
+  it('builds a show-level tv content_id (no season/episode)', () => {
+    expect(buildContentId({ kind: 'tv', tmdbId: 67890 })).toBe('tv:67890');
+  });
+
+  it('builds an episode-level tv content_id', () => {
+    expect(buildContentId({ kind: 'tv', tmdbId: 67890, season: 2, episode: 5 })).toBe('tv:67890:s2:e5');
+  });
+
+  it('round-trips: buildContentId → parseContentId for a movie', () => {
+    const id = buildContentId({ kind: 'movie', tmdbId: 42 });
+    expect(parseContentId(id)).toEqual({ kind: 'movie' });
+  });
+
+  it('round-trips: buildContentId → parseContentId for a tv episode', () => {
+    const id = buildContentId({ kind: 'tv', tmdbId: 99, season: 3, episode: 7 });
+    expect(parseContentId(id)).toEqual({ kind: 'tv', showId: 99, season: 3, episode: 7 });
+  });
+
+  it('ignores season/episode when only one is provided (returns show-level id)', () => {
+    // season without episode → show-level
+    expect(buildContentId({ kind: 'tv', tmdbId: 1, season: 1 })).toBe('tv:1');
+    // episode without season → show-level
+    expect(buildContentId({ kind: 'tv', tmdbId: 1, episode: 1 })).toBe('tv:1');
   });
 });
 

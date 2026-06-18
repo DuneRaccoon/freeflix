@@ -26,6 +26,7 @@ import { moviesService } from '@/services/movies';
 import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { useWatchlist } from '@/context/WatchlistContext';
+import { buildContentId } from '@/lib/contentId';
 
 import DetailHero from '@/components/detail/DetailHero';
 import SourcePicker from '@/components/detail/SourcePicker';
@@ -44,12 +45,19 @@ import { cn } from '@/lib/cn';
  * higher resolution (2160p > 1080p > 720p). If no hits exist, fall back to
  * the highest quality in `available_qualities`.
  */
+type ValidQuality = '720p' | '1080p' | '2160p';
+const VALID_QUALITIES: ValidQuality[] = ['720p', '1080p', '2160p'];
+
+function normalizeQuality(q: string): ValidQuality {
+  return (VALID_QUALITIES as string[]).includes(q) ? (q as ValidQuality) : '1080p';
+}
+
 function resolveQuality(
   quality: string,
   hits: TorrentHit[],
   available: string[],
-): string {
-  if (quality !== 'auto') return quality;
+): ValidQuality {
+  if (quality !== 'auto') return normalizeQuality(quality);
 
   if (hits.length > 0) {
     // Group by quality, keep the best (most seeds) per group
@@ -69,16 +77,16 @@ function resolveQuality(
       if (bb.seeds !== ba.seeds) return bb.seeds - ba.seeds;
       return (RES_ORDER[qb] ?? 0) - (RES_ORDER[qa] ?? 0);
     });
-    return groups[0][0];
+    return normalizeQuality(groups[0][0]);
   }
 
   if (available.length > 0) {
     // Return the highest resolution available
-    const order = ['2160p', '1080p', '720p'];
+    const order: ValidQuality[] = ['2160p', '1080p', '720p'];
     for (const q of order) {
       if (available.includes(q)) return q;
     }
-    return available[0];
+    return normalizeQuality(available[0]);
   }
 
   return '1080p'; // final fallback
@@ -167,7 +175,7 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
 
   // ── watchlist ──────────────────────────────────────────────────────────────
   const { isSaved, toggle } = useWatchlist();
-  const contentId = `movie:${movie.tmdb_id}`;
+  const contentId = buildContentId({ kind: 'movie', tmdbId: movie.tmdb_id });
   const saved = isSaved(contentId);
 
   function handleMyList() {
@@ -228,7 +236,7 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
       );
       const status = await handleCatalogStreamingStart({
         tmdb_id: movie.tmdb_id,
-        quality: resolved as '720p' | '1080p' | '2160p',
+        quality: resolved,
       });
       if (status?.id) {
         router.push(`/streaming/${status.id}`);
@@ -250,7 +258,7 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
       );
       await torrentsService.downloadCatalogMovie({
         tmdb_id: movie.tmdb_id,
-        quality: resolved as '720p' | '1080p' | '2160p',
+        quality: resolved,
       });
       toast.success(
         `Added ${movie.title} (${resolved}) to download queue`,

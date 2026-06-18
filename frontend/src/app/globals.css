@@ -550,3 +550,44 @@ body.user-selection-mode main {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 300ms;
 }
+
+/* ============================================================
+   FRÈ — Cinematic Atmosphere (opt-in via <CinematicAtmosphere/>)
+   All motion below is disabled by the global reduced-motion guard
+   added with the @theme tokens. Keep gold faint and precious.
+   ============================================================ */
+.ff-atmosphere { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+
+.ff-glow {
+  position: fixed; top: -12%; right: -8%; width: 60vw; height: 60vw;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(201,168,106,.16), rgba(201,168,106,0) 60%);
+  filter: blur(20px);
+  animation: ff-drift 42s ease-in-out infinite alternate;
+}
+.ff-vignette {
+  position: fixed; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 220px 60px rgba(0,0,0,.7), inset 0 0 80px rgba(0,0,0,.4);
+}
+.ff-grain {
+  position: fixed; inset: 0; pointer-events: none; opacity: .05; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* slow Ken-Burns for hero backdrops */
+.ff-kenburns { animation: ff-kenburns 40s ease-in-out infinite alternate; will-change: transform; }
+
+/* spotlight-on-hover: dim siblings, warm the hovered/focused child */
+.ff-spotlight-row:hover > *,
+.ff-spotlight-row:focus-within > * { transition: opacity .35s ease, filter .35s ease; }
+.ff-spotlight-row:hover > *:not(:hover):not(:focus-within),
+.ff-spotlight-row:focus-within > *:not(:hover):not(:focus-within) {
+  opacity: .55; filter: saturate(.8) brightness(.9);
+}
+
+/* premiere shine for wordmark / primary CTA */
+.ff-shine { background-size: 240% 100%; animation: ff-shine 9s linear infinite; }
+
+@keyframes ff-drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(-26px,22px,0) scale(1.06); } }
+@keyframes ff-kenburns { from { transform: scale(1) translate3d(0,0,0); } to { transform: scale(1.08) translate3d(-1.6%,-1.2%,0); } }
+@keyframes ff-shine { from { background-position: 0 0; } to { background-position: -240% 0; } }

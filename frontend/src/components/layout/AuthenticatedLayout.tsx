@@ -1,68 +1,41 @@
 'use client';
-
 import React from 'react';
 import { usePathname } from 'next/navigation';
 import { useUser } from '@/context/UserContext';
-import UserSelectScreen from '@/components/users/UserSelectScreen';
-import Navigation from '@/components/ui/Navigation';
+import TopNav from '@/components/shell/TopNav';
+import BottomTabBar from '@/components/shell/BottomTabBar';
+import ProfileGate from '@/components/shell/ProfileGate';
+import CinematicAtmosphere from '@/components/fx/CinematicAtmosphere';
 
-interface AuthenticatedLayoutProps {
-  children: React.ReactNode;
-}
+interface AuthenticatedLayoutProps { children: React.ReactNode; }
 
 const AuthenticatedLayout: React.FC<AuthenticatedLayoutProps> = ({ children }) => {
   const { currentUser, isLoading } = useUser();
   const pathname = usePathname();
-  const isStreamingRoute = pathname?.startsWith('/streaming');
-  const isMovieRoute = pathname?.startsWith('/movies/');
-  
-  // If loading, show loading indicator
+  const isStreaming = pathname?.startsWith('/streaming');
+
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>
-        <p className="mt-4 text-lg">Loading...</p>
+      <div className="flex min-h-screen items-center justify-center bg-ink">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-hairline border-t-gold" />
       </div>
-    );
-  }
-  
-  // If no user is selected, show the user selection screen
-  if (!currentUser) {
-    return <UserSelectScreen />;
-  }
-  
-  // User is authenticated, show the regular layout with navigation
-  if (isStreamingRoute) {
-    return (
-      <main className="w-screen h-screen bg-black">
-        {children}
-      </main>
     );
   }
 
-  // Full-bleed movie route with overlaid navigation
-  if (isMovieRoute) {
-    return (
-      <div className="min-h-screen bg-background bg-app-gradient">
-        <Navigation sticky={false} overlay />
-        <main className="w-screen min-h-screen relative">
-          {/* Subtle film grain overlay */}
-          <div className="film-grain" />
-          {children}
-        </main>
-      </div>
-    );
+  if (!currentUser) return <ProfileGate />;
+
+  // Player route: full-bleed, no chrome.
+  if (isStreaming) {
+    return <main className="h-screen w-screen bg-ink">{children}</main>;
   }
 
   return (
-    <div className="min-h-screen bg-background bg-app-gradient">
-      <Navigation />
-      <main className="container mx-auto py-6 px-4 relative">
-        {/* Subtle film grain overlay */}
-        <div className="film-grain" />
-        {children}
-      </main>
-    </div>
+    <>
+      <CinematicAtmosphere />
+      <TopNav />
+      <main className="relative z-[2] min-h-screen pb-16 md:pb-0">{children}</main>
+      <BottomTabBar />
+    </>
   );
 };
 

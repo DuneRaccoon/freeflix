@@ -42,36 +42,12 @@ body {
   }
 }
 
-/* Base theme (dark) */
+/* Named color variables (used by layout.tsx, palette.ts, and kept components) */
 :root {
-  --background: 222 47% 5%;
-  --foreground: 210 40% 98%;
-  
-  --card: 222 40% 10%;
-  --card-foreground: 210 40% 98%;
-  
-  --primary: 262 83% 60%;
-  --primary-foreground: 210 40% 98%;
-  
-  --secondary: 192 90% 45%;
-  --secondary-foreground: 210 40% 98%;
-  
-  --accent: 340 82% 52%;
-  --accent-foreground: 210 40% 98%;
-  
-  --muted: 217 25% 18%;
-  --muted-foreground: 215 20% 65%;
-  
-  --border: 217 25% 18%;
-  --input: 217 25% 18%;
-  --ring: 262 83% 60%;
-  
-  --radius: 0.75rem;
   --scrollbar-track: #111827;
   --scrollbar-thumb: #1f2937;
   --scrollbar-thumb-hover: #374151;
 
-  /* Named color variables for easier usage */
   --color-background: #0b1020;
   --color-foreground: #f8fafc;
   --color-card: #111831;
@@ -84,110 +60,9 @@ body {
   --color-muted-foreground: #94a3b8;
   --color-border: #17203a;
   --color-danger: #ef4444;
-  
+
   /* User select screen variable */
   --vh: 1vh;
-}
-
-/* Light theme */
-.light {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  
-  --primary: 262 83% 60%;
-  --primary-foreground: 210 40% 98%;
-  
-  --secondary: 192 90% 45%;
-  --secondary-foreground: 210 40% 98%;
-  
-  --accent: 340 82% 52%;
-  --accent-foreground: 210 40% 98%;
-  
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 262 83% 60%;
-  
-  --scrollbar-track: #f1f5f9;
-  --scrollbar-thumb: #cbd5e1;
-  --scrollbar-thumb-hover: #94a3b8;
-  
-  /* Named color variables for easier usage */
-  --color-background: #ffffff;
-  --color-foreground: #0f172a;
-  --color-card: #ffffff;
-  --color-card-foreground: #0f172a;
-  --color-primary: #7c3aed;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #06b6d4;
-  --color-secondary-foreground: #06202a;
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
-  --color-border: #e2e8f0;
-  --color-danger: #ef4444;
-}
-
-/* Dark theme (explicitly defined for specificity) */
-.dark {
-  --background: 222 47% 5%;
-  --foreground: 210 40% 98%;
-  
-  --card: 222 40% 10%;
-  --card-foreground: 210 40% 98%;
-  
-  --primary: 262 83% 60%;
-  --primary-foreground: 210 40% 98%;
-  
-  --secondary: 192 90% 45%;
-  --secondary-foreground: 210 40% 98%;
-  
-  --accent: 340 82% 52%;
-  --accent-foreground: 210 40% 98%;
-  
-  --muted: 217 25% 18%;
-  --muted-foreground: 215 20% 65%;
-  
-  --border: 217 25% 18%;
-  --input: 217 25% 18%;
-  --ring: 262 83% 60%;
-  
-  --scrollbar-track: #111827;
-  --scrollbar-thumb: #1f2937;
-  --scrollbar-thumb-hover: #374151;
-  
-  /* Named color variables for easier usage */
-  --color-background: #0b1020;
-  --color-foreground: #f8fafc;
-  --color-card: #111831;
-  --color-card-foreground: #f8fafc;
-  --color-primary: #7c3aed;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #06b6d4;
-  --color-secondary-foreground: #06202a;
-  --color-muted: #1f2a44;
-  --color-muted-foreground: #94a3b8;
-  --color-border: #17203a;
-  --color-danger: #ef4444;
-}
-
-body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
-  font-feature-settings: "rlig" 1, "calt" 1;
-}
-
-/* App-wide gradient cinematic background utilities */
-.bg-app-gradient {
-  background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(124, 58, 237, 0.18), transparent 60%),
-    radial-gradient(1200px 600px at 110% 10%, rgba(6, 182, 212, 0.15), transparent 60%),
-    radial-gradient(800px 400px at 50% 120%, rgba(236, 72, 153, 0.08), transparent 60%),
-    linear-gradient(180deg, rgba(2, 6, 23, 0) 0%, rgba(2, 6, 23, 0.6) 35%, rgba(2, 6, 23, 1) 100%);
 }
 
 .glass-card {
@@ -367,53 +242,6 @@ body {
   transition: opacity 600ms, transform 600ms;
 }
 
-/* Theater environment effects */
-.theater-shadow {
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3),
-              0 10px 10px -5px rgba(0, 0, 0, 0.2);
-}
-
-.cinema-glow {
-  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8);
-}
-
-/* Film grain overlay */
-.film-grain {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 99;
-  pointer-events: none;
-  opacity: 0.06;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='512' height='512' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-}
-
-/* Movie screen with subtle glow */
-.movie-screen {
-  border-radius: 8px;
-  background: var(--color-card);
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1), 
-              inset 0 0 30px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-  position: relative;
-}
-
-.movie-screen::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(to right, 
-    rgba(255, 255, 255, 0), 
-    rgba(255, 255, 255, 0.2), 
-    rgba(255, 255, 255, 0));
-  animation: slideInRight 2s infinite;
-}
-
 /* Background color classes based on theme */
 .bg-background {
   background-color: var(--color-background);
@@ -425,24 +253,6 @@ body {
 
 .text-foreground {
   color: var(--color-foreground);
-}
-
-/* Scoped movie page variables (fallbacks) */
-#movie-details-root {
-  --color-background: var(--color-background);
-  --color-card: var(--color-card);
-  --color-border: var(--color-border);
-  --color-primary: var(--color-primary);
-  --color-secondary: var(--color-secondary);
-  --color-muted: var(--color-muted);
-}
-
-
-/* Smooth transitions for all elements */
-* {
-  transition-property: opacity, transform, background-color, color, box-shadow;
-  transition-duration: 0.3s;
-  transition-timing-function: ease-in-out;
 }
 
 /* User select screen styles */

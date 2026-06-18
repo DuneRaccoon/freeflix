@@ -7,7 +7,21 @@ import { Card, CardContent } from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { StarIcon } from '@heroicons/react/24/solid';
 import { motion } from 'framer-motion';
-import { hoverLiftVariants, slideUp, fadeIn } from '@/components/ui/Motion';
+
+const hoverLiftVariants = {
+  initial: { y: 0, scale: 1 },
+  hover: { y: -4, scale: 1.02, transition: { duration: 0.2, ease: [0.0, 0.0, 0.2, 1] as const } },
+};
+
+const slideUp = {
+  initial: { y: 10, opacity: 0 },
+  animate: { y: 0, opacity: 1, transition: { duration: 0.3 } },
+};
+
+const fadeIn = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: { duration: 0.3 } },
+};
 
 interface ShowCardItem {
   tmdb_id: number;

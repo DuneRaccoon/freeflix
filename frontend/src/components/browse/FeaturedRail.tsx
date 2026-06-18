@@ -49,7 +49,9 @@ const FeaturedRail: React.FC<FeaturedRailProps> = ({ items }) => {
       aria-label="Featured collection"
       className="relative z-[5] px-14 max-sm:px-[18px]"
       style={{
-        marginTop: 'clamp(-168px, -11vh, -104px)',
+        // extra -10px keeps the same hero overlap after the track gained
+        // vertical padding (py-4) below.
+        marginTop: 'clamp(-178px, calc(-11vh - 10px), -114px)',
         marginBottom: '10px',
       }}
     >
@@ -63,7 +65,8 @@ const FeaturedRail: React.FC<FeaturedRailProps> = ({ items }) => {
           '[scroll-snap-type:x_proximity]',
           'scroll-smooth',
           '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-          'pb-3 pt-[6px] px-1',
+          // vertical room so the hover scale-up isn't clipped by overflow-x-auto
+          'py-4 px-2',
           'focus:outline-none',
         )}
       >
@@ -87,11 +90,13 @@ const FeaturedRail: React.FC<FeaturedRailProps> = ({ items }) => {
                 '[scroll-snap-align:start]',
                 // Depth shadow
                 'shadow-[0_24px_60px_rgba(0,0,0,.5)]',
-                // Hover lift + gold glow + border warm-up
-                'transition-[transform,box-shadow,border-color] duration-300 ease-[ease]',
-                'hover:-translate-y-1.5 hover:scale-[1.02]',
+                // Smooth scale-up + gold glow + border warm-up.
+                // No upward lift → the card never grows into the overlapped
+                // hero where overflow-x-auto would clip its top (the "jagged" look).
+                'transition-[transform,box-shadow,border-color] duration-300 ease-out will-change-transform',
+                'origin-center hover:scale-[1.035] hover:z-10',
                 'hover:border-gold/50',
-                'hover:shadow-[0_30px_72px_rgba(0,0,0,.62),0_0_42px_rgba(201,168,106,.22)]',
+                'hover:shadow-[0_26px_64px_rgba(0,0,0,.6),0_0_40px_rgba(201,168,106,.22)]',
                 // Focus ring
                 'focus:outline-none',
                 'focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',

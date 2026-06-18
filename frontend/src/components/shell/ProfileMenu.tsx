@@ -6,6 +6,7 @@ import { getInitials, handleAvatarError } from '@/utils/avatarHelper';
 import { cn } from '@/lib/cn';
 
 const ITEMS = [
+  { href: '/my-movies', label: 'My List' },
   { href: '/schedules', label: 'Schedules' },
   { href: '/downloads', label: 'Downloads' },
   { href: '/settings', label: 'Settings' },

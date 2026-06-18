@@ -11,7 +11,7 @@ import platform
 import time
 
 from app.config import settings
-from app.api import movies, torrents, schedules, streaming, users, tv
+from app.api import movies, torrents, schedules, streaming, users, tv, watchlist
 from app.torrent.manager import torrent_manager
 from app.cron.jobs import schedule_manager
 from app.database.session import init_db, close_thread_sessions
@@ -95,6 +95,11 @@ app.include_router(
     tv.router,
     prefix=f"{settings.api_v1_str}/tv",
     tags=["TV"],
+)
+app.include_router(
+    watchlist.router,
+    prefix=f"{settings.api_v1_str}/watchlist",
+    tags=["Watchlist"],
 )
 
 

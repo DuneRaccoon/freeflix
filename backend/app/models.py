@@ -484,3 +484,24 @@ class StreamingProgressResponse(BaseModel):
     updated_at: datetime
     file_index: Optional[int] = None
     title: Optional[str] = None
+
+
+# Watchlist models
+class WatchlistItemCreate(BaseModel):
+    content_id: str
+    tmdb_id: str
+    media_type: str   # "movie" | "tv"
+    title: Optional[str] = None
+
+
+class WatchlistItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
+    content_id: str
+    tmdb_id: str
+    media_type: str
+    title: Optional[str] = None
+    added_at: datetime
+    created_at: datetime

@@ -74,12 +74,11 @@ describe('Row', () => {
 
     const track = screen.getByRole('list', { name: 'Films items' });
 
-    // Mock scrollBy on the specific element
+    // Mock scrollBy + clientWidth (jsdom has no layout → clientWidth is 0).
+    // Arrows now page by the full visible width, so left should be -clientWidth.
     const scrollBySpy = vi.fn();
-    Object.defineProperty(track, 'scrollBy', {
-      value: scrollBySpy,
-      writable: true,
-    });
+    Object.defineProperty(track, 'scrollBy', { value: scrollBySpy, writable: true });
+    Object.defineProperty(track, 'clientWidth', { value: 800, configurable: true });
 
     const prevBtn = screen.getByRole('button', { name: 'Scroll left' });
     fireEvent.click(prevBtn);
@@ -87,7 +86,7 @@ describe('Row', () => {
     expect(scrollBySpy).toHaveBeenCalledOnce();
     const [callArg] = scrollBySpy.mock.calls[0];
     expect(callArg).toMatchObject({ behavior: 'smooth' });
-    expect(callArg.left).toBeLessThan(0);
+    expect(callArg.left).toBe(-800);
   });
 
   it('clicking the next arrow invokes scrollBy on the track', () => {
@@ -96,10 +95,8 @@ describe('Row', () => {
     const track = screen.getByRole('list', { name: 'Films items' });
 
     const scrollBySpy = vi.fn();
-    Object.defineProperty(track, 'scrollBy', {
-      value: scrollBySpy,
-      writable: true,
-    });
+    Object.defineProperty(track, 'scrollBy', { value: scrollBySpy, writable: true });
+    Object.defineProperty(track, 'clientWidth', { value: 800, configurable: true });
 
     const nextBtn = screen.getByRole('button', { name: 'Scroll right' });
     fireEvent.click(nextBtn);
@@ -107,7 +104,7 @@ describe('Row', () => {
     expect(scrollBySpy).toHaveBeenCalledOnce();
     const [callArg] = scrollBySpy.mock.calls[0];
     expect(callArg).toMatchObject({ behavior: 'smooth' });
-    expect(callArg.left).toBeGreaterThan(0);
+    expect(callArg.left).toBe(800);
   });
 
   it('the track has role=list and tabIndex=0 for keyboard accessibility', () => {

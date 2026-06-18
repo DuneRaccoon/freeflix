@@ -60,9 +60,6 @@ function ChevronRightIcon() {
   );
 }
 
-/** Approximate one ranked card width for arrow scrolling */
-const ONE_CARD_PX = 300;
-
 /** Fallback placeholder — near-black 2:3 SVG data URI */
 const POSTER_PLACEHOLDER =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"%3E%3Crect width="2" height="3" fill="%230d0d0f"/%3E%3C/svg%3E';
@@ -75,12 +72,15 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
 
   const headingId = `ranked-row-heading-${title.replace(/\s+/g, '-').toLowerCase()}`;
 
+  /** Page by the full visible width so each press advances a whole screen of cards. */
   function scrollPrev() {
-    trackRef.current?.scrollBy({ left: -ONE_CARD_PX, behavior: 'smooth' });
+    const el = trackRef.current;
+    if (el) el.scrollBy({ left: -el.clientWidth, behavior: 'smooth' });
   }
 
   function scrollNext() {
-    trackRef.current?.scrollBy({ left: ONE_CARD_PX, behavior: 'smooth' });
+    const el = trackRef.current;
+    if (el) el.scrollBy({ left: el.clientWidth, behavior: 'smooth' });
   }
 
   return (
@@ -89,7 +89,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
       aria-labelledby={headingId}
     >
       {/* ── Row header ── */}
-      <div className="flex items-end justify-between gap-6 pt-[54px] pb-[22px] max-sm:pt-10 max-sm:pb-[18px]">
+      <div className="flex items-end justify-between gap-6 pt-[54px] pb-1 max-sm:pt-10 max-sm:pb-1">
         {/* Left: eyebrow + title */}
         <div className="flex flex-col gap-1.5">
           {eyebrow && (
@@ -180,11 +180,12 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
         tabIndex={0}
         aria-labelledby={headingId}
         className={cn(
-          'flex gap-[18px] overflow-x-auto',
+          'flex items-end gap-[18px] overflow-x-auto',
           '[scroll-snap-type:x_proximity] [scroll-padding-left:4px]',
           'scroll-smooth',
           '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-          'pb-2 pt-[2px] px-1',
+          // Vertical padding gives the hover-scaled poster room (overflow-x-auto clips y).
+          'py-6 px-3',
           'focus:outline-none',
         )}
       >
@@ -197,51 +198,47 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
             <article
               key={item.tmdb_id}
               role="listitem"
-              className="relative flex items-end flex-none [scroll-snap-align:start]"
-              style={{ width: 'clamp(264px, 22vw, 348px)', paddingLeft: '8px' }}
+              className="relative flex-none [scroll-snap-align:start]"
+              style={{ width: 'clamp(264px, 22vw, 348px)' }}
             >
               <Link
                 href={href}
                 aria-label={`Number ${rank}: ${item.title}`}
                 className={cn(
-                  'group flex items-end no-underline text-inherit rounded-[10px]',
+                  'group relative block no-underline text-inherit rounded-[10px]',
                   'focus:outline-none',
                   'focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
                   'focus-visible:rounded-[10px]',
                 )}
               >
-                {/* Editorial rank numeral */}
+                {/* Editorial rank numeral — ABSOLUTE so it never drives row height
+                    (a huge inline numeral with tight leading overflowed the track
+                    and forced a vertical scrollbar). */}
                 <span
                   aria-hidden="true"
                   className={cn(
-                    'font-display font-light leading-[.7] tracking-[-0.04em]',
-                    'select-none z-[1] transition-[text-shadow] duration-300',
-                    // Text shadow glow — static (no keyframe = GPU-compositable)
+                    'pointer-events-none absolute left-0 bottom-0 z-[1] select-none',
+                    'font-display font-light leading-[.8] tracking-[-0.04em]',
+                    'transition-[text-shadow] duration-300',
                     '[text-shadow:0_0_18px_rgba(201,168,106,.22),0_0_40px_rgba(201,168,106,.1)]',
                     'group-hover:[text-shadow:0_0_26px_rgba(201,168,106,.35)]',
-                    // Outlined gold numerals via CSS text stroke
                     '[color:transparent] [-webkit-text-stroke:1.6px_rgba(201,168,106,.72)]',
                     'group-hover:[-webkit-text-stroke-color:var(--color-gold)]',
                   )}
-                  style={{
-                    fontSize: 'clamp(160px, 15vw, 212px)',
-                    marginRight: '-22px',
-                    marginBottom: '-6px',
-                  }}
+                  style={{ fontSize: 'clamp(150px, 13vw, 200px)' }}
                 >
                   {rank}
                 </span>
 
-                {/* 2:3 poster art */}
+                {/* 2:3 poster art — offset right so the numeral reads on the left */}
                 <div
                   className={cn(
-                    'relative z-[2] flex-none aspect-[2/3] rounded-[10px] overflow-hidden border border-hairline',
-                    'bg-surface',
-                    'transition-[transform,box-shadow] duration-300',
-                    'group-hover:-translate-y-1.5 group-hover:shadow-[0_18px_44px_rgba(0,0,0,.6)]',
-                    // Sheen pseudo-element effect via ::after — applied via a wrapper
+                    'relative z-[2] aspect-[2/3] rounded-[10px] overflow-hidden border border-hairline',
+                    'bg-surface transition-[transform,box-shadow,border-color] duration-300 ease-out',
+                    'group-hover:scale-[1.04] group-hover:-translate-y-1',
+                    'group-hover:shadow-[0_18px_44px_rgba(0,0,0,.6)] group-hover:border-gold/35',
                   )}
-                  style={{ width: 'clamp(152px, 13vw, 200px)' }}
+                  style={{ width: 'clamp(152px, 13vw, 200px)', marginLeft: 'clamp(64px, 6.5vw, 96px)' }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img

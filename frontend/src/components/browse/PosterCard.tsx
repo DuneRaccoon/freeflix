@@ -139,167 +139,161 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
       className={cn('relative group', className)}
       style={{ width: 'clamp(184px, 15.5vw, 272px)', flexShrink: 0 }}
     >
-      {/* ── Poster art + main card link ── */}
-      <Link
-        href={href}
-        className={cn(
-          'block rounded-[11px] text-inherit no-underline',
-          'focus:outline-none focus-visible:rounded-[11px]',
-          'focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
-        )}
-        aria-label={`${item.title}${item.year ? ` (${item.year})` : ''}`}
-      >
-        <div
-          className={cn(
-            'relative aspect-[2/3] rounded-[11px] overflow-hidden border border-hairline',
-            'bg-surface transition-[transform,box-shadow,border-color] duration-300 ease-[ease]',
-            'group-hover:scale-[1.04] group-hover:-translate-y-1.5',
-            'group-hover:shadow-[0_22px_50px_rgba(0,0,0,.6)]',
-            'group-hover:border-gold/35',
-          )}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={item.poster_url ?? POSTER_PLACEHOLDER}
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 w-full h-full object-cover"
-            loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = POSTER_PLACEHOLDER;
-            }}
-          />
-        </div>
-      </Link>
-
-      {/* ── Hover/focus-within reveal overlay (sits above the <Link>, outside it) ── */}
-      {/*
-        Positioned absolute over the art area (same size as the 2:3 poster).
-        pointer-events:none by default → passes clicks to the Link.
-        On hover/focus-within: pointer-events:auto so buttons/links work.
-        z-index:10 so it layers above the Link.
-        NOT aria-hidden so keyboard users can reach the action buttons.
-      */}
+      {/* ── Card visual: poster art + hover overlay scale & lift TOGETHER ── */}
       <div
         className={cn(
-          'absolute top-0 left-0 right-0',
-          // Match the aspect-ratio height of the poster
-          'aspect-[2/3] rounded-[11px] overflow-hidden z-10',
-          'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto',
+          'relative aspect-[2/3] rounded-[11px]',
+          'transition-[transform,box-shadow] duration-300 ease-out will-change-transform',
+          'group-hover:scale-[1.06] group-hover:-translate-y-1 group-hover:z-20',
+          'group-focus-within:scale-[1.06] group-focus-within:-translate-y-1 group-focus-within:z-20',
+          'group-hover:shadow-[0_20px_46px_rgba(0,0,0,.62)] group-focus-within:shadow-[0_20px_46px_rgba(0,0,0,.62)]',
         )}
       >
-        <div
+        {/* Poster art + main card link (focus ring lives here, NOT clipped) */}
+        <Link
+          href={href}
           className={cn(
-            'absolute inset-0 flex flex-col justify-end p-3.5',
-            'bg-[linear-gradient(0deg,rgba(10,10,11,.96)_12%,rgba(10,10,11,.4)_54%,transparent_82%)]',
-            'opacity-0 transition-opacity duration-300',
-            'group-hover:opacity-100 group-focus-within:opacity-100',
+            'absolute inset-0 block rounded-[11px] border border-hairline bg-surface',
+            'text-inherit no-underline transition-[border-color] duration-300',
+            'group-hover:border-gold/35',
+            'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
           )}
+          aria-label={`${item.title}${item.year ? ` (${item.year})` : ''}`}
         >
-          {/* Action row */}
-          <div className="flex items-center gap-2 mb-2.5">
-            {/* Play — navigates to detail page */}
-            <a
-              href={href}
-              aria-label={`Play ${item.title}`}
-              className={cn(
-                'w-[34px] h-[34px] rounded-full flex-none grid place-items-center',
-                'bg-gradient-to-br from-white to-gold-lite text-ink no-underline',
-                'transition-[transform,filter] duration-200 hover:scale-[1.08]',
-                'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
-              )}
-            >
-              <PlayIcon />
-            </a>
-
-            {/* + My List — wired to WatchlistContext */}
-            <button
-              type="button"
-              aria-label={saved ? `Remove ${item.title} from My List` : `Add ${item.title} to My List`}
-              data-testid="postercard-mylist-button"
-              onClick={handleMyList}
-              className={cn(
-                'w-[34px] h-[34px] rounded-full flex-none grid place-items-center cursor-pointer',
-                'border backdrop-blur',
-                'transition-[border-color,color,transform,background-color] duration-200',
-                'hover:scale-[1.08]',
-                'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
-                saved
-                  ? 'bg-gold/20 text-gold border-gold/60 hover:bg-gold/30'
-                  : 'bg-surface-2/70 text-text border-hairline hover:border-gold/50 hover:text-gold-lite',
-              )}
-            >
-              {saved ? <CheckIcon /> : <PlusIcon />}
-            </button>
-
-            {/* Info link */}
-            <a
-              href={href}
-              aria-label={`More info about ${item.title}`}
-              className={cn(
-                'w-[34px] h-[34px] rounded-full flex-none grid place-items-center',
-                'border border-hairline bg-surface-2/70 text-text no-underline backdrop-blur',
-                'transition-[border-color,color,transform] duration-200',
-                'hover:border-gold/50 hover:text-gold-lite hover:scale-[1.08]',
-                'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
-              )}
-            >
-              <InfoIcon />
-            </a>
-          </div>
-
-          {/* Title in overlay */}
-          <p className="font-display font-normal text-[17px] leading-[1.05] tracking-[-0.01em] text-text mb-1.5">
-            {item.title}
-          </p>
-
-          {/* Overview snippet */}
-          {overviewSnippet && (
-            <p
-              className="text-[11.5px] leading-[1.5] text-[#C9C4BA] mb-2"
-              style={{
-                display: '-webkit-box',
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
+          <div className="absolute inset-0 rounded-[11px] overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={item.poster_url ?? POSTER_PLACEHOLDER}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover"
+              loading="lazy"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = POSTER_PLACEHOLDER;
               }}
-            >
-              {overviewSnippet}
+            />
+          </div>
+        </Link>
+
+        {/*
+          Hover/focus-within reveal overlay — sibling of the Link (no nested <a>).
+          The gradient stays pointer-events:none so clicking the poster body still
+          navigates via the Link beneath; only the action buttons opt back in.
+        */}
+        <div className="absolute inset-0 rounded-[11px] overflow-hidden z-10">
+          <div
+            className={cn(
+              'absolute inset-0 flex flex-col justify-end p-3.5 pointer-events-none',
+              'bg-[linear-gradient(0deg,rgba(10,10,11,.96)_12%,rgba(10,10,11,.4)_54%,transparent_82%)]',
+              'opacity-0 transition-opacity duration-300',
+              'group-hover:opacity-100 group-focus-within:opacity-100',
+            )}
+          >
+            {/* Action row */}
+            <div className="flex items-center gap-2 mb-2.5 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
+              {/* Play — navigates to detail page */}
+              <a
+                href={href}
+                aria-label={`Play ${item.title}`}
+                className={cn(
+                  'w-[34px] h-[34px] rounded-full flex-none grid place-items-center',
+                  'bg-gradient-to-br from-white to-gold-lite text-ink no-underline',
+                  'transition-[transform,filter] duration-200 hover:scale-[1.08]',
+                  'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+                )}
+              >
+                <PlayIcon />
+              </a>
+
+              {/* + My List — wired to WatchlistContext */}
+              <button
+                type="button"
+                aria-label={saved ? `Remove ${item.title} from My List` : `Add ${item.title} to My List`}
+                data-testid="postercard-mylist-button"
+                onClick={handleMyList}
+                className={cn(
+                  'w-[34px] h-[34px] rounded-full flex-none grid place-items-center cursor-pointer',
+                  'border backdrop-blur',
+                  'transition-[border-color,color,transform,background-color] duration-200',
+                  'hover:scale-[1.08]',
+                  'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+                  saved
+                    ? 'bg-gold/20 text-gold border-gold/60 hover:bg-gold/30'
+                    : 'bg-surface-2/70 text-text border-hairline hover:border-gold/50 hover:text-gold-lite',
+                )}
+              >
+                {saved ? <CheckIcon /> : <PlusIcon />}
+              </button>
+
+              {/* Info link */}
+              <a
+                href={href}
+                aria-label={`More info about ${item.title}`}
+                className={cn(
+                  'w-[34px] h-[34px] rounded-full flex-none grid place-items-center',
+                  'border border-hairline bg-surface-2/70 text-text no-underline backdrop-blur',
+                  'transition-[border-color,color,transform] duration-200',
+                  'hover:border-gold/50 hover:text-gold-lite hover:scale-[1.08]',
+                  'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+                )}
+              >
+                <InfoIcon />
+              </a>
+            </div>
+
+            {/* Title in overlay */}
+            <p className="font-display font-normal text-[17px] leading-[1.05] tracking-[-0.01em] text-text mb-1.5">
+              {item.title}
             </p>
-          )}
 
-          {/* Genre chips */}
-          {genreChips.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {genreChips.map((g) => (
-                <span
-                  key={g}
-                  className="text-[9.5px] tracking-[.08em] uppercase text-gold-lite border border-gold/32 rounded px-1.5 py-0.5"
-                >
-                  {g}
-                </span>
-              ))}
-            </div>
-          )}
+            {/* Overview snippet */}
+            {overviewSnippet && (
+              <p
+                className="text-[11.5px] leading-[1.5] text-[#C9C4BA] mb-2"
+                style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {overviewSnippet}
+              </p>
+            )}
 
-          {/* Year · rating in overlay */}
-          {(item.year || rating) && (
-            <div className="flex items-center gap-1.5 text-[11px] text-[#C9C4BA]">
-              {item.year && <span>{item.year}</span>}
-              {item.year && rating && (
-                <span
-                  className="w-[3px] h-[3px] rounded-full bg-muted inline-block"
-                  aria-hidden="true"
-                />
-              )}
-              {rating && (
-                <span className="inline-flex items-center gap-[3px] text-gold-lite font-semibold">
-                  <StarIcon className="w-[11px] h-[11px] text-gold" />
-                  {rating}
-                </span>
-              )}
-            </div>
-          )}
+            {/* Genre chips */}
+            {genreChips.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {genreChips.map((g) => (
+                  <span
+                    key={g}
+                    className="text-[9.5px] tracking-[.08em] uppercase text-gold-lite border border-gold/32 rounded px-1.5 py-0.5"
+                  >
+                    {g}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Year · rating in overlay */}
+            {(item.year || rating) && (
+              <div className="flex items-center gap-1.5 text-[11px] text-[#C9C4BA]">
+                {item.year && <span>{item.year}</span>}
+                {item.year && rating && (
+                  <span
+                    className="w-[3px] h-[3px] rounded-full bg-muted inline-block"
+                    aria-hidden="true"
+                  />
+                )}
+                {rating && (
+                  <span className="inline-flex items-center gap-[3px] text-gold-lite font-semibold">
+                    <StarIcon className="w-[11px] h-[11px] text-gold" />
+                    {rating}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

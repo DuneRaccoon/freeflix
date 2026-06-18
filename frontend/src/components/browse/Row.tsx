@@ -63,9 +63,6 @@ function ChevronRightIcon() {
   );
 }
 
-/** Approximate one card width (clamp midpoint) for a single arrow press */
-const ONE_CARD_PX = 220;
-
 const Row: React.FC<RowProps> = ({
   title,
   eyebrow,
@@ -75,12 +72,15 @@ const Row: React.FC<RowProps> = ({
 }) => {
   const trackRef = useRef<HTMLDivElement>(null);
 
+  /** Page by the full visible width so each press advances a whole screen of cards. */
   function scrollPrev() {
-    trackRef.current?.scrollBy({ left: -ONE_CARD_PX, behavior: 'smooth' });
+    const el = trackRef.current;
+    if (el) el.scrollBy({ left: -el.clientWidth, behavior: 'smooth' });
   }
 
   function scrollNext() {
-    trackRef.current?.scrollBy({ left: ONE_CARD_PX, behavior: 'smooth' });
+    const el = trackRef.current;
+    if (el) el.scrollBy({ left: el.clientWidth, behavior: 'smooth' });
   }
 
   return (
@@ -89,7 +89,7 @@ const Row: React.FC<RowProps> = ({
       aria-labelledby={`row-heading-${title.replace(/\s+/g, '-').toLowerCase()}`}
     >
       {/* ── Row header ── */}
-      <div className="flex items-end justify-between gap-6 pt-[54px] pb-[22px] max-sm:pt-10 max-sm:pb-[18px]">
+      <div className="flex items-end justify-between gap-6 pt-[54px] pb-1 max-sm:pt-10 max-sm:pb-1">
         {/* Left: eyebrow + title */}
         <div className="flex flex-col gap-1.5">
           {eyebrow && (
@@ -186,7 +186,9 @@ const Row: React.FC<RowProps> = ({
           'scroll-smooth',
           // Hide scrollbar across browsers
           '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-          'pb-2 pt-[2px] px-1',
+          // Vertical padding gives the hover-scaled card room so it isn't clipped
+          // (overflow-x-auto forces overflow-y to clip). px room for edge cards.
+          'py-6 px-3',
           'focus:outline-none',
         )}
       >

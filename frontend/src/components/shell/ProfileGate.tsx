@@ -8,13 +8,51 @@ import PasscodePrompt from './PasscodePrompt';
 import { getInitials, handleAvatarError } from '@/utils/avatarHelper';
 import { cn } from '@/lib/cn';
 import { LockClosedIcon } from '@heroicons/react/24/solid';
+import { Modal, Field, Input, Button } from '@/components/ui/fre';
 
 interface Gate { required: boolean; code?: string; }
 
 const ProfileGate: React.FC = () => {
-  const { users, selectUser } = useUser();
+  const { users, selectUser, loadUsers } = useUser();
   const [gates, setGates] = useState<Record<string, Gate>>({});
   const [prompt, setPrompt] = useState<{ id: string; name: string; code: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const closeCreate = () => {
+    if (submitting) return;
+    setCreating(false);
+    setNewName('');
+    setCreateError(null);
+  };
+
+  const submitCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const display = newName.trim();
+    if (!display) { setCreateError('Please enter a name.'); return; }
+    setSubmitting(true);
+    setCreateError(null);
+    try {
+      const slug = display.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 24) || 'profile';
+      const user = await usersService.createUser({
+        username: `${slug}-${Date.now().toString(36).slice(-4)}`,
+        display_name: display,
+      });
+      await loadUsers();
+      const ok = await selectUser(user.id);
+      // On success, selectUser sets currentUser → AuthenticatedLayout swaps away from this gate.
+      if (!ok) {
+        setCreateError('Profile created, but it could not be opened — pick it from the list.');
+        setSubmitting(false);
+        setCreating(false);
+      }
+    } catch {
+      setCreateError('Could not create the profile. Please try again.');
+      setSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +108,7 @@ const ProfileGate: React.FC = () => {
           ))}
           <button
             type="button"
-            onClick={() => { /* TODO-Phase: open create-profile flow */ }}
+            onClick={() => setCreating(true)}
             className="group flex flex-col items-center gap-3 focus:outline-none"
             aria-label="Add profile"
           >
@@ -81,6 +119,29 @@ const ProfileGate: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <Modal open={creating} onClose={closeCreate} label="Add a profile">
+        <form onSubmit={submitCreate} className="flex flex-col gap-6">
+          <div className="flex flex-col gap-1.5">
+            <h2 className="font-display text-2xl leading-tight text-text">Add a profile</h2>
+            <p className="font-ui text-sm text-muted">Create a new viewing profile. You can choose an avatar later in Settings.</p>
+          </div>
+          <Field label="Profile name" htmlFor="new-profile-name" error={createError ?? undefined}>
+            <Input
+              id="new-profile-name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. Ben"
+              maxLength={40}
+              disabled={submitting}
+            />
+          </Field>
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="ghost" onClick={closeCreate} disabled={submitting}>Cancel</Button>
+            <Button type="submit" variant="primary" isLoading={submitting} disabled={!newName.trim()}>Create profile</Button>
+          </div>
+        </form>
+      </Modal>
 
       {prompt && (
         <PasscodePrompt

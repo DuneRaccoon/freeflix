@@ -20,6 +20,8 @@ interface PatchedVideoPlayerProps {
   subtitle?: string;
   poster?: string;
   onError?: (error: string) => void;
+  /** Optional external progress callback — fired alongside internal progress tracking */
+  onProgress?: (state: { currentTime: number; duration: number }) => void;
   downloadProgress?: number;
   streamingInfo?: StreamingInfo;
 }
@@ -36,6 +38,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   subtitle,
   poster,
   onError,
+  onProgress: externalOnProgress,
   downloadProgress = 0,
   streamingInfo
 }) => {
@@ -175,7 +178,11 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   const handleProgress = useCallback((playerState: any) => {
     currentTimeRef.current = playerState.currentTime;
     durationRef.current = playerState.duration;
-  }, []);
+    // Fire external progress callback (e.g. for UpNextCard trigger in the page)
+    if (externalOnProgress) {
+      externalOnProgress({ currentTime: playerState.currentTime, duration: playerState.duration });
+    }
+  }, [externalOnProgress]);
   
   // Handler for when the video ends
   const handleEnded = useCallback(() => {

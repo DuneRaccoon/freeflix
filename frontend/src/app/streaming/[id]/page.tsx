@@ -6,6 +6,7 @@ import { torrentsService } from '@/services/torrents';
 import { streamingService } from '@/services/streaming';
 import { TorrentStatus, StreamingInfo, TorrentState, VideoFile } from '@/types';
 import PatchedVideoPlayer from '@/components/player/PatchedVideoPlayer';
+import UpNextCard from '@/components/player/UpNextCard';
 import { Button, Pill } from '@/components/ui/fre';
 import {
   ArrowLeftIcon,
@@ -44,6 +45,9 @@ export default function StreamingPage() {
   const [showStreamingStats, setShowStreamingStats] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [videoFileProgress, setVideoFileProgress] = useState<number>(0);
+
+  // Up-Next card — shown when near the end of a multi-file episode
+  const [showUpNext, setShowUpNext] = useState(false);
 
   // Fetch the file list for this torrent
   useEffect(() => {
@@ -182,6 +186,23 @@ export default function StreamingPage() {
     return () => clearInterval(interval);
   }, [torrentId, isStreamReady, forceStreaming, retryCount, effectiveFileIndex]);
 
+  // Progress callback for Up-Next card trigger.
+  // Shows the card when there is a next file and the episode is near the end
+  // (last 30 seconds or last 5% of duration, whichever comes later).
+  // Does NOT autoplay — user always confirms by clicking Play Next.
+  const handleVideoProgress = ({ currentTime, duration }: { currentTime: number; duration: number }) => {
+    if (!isMultiFile) return; // single-file movies never show Up Next
+    const nextIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex) + 1;
+    if (nextIdx <= 0 || nextIdx >= videoFiles.length) return; // no next file
+    if (duration <= 0) return;
+    const remaining = duration - currentTime;
+    const pct = (currentTime / duration) * 100;
+    // Show when within 30 s OR within last 5 % — whichever is earlier
+    if (remaining <= 30 || pct >= 95) {
+      setShowUpNext(true);
+    }
+  };
+
   const handleBackClick = () => {
     router.push('/downloads');
   };
@@ -284,6 +305,13 @@ export default function StreamingPage() {
     }
     return f.name;
   };
+
+  // Next-file data for the Up-Next card (only relevant for multi-file season packs)
+  const currentFileIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex);
+  const nextVideoFile: VideoFile | null =
+    isMultiFile && currentFileIdx >= 0 && currentFileIdx + 1 < videoFiles.length
+      ? videoFiles[currentFileIdx + 1]
+      : null;
 
   // Loading state — FRÈ gold-on-ink spinner
   if (isLoading) {
@@ -418,20 +446,38 @@ export default function StreamingPage() {
       {/* Player Area */}
       <div className="flex-grow relative overflow-hidden">
         {streamingInfo && streamingUrl && torrentId ? (
-          <PatchedVideoPlayer
-            src={streamingUrl}
-            torrentId={torrentId}
-            torrentInfo={torrentStatus}
-            movieId={torrentStatus.movie_title}
-            contentId={streamingInfo.content_id ?? undefined}
-            fileIndex={effectiveFileIndex}
-            title={torrentStatus.movie_title ?? streamingInfo.video_file.name}
-            movieTitle={torrentStatus.movie_title}
-            subtitle={`${torrentStatus.quality} • ${streamingInfo.video_file.name}`}
-            onError={handleVideoError}
-            downloadProgress={videoFileProgress} // Pass the video-specific progress
-            streamingInfo={streamingInfo} // Pass the full streaming info
-          />
+          <>
+            <PatchedVideoPlayer
+              src={streamingUrl}
+              torrentId={torrentId}
+              torrentInfo={torrentStatus}
+              movieId={torrentStatus.movie_title}
+              contentId={streamingInfo.content_id ?? undefined}
+              fileIndex={effectiveFileIndex}
+              title={torrentStatus.movie_title ?? streamingInfo.video_file.name}
+              movieTitle={torrentStatus.movie_title}
+              subtitle={`${torrentStatus.quality} • ${streamingInfo.video_file.name}`}
+              onError={handleVideoError}
+              onProgress={handleVideoProgress}
+              downloadProgress={videoFileProgress} // Pass the video-specific progress
+              streamingInfo={streamingInfo} // Pass the full streaming info
+            />
+
+            {/* Up-Next card — floats above player, bottom-right, above controls */}
+            {showUpNext && nextVideoFile && (
+              <div className="absolute bottom-28 right-7 z-50 pointer-events-auto">
+                <UpNextCard
+                  nextLabel={fileLabel(nextVideoFile)}
+                  onPlayNext={() => {
+                    setShowUpNext(false);
+                    router.replace(`/streaming/${torrentId}?file=${nextVideoFile.index}`);
+                  }}
+                  onDismiss={() => setShowUpNext(false)}
+                  countdownSeconds={15}
+                />
+              </div>
+            )}
+          </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-ink">
             <div className="text-center">

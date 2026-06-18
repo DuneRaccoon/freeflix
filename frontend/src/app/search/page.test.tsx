@@ -74,17 +74,23 @@ describe('SearchPage (smoke)', () => {
     });
   });
 
-  it('wraps SearchView in a Suspense boundary (skeleton is accessible while loading)', () => {
-    // Render just the skeleton directly to confirm it has the right accessible role.
-    // This mirrors what Suspense shows while SearchView resolves.
-
-    // We can confirm the page structure contains a Suspense by checking that
-    // the rendered output contains the main h1 after resolve.
+  it('wraps SearchView in a Suspense boundary (skeleton or loaded UI is accessible)', async () => {
+    // The page wraps SearchView in <Suspense fallback={<SearchSkeleton />}>.
+    // Either the skeleton (role="status", aria-label="Loading search…") is shown
+    // while suspended, OR (because SearchView is not async in test) the real UI
+    // resolves immediately.  Either way the search heading must ultimately appear.
     render(<SearchPage />);
-    // Either the skeleton status or the loaded heading should be present —
-    // the render should not be empty.
-    const doc = document.body;
-    expect(doc.childElementCount).toBeGreaterThan(0);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    });
+
+    // The skeleton, when present, carries a specific accessible label — confirm
+    // that if it rendered it described itself correctly (not just "some element").
+    const skeleton = screen.queryByRole('status', { name: /loading search/i });
+    if (skeleton) {
+      expect(skeleton).toHaveAttribute('aria-label', 'Loading search…');
+    }
   });
 
   it('shows the GenreBrowse section when there is no query or filter', async () => {

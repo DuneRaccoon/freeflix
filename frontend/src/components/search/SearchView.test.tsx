@@ -141,14 +141,30 @@ describe('SearchView', () => {
     });
 
     it('clicking a genre tile in GenreBrowse activates a filter and hides GenreBrowse', async () => {
+      moviesBrowseFn = vi.fn().mockResolvedValue(moviePage1);
+      tvBrowseFn = vi.fn().mockResolvedValue(emptyPage);
+
       renderView();
-      // Click the first real genre tile
-      const firstGenreBtn = screen.getAllByRole('button').find(
-        (btn) => btn.getAttribute('aria-label') && !['Clear search'].includes(btn.getAttribute('aria-label')!),
-      );
-      expect(firstGenreBtn).toBeDefined();
-      // The section should be visible
+
+      // GenreBrowse is visible initially
       expect(screen.getByRole('region', { name: 'Browse by genre' })).toBeInTheDocument();
+
+      // Click the first genre tile button inside GenreBrowse
+      const genreRegion = screen.getByRole('region', { name: 'Browse by genre' });
+      const firstGenreBtn = genreRegion.querySelector('button');
+      expect(firstGenreBtn).not.toBeNull();
+
+      await userEvent.click(firstGenreBtn!);
+
+      // After clicking a genre tile, GenreBrowse should be hidden (a filter is now active)
+      await waitFor(() => {
+        expect(screen.queryByRole('region', { name: 'Browse by genre' })).not.toBeInTheDocument();
+      });
+
+      // A browse fetch should have been triggered
+      await waitFor(() => {
+        expect(moviesBrowseFn).toHaveBeenCalled();
+      });
     });
   });
 
@@ -345,6 +361,67 @@ describe('SearchView', () => {
       });
 
       expect(moviesSearchFn).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── 8. Stale-response race guard ─────────────────────────────────────────
+  describe('stale-response race guard', () => {
+    it('drops the older (slower) query response when a newer query resolves first', async () => {
+      // Set up deferred promises so we control resolution order.
+      let resolveOldQuery!: (value: CatalogPage) => void;
+      let resolveNewQuery!: (value: CatalogPage) => void;
+
+      const oldQueryPage = makePage([
+        { tmdb_id: 3001, media_type: 'movie', title: 'Old Query Result', popularity: 50 },
+      ]);
+      const newQueryPage = makePage([
+        { tmdb_id: 3002, media_type: 'movie', title: 'New Query Result', popularity: 60 },
+      ]);
+
+      const oldQueryPromise = new Promise<CatalogPage>((resolve) => {
+        resolveOldQuery = resolve;
+      });
+      const newQueryPromise = new Promise<CatalogPage>((resolve) => {
+        resolveNewQuery = resolve;
+      });
+
+      // First render with "old" query — service returns a slow (deferred) promise
+      moviesSearchFn = vi.fn().mockReturnValueOnce(oldQueryPromise);
+      const { unmount } = renderView({ q: 'old', type: 'movie' });
+
+      // Confirm the first fetch was initiated
+      await waitFor(() => expect(moviesSearchFn).toHaveBeenCalledTimes(1));
+
+      // Now switch to the "new" query — service returns a fast (deferred) promise
+      moviesSearchFn = vi.fn().mockReturnValueOnce(newQueryPromise);
+      // Re-render with the new search params
+      unmount();
+      mockSearchParamsMap = { q: 'new', type: 'movie' };
+      render(<SearchView />);
+
+      // Confirm the second fetch was initiated
+      await waitFor(() => expect(moviesSearchFn).toHaveBeenCalledTimes(1));
+
+      // Resolve the NEWER query first
+      act(() => {
+        resolveNewQuery(newQueryPage);
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByText('New Query Result').length).toBeGreaterThan(0);
+      });
+
+      // Now resolve the OLDER (slower) query — it should be dropped
+      act(() => {
+        resolveOldQuery(oldQueryPage);
+      });
+
+      // Wait a tick to allow any erroneous state update to propagate
+      await new Promise((r) => setTimeout(r, 50));
+
+      // The older result must NOT appear — the newer result must remain
+      expect(screen.queryByText('Old Query Result')).not.toBeInTheDocument();
+      expect(screen.getAllByText('New Query Result').length).toBeGreaterThan(0);
     });
   });
 });

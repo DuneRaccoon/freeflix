@@ -116,12 +116,21 @@ const SearchView: React.FC = () => {
     state.sort !== '' ||
     state.type !== 'all';
 
+  // ── Generation counter (stale-response guard) ─────────────────────────────
+  // Incremented each time the query/filter key changes. fetchPage captures the
+  // generation at call time; after the await it bails if a newer generation
+  // started, preventing superseded responses from clobbering newer results.
+  const fetchSeqRef = useRef(0);
+
   // ── Reset when query/type/filter changes ──────────────────────────────────
   const fetchKey = `${state.q}|${state.type}|${state.genre}|${state.year}|${state.sort}`;
   const prevFetchKey = useRef<string>('');
   useEffect(() => {
     if (fetchKey !== prevFetchKey.current) {
       prevFetchKey.current = fetchKey;
+      // Bump the generation so any in-flight fetch from the previous key is
+      // treated as stale and its setState calls are dropped.
+      fetchSeqRef.current += 1;
       setItems([]);
       setPages([]);
       setCurrentPage(1);
@@ -140,6 +149,9 @@ const SearchView: React.FC = () => {
   const fetchPage = useCallback(
     async (page: number) => {
       if (!isActive) return;
+
+      // Capture the generation that is current when this call is made.
+      const myGen = fetchSeqRef.current;
 
       setIsLoading(true);
 
@@ -177,7 +189,8 @@ const SearchView: React.FC = () => {
           newPages = [tvPage];
         }
 
-        if (!mountedRef.current) return;
+        // Bail if unmounted OR if a newer generation superseded this one.
+        if (!mountedRef.current || myGen !== fetchSeqRef.current) return;
 
         setPages((prev) => {
           const merged = page === 1 ? newPages : [...prev, ...newPages];
@@ -188,7 +201,7 @@ const SearchView: React.FC = () => {
       } catch {
         // Degrade to empty on error — grid shows empty state
       } finally {
-        if (mountedRef.current) {
+        if (mountedRef.current && myGen === fetchSeqRef.current) {
           setIsLoading(false);
         }
       }

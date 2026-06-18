@@ -1,5 +1,5 @@
 'use client';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Wordmark } from '@/components/ui/Wordmark';
@@ -8,10 +8,40 @@ import { useScrolled } from '@/lib/useScrolled';
 import { NAV_LINKS, isNavActive } from './navLinks';
 import ProfileMenu from './ProfileMenu';
 import { cn } from '@/lib/cn';
+import { activityService } from '@/services/activity';
+
+/** How often to poll the activity endpoint (ms). */
+const POLL_INTERVAL_MS = 15_000;
 
 const TopNav: React.FC = () => {
   const pathname = usePathname();
   const scrolled = useScrolled(60);
+
+  const [activeDownloads, setActiveDownloads] = useState(0);
+  const [aggregateProgress, setAggregateProgress] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchActivity = async () => {
+      try {
+        const data = await activityService.getCount();
+        if (!cancelled) {
+          setActiveDownloads(data.active_downloads);
+          setAggregateProgress(data.aggregate_progress);
+        }
+      } catch {
+        // Silently ignore errors — badge simply stays hidden / at last known value.
+      }
+    };
+
+    fetchActivity();
+    const timer = setInterval(fetchActivity, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   return (
     <header
@@ -49,14 +79,16 @@ const TopNav: React.FC = () => {
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
-        <Link
-          href="/downloads"
-          aria-label="Activity"
-          className="hidden items-center gap-2 rounded-full border border-hairline bg-surface-2/60 px-3 h-9 font-ui text-xs text-text sm:flex focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]"
-        >
-          <Ring value={64} />
-          <span className="font-semibold text-gold-lite">1</span>
-        </Link>
+        {activeDownloads > 0 && (
+          <Link
+            href="/downloads"
+            aria-label={`Activity: ${activeDownloads} active download${activeDownloads !== 1 ? 's' : ''}`}
+            className="hidden items-center gap-2 rounded-full border border-hairline bg-surface-2/60 px-3 h-9 font-ui text-xs text-text sm:flex focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]"
+          >
+            <Ring value={Math.round(aggregateProgress)} />
+            <span className="font-semibold text-gold-lite">{activeDownloads}</span>
+          </Link>
+        )}
         <ProfileMenu />
       </div>
     </header>

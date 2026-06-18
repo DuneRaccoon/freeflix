@@ -56,8 +56,8 @@ const ProfileMenu: React.FC = () => {
             </Link>
           ))}
           <button role="menuitem" type="button" onClick={() => { setOpen(false); logout(); }}
-            className="mt-1 block w-full rounded-lg px-3 py-2 text-left font-ui text-sm text-danger hover:bg-danger/10 focus:outline-none focus-visible:bg-danger/10">
-            Sign out
+            className="mt-1 block w-full rounded-lg px-3 py-2 text-left font-ui text-sm text-text hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2">
+            Switch profile
           </button>
         </div>
       )}

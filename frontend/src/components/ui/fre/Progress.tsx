@@ -12,13 +12,13 @@ export const Progress: React.FC<ProgressProps> = ({ value, label, className, ...
   const v = clamp(value);
   return (
     <div
+      {...props}
       role="progressbar"
       aria-label={label}
       aria-valuenow={v}
       aria-valuemin={0}
       aria-valuemax={100}
       className={cn('h-1 w-full overflow-hidden rounded-full bg-text/15', className)}
-      {...props}
     >
       <div className="h-full rounded-full bg-gold" style={{ width: `${v}%` }} />
     </div>

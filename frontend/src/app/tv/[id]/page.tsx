@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { tvService } from '@/services/tv';
-import ShowDetailsContent from '@/components/tv/ShowDetailsContent';
+import ShowDetailView from '@/components/tv/ShowDetailView';
 import { notFound } from 'next/navigation';
 
 type Props = {
@@ -36,7 +36,7 @@ export default async function ShowPage({ params }: Props) {
     const showId = decodeURIComponent(id);
     const show = await tvService.getShow(Number(showId));
 
-    return <ShowDetailsContent show={show} />;
+    return <ShowDetailView show={show} />;
   } catch (error) {
     notFound();
   }

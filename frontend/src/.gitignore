@@ -1,0 +1,3 @@
+# Re-include lib/ — the root .gitignore has a Python-derived `lib/` pattern
+# that would otherwise exclude frontend/src/lib/**
+!lib/

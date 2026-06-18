@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import Modal from '@/components/ui/fre/Modal';
 import { cn } from '@/lib/cn';
+import { BackspaceIcon } from '@heroicons/react/24/outline';
 
 interface PasscodePromptProps {
   open: boolean;
@@ -61,7 +62,7 @@ const PasscodePrompt: React.FC<PasscodePromptProps> = ({ open, profileName, expe
                   'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
                 )}
               >
-                {k === 'del' ? '⌫' : k}
+                {k === 'del' ? <BackspaceIcon className="h-5 w-5" /> : k}
               </button>
             ),
           )}

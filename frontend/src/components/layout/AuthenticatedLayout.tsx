@@ -33,7 +33,7 @@ const AuthenticatedLayout: React.FC<AuthenticatedLayoutProps> = ({ children }) =
     <>
       <CinematicAtmosphere />
       <TopNav />
-      <main className="relative z-[2] min-h-screen pb-16 md:pb-0">{children}</main>
+      <main className="relative z-[2] min-h-screen pt-[72px] pb-16 md:pb-0">{children}</main>
       <BottomTabBar />
     </>
   );

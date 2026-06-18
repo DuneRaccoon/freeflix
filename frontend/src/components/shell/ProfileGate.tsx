@@ -7,6 +7,7 @@ import CinematicAtmosphere from '@/components/fx/CinematicAtmosphere';
 import PasscodePrompt from './PasscodePrompt';
 import { getInitials, handleAvatarError } from '@/utils/avatarHelper';
 import { cn } from '@/lib/cn';
+import { LockClosedIcon } from '@heroicons/react/24/solid';
 
 interface Gate { required: boolean; code?: string; }
 
@@ -61,7 +62,7 @@ const ProfileGate: React.FC = () => {
                   ? <img src={u.avatar} alt="" onError={handleAvatarError} className="h-full w-full object-cover" />
                   : <span aria-hidden="true">{getInitials(u.display_name)}</span>}
                 {gates[u.id]?.required && (
-                  <span aria-hidden="true" className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full border border-gold/55 bg-ink/70 text-gold">🔒</span>
+                  <span aria-hidden="true" className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full border border-gold/55 bg-ink/70 text-gold"><LockClosedIcon className="h-4 w-4" /></span>
                 )}
               </span>
               <span className="font-ui text-sm tracking-wide text-muted transition-colors group-hover:text-text">{u.display_name}</span>

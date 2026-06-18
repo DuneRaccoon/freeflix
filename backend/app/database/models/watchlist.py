@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, String, func
+    Column, DateTime, ForeignKey, String, UniqueConstraint, func
 )
 from sqlalchemy.orm import relationship, Session
 import datetime
@@ -11,6 +11,12 @@ from app.database.mixins import Model, generate_uuid
 class UserWatchlist(Model):
     """SQLAlchemy model for tracking items a user has saved to My List."""
     __tablename__ = "user_watchlist"
+
+    # DB-level deduplication backstop (note: sync_columns won't add this
+    # constraint to already-provisioned databases — only fresh installs).
+    __table_args__ = (
+        UniqueConstraint("user_id", "content_id", name="uq_watchlist_user_content"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -27,7 +33,7 @@ class UserWatchlist(Model):
     added_at = Column(
         DateTime,
         nullable=False,
-        default=datetime.datetime.now(datetime.timezone.utc),
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
     )
 
     # Relationships
@@ -37,11 +43,14 @@ class UserWatchlist(Model):
     def get_for_user(
         cls, db: Session, user_id: str, limit: int = 200
     ) -> List["UserWatchlist"]:
-        """Return a user's watchlist entries, newest first."""
+        """Return a user's watchlist entries, newest first.
+
+        Ties broken by id descending for a stable insertion-order fallback.
+        """
         return (
             db.query(cls)
             .filter(cls.user_id == user_id)
-            .order_by(cls.added_at.desc())
+            .order_by(cls.added_at.desc(), cls.id.desc())
             .limit(limit)
             .all()
         )

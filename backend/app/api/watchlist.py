@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Annotated
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.database.session import get_db
 from app.database.models import User
@@ -38,7 +39,11 @@ async def add_to_watchlist(
             title=item.title,
         )
         session.add(entry)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="Item already in watchlist")
         session.refresh(entry)
         return WatchlistItemResponse.model_validate(entry)
 

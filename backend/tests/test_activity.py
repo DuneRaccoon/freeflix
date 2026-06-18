@@ -130,6 +130,28 @@ def test_count_reflects_active_torrents(client, db_session):
     assert data["aggregate_progress"] == pytest.approx(20.0, abs=0.1)  # (40+0)/2
 
 
+def test_paused_torrent_not_counted(client, db_session):
+    """A paused torrent must NOT increment the active-download badge."""
+    from app.api.activity import ACTIVE_STATES
+
+    # Baseline: wipe existing active rows so only our paused torrent exists
+    db_session.query(DbTorrent).filter(DbTorrent.state.in_(ACTIVE_STATES)).delete(
+        synchronize_session=False
+    )
+    db_session.query(DbTorrent).filter(DbTorrent.state == "paused").delete(
+        synchronize_session=False
+    )
+    db_session.commit()
+
+    _make_torrent(db_session, "paused", 60.0)
+
+    resp = client.get("/api/v1/activity/count")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["active_downloads"] == 0, "paused torrent must not count as active"
+    assert data["aggregate_progress"] == 0.0
+
+
 def test_count_all_active_states(client, db_session):
     """Every active state should appear in the count."""
     from app.api.activity import ACTIVE_STATES

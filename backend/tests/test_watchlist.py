@@ -108,10 +108,82 @@ def test_watchlist_add_and_find(db_session, test_user):
     assert found.title == "The Matrix"
 
 
+def test_added_at_callable_default_produces_distinct_timestamps(db_session, test_user):
+    """added_at default must be a callable so two separate inserts get different timestamps."""
+    import time
+
+    e1 = UserWatchlist(
+        user_id=test_user.id,
+        content_id="movie:777",
+        tmdb_id="777",
+        media_type="movie",
+        title="First",
+    )
+    db_session.add(e1)
+    db_session.commit()
+    db_session.refresh(e1)
+    ts1 = e1.added_at
+
+    # Small sleep to ensure OS clock advances
+    time.sleep(0.01)
+
+    e2 = UserWatchlist(
+        user_id=test_user.id,
+        content_id="movie:888",
+        tmdb_id="888",
+        media_type="movie",
+        title="Second",
+    )
+    db_session.add(e2)
+    db_session.commit()
+    db_session.refresh(e2)
+    ts2 = e2.added_at
+
+    # If default were evaluated once at import, both timestamps would be equal
+    assert ts1 != ts2, "added_at default must be a callable, not a pre-evaluated value"
+
+
 def test_watchlist_get_for_user_returns_entries(db_session, test_user):
     entries = UserWatchlist.get_for_user(db_session, test_user.id)
     assert len(entries) >= 1
     assert all(e.user_id == test_user.id for e in entries)
+
+
+def test_watchlist_ordering_newest_first_with_tiebreaker(db_session, test_user):
+    """Entries with the same added_at timestamp must be stable (id desc tiebreaker)."""
+    import datetime
+
+    # Insert two entries with an identical timestamp to exercise the tiebreaker
+    shared_ts = datetime.datetime(2024, 1, 1, 0, 0, 0)
+    e1 = UserWatchlist(
+        user_id=test_user.id,
+        content_id="movie:11",
+        tmdb_id="11",
+        media_type="movie",
+        title="Star Wars",
+        added_at=shared_ts,
+    )
+    e2 = UserWatchlist(
+        user_id=test_user.id,
+        content_id="movie:22",
+        tmdb_id="22",
+        media_type="movie",
+        title="Empire Strikes Back",
+        added_at=shared_ts,
+    )
+    db_session.add(e1)
+    db_session.add(e2)
+    db_session.commit()
+    db_session.refresh(e1)
+    db_session.refresh(e2)
+
+    entries = UserWatchlist.get_for_user(db_session, test_user.id)
+    tied = [e for e in entries if e.added_at == shared_ts]
+    assert len(tied) == 2
+
+    # id desc: whichever id sorts later should appear first
+    ids = [e.id for e in tied]
+    assert ids == sorted(ids, reverse=True), "tied entries must be ordered by id desc"
 
 
 # --------------------------------------------------------------------------- #

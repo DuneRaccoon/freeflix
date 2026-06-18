@@ -2,9 +2,10 @@
 """Activity endpoint: returns a count of active downloads + aggregate progress.
 
 Active states are any torrent not yet finished/seeded/stopped/errored:
-  queued, checking, downloading_metadata, downloading, allocating, paused.
-We query the DB rather than torrent_manager.active_torrents so this works
-even before the background update task fires.
+  queued, checking, downloading_metadata, downloading, allocating.
+Paused torrents are excluded — a user-paused torrent should not keep the
+nav badge lit.  We query the DB rather than torrent_manager.active_torrents
+so this works even before the background update task fires.
 """
 from fastapi import APIRouter, Depends
 from typing import Annotated
@@ -16,14 +17,15 @@ from app.models import ActivityCountResponse
 
 router = APIRouter()
 
-# States that count as "active" for the activity badge
+# States that count as "active" for the activity badge.
+# "paused" is intentionally excluded: a user-paused torrent should not
+# keep the nav badge lit.
 ACTIVE_STATES = {
     "queued",
     "checking",
     "downloading_metadata",
     "downloading",
     "allocating",
-    "paused",
 }
 
 

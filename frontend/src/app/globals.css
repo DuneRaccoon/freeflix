@@ -592,3 +592,23 @@ body.user-selection-mode main {
 @keyframes ff-kenburns { from { transform: scale(1) translate3d(0,0,0); } to { transform: scale(1.08) translate3d(-1.6%,-1.2%,0); } }
 @keyframes ff-shine { from { background-position: 0 0; } to { background-position: -240% 0; } }
 @keyframes ff-ctashine { from { transform: translateX(-120%); } to { transform: translateX(120%); } }
+
+/* ============================================================
+   FRÈ — Player (#ff-player) overlay styles
+   These complement the Tailwind utilities used in VideoPlayer.tsx.
+   The paused-warmth transition is gated by the global reduced-motion guard.
+   ============================================================ */
+
+/* Gold pulse dot in the streaming chip */
+@keyframes ffp-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(201,168,106,.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(201,168,106,0); }
+  100% { box-shadow: 0 0 0 0 rgba(201,168,106,0); }
+}
+
+/* Reduced-motion: disable the pulse animation */
+@media (prefers-reduced-motion: reduce) {
+  [style*="ffp-pulse"] {
+    animation: none !important;
+  }
+}

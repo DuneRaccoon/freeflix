@@ -8,4 +8,7 @@ describe('cn', () => {
   it('lets later tailwind classes win conflicts', () => {
     expect(cn('px-2 text-text', 'px-4')).toBe('text-text px-4');
   });
+  it('de-conflicts custom @theme radius utilities (last wins)', () => {
+    expect(cn('rounded-full', 'rounded-card')).toBe('rounded-card');
+  });
 });

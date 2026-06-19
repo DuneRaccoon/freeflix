@@ -17,7 +17,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { formatBytes } from '@/utils/format';
 import { isStreamingReady } from '@/utils/streaming';
-import PreStreamingAnimation from '@/components/streaming/PreStreamingAnimation';
 import { cn } from '@/lib/cn';
 
 export default function StreamingPage() {
@@ -205,10 +204,6 @@ export default function StreamingPage() {
     router.push('/downloads');
   };
 
-  const handleHomeClick = () => {
-    router.push('/');
-  };
-
   const toggleStreamingStats = () => {
     setShowStreamingStats(!showStreamingStats);
   };
@@ -360,22 +355,10 @@ export default function StreamingPage() {
     );
   }
 
-  // Not ready for streaming yet
-  if (!isStreamReady && !forceStreaming) {
-    return (
-      <PreStreamingAnimation
-        movieTitle={torrentStatus.movie_title}
-        progress={torrentStatus.progress}
-        downloadSpeed={torrentStatus.download_rate}
-        numPeers={torrentStatus.num_peers}
-        onStartAnyway={handleForceStreaming}
-        onBack={handleBackClick}
-        estimatedTimeSeconds={torrentStatus.progress >= 5 ? 0 : 60}
-      />
-    );
-  }
-
-  // Ready for streaming
+  // Render straight into the player layout — no pre-stream interstitial.
+  // While the stream warms up (before there's enough buffered to play), the
+  // player area shows a clean buffering panel; the player's own overlay then
+  // carries the buffering / "streaming · N% downloaded" info once it mounts.
   return (
     <div className="h-screen flex flex-col bg-ink">
       {/* FRÈ Header — glass bar, ink base */}
@@ -477,11 +460,27 @@ export default function StreamingPage() {
             )}
           </>
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-ink">
-            <div className="text-center">
-              <div className="w-10 h-10 rounded-full border-2 border-hairline border-t-gold animate-spin mx-auto mb-3" />
-              <p className="text-sm text-muted">Loading video player…</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-ink px-6 text-center">
+            <div
+              className="w-12 h-12 rounded-full border-2 border-hairline border-t-gold animate-spin"
+              aria-label="Buffering"
+            />
+            <div>
+              <p className="font-display text-xl text-text tracking-tight">Buffering your stream…</p>
+              <p className="mt-1.5 text-sm text-muted">
+                {Math.round(torrentStatus.progress)}% downloaded
+                {torrentStatus.num_peers > 0 &&
+                  ` · ${torrentStatus.num_peers} peer${torrentStatus.num_peers === 1 ? '' : 's'}`}
+              </p>
             </div>
+            {!forceStreaming && (
+              <button
+                onClick={handleForceStreaming}
+                className="text-xs text-muted underline-offset-4 transition-colors hover:text-gold hover:underline"
+              >
+                Start anyway
+              </button>
+            )}
           </div>
         )}
       </div>

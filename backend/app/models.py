@@ -147,7 +147,7 @@ class CatalogItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     tmdb_id: int
-    media_type: Literal['movie'] = 'movie'
+    media_type: Literal['movie', 'tv'] = 'movie'
     title: str
     year: Optional[int] = None
     overview: Optional[str] = None

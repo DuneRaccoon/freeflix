@@ -745,25 +745,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // Apply playback speed
         video.playbackRate = playbackSpeed;
 
-        // Only attempt autoplay if specified
+        // Attempt autoplay — WITH SOUND first. The user pressed Play to get here,
+        // and SPA navigation preserves the page's user activation, so the browser
+        // normally allows sound-on autoplay. If it's blocked, fall back to muted
+        // (so it still plays) and surface the unmute affordance.
         if (autoPlay) {
           if (debug) console.log("Attempting autoplay");
+
+          // Respect an explicit user mute; otherwise start unmuted at the set volume.
+          video.muted = playerState.isMuted;
+          video.volume = playerState.volume;
 
           const playPromise = video.play();
           if (playPromise !== undefined) {
             playPromise.then(() => {
-              if (debug) console.log("Autoplay successful (muted)");
-
-              // Show unmute button since autoplay is always muted
-              setShowUnmuteButton(true);
-
+              if (debug) console.log("Autoplay started, muted =", video.muted);
+              setShowUnmuteButton(video.muted);
               setPlayerState(prev => ({
                 ...prev,
                 isPlaying: true,
-                isMuted: true
+                isMuted: video.muted,
               }));
             }).catch(error => {
-              if (debug) console.error('Autoplay failed:', error);
+              if (debug) console.error('Sound-on autoplay blocked; retrying muted:', error);
+              // Browser blocked autoplay with sound → mute and retry so it still plays.
+              video.muted = true;
+              video.play().then(() => {
+                setShowUnmuteButton(true);
+                setPlayerState(prev => ({ ...prev, isPlaying: true, isMuted: true }));
+              }).catch(err => {
+                if (debug) console.error('Muted autoplay also failed:', err);
+              });
             });
           }
         }

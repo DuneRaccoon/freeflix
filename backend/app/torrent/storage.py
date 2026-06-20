@@ -18,6 +18,7 @@ def decode_resume_data(s: Union[str, bytes]) -> bytes:
         try:
             return base64.b64decode(s, validate=True)
         except Exception:
+            logger.warning("decode_resume_data: input was not valid base64; using raw bytes as-is")
             return s
     return base64.b64decode(s)
 

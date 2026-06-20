@@ -9,7 +9,7 @@ const Card: React.FC<CardProps> = ({
   return (
     <div 
       className={twMerge(
-        'bg-card rounded-lg shadow-md overflow-hidden border border-gray-800 animate-fade-in',
+        'bg-surface rounded-lg shadow-md overflow-hidden border border-hairline animate-fade-in',
         className
       )}
     >
@@ -41,7 +41,7 @@ const CardTitle: React.FC<CardProps> = ({
   return (
     <h3 
       className={twMerge(
-        'text-lg font-semibold text-foreground',
+        'text-lg font-semibold text-text',
         className
       )}
     >

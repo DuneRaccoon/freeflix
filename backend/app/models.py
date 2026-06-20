@@ -147,7 +147,7 @@ class CatalogItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     tmdb_id: int
-    media_type: Literal['movie'] = 'movie'
+    media_type: Literal['movie', 'tv'] = 'movie'
     title: str
     year: Optional[int] = None
     overview: Optional[str] = None
@@ -484,3 +484,31 @@ class StreamingProgressResponse(BaseModel):
     updated_at: datetime
     file_index: Optional[int] = None
     title: Optional[str] = None
+
+
+# Watchlist models
+class WatchlistItemCreate(BaseModel):
+    content_id: str
+    tmdb_id: str
+    media_type: str   # "movie" | "tv"
+    title: Optional[str] = None
+
+
+class WatchlistItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
+    content_id: str
+    tmdb_id: str
+    media_type: str
+    title: Optional[str] = None
+    added_at: datetime
+    created_at: datetime
+
+
+# Activity models
+class ActivityCountResponse(BaseModel):
+    """Active-download summary returned by GET /api/v1/activity/count."""
+    active_downloads: int
+    aggregate_progress: float  # 0.0–100.0, mean progress across active torrents

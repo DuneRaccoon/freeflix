@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import Button from '@/components/ui/Button';
+import { Button } from '@/components/ui/fre';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 
 export default function MovieNotFound() {

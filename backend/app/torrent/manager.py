@@ -1221,5 +1221,93 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Error prioritizing pieces for streaming: {e}")
 
+    def stream_file_range(self, torrent_id: str, file_index: int, file_path: str,
+                          start: int, end: int, chunk_size: int = 1024 * 1024,
+                          piece_timeout: float = 45.0):
+        """
+        Yield bytes [start, end] (inclusive) of a torrent's file for HTTP streaming,
+        WAITING for each underlying piece to actually be downloaded before serving it.
+
+        Serving a torrent file straight off disk while it is still downloading hands
+        the player not-yet-downloaded (sparse / zero) bytes — including the MP4 `moov`
+        atom when it lives at the END of the file (sequential download fetches that
+        last). The browser decoder rejects those bytes as bad data
+        (PIPELINE_ERROR_DECODE / VideoToolbox -12909). This generator gates every chunk
+        on piece availability — deadlining the needed pieces so libtorrent fetches them
+        next — so the player only ever receives real, decodable bytes (it buffers /
+        waits instead of decoding garbage).
+        """
+        entry = self.active_torrents.get(torrent_id)
+        handle = entry[0] if entry else None
+        ti = handle.get_torrent_info() if (handle and handle.has_metadata()) else None
+
+        # No live torrent (e.g. completed and removed from the session) → every byte
+        # is already on disk; serve straight through.
+        if ti is None:
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    chunk = f.read(min(chunk_size, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            return
+
+        file_offset = ti.file_at(file_index).offset
+        piece_length = ti.piece_length()
+        num_pieces = ti.num_pieces()
+        try:
+            handle.set_sequential_download(True)
+        except Exception:
+            pass
+
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = end - start + 1
+            pos = start
+            while remaining > 0:
+                n = min(chunk_size, remaining)
+                first_piece = (file_offset + pos) // piece_length
+                last_piece = (file_offset + pos + n - 1) // piece_length
+                self._await_pieces(handle, first_piece, last_piece, num_pieces, piece_timeout)
+                chunk = f.read(n)
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                pos += len(chunk)
+                yield chunk
+
+    def _await_pieces(self, handle, first_piece: int, last_piece: int,
+                      num_pieces: int, timeout: float, read_ahead: int = 4) -> bool:
+        """
+        Block until pieces [first_piece, last_piece] are downloaded (or `timeout`
+        seconds elapse), deadlining them — plus a little read-ahead — so libtorrent
+        fetches them ASAP. Returns True if every required piece arrived, else False
+        (caller then serves what's there rather than hanging forever).
+        """
+        for p in range(first_piece, min(last_piece + 1 + read_ahead, num_pieces)):
+            try:
+                if not handle.have_piece(p):
+                    handle.piece_priority(p, 7)
+                    handle.set_piece_deadline(p, 0)
+            except Exception:
+                pass
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                if all(handle.have_piece(p) for p in range(first_piece, last_piece + 1)):
+                    return True
+            except Exception:
+                return False
+            time.sleep(0.05)
+
+        logger.warning(
+            f"Streaming: timed out waiting for pieces {first_piece}-{last_piece}; serving partial data"
+        )
+        return False
+
 # Create a singleton instance
 torrent_manager = TorrentManager()

@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { moviesService } from '@/services/movies';
-import MovieDetailsContent from '@/components/movies/MovieDetailsContent';
+import MovieDetailView from '@/components/movies/MovieDetailView';
 import { notFound } from 'next/navigation';
 
 type Props = {
@@ -39,7 +39,7 @@ export default async function MoviePage({ params }: Props) {
     const movie = await moviesService.getDetail(Number(movieId));
 
     // Pass data to client component
-    return <MovieDetailsContent movie={movie} />;
+    return <MovieDetailView movie={movie} />;
   } catch (error) {
     notFound();
   }

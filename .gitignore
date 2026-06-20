@@ -197,3 +197,11 @@ freeflix.db-journal
 /resume_data/
 /logs/
 docker-compose.override.local.yml
+
+# Superpowers brainstorm scratch (visual companion mockups)
+.superpowers/
+
+# Playwright MCP scratch + verification screenshots
+.playwright-mcp/
+/fre-*.png
+/fre-*.jpeg

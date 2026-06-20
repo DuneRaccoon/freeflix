@@ -6,20 +6,18 @@ import { torrentsService } from '@/services/torrents';
 import { streamingService } from '@/services/streaming';
 import { TorrentStatus, StreamingInfo, TorrentState, VideoFile } from '@/types';
 import PatchedVideoPlayer from '@/components/player/PatchedVideoPlayer';
-import Button from '@/components/ui/Button';
-import Progress from '@/components/ui/Progress';
+import UpNextCard from '@/components/player/UpNextCard';
+import { Button, Pill } from '@/components/ui/fre';
 import {
   ArrowLeftIcon,
   InformationCircleIcon,
   ExclamationTriangleIcon,
-  HomeIcon,
   ArrowPathIcon,
   FilmIcon
 } from '@heroicons/react/24/outline';
 import { formatBytes } from '@/utils/format';
 import { isStreamingReady } from '@/utils/streaming';
-import PreStreamingAnimation from '@/components/streaming/PreStreamingAnimation';
-import { BasicPreStream } from '@/components/streaming/BasicPreStream';
+import { cn } from '@/lib/cn';
 
 export default function StreamingPage() {
   const { id } = useParams();
@@ -44,6 +42,9 @@ export default function StreamingPage() {
   const [showStreamingStats, setShowStreamingStats] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [videoFileProgress, setVideoFileProgress] = useState<number>(0);
+
+  // Up-Next card — shown when near the end of a multi-file episode
+  const [showUpNext, setShowUpNext] = useState(false);
 
   // Fetch the file list for this torrent
   useEffect(() => {
@@ -182,12 +183,25 @@ export default function StreamingPage() {
     return () => clearInterval(interval);
   }, [torrentId, isStreamReady, forceStreaming, retryCount, effectiveFileIndex]);
 
-  const handleBackClick = () => {
-    router.push('/downloads');
+  // Progress callback for Up-Next card trigger.
+  // Shows the card when there is a next file and the episode is near the end
+  // (last 30 seconds or last 5% of duration, whichever comes later).
+  // Does NOT autoplay — user always confirms by clicking Play Next.
+  const handleVideoProgress = ({ currentTime, duration }: { currentTime: number; duration: number }) => {
+    if (!isMultiFile) return; // single-file movies never show Up Next
+    const nextIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex) + 1;
+    if (nextIdx <= 0 || nextIdx >= videoFiles.length) return; // no next file
+    if (duration <= 0) return;
+    const remaining = duration - currentTime;
+    const pct = (currentTime / duration) * 100;
+    // Show when within 30 s OR within last 5 % — whichever is earlier
+    if (remaining <= 30 || pct >= 95) {
+      setShowUpNext(true);
+    }
   };
 
-  const handleHomeClick = () => {
-    router.push('/');
+  const handleBackClick = () => {
+    router.push('/downloads');
   };
 
   const toggleStreamingStats = () => {
@@ -285,37 +299,55 @@ export default function StreamingPage() {
     return f.name;
   };
 
-  // Loading state
+  // Next-file data for the Up-Next card (only relevant for multi-file season packs)
+  const currentFileIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex);
+  const nextVideoFile: VideoFile | null =
+    isMultiFile && currentFileIdx >= 0 && currentFileIdx + 1 < videoFiles.length
+      ? videoFiles[currentFileIdx + 1]
+      : null;
+
+  // Loading state — FRÈ gold-on-ink spinner
   if (isLoading) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-background">
-        <div className="animate-spin w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full mb-4"></div>
-        <h2 className="text-xl font-semibold text-foreground mb-2">Loading movie...</h2>
-        <p className="text-muted-foreground">Preparing your streaming experience</p>
+      <div className="h-screen flex flex-col items-center justify-center bg-ink">
+        {/* Gold spinning ring */}
+        <div
+          className="w-14 h-14 rounded-full border-2 border-hairline border-t-gold animate-spin mb-6"
+          aria-label="Loading"
+        />
+        <p className="font-display text-2xl text-text mb-2 tracking-tight">Loading…</p>
+        <p className="text-sm text-muted">Preparing your streaming experience</p>
       </div>
     );
   }
 
-  // Error state
+  // Error state — FRÈ styled
   if (error || !torrentStatus) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-background p-4">
-        <ExclamationTriangleIcon className="w-16 h-16 text-red-500 mb-4" />
-        <h2 className="text-xl font-semibold text-foreground mb-2">Unable to Stream Movie</h2>
-        <p className="text-muted-foreground text-center mb-6 max-w-md">{error || 'Movie not found. It may have been deleted or never existed.'}</p>
-        <div className="flex gap-4">
+      <div className="h-screen flex flex-col items-center justify-center bg-ink p-8">
+        {/* Warning icon in gold tint */}
+        <div className="w-16 h-16 rounded-full border border-hairline bg-surface flex items-center justify-center mb-6">
+          <ExclamationTriangleIcon className="w-8 h-8 text-gold" />
+        </div>
+        <h2 className="font-display text-2xl text-text mb-3 tracking-tight">Unable to Stream</h2>
+        <p className="text-muted text-center mb-8 max-w-md text-sm leading-relaxed">
+          {error || 'Movie not found. It may have been deleted or never existed.'}
+        </p>
+        <div className="flex gap-3 flex-wrap justify-center">
           <Button
-            variant="outline"
-            leftIcon={<ArrowPathIcon className="w-5 h-5" />}
+            variant="glass"
+            size="sm"
             onClick={handleRefresh}
           >
+            <ArrowPathIcon className="w-4 h-4" />
             Try Again
           </Button>
           <Button
             variant="primary"
-            leftIcon={<ArrowLeftIcon className="w-5 h-5" />}
+            size="sm"
             onClick={handleBackClick}
           >
+            <ArrowLeftIcon className="w-4 h-4" />
             Back to Downloads
           </Button>
         </div>
@@ -323,72 +355,68 @@ export default function StreamingPage() {
     );
   }
 
-  // Not ready for streaming yet
-  if (!isStreamReady && !forceStreaming) {
-    return (
-      <PreStreamingAnimation
-        movieTitle={torrentStatus.movie_title}
-        progress={torrentStatus.progress}
-        downloadSpeed={torrentStatus.download_rate}
-        numPeers={torrentStatus.num_peers}
-        onStartAnyway={handleForceStreaming}
-        onBack={handleBackClick}
-        estimatedTimeSeconds={torrentStatus.progress >= 5 ? 0 : 60}
-      />
-    );
-  }
-
-  // Ready for streaming
+  // Render straight into the player layout — no pre-stream interstitial.
+  // While the stream warms up (before there's enough buffered to play), the
+  // player area shows a clean buffering panel; the player's own overlay then
+  // carries the buffering / "streaming · N% downloaded" info once it mounts.
   return (
-    <div className="h-screen flex flex-col bg-black">
-      {/* Header */}
-      <div className="flex justify-between items-center p-4 bg-card">
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={<ArrowLeftIcon className="w-5 h-5" />}
+    <div className="h-screen flex flex-col bg-ink">
+      {/* FRÈ Header — glass bar, ink base */}
+      <div
+        className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface/80 backdrop-blur"
+        style={{ minHeight: '56px' }}
+      >
+        <button
           onClick={handleBackClick}
+          className="inline-flex items-center justify-center w-9 h-9 rounded-full border border-hairline bg-surface-2/60 text-text hover:border-gold/50 transition-colors flex-shrink-0"
+          aria-label="Back to downloads"
         >
-          Back
-        </Button>
+          <ArrowLeftIcon className="w-4 h-4" />
+        </button>
 
-        <h1 className="text-xl font-semibold text-foreground">{torrentStatus.movie_title}</h1>
+        <h1
+          className="font-display text-lg text-text tracking-tight truncate flex-1 min-w-0"
+          title={torrentStatus.movie_title}
+        >
+          {torrentStatus.movie_title}
+        </h1>
 
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={<InformationCircleIcon className="w-5 h-5" />}
+        <button
           onClick={toggleStreamingStats}
+          className={cn(
+            'inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors flex-shrink-0',
+            showStreamingStats
+              ? 'border-gold/60 bg-gold/10 text-gold'
+              : 'border-hairline bg-surface-2/60 text-muted hover:border-gold/40 hover:text-text'
+          )}
+          aria-label={showStreamingStats ? 'Hide stats' : 'Show stats'}
+          aria-pressed={showStreamingStats}
         >
-          {showStreamingStats ? 'Hide Stats' : 'Show Stats'}
-        </Button>
+          <InformationCircleIcon className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Episode/File Picker — shown only for season packs (>1 file) */}
+      {/* Episode/File Picker — shown only for season packs (>1 file); FRÈ Pills */}
       {isMultiFile && (
-        <div className="bg-card border-t border-border px-4 py-2 flex items-center gap-3 overflow-x-auto">
-          <FilmIcon className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-          <span className="text-sm text-muted-foreground flex-shrink-0">Episode:</span>
+        <div className="bg-surface border-b border-hairline px-5 py-2.5 flex items-center gap-3 overflow-x-auto">
+          <FilmIcon className="w-4 h-4 text-muted flex-shrink-0" aria-hidden="true" />
+          <span className="text-xs text-muted flex-shrink-0 uppercase tracking-widest font-medium">Episode</span>
           {filesLoading ? (
-            <span className="text-sm text-muted-foreground italic">preparing episodes…</span>
+            <span className="text-xs text-muted italic">preparing episodes…</span>
           ) : (
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-nowrap">
               {videoFiles.map(f => {
                 const isActive = effectiveFileIndex === f.index;
                 return (
-                  <button
+                  <Pill
                     key={f.index}
+                    selected={isActive}
                     onClick={() => handleFileSelect(f.index)}
-                    className={[
-                      'px-3 py-1 rounded text-sm font-medium transition-colors whitespace-nowrap',
-                      isActive
-                        ? 'bg-primary-500 text-white'
-                        : 'bg-card border border-border text-foreground hover:bg-accent hover:text-accent-foreground',
-                    ].join(' ')}
                     title={f.name}
+                    className="text-xs h-8 px-3 whitespace-nowrap flex-shrink-0"
                   >
                     {fileLabel(f)}
-                  </button>
+                  </Pill>
                 );
               })}
             </div>
@@ -399,78 +427,112 @@ export default function StreamingPage() {
       {/* Player Area */}
       <div className="flex-grow relative overflow-hidden">
         {streamingInfo && streamingUrl && torrentId ? (
-          <PatchedVideoPlayer
-            src={streamingUrl}
-            torrentId={torrentId}
-            torrentInfo={torrentStatus}
-            movieId={torrentStatus.movie_title}
-            contentId={streamingInfo.content_id ?? undefined}
-            fileIndex={effectiveFileIndex}
-            title={torrentStatus.movie_title ?? streamingInfo.video_file.name}
-            movieTitle={torrentStatus.movie_title}
-            subtitle={`${torrentStatus.quality} • ${streamingInfo.video_file.name}`}
-            onError={handleVideoError}
-            downloadProgress={videoFileProgress} // Pass the video-specific progress
-            streamingInfo={streamingInfo} // Pass the full streaming info
-          />
+          <>
+            <PatchedVideoPlayer
+              src={streamingUrl}
+              torrentId={torrentId}
+              torrentInfo={torrentStatus}
+              movieId={torrentStatus.movie_title}
+              contentId={streamingInfo.content_id ?? undefined}
+              fileIndex={effectiveFileIndex}
+              title={torrentStatus.movie_title ?? streamingInfo.video_file.name}
+              movieTitle={torrentStatus.movie_title}
+              subtitle={`${torrentStatus.quality} • ${streamingInfo.video_file.name}`}
+              onError={handleVideoError}
+              onProgress={handleVideoProgress}
+              downloadProgress={videoFileProgress} // Pass the video-specific progress
+              streamingInfo={streamingInfo} // Pass the full streaming info
+            />
+
+            {/* Up-Next card — floats above player, bottom-right, above controls */}
+            {showUpNext && nextVideoFile && (
+              <div className="absolute bottom-28 right-7 z-50 pointer-events-auto">
+                <UpNextCard
+                  nextLabel={fileLabel(nextVideoFile)}
+                  onPlayNext={() => {
+                    setShowUpNext(false);
+                    router.replace(`/streaming/${torrentId}?file=${nextVideoFile.index}`);
+                  }}
+                  onDismiss={() => setShowUpNext(false)}
+                  countdownSeconds={15}
+                />
+              </div>
+            )}
+          </>
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-black">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-6 w-6 border-4 border-primary-500 border-t-transparent"></div>
-              <p className="text-white mt-2">Loading video player...</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-ink px-6 text-center">
+            <div
+              className="w-12 h-12 rounded-full border-2 border-hairline border-t-gold animate-spin"
+              aria-label="Buffering"
+            />
+            <div>
+              <p className="font-display text-xl text-text tracking-tight">Buffering your stream…</p>
+              <p className="mt-1.5 text-sm text-muted">
+                {Math.round(torrentStatus.progress)}% downloaded
+                {torrentStatus.num_peers > 0 &&
+                  ` · ${torrentStatus.num_peers} peer${torrentStatus.num_peers === 1 ? '' : 's'}`}
+              </p>
             </div>
+            {!forceStreaming && (
+              <button
+                onClick={handleForceStreaming}
+                className="text-xs text-muted underline-offset-4 transition-colors hover:text-gold hover:underline"
+              >
+                Start anyway
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Streaming Stats Overlay */}
+      {/* Streaming Stats Panel — glass overlay */}
       {showStreamingStats && streamingInfo && (
-        <div className="absolute bottom-0 left-0 right-0 bg-card/90 p-4 text-foreground z-10">
-          <h3 className="text-lg font-semibold mb-2">Streaming Statistics</h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2">
-            <div>
-              <span className="text-muted-foreground">Overall Progress:</span>
-              <span className="ml-2">{Math.round(torrentStatus.progress)}%</span>
+        <div className="absolute bottom-0 left-0 right-0 border-t border-hairline bg-surface/90 backdrop-blur px-5 py-4 z-10">
+          <h3 className="text-xs font-medium text-muted uppercase tracking-widest mb-3">Streaming Statistics</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2 text-sm">
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">Overall</span>
+              <span className="text-text font-medium">{Math.round(torrentStatus.progress)}%</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">Video File:</span>
-              <span className="ml-2">{Math.round(streamingInfo.video_file.progress)}%</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">Video File</span>
+              <span className="text-text font-medium">{Math.round(streamingInfo.video_file.progress)}%</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">Download Speed:</span>
-              <span className="ml-2">{torrentStatus.download_rate.toFixed(2)} KB/s</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">Speed</span>
+              <span className="text-text font-medium">{torrentStatus.download_rate.toFixed(2)} KB/s</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">File Size:</span>
-              <span className="ml-2">{formatBytes(streamingInfo.video_file.size)}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">File Size</span>
+              <span className="text-text font-medium">{formatBytes(streamingInfo.video_file.size)}</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">Downloaded:</span>
-              <span className="ml-2">{formatBytes(streamingInfo.video_file.downloaded)}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">Downloaded</span>
+              <span className="text-text font-medium">{formatBytes(streamingInfo.video_file.downloaded)}</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">Connected Peers:</span>
-              <span className="ml-2">{torrentStatus.num_peers}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">Peers</span>
+              <span className="text-text font-medium">{torrentStatus.num_peers}</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">State:</span>
-              <span className="ml-2">{torrentStatus.state}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">State</span>
+              <span className="text-text font-medium">{torrentStatus.state}</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">Progress Rate:</span>
-              <span className="ml-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">Progress Rate</span>
+              <span className="text-text font-medium">
                 {torrentStatus.download_rate > 0
                   ? `~${(torrentStatus.download_rate / streamingInfo.video_file.size * 100).toFixed(4)}%/s`
                   : 'N/A'}
               </span>
             </div>
-            <div>
-              <span className="text-muted-foreground">Format:</span>
-              <span className="ml-2">{streamingInfo.video_file.mime_type.split('/')[1].toUpperCase()}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">Format</span>
+              <span className="text-text font-medium">{streamingInfo.video_file.mime_type.split('/')[1].toUpperCase()}</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">ETA:</span>
-              <span className="ml-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-muted text-xs">ETA</span>
+              <span className="text-text font-medium">
                 {torrentStatus.eta
                   ? `${Math.floor(torrentStatus.eta / 60)} min ${torrentStatus.eta % 60} sec`
                   : 'Unknown'}

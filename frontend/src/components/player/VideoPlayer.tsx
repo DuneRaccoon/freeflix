@@ -1,10 +1,10 @@
 "use client";
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { 
-  PlayIcon, 
-  PauseIcon, 
-  SpeakerWaveIcon, 
-  SpeakerXMarkIcon, 
+import {
+  PlayIcon,
+  PauseIcon,
+  SpeakerWaveIcon,
+  SpeakerXMarkIcon,
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon,
   ForwardIcon,
@@ -14,6 +14,7 @@ import {
 import { formatTime } from '@/utils/format';
 import { PlayerState } from '@/types';
 import BufferingAnimation from '@/components/streaming/BufferingAnimation';
+import { cn } from '@/lib/cn';
 
 interface VideoPlayerProps {
   src: string;
@@ -55,7 +56,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const lastPlayheadPositionRef = useRef<number>(0);
   const stallTimeRef = useRef<number | null>(null);
   const maxStallTime = 10000; // Maximum time (ms) to wait before showing stall warning
-  
+
   const [playerState, setPlayerState] = useState<PlayerState>({
     isPlaying: false,
     currentTime: 0,
@@ -68,7 +69,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isLoading: true,
     error: null
   });
-  
+
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -79,22 +80,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isBuffering, setIsBuffering] = useState(false);
   const [isStalled, setIsStalled] = useState(false);
   const [showBufferingMessage, setShowBufferingMessage] = useState(false);
+  // PiP state
+  const [isPiP, setIsPiP] = useState(false);
 
   /**
    * A utility hook that safely performs operations on the video element with error handling.
-   * 
-   * @param operation - A function that takes an HTMLVideoElement and performs some operation on it
-   * @returns {boolean} - Returns true if the operation was successful, false if the video reference
-   *                     is not available or if the operation throws an error
-   * 
-   * @example
-   * // Example usage:
-   * safeVideoOperation((video) => video.play());
    */
   const safeVideoOperation = useCallback((operation: (video: HTMLVideoElement) => void) => {
     const video = videoRef.current;
     if (!video) return false;
-    
+
     try {
       operation(video);
       return true;
@@ -108,14 +103,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isTimeBuffered = useCallback((time: number): boolean => {
     const video = videoRef.current;
     if (!video || !video.buffered || video.buffered.length === 0) return false;
-    
+
     // Check if the time is within any of the buffered ranges
     for (let i = 0; i < video.buffered.length; i++) {
       if (time >= video.buffered.start(i) && time <= video.buffered.end(i)) {
         return true;
       }
     }
-    
+
     return false;
   }, []);
 
@@ -123,17 +118,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const getBufferedAhead = useCallback((): number => {
     const video = videoRef.current;
     if (!video || !video.buffered || video.buffered.length === 0) return 0;
-    
+
     const currentTime = video.currentTime;
     let maxBufferedEnd = currentTime;
-    
+
     // Find the buffered range that includes current time
     for (let i = 0; i < video.buffered.length; i++) {
       if (currentTime >= video.buffered.start(i) && currentTime <= video.buffered.end(i)) {
         maxBufferedEnd = Math.max(maxBufferedEnd, video.buffered.end(i));
       }
     }
-    
+
     return maxBufferedEnd - currentTime;
   }, []);
 
@@ -141,7 +136,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const enableAudio = useCallback(() => {
     if (debug) console.log("Attempting to enable audio");
     userInteractedRef.current = true;
-    
+
     safeVideoOperation(video => {
       // Try to play to unlock audio capabilities
       const playPromise = video.play();
@@ -150,16 +145,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           // Now we can set audio properties
           if (debug) console.log("Play successful, setting volume to", playerState.volume);
           video.volume = playerState.volume;
-          
+
           // Only unmute if the user hasn't explicitly muted
           if (!playerState.isMuted) {
             video.muted = false;
             setShowUnmuteButton(false);
           }
-          
+
           // Confirm player state
-          setPlayerState(prev => ({ 
-            ...prev, 
+          setPlayerState(prev => ({
+            ...prev,
             isPlaying: true,
             volume: video.volume,
             isMuted: video.muted
@@ -179,10 +174,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       e.preventDefault();
       e.stopPropagation();
     }
-    
+
     if (debug) console.log("Toggle play called");
     userInteractedRef.current = true;
-    
+
     safeVideoOperation(video => {
       if (video.paused || video.ended) {
         if (debug) console.log("Video is paused, playing");
@@ -207,7 +202,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         video.pause();
       }
     });
-    
+
     // Reset the cursor hide timer
     resetCursorTimeout();
   }, [safeVideoOperation, isTimeBuffered, downloadProgress, debug]);
@@ -227,8 +222,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } catch (e) {
       console.error("Error toggling fullscreen:", e);
     }
-    
+
     // Reset the cursor hide timer
+    resetCursorTimeout();
+  }, []);
+
+  // Toggle Picture-in-Picture
+  const togglePiP = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (!document.pictureInPictureEnabled) return;
+
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await video.requestPictureInPicture();
+      }
+    } catch (e) {
+      console.error("Error toggling PiP:", e);
+    }
+
     resetCursorTimeout();
   }, []);
 
@@ -239,24 +253,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const currentTime = Date.now();
     const isDoubleClick = currentTime - lastClickTimeRef.current < 300; // 300ms threshold
-    
+
     if (isDoubleClick) {
       if (debug) console.log("Double click detected - toggling fullscreen");
       toggleFullscreen();
       lastClickTimeRef.current = 0; // Reset after using the double click
     } else {
       lastClickTimeRef.current = currentTime;
-      
+
       // Use a timeout to allow for double-click detection
       if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
-      
+
       clickTimeoutRef.current = setTimeout(() => {
         if (debug) console.log("Single click confirmed - toggling play");
         togglePlay();
         clickTimeoutRef.current = null;
       }, 300);
     }
-    
+
     // Reset the cursor hide timer
     resetCursorTimeout();
   }, [togglePlay, toggleFullscreen, debug]);
@@ -265,32 +279,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleToggleMute = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (volumeChangeInProgressRef.current) return;
     volumeChangeInProgressRef.current = true;
-    
+
     if (debug) console.log("Toggle mute button clicked");
     userInteractedRef.current = true;
-    
+
     safeVideoOperation(video => {
       // Toggle mute state directly
       const newMutedState = !video.muted;
       if (debug) console.log("Setting muted to:", newMutedState);
-      
+
       video.muted = newMutedState;
-      
+
       // Update UI state
       setPlayerState(prev => ({ ...prev, isMuted: newMutedState }));
-      
+
       // Hide/show unmute button
       setShowUnmuteButton(newMutedState);
     });
-    
+
     // Allow volume changes again after a short delay
     setTimeout(() => {
       volumeChangeInProgressRef.current = false;
     }, 100);
-    
+
     // Reset the cursor hide timer
     resetCursorTimeout();
   }, [safeVideoOperation, debug]);
@@ -299,10 +313,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const skip = useCallback((seconds: number) => {
     safeVideoOperation(video => {
       const newTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
-      
+
       // Check if the new time is within a buffered range
       const isNewTimeBuffered = isTimeBuffered(newTime);
-      
+
       // Only allow seeking to buffered regions or if we have sufficient download progress
       if (isNewTimeBuffered || downloadProgress > (newTime / video.duration) * 100) {
         video.currentTime = newTime;
@@ -310,12 +324,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // Show buffering message for unbuffered regions
         setShowBufferingMessage(true);
         setIsBuffering(true);
-        
+
         // Still try to seek but be prepared for buffering
         video.currentTime = newTime;
       }
     });
-    
+
     // Reset the cursor hide timer
     resetCursorTimeout();
   }, [safeVideoOperation, isTimeBuffered, downloadProgress]);
@@ -324,70 +338,70 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const startVolumeDrag = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!volumeBarRef.current) return;
-    
+
     isDraggingVolumeRef.current = true;
-    
+
     // Set initial volume based on click position
     updateVolumeFromEvent(e);
-    
+
     // Add document-level listeners to track mouse movement outside the volume bar
     document.addEventListener('mousemove', updateVolumeFromMouseMove);
     document.addEventListener('mouseup', stopVolumeDrag);
-    
+
     // Reset the cursor hide timer
     resetCursorTimeout();
   }, []);
-  
+
   // Helper to update volume based on mouse position
   const updateVolumeFromEvent = useCallback((e: MouseEvent | React.MouseEvent) => {
     if (!volumeBarRef.current || volumeChangeInProgressRef.current) return;
-    
+
     volumeChangeInProgressRef.current = true;
-    
+
     try {
       const rect = volumeBarRef.current.getBoundingClientRect();
       let pos = (e.clientX - rect.left) / rect.width;
       pos = Math.max(0, Math.min(1, pos)); // Clamp between 0 and 1
-      
+
       if (debug) console.log("Setting volume to:", pos);
-      
+
       safeVideoOperation(video => {
         // Set volume directly
         video.volume = pos;
-        
+
         // If volume is set to 0, mute; otherwise unmute
         const shouldBeMuted = pos === 0;
         video.muted = shouldBeMuted;
-        
+
         // Update state
-        setPlayerState(prev => ({ 
-          ...prev, 
+        setPlayerState(prev => ({
+          ...prev,
           volume: pos,
           isMuted: shouldBeMuted
         }));
-        
+
         // Update UI
         setShowUnmuteButton(shouldBeMuted);
       });
     } catch (e) {
       console.error("Error updating volume:", e);
     }
-    
+
     // Allow volume changes again after a short delay
     setTimeout(() => {
       volumeChangeInProgressRef.current = false;
     }, 50); // Shorter delay for dragging
   }, [safeVideoOperation, debug]);
-  
+
   // Mouse move handler for volume drag
   const updateVolumeFromMouseMove = useCallback((e: MouseEvent) => {
     if (isDraggingVolumeRef.current) {
       updateVolumeFromEvent(e);
     }
   }, [updateVolumeFromEvent]);
-  
+
   // Mouse up handler to stop volume drag
   const stopVolumeDrag = useCallback(() => {
     isDraggingVolumeRef.current = false;
@@ -399,18 +413,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     if (!video || !progressBarRef.current) return;
-    
+
     try {
       e.preventDefault();
       e.stopPropagation();
-      
+
       const rect = progressBarRef.current.getBoundingClientRect();
       const pos = (e.clientX - rect.left) / rect.width;
       const newTime = pos * video.duration;
-      
+
       // Check if the new time point is buffered
       const isNewTimeBuffered = isTimeBuffered(newTime);
-      
+
       // Only seek if the time is buffered or we have sufficient download progress
       if (isNewTimeBuffered || downloadProgress > pos * 100) {
         video.currentTime = newTime;
@@ -418,14 +432,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // Indicate buffering for unbuffered regions
         setShowBufferingMessage(true);
         setIsBuffering(true);
-        
+
         // Try to seek but prepare for buffering
         video.currentTime = newTime;
       }
     } catch (e) {
       console.error("Error handling progress click:", e);
     }
-    
+
     // Reset the cursor hide timer
     resetCursorTimeout();
   }, [isTimeBuffered, downloadProgress]);
@@ -434,11 +448,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const checkForStall = useCallback(() => {
     const video = videoRef.current;
     if (!video || !playerState.isPlaying) return;
-    
+
     // Compare current position with last known position
     const currentPosition = video.currentTime;
     const hasMoved = Math.abs(currentPosition - lastPlayheadPositionRef.current) > 0.01;
-    
+
     if (!hasMoved && !video.paused && !video.ended) {
       // Video is stalled
       if (stallTimeRef.current === null) {
@@ -448,12 +462,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       } else {
         // Check if stall has lasted too long
         const stallDuration = Date.now() - stallTimeRef.current;
-        
+
         if (stallDuration > 2000 && !showBufferingMessage) {
           // After 2 seconds, show buffering message
           setShowBufferingMessage(true);
         }
-        
+
         if (stallDuration > maxStallTime && !isStalled) {
           // After max stall time (10 seconds by default), show stall warning
           setIsStalled(true);
@@ -462,7 +476,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else {
       // Reset stall tracking if playhead moved
       lastPlayheadPositionRef.current = currentPosition;
-      
+
       if (stallTimeRef.current !== null) {
         // Clear stall state
         stallTimeRef.current = null;
@@ -483,9 +497,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    
+
     if (debug) console.log("Source changed, reinitializing video element");
-    
+
     // Reset state when source changes
     userInteractedRef.current = false;
     setShowUnmuteButton(false);
@@ -496,10 +510,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsBuffering(false);
     setShowBufferingMessage(false);
     setIsStalled(false);
-    
+
     // Ensure it starts muted for autoplay
     video.muted = true;
-    
+
     // Set up a one-time click handler to detect first user interaction
     const handleFirstInteraction = () => {
       if (!userInteractedRef.current) {
@@ -509,18 +523,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         document.removeEventListener('keydown', handleFirstInteraction);
       }
     };
-    
+
     document.addEventListener('click', handleFirstInteraction);
     document.addEventListener('keydown', handleFirstInteraction);
-    
+
     return () => {
       document.removeEventListener('click', handleFirstInteraction);
       document.removeEventListener('keydown', handleFirstInteraction);
-      
+
       // Also clean up volume drag handlers if they exist
       document.removeEventListener('mousemove', updateVolumeFromMouseMove);
       document.removeEventListener('mouseup', stopVolumeDrag);
-      
+
       // Clear any buffering retry timeouts
       if (bufferingRetryTimeoutRef.current) {
         clearTimeout(bufferingRetryTimeoutRef.current);
@@ -532,7 +546,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Only handle events when this player is in focus or in fullscreen
-      if (!playerRef.current?.contains(document.activeElement) && 
+      if (!playerRef.current?.contains(document.activeElement) &&
           document.fullscreenElement !== playerRef.current) return;
 
       // Mark user interaction
@@ -560,17 +574,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           e.preventDefault();
           if (volumeChangeInProgressRef.current) return;
           volumeChangeInProgressRef.current = true;
-          
+
           safeVideoOperation(video => {
             // Toggle mute state directly
             const newMutedState = !video.muted;
             video.muted = newMutedState;
-            
+
             // Update UI state
             setPlayerState(prev => ({ ...prev, isMuted: newMutedState }));
             setShowUnmuteButton(newMutedState);
           });
-          
+
           setTimeout(() => {
             volumeChangeInProgressRef.current = false;
           }, 100);
@@ -579,21 +593,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           e.preventDefault();
           if (volumeChangeInProgressRef.current) return;
           volumeChangeInProgressRef.current = true;
-          
+
           safeVideoOperation(video => {
             const newVolume = Math.min(1, video.volume + 0.1);
             video.volume = newVolume;
             video.muted = false;
-            
-            setPlayerState(prev => ({ 
-              ...prev, 
+
+            setPlayerState(prev => ({
+              ...prev,
               volume: newVolume,
               isMuted: false
             }));
-            
+
             setShowUnmuteButton(false);
           });
-          
+
           setTimeout(() => {
             volumeChangeInProgressRef.current = false;
           }, 100);
@@ -602,30 +616,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           e.preventDefault();
           if (volumeChangeInProgressRef.current) return;
           volumeChangeInProgressRef.current = true;
-          
+
           safeVideoOperation(video => {
             const newVolume = Math.max(0, video.volume - 0.1);
             video.volume = newVolume;
-            
+
             // Only mute if volume goes to 0
             if (newVolume === 0) {
               video.muted = true;
               setShowUnmuteButton(true);
             }
-            
-            setPlayerState(prev => ({ 
-              ...prev, 
+
+            setPlayerState(prev => ({
+              ...prev,
               volume: newVolume,
               isMuted: newVolume === 0
             }));
           });
-          
+
           setTimeout(() => {
             volumeChangeInProgressRef.current = false;
           }, 100);
           break;
       }
-      
+
       // Reset cursor timeout on any key press
       resetCursorTimeout();
     };
@@ -646,10 +660,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           currentTime: video.currentTime,
           duration: video.duration || 0
         }));
-        
+
         // Update last known position for stall detection
         lastPlayheadPositionRef.current = video.currentTime;
-        
+
         if (onProgress) {
           onProgress({
             ...playerState,
@@ -666,7 +680,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       try {
         if (debug) console.log("Play event triggered");
         setPlayerState(prev => ({ ...prev, isPlaying: true }));
-        
+
         // Only hide the loading indicator if we're not in a buffering state
         if (!isBuffering) {
           setPlayerState(prev => ({ ...prev, isLoading: false }));
@@ -687,17 +701,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const handleVolumeChange = () => {
       if (volumeChangeInProgressRef.current) return;
-      
+
       try {
         // Only update state from event if we're not in the middle of a manual change
         if (debug) console.log("Volume change event:", video.volume, "Muted:", video.muted);
-        
+
         setPlayerState(prev => ({
           ...prev,
           volume: video.volume,
           isMuted: video.muted
         }));
-        
+
         // Show unmute button if muted
         setShowUnmuteButton(video.muted);
       } catch (e) {
@@ -712,7 +726,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setVideoIsReady(false);
         setIsBuffering(true);
         setShowBufferingMessage(false);
-        
+
         // Ensure video starts muted for autoplay policies
         video.muted = true;
       } catch (e) {
@@ -727,29 +741,41 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setVideoIsReady(true);
         setIsBuffering(false);
         setShowBufferingMessage(false);
-        
+
         // Apply playback speed
         video.playbackRate = playbackSpeed;
-        
-        // Only attempt autoplay if specified
+
+        // Attempt autoplay — WITH SOUND first. The user pressed Play to get here,
+        // and SPA navigation preserves the page's user activation, so the browser
+        // normally allows sound-on autoplay. If it's blocked, fall back to muted
+        // (so it still plays) and surface the unmute affordance.
         if (autoPlay) {
           if (debug) console.log("Attempting autoplay");
-          
+
+          // Respect an explicit user mute; otherwise start unmuted at the set volume.
+          video.muted = playerState.isMuted;
+          video.volume = playerState.volume;
+
           const playPromise = video.play();
           if (playPromise !== undefined) {
             playPromise.then(() => {
-              if (debug) console.log("Autoplay successful (muted)");
-              
-              // Show unmute button since autoplay is always muted
-              setShowUnmuteButton(true);
-              
-              setPlayerState(prev => ({ 
-                ...prev, 
+              if (debug) console.log("Autoplay started, muted =", video.muted);
+              setShowUnmuteButton(video.muted);
+              setPlayerState(prev => ({
+                ...prev,
                 isPlaying: true,
-                isMuted: true 
+                isMuted: video.muted,
               }));
             }).catch(error => {
-              if (debug) console.error('Autoplay failed:', error);
+              if (debug) console.error('Sound-on autoplay blocked; retrying muted:', error);
+              // Browser blocked autoplay with sound → mute and retry so it still plays.
+              video.muted = true;
+              video.play().then(() => {
+                setShowUnmuteButton(true);
+                setPlayerState(prev => ({ ...prev, isPlaying: true, isMuted: true }));
+              }).catch(err => {
+                if (debug) console.error('Muted autoplay also failed:', err);
+              });
             });
           }
         }
@@ -775,13 +801,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (debug) console.log("Network error during download, treating as buffering");
           setIsBuffering(true);
           setShowBufferingMessage(true);
-          
+
           // Retry playback after a delay if the video was playing
           if (playerState.isPlaying) {
             if (bufferingRetryTimeoutRef.current) {
               clearTimeout(bufferingRetryTimeoutRef.current);
             }
-            
+
             bufferingRetryTimeoutRef.current = setTimeout(() => {
               if (debug) console.log("Retrying playback after network error");
               video.play().catch(e => {
@@ -794,18 +820,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           const errorCode = video.error ? video.error.code : "unknown";
           const errorMessage = `Video playback error (${errorCode}): ${video.error ? video.error.message : "Unknown error"}`;
           console.error("Video error:", errorMessage, video.error);
-          
-          setPlayerState(prev => ({ 
-            ...prev, 
-            isLoading: false, 
-            error: errorMessage 
+
+          setPlayerState(prev => ({
+            ...prev,
+            isLoading: false,
+            error: errorMessage
           }));
-          
+
           if (onError) onError(errorMessage);
         }
       } catch (e) {
         console.error("Error in error event:", e);
-        
+
         // Fallback error handling
         if (onError) onError("An unexpected error occurred during playback");
       }
@@ -814,16 +840,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleWaiting = () => {
       try {
         if (debug) console.log("Waiting for data");
-        
+
         // Check if we're near the end of the buffered region
         const bufferedAhead = getBufferedAhead();
         if (debug) console.log(`Buffered ahead: ${bufferedAhead.toFixed(2)} seconds`);
-        
+
         // If we have a decent buffer, don't show loading yet (prevents flickering)
         if (bufferedAhead < 0.5) {
           setIsBuffering(true);
           setPlayerState(prev => ({ ...prev, isLoading: true }));
-          
+
           // Show buffering message after a short delay if still buffering
           setTimeout(() => {
             if (isBuffering) {
@@ -854,7 +880,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       try {
         let bufferedEnd = 0;
         let currentTime = video.currentTime;
-        
+
         if (video.buffered.length > 0) {
           // Find the buffered range that contains the current playback position
           for (let i = 0; i < video.buffered.length; i++) {
@@ -864,12 +890,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           }
         }
-        
+
         // Calculate buffer percentage relative to video duration
         const buffered = video.duration ? (bufferedEnd / video.duration) * 100 : 0;
-        
+
         setPlayerState(prev => ({ ...prev, buffered }));
-        
+
         // If we now have sufficient buffer, reset buffering states
         if (bufferedEnd - currentTime > 5) { // If we have at least 5 seconds buffered ahead
           setIsBuffering(false);
@@ -924,14 +950,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           safeVideoOperation(video => {
             // Check if seeking to a buffered region
             const timeBuffered = isTimeBuffered(time);
-            
+
             if (timeBuffered || downloadProgress > (time / video.duration) * 100) {
               video.currentTime = time;
             } else {
               // Indicate buffering for unbuffered seeks
               setIsBuffering(true);
               setShowBufferingMessage(true);
-              
+
               // Still perform the seek but be prepared for buffering
               video.currentTime = time;
             }
@@ -940,22 +966,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
     }
   }, [registerMethods, safeVideoOperation, isTimeBuffered, downloadProgress]);
-  
+
+  // PiP event listener for external exit
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const handleLeavePiP = () => setIsPiP(false);
+    const handleEnterPiP = () => setIsPiP(true);
+    video.addEventListener('leavepictureinpicture', handleLeavePiP);
+    video.addEventListener('enterpictureinpicture', handleEnterPiP);
+    return () => {
+      video.removeEventListener('leavepictureinpicture', handleLeavePiP);
+      video.removeEventListener('enterpictureinpicture', handleEnterPiP);
+    };
+  }, []);
+
   // Reset cursor timeout function
   const resetCursorTimeout = useCallback(() => {
     // Show cursor and controls
     setHideCursor(false);
     setPlayerState(prev => ({ ...prev, showControls: true }));
-    
+
     // Clear any existing timeouts
     if (cursorTimeout.current) {
       clearTimeout(cursorTimeout.current);
     }
-    
+
     if (controlsTimeout.current) {
       clearTimeout(controlsTimeout.current);
     }
-    
+
     // Set new timeouts (only when in fullscreen mode)
     if (playerState.isPlaying && playerState.isFullscreen) {
       // Hide controls after 3 seconds
@@ -964,7 +1004,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setShowVolumeSlider(false);
         setShowSettings(false);
       }, 3000);
-      
+
       // Hide cursor after 3 seconds - slightly longer than controls
       cursorTimeout.current = setTimeout(() => {
         setHideCursor(true);
@@ -977,7 +1017,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleMouseMove = () => {
       resetCursorTimeout();
     };
-    
+
     const handleMouseLeave = () => {
       if (playerState.isPlaying) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
@@ -986,7 +1026,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setHideCursor(true);
       }
     };
-    
+
     if (playerRef.current) {
       playerRef.current.addEventListener('mousemove', handleMouseMove);
       playerRef.current.addEventListener('mouseleave', handleMouseLeave);
@@ -999,11 +1039,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (controlsTimeout.current) {
         clearTimeout(controlsTimeout.current);
       }
-      
+
       if (cursorTimeout.current) {
         clearTimeout(cursorTimeout.current);
       }
-      
+
       if (playerRef.current) {
         playerRef.current.removeEventListener('mousemove', handleMouseMove);
         playerRef.current.removeEventListener('mouseleave', handleMouseLeave);
@@ -1033,10 +1073,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastClickTimeRef = useRef<number>(0);
 
+  // Computed values for the scrubber
+  const playedPct = playerState.duration > 0
+    ? (playerState.currentTime / playerState.duration) * 100
+    : 0;
+
+  const controlsVisible = playerState.showControls || !playerState.isPlaying;
+
   return (
-    <div 
+    <div
       ref={playerRef}
-      className={`relative w-full h-full bg-black overflow-hidden ${hideCursor ? 'cursor-none' : 'cursor-auto'}`}
+      id="ff-player"
+      className={cn(
+        'relative w-full h-full bg-ink overflow-hidden isolate select-none',
+        hideCursor ? 'cursor-none' : 'cursor-auto',
+        // paused warmth class
+        !playerState.isPlaying ? 'is-paused' : ''
+      )}
       tabIndex={0}
       onMouseMove={() => resetCursorTimeout()}
       onMouseMoveCapture={() => resetCursorTimeout()}
@@ -1053,6 +1106,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }}
       onClick={handleVideoClick}
+      aria-label="Video player"
     >
       {/* Video Element */}
       <video
@@ -1065,7 +1119,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onClick={handleVideoClick}
       />
 
-      {/* Click Overlay removed: relying on video/container events to avoid layering issues */}
+      {/* ---- Paused warm vignette (z-index below controls, above video) ---- */}
+      {/* Rendered always, opacity toggled via CSS .is-paused class */}
+      <div
+        className="ffp-pauseveil absolute inset-0 z-20 pointer-events-none"
+        aria-hidden="true"
+        style={{
+          opacity: playerState.isPlaying ? 0 : 1,
+          transition: 'opacity 0.55s ease',
+          background: [
+            'radial-gradient(72% 56% at 50% 40%, rgba(201,168,106,.14), transparent 72%)',
+            'radial-gradient(125% 100% at 50% 46%, transparent 44%, rgba(7,7,9,.52) 80%, rgba(4,4,6,.82) 100%)',
+            'linear-gradient(0deg, rgba(7,7,9,.46), transparent 58%)',
+          ].join(', '),
+        }}
+      />
+
+      {/* ---- Subtle grain texture ---- */}
+      <div
+        className="absolute inset-0 z-20 pointer-events-none"
+        aria-hidden="true"
+        style={{
+          opacity: 0.045,
+          mixBlendMode: 'overlay',
+          backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>\")",
+        }}
+      />
 
       {/* Loading/Buffering Overlay */}
       {(playerState.isLoading || isBuffering) && (
@@ -1076,11 +1155,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Error Overlay */}
       {playerState.error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-80 z-50 text-white p-4">
-          <div className="text-red-500 text-xl mb-2">Error</div>
-          <p className="text-center mb-4">{playerState.error}</p>
-          <button 
-            className="px-4 py-2 bg-primary-600 hover:bg-primary-700 rounded-md transition-colors"
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-ink/80 z-50 text-text p-4">
+          <div className="text-danger text-xl mb-2 font-display font-light">Playback Error</div>
+          <p className="text-center mb-6 text-muted text-sm">{playerState.error}</p>
+          <button
+            className="px-6 py-2.5 rounded-full border border-gold/50 text-gold hover:bg-gold/10 text-sm font-medium transition-colors"
             onClick={() => {
               const video = videoRef.current;
               if (video) {
@@ -1096,365 +1175,405 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Debug Overlay */}
       {debug && (
-        <div className="absolute top-0 left-0 bg-black/80 text-white text-xs p-2 z-20">
-          Volume: {playerState.volume.toFixed(2)} | Muted: {playerState.isMuted.toString()} | 
+        <div className="absolute top-0 left-0 bg-ink/80 text-text text-xs p-2 z-20 font-mono">
+          Volume: {playerState.volume.toFixed(2)} | Muted: {playerState.isMuted.toString()} |
           Ready: {videoIsReady.toString()} | Buffering: {isBuffering.toString()} |
           Download: {downloadProgress.toFixed(1)}% | Stalled: {isStalled.toString()}
         </div>
       )}
 
-      {/* Big Play/Pause Button */}
-      {(!playerState.isPlaying || playerState.showControls) && !playerState.isLoading && !isBuffering && !playerState.error && (
-        <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-          <div 
-            className={`${playerState.isPlaying ? 'opacity-0' : 'opacity-90'} 
-                      bg-black/40 rounded-full p-4 transition-all duration-200
-                      ${playerState.isPlaying ? 'scale-75' : 'scale-100'}`}
+      {/* ================= TOP OVERLAY ================= */}
+      <div
+        className={cn(
+          'absolute top-0 left-0 right-0 z-40 flex items-start gap-4',
+          'px-7 pt-5 pb-14',
+          'transition-opacity duration-300',
+          controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        )}
+        style={{
+          background: 'linear-gradient(to bottom, rgba(10,10,11,.78) 0%, rgba(10,10,11,.42) 45%, rgba(10,10,11,0) 100%)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Title block */}
+        <div className="flex flex-col gap-2 min-w-0 flex-1">
+          {movieTitle && (
+            <h2
+              className="font-display font-light text-text drop-shadow-md"
+              style={{ fontSize: 'clamp(1.25rem, 2.5vw, 1.875rem)', lineHeight: 1, letterSpacing: '-0.02em' }}
+            >
+              {movieTitle}
+            </h2>
+          )}
+          {subtitle && (
+            <p className="text-text/70 text-sm drop-shadow-md">{subtitle}</p>
+          )}
+          {/* Streaming chip — shown when still downloading */}
+          {downloadProgress < 100 && (
+            <div
+              data-testid="streaming-chip"
+              className="inline-flex items-center gap-2 self-start px-3 py-1.5 rounded-full border border-hairline text-text text-xs font-medium"
+              style={{
+                background: 'rgba(17,17,19,.55)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+              }}
+            >
+              {/* Pulsing gold dot */}
+              <span
+                className="relative flex-shrink-0 w-1.5 h-1.5 rounded-full bg-gold"
+                style={{
+                  boxShadow: '0 0 0 0 rgba(201,168,106,.55)',
+                  animation: 'ffp-pulse 2.2s ease-out infinite',
+                }}
+                aria-hidden="true"
+              />
+              Streaming
+              <span className="text-muted">·</span>
+              <b className="text-gold-lite font-semibold">{Math.round(downloadProgress)}% downloaded</b>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ================= CENTER TRANSPORT ================= */}
+      {!playerState.isLoading && !isBuffering && !playerState.error && (
+        <div
+          className={cn(
+            'absolute inset-0 z-30 flex items-center justify-center gap-12 pointer-events-none',
+            'transition-opacity duration-300',
+            controlsVisible ? 'opacity-100' : 'opacity-0'
+          )}
+        >
+          {/* Skip back 10s */}
+          <button
+            className="pointer-events-auto relative flex items-center justify-center w-14 h-14 rounded-full border border-hairline text-text cursor-pointer transition-transform duration-200 hover:scale-105"
+            style={{
+              background: 'rgba(17,17,19,.32)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+            }}
+            onClick={e => { e.stopPropagation(); skip(-10); }}
+            aria-label="Back 10 seconds"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8">
+              <path d="M3 4v6h6"/><path d="M3.5 10a9 9 0 1 1 .5 5"/>
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[8.5px] font-semibold pt-0.5">10</span>
+          </button>
+
+          {/* Big play/pause */}
+          <button
+            className="pointer-events-auto flex items-center justify-center w-[88px] h-[88px] rounded-full border border-text/[.18] bg-text/95 text-ink cursor-pointer transition-transform duration-200 hover:scale-105"
+            style={{
+              boxShadow: '0 16px 50px -10px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.4)',
+            }}
+            onClick={e => { e.stopPropagation(); togglePlay(); }}
+            aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
+            aria-pressed={playerState.isPlaying}
           >
             {playerState.isPlaying ? (
-              <PauseIcon className="w-12 h-12 text-white" />
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8">
+                <rect x="6" y="5" width="4" height="14" rx="1"/>
+                <rect x="14" y="5" width="4" height="14" rx="1"/>
+              </svg>
             ) : (
-              <PlayIcon className="w-12 h-12 text-white" />
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 ml-[3px]">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
             )}
-          </div>
+          </button>
+
+          {/* Skip forward 10s */}
+          <button
+            className="pointer-events-auto relative flex items-center justify-center w-14 h-14 rounded-full border border-hairline text-text cursor-pointer transition-transform duration-200 hover:scale-105"
+            style={{
+              background: 'rgba(17,17,19,.32)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+            }}
+            onClick={e => { e.stopPropagation(); skip(10); }}
+            aria-label="Forward 10 seconds"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8">
+              <path d="M21 4v6h-6"/><path d="M20.5 10a9 9 0 1 0-.5 5"/>
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[8.5px] font-semibold pt-0.5">10</span>
+          </button>
         </div>
       )}
 
-      {/* Controls Overlay (fullscreen only) */}
-      {playerState.isFullscreen && (
-        <div 
-          className={`absolute inset-0 flex flex-col justify-between 
-                    bg-gradient-to-b from-black/70 via-transparent to-black/70
-                    transition-opacity duration-300 z-40
-                    ${(playerState.showControls || !playerState.isPlaying) ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-        >
-        {/* Movie Title */}
-        {(movieTitle || subtitle) && (
-          <div className="p-4 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
-            {movieTitle && <h2 className="text-white text-2xl font-bold drop-shadow-md">{movieTitle}</h2>}
-            {subtitle && <p className="text-white/80 text-lg drop-shadow-md">{subtitle}</p>}
-          </div>
+      {/* ================= BOTTOM BAR ================= */}
+      <div
+        className={cn(
+          'absolute left-0 right-0 bottom-0 z-40 px-7 pt-16 pb-5',
+          'transition-opacity duration-300',
+          controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         )}
-
-        {/* Bottom Controls */}
-        <div className="p-4 space-y-2 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
-          {/* Download Progress Bar */}
-          {downloadProgress < 100 && (
-            <div className="h-1 bg-gray-800 rounded overflow-hidden mb-1">
-              <div 
-                className="h-full bg-primary-700/60"
-                style={{ width: `${downloadProgress}%` }}
-              />
-            </div>
-          )}
-          
-          {/* Progress Bar */}
-          <div 
-            ref={progressBarRef}
-            className={`${playerState.isFullscreen ? 'h-2' : 'h-1.5'} relative bg-gray-600/60 cursor-pointer rounded group`}
-            onClick={handleProgressClick}
-          >
-            {/* Buffered Progress */}
-            <div 
-              className="absolute h-full bg-gray-500/70 rounded"
-              style={{ width: `${playerState.buffered}%` }}
+        style={{
+          background: 'linear-gradient(to top, rgba(10,10,11,.92) 8%, rgba(10,10,11,.6) 55%, rgba(10,10,11,0) 100%)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Scrubber */}
+        <div
+          ref={progressBarRef}
+          role="slider"
+          tabIndex={0}
+          aria-label="Seek"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(playerState.duration)}
+          aria-valuenow={Math.round(playerState.currentTime)}
+          aria-valuetext={`${formatTime(playerState.currentTime)} of ${formatTime(playerState.duration)}`}
+          className="relative h-[18px] flex items-center cursor-pointer group"
+          onClick={handleProgressClick}
+          onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
+            const video = videoRef.current;
+            if (!video) return;
+            switch (e.key) {
+              case 'ArrowRight':
+                e.preventDefault();
+                skip(10);
+                break;
+              case 'ArrowLeft':
+                e.preventDefault();
+                skip(-10);
+                break;
+              case 'Home':
+                e.preventDefault();
+                video.currentTime = 0;
+                resetCursorTimeout();
+                break;
+              case 'End':
+                e.preventDefault();
+                // Seek near-end (1 second before end to avoid auto-advancing immediately)
+                if (video.duration > 0) {
+                  video.currentTime = Math.max(0, video.duration - 1);
+                }
+                resetCursorTimeout();
+                break;
+            }
+          }}
+        >
+          {/* Track */}
+          <div className="relative w-full h-1 rounded-full overflow-visible" style={{ background: 'rgba(244,241,234,.16)' }}>
+            {/* Buffered */}
+            <div
+              data-testid="buffered-bar"
+              className="absolute left-0 top-0 bottom-0 rounded-full"
+              style={{ width: `${playerState.buffered}%`, background: 'rgba(244,241,234,.34)' }}
             />
-            
-            {/* Playback Progress */}
-            <div 
-              className="absolute h-full bg-primary-500 group-hover:bg-primary-400 rounded"
-              style={{ width: `${(playerState.currentTime / playerState.duration) * 100 || 0}%` }}
+            {/* Played — gold */}
+            <div
+              data-testid="played-bar"
+              className="absolute left-0 top-0 bottom-0 rounded-full"
+              style={{
+                width: `${playedPct}%`,
+                background: 'linear-gradient(90deg, #C9A86A 0%, #E7D6AE 100%)',
+              }}
             />
-            
-            {/* Scrubber Handle */}
-              <div 
-                className={`${playerState.isFullscreen ? 'h-4 w-4' : 'h-3 w-3'} absolute bg-primary-500 rounded-full -translate-x-1/2 -translate-y-1/4 opacity-0 group-hover:opacity-100 transition-opacity`}
-              style={{ 
-                left: `${(playerState.currentTime / playerState.duration) * 100 || 0}%`,
-                top: '50%'
+            {/* Knob */}
+            <div
+              className="absolute top-1/2 w-3.5 h-3.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{
+                left: `${playedPct}%`,
+                transform: 'translate(-50%, -50%)',
+                background: '#E7D6AE',
+                boxShadow: '0 0 0 4px rgba(201,168,106,.22), 0 2px 6px rgba(0,0,0,.6)',
               }}
             />
           </div>
-          
-          {/* Control Buttons */}
-          <div className={`flex items-center justify-between ${playerState.isFullscreen ? '' : 'text-sm'}`}>
-            <div className="flex items-center space-x-4">
-              {/* Play/Pause Button */}
-              <button 
-                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                onClick={togglePlay}
-                aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
-              >
-                {playerState.isPlaying ? (
-                  <PauseIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-                ) : (
-                  <PlayIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-                )}
-              </button>
-              
-              {/* Skip Backward */}
-              <button 
-                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                onClick={() => skip(-10)}
-                aria-label="Rewind 10 seconds"
-              >
-                <BackwardIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-              </button>
-              
-              {/* Skip Forward */}
-              <button 
-                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                onClick={() => skip(10)}
-                aria-label="Fast forward 10 seconds"
-              >
-                <ForwardIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-              </button>
-              
-              {/* Volume Control */}
-              <div className="relative flex items-center group">
-                <button 
-                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                  onClick={handleToggleMute}
-                  onMouseEnter={() => setShowVolumeSlider(true)}
-                  aria-label={playerState.isMuted ? 'Unmute' : 'Mute'}
-                >
-                  {playerState.isMuted || playerState.volume === 0 ? (
-                    <SpeakerXMarkIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-                  ) : (
-                    <SpeakerWaveIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-                  )}
-                </button>
-                
-                {/* Volume Slider - with drag support */}
-                <div 
-                  className={`absolute bottom-full left-0 bg-gray-800/90 rounded px-3 py-2 mb-2 transition-all duration-200 
-                           group-hover:opacity-100 group-hover:translate-y-0 
-                           ${showVolumeSlider ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
-                  onMouseLeave={() => !isDraggingVolumeRef.current && setShowVolumeSlider(false)}
-                >
-                  <div 
-                    ref={volumeBarRef}
-                    className={`${playerState.isFullscreen ? 'w-24 h-1.5' : 'w-20 h-1.5'} bg-gray-600 cursor-pointer rounded`}
-                    onMouseDown={startVolumeDrag}
-                  >
-                    <div 
-                      className="h-full bg-white rounded"
-                      style={{ width: `${playerState.isMuted ? 0 : playerState.volume * 100}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-              
-              {/* Time Display */}
-              <div className={`text-white ${playerState.isFullscreen ? 'text-sm' : 'text-xs'}`}>
-                {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-              </div>
-            </div>
-            
-            {/* Right Side Controls */}
-            <div className="flex items-center space-x-3">
-              {/* Download Progress Indicator */}
-              {downloadProgress < 100 && (
-                <span className="text-white/80 text-sm mr-2">
-                  {Math.round(downloadProgress)}%
-                </span>
-              )}
-              
-              {/* Settings Button */}
-              <div className="relative">
-                <button 
-                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                  onClick={() => setShowSettings(!showSettings)}
-                  aria-label="Settings"
-                >
-                  <Cog6ToothIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-                </button>
-                
-                {/* Settings Menu */}
-                {showSettings && (
-                  <div className="absolute bottom-full right-0 bg-gray-800/90 rounded py-2 mb-2 min-w-[120px] z-50">
-                    <div className="px-3 py-1 text-sm text-gray-300">Playback Speed</div>
-                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
-                      <button
-                        key={speed}
-                        className={`w-full text-left px-3 py-1 text-sm hover:bg-gray-700 ${
-                          playbackSpeed === speed ? 'text-primary-400' : 'text-white'
-                        }`}
-                        onClick={() => {
-                          setPlaybackSpeed(speed);
-                          setShowSettings(false);
-                        }}
-                      >
-                        {speed === 1 ? 'Normal' : `${speed}x`}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              {/* Fullscreen Toggle */}
-              <button 
-                className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                onClick={toggleFullscreen}
-                aria-label={playerState.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-              >
-                {playerState.isFullscreen ? (
-                  <ArrowsPointingInIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-                ) : (
-                  <ArrowsPointingOutIcon className={`${playerState.isFullscreen ? 'w-6 h-6' : 'w-5 h-5'}`} />
-                )}
-              </button>
-            </div>
-          </div>
         </div>
-      </div>
-      )}
 
-      {/* Compact Controls Bar for windowed mode (always visible) */}
-      {!playerState.isFullscreen && (
-        <div className="absolute bottom-0 left-0 right-0 z-[650] pointer-events-auto">
-          <div className="bg-gradient-to-t from-black/70 to-transparent px-3 py-3 space-y-2">
-            {/* Progress Bar (compact) */}
-            <div 
-              ref={progressBarRef}
-              className="relative h-1.5 bg-gray-600/60 cursor-pointer rounded group"
-              onClick={handleProgressClick}
+        {/* Editorial hairline */}
+        <div
+          className="h-px my-3"
+          style={{ background: 'linear-gradient(90deg, rgba(244,241,234,0) 0%, rgba(244,241,234,.12) 50%, rgba(244,241,234,0) 100%)' }}
+        />
+
+        {/* Controls row */}
+        <div className="flex items-center gap-4">
+          {/* Play/Pause (small) */}
+          <button
+            className="inline-flex items-center justify-center text-text hover:text-gold-lite transition-colors p-1.5 rounded-lg"
+            onClick={togglePlay}
+            aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
+            aria-pressed={playerState.isPlaying}
+          >
+            {playerState.isPlaying ? (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                <rect x="6" y="5" width="4" height="14" rx="1"/>
+                <rect x="14" y="5" width="4" height="14" rx="1"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 ml-[2px]">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            )}
+          </button>
+
+          {/* Volume */}
+          <div className="flex items-center gap-2.5 group/vol relative">
+            <button
+              className="inline-flex items-center justify-center text-text hover:text-gold-lite transition-colors p-0"
+              onClick={handleToggleMute}
+              onMouseEnter={() => setShowVolumeSlider(true)}
+              aria-label={playerState.isMuted ? 'Unmute' : 'Mute'}
             >
-              <div 
-                className="absolute h-full bg-gray-500/70 rounded"
-                style={{ width: `${playerState.buffered}%` }}
+              {playerState.isMuted || playerState.volume === 0 ? (
+                <SpeakerXMarkIcon className="w-5 h-5" />
+              ) : (
+                <SpeakerWaveIcon className="w-5 h-5" />
+              )}
+            </button>
+
+            {/* Volume track */}
+            <div
+              ref={volumeBarRef}
+              className={cn(
+                'relative h-1 rounded-full cursor-pointer transition-all duration-200',
+                showVolumeSlider ? 'w-22 opacity-100' : 'w-0 opacity-0 pointer-events-none group-hover/vol:w-22 group-hover/vol:opacity-100'
+              )}
+              style={{ width: showVolumeSlider ? '88px' : undefined, background: 'rgba(244,241,234,.16)' }}
+              onMouseDown={startVolumeDrag}
+              onMouseLeave={() => !isDraggingVolumeRef.current && setShowVolumeSlider(false)}
+            >
+              <div
+                className="absolute left-0 top-0 bottom-0 rounded-full"
+                style={{ width: `${playerState.isMuted ? 0 : playerState.volume * 100}%`, background: 'rgba(244,241,234,.7)' }}
               />
-              <div 
-                className="absolute h-full bg-primary-500 group-hover:bg-primary-400 rounded"
-                style={{ width: `${(playerState.currentTime / playerState.duration) * 100 || 0}%` }}
-              />
-              <div 
-                className="absolute h-3 w-3 bg-primary-500 rounded-full -translate-x-1/2 -translate-y-1/4 opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ 
-                  left: `${(playerState.currentTime / playerState.duration) * 100 || 0}%`,
-                  top: '50%'
+              <div
+                className="absolute top-1/2 w-2.5 h-2.5 rounded-full bg-text"
+                style={{
+                  left: `${playerState.isMuted ? 0 : playerState.volume * 100}%`,
+                  transform: 'translate(-50%, -50%)',
+                  boxShadow: '0 1px 4px rgba(0,0,0,.5)',
                 }}
               />
             </div>
+          </div>
 
-            {/* Controls Row (compact) */}
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-3">
-                <button 
-                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                  onClick={togglePlay}
-                  aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
+          {/* Time display */}
+          <div className="text-text text-xs tabular-nums whitespace-nowrap" style={{ letterSpacing: '.03em' }}>
+            <span className="font-semibold">{formatTime(playerState.currentTime)}</span>
+            <span className="text-muted mx-1">/</span>
+            <span className="text-muted">{formatTime(playerState.duration)}</span>
+          </div>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Right cluster */}
+          <div className="flex items-center gap-2.5">
+            {/* Speed pill */}
+            <div className="relative">
+              <button
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold transition-colors hover:border-gold/40 hover:text-gold-lite"
+                style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
+                onClick={() => setShowSettings(!showSettings)}
+                aria-label="Playback speed"
+              >
+                <span className="text-[9px] text-muted uppercase tracking-widest mr-0.5">Speed</span>
+                {playbackSpeed === 1 ? '1×' : `${playbackSpeed}×`}
+              </button>
+
+              {/* Speed menu */}
+              {showSettings && (
+                <div
+                  className="absolute bottom-full right-0 mb-2 min-w-[110px] rounded-xl border border-hairline py-1.5 z-50"
+                  style={{ background: 'rgba(22,22,26,.95)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}
                 >
-                  {playerState.isPlaying ? (
-                    <PauseIcon className="w-5 h-5" />
-                  ) : (
-                    <PlayIcon className="w-5 h-5" />
-                  )}
-                </button>
-
-                <button 
-                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                  onClick={() => skip(-10)}
-                  aria-label="Rewind 10 seconds"
-                >
-                  <BackwardIcon className="w-5 h-5" />
-                </button>
-
-                <button 
-                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                  onClick={() => skip(10)}
-                  aria-label="Fast forward 10 seconds"
-                >
-                  <ForwardIcon className="w-5 h-5" />
-                </button>
-
-                <div className="relative flex items-center group">
-                  <button 
-                    className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                    onClick={handleToggleMute}
-                    onMouseEnter={() => setShowVolumeSlider(true)}
-                    aria-label={playerState.isMuted ? 'Unmute' : 'Mute'}
-                  >
-                    {playerState.isMuted || playerState.volume === 0 ? (
-                      <SpeakerXMarkIcon className="w-5 h-5" />
-                    ) : (
-                      <SpeakerWaveIcon className="w-5 h-5" />
-                    )}
-                  </button>
-                  <div 
-                    className={`absolute bottom-full left-0 bg-gray-800/90 rounded px-3 py-2 mb-2 transition-all duration-200 
-                             group-hover:opacity-100 group-hover:translate-y-0 
-                             ${showVolumeSlider ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
-                    onMouseLeave={() => !isDraggingVolumeRef.current && setShowVolumeSlider(false)}
-                  >
-                    <div 
-                      ref={volumeBarRef}
-                      className="w-20 h-1.5 bg-gray-600 cursor-pointer rounded"
-                      onMouseDown={startVolumeDrag}
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-widest text-muted">Speed</div>
+                  {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                    <button
+                      key={speed}
+                      className={cn(
+                        'w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-surface-2',
+                        playbackSpeed === speed ? 'text-gold font-semibold' : 'text-text'
+                      )}
+                      onClick={() => {
+                        setPlaybackSpeed(speed);
+                        setShowSettings(false);
+                      }}
                     >
-                      <div 
-                        className="h-full bg-white rounded"
-                        style={{ width: `${playerState.isMuted ? 0 : playerState.volume * 100}%` }}
-                      />
-                    </div>
-                  </div>
+                      {speed === 1 ? 'Normal' : `${speed}×`}
+                    </button>
+                  ))}
                 </div>
-
-                <div className="text-white text-xs">
-                  {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <button 
-                  className="text-white hover:text-primary-400 transition-colors rounded-full p-1 hover:bg-white/10"
-                  onClick={toggleFullscreen}
-                  aria-label={playerState.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                >
-                  {playerState.isFullscreen ? (
-                    <ArrowsPointingInIcon className="w-5 h-5" />
-                  ) : (
-                    <ArrowsPointingOutIcon className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
+              )}
             </div>
+
+            {/* Audio/CC — GATED (aspirational) */}
+            <button
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-hairline text-text transition-colors opacity-50 cursor-not-allowed"
+              style={{ background: 'rgba(22,22,26,.34)' }}
+              aria-label="Audio and subtitles (coming soon)"
+              aria-disabled="true"
+              title="Coming soon — no subtitle/audio tracks yet"
+              tabIndex={-1}
+              onClick={e => e.stopPropagation()}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px]">
+                <rect x="2" y="5" width="20" height="14" rx="2.5"/>
+                <path d="M6 12h3.5M6 15h2"/>
+                <path d="M14 12h4M14 15h2.5"/>
+              </svg>
+              <span className="sr-only">Soon</span>
+            </button>
+
+            {/* Quality pill — GATED (informational only) */}
+            <button
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold opacity-50 cursor-not-allowed"
+              style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
+              aria-label="Quality 1080p (informational)"
+              aria-disabled="true"
+              title="Informational — quality is fixed per torrent"
+              tabIndex={-1}
+              onClick={e => e.stopPropagation()}
+            >
+              <span className="text-[9px] text-muted uppercase tracking-widest mr-0.5">HD</span>
+              1080p
+            </button>
+
+            {/* Picture-in-Picture */}
+            {typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && (
+              <button
+                className={cn(
+                  'inline-flex items-center justify-center w-9 h-9 rounded-lg border border-hairline text-text transition-colors hover:border-gold/40',
+                  isPiP ? 'text-gold border-gold/55 bg-gold/[.08]' : ''
+                )}
+                style={{ background: isPiP ? undefined : 'rgba(22,22,26,.34)' }}
+                onClick={togglePiP}
+                aria-label={isPiP ? 'Exit picture in picture' : 'Picture in picture'}
+                aria-pressed={isPiP}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                  <rect x="3" y="4" width="18" height="14" rx="2.5"/>
+                  <rect x="12.5" y="11" width="7" height="5" rx="1.2" fill="currentColor" stroke="none"/>
+                </svg>
+              </button>
+            )}
+
+            {/* Fullscreen */}
+            <button
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-hairline text-text transition-colors hover:border-gold/40"
+              style={{ background: 'rgba(22,22,26,.34)' }}
+              onClick={toggleFullscreen}
+              aria-label={playerState.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            >
+              {playerState.isFullscreen ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+              )}
+            </button>
           </div>
         </div>
-      )}
-
-      {/* "Unmute" Button */}
-      {/* {showUnmuteButton && playerState.isPlaying && (
-        <div className="absolute bottom-20 right-4 z-50">
-          <button
-            className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-full flex items-center shadow-lg transition-colors"
-            onClick={() => {
-              if (volumeChangeInProgressRef.current) return;
-              volumeChangeInProgressRef.current = true;
-              
-              userInteractedRef.current = true;
-              
-              safeVideoOperation(video => {
-                video.muted = false;
-                video.volume = Math.max(0.1, playerState.volume);
-              });
-              
-              setPlayerState(prev => ({ ...prev, isMuted: false }));
-              setShowUnmuteButton(false);
-              
-              setTimeout(() => {
-                volumeChangeInProgressRef.current = false;
-              }, 100);
-              
-              // Reset cursor timeout
-              resetCursorTimeout();
-            }}
-          >
-            <SpeakerWaveIcon className="w-5 h-5 mr-2" />
-            Unmute
-          </button>
-        </div>
-      )} */}
+      </div>
     </div>
   );
 };

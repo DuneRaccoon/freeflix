@@ -38,9 +38,10 @@ def _year_from(raw: Dict[str, Any]) -> Optional[int]:
     return int(date[:4]) if date[:4].isdigit() else None
 
 
-def normalize_item(raw: Dict[str, Any]) -> CatalogItem:
+def normalize_item(raw: Dict[str, Any], media_type: str = "movie") -> CatalogItem:
     return CatalogItem(
         tmdb_id=raw["id"],
+        media_type="tv" if media_type == "tv" else "movie",
         title=raw.get("title") or raw.get("name") or "",
         year=_year_from(raw),
         overview=raw.get("overview"),
@@ -93,7 +94,7 @@ async def browse(api: str = "popular", sort: str = "popularity.desc",
     data = await _get(params) or {}
     return CatalogPage(
         page=data.get("page", page),
-        results=[normalize_item(r) for r in data.get("results", []) if r.get("id")],
+        results=[normalize_item(r, media_type=mode) for r in data.get("results", []) if r.get("id")],
         total_pages=data.get("total_pages", 0),
         total_results=data.get("total_results", 0),
     )
@@ -103,7 +104,7 @@ async def search(q: str, page: int = 1, mode: str = "movie") -> CatalogPage:
     data = await _get({"api": "search", "mode": mode, "q": q, "page": page}) or {}
     return CatalogPage(
         page=data.get("page", page),
-        results=[normalize_item(r) for r in data.get("results", []) if r.get("id")],
+        results=[normalize_item(r, media_type=mode) for r in data.get("results", []) if r.get("id")],
         total_pages=data.get("total_pages", 0),
         total_results=data.get("total_results", 0),
     )

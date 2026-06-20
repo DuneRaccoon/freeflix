@@ -55,18 +55,6 @@ def parse_range_header(range_header: str, file_size: int) -> tuple:
     
     return start, end
 
-def stream_file_generator(file_path: str, start: int, end: int, chunk_size: int = 1024*1024):
-    """Generator to stream file content in chunks."""
-    with open(file_path, 'rb') as f:
-        f.seek(start)
-        remaining = end - start + 1
-        while remaining > 0:
-            chunk = f.read(min(chunk_size, remaining))
-            if not chunk:
-                break
-            remaining -= len(chunk)
-            yield chunk
-
 @router.get("/{torrent_id}/video", summary="Stream video from a torrent")
 async def stream_video(
     request: Request,
@@ -125,9 +113,14 @@ async def stream_video(
         
         # Return streaming response with appropriate status code
         status_code = 206 if range_header else 200
-        
+
+        # Piece-aware generator: waits for each chunk's pieces to be downloaded
+        # before serving, so the player never receives undownloaded (zero) bytes
+        # that would trigger a decode error.
         return StreamingResponse(
-            stream_file_generator(file_path, start, end, chunk_size),
+            torrent_manager.stream_file_range(
+                torrent_id, video_info["index"], file_path, start, end, chunk_size
+            ),
             status_code=status_code,
             headers=headers
         )

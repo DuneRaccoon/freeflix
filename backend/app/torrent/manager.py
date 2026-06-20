@@ -15,6 +15,8 @@ from app.database.session import get_db, init_db
 from app.database.models import Torrent as DbTorrent, TorrentLog
 from app.models import TorrentState, TorrentStatus, Movie, Torrent as TorrentModel
 from app.config import settings
+from app.torrent.storage import encode_resume_data, decode_resume_data, safe_rmtree
+from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
 
 # Ordered list of torrent states
 TORRENT_STATES = [
@@ -109,45 +111,26 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Error saving resume data for torrent {torrent_id}: {e}")
     
-    def _add_torrent(self, torrent_id: str, magnet_uri: str, save_path: Path, 
-                    metadata: Dict[str, Any], resume_data: Optional[bytes] = None) -> lt.torrent_handle:
-        """Add a torrent to the libtorrent session"""
+    def _add_torrent(self, torrent_id: str, magnet_uri: str, save_path: Path,
+                    metadata: Dict[str, Any], resume_data: Optional[str] = None) -> lt.torrent_handle:
+        """Add a torrent to the libtorrent session (libtorrent 2.0 API)."""
         try:
-            params = {
-                'save_path': str(save_path),
-                'storage_mode': lt.storage_mode_t.storage_mode_sparse
-            }
-            
-            # Try to use resume data if available
+            atp = None
             if resume_data:
-                # Using add_torrent_params with resume data
-                # In newer libtorrent versions, we need to create params properly
-                atp = lt.add_torrent_params()
-                atp.save_path = str(save_path)
-                atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
-                
-                # Parse the resume data if available
-                if resume_data:
-                    try:
-                        # For libtorrent 2.0+, we need to use bdecode to parse the resume data
-                        atp.resume_data = lt.bdecode(resume_data)
-                    except Exception as e:
-                        logger.error(f"Error parsing resume data: {e}")
-                
-                # Add the magnet URI
-                atp.url = magnet_uri
-                
-                # Add the torrent to the session
-                handle = self.session.add_torrent(atp)
-            else:
-                handle = lt.add_magnet_uri(self.session, magnet_uri, params)
-            
-            # Enable sequential download
+                try:
+                    atp = lt.read_resume_data(decode_resume_data(resume_data))
+                except Exception as e:
+                    logger.warning(f"resume_data unusable for {torrent_id} ({e}); re-adding from magnet")
+                    atp = None
+            if atp is None:
+                atp = lt.parse_magnet_uri(magnet_uri)
+
+            atp.save_path = str(save_path)
+            atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
+
+            handle = self.session.add_torrent(atp)
             handle.set_sequential_download(True)
-            
-            # Store the handle and metadata
             self.active_torrents[torrent_id] = (handle, metadata)
-            
             return handle
         except Exception as e:
             logger.error(f"Error adding torrent {torrent_id}: {e}")
@@ -371,23 +354,20 @@ class TorrentManager:
             
             elif isinstance(alert, lt.save_resume_data_alert):
                 torrent_handle = alert.handle
-                resume_data = alert.resume_data
-                
-                # Find the torrent_id for this handle
-                for torrent_id, (handle, _) in self.active_torrents.items():
-                    if handle == torrent_handle:
-                        # Save resume data in a new session
-                        with get_db() as db:
-                            torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
-                            if torrent:
-                                try:
-                                    # In libtorrent 2.0+, resume_data is already a bytes object
-                                    # We need to store it as-is
-                                    torrent.resume_data = resume_data
+                try:
+                    buf = lt.write_resume_data_buf(alert.params)
+                except Exception as e:
+                    logger.error(f"write_resume_data_buf failed: {e}")
+                    buf = None
+                if buf is not None:
+                    for torrent_id, (handle, _) in self.active_torrents.items():
+                        if handle == torrent_handle:
+                            with get_db() as db:
+                                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                                if torrent:
+                                    torrent.resume_data = encode_resume_data(buf)
                                     db.commit()
-                                except Exception as e:
-                                    logger.error(f"Error saving resume data: {e}")
-                        break
+                            break
             
             elif isinstance(alert, lt.torrent_error_alert):
                 torrent_handle = alert.handle

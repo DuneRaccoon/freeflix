@@ -130,3 +130,40 @@ def test_resume_readds_and_marks_downloading(mgr_db, monkeypatch):
 
 def test_stop_torrent_removed():
     assert not hasattr(torrent_manager, "stop_torrent")
+
+
+def test_remove_hard_deletes_row_keep_files(mgr_db, monkeypatch, tmp_path):
+    root = tmp_path / "downloads"; sub = root / "movie"; sub.mkdir(parents=True)
+    tid = _seed(mgr_db, state="finished")
+    s = mgr_db(); s.get(DbTorrent, tid).save_path = str(sub); s.commit(); s.close()
+    monkeypatch.setattr("app.torrent.manager.settings.default_download_path", root, raising=False)
+    torrent_manager.active_torrents.pop(tid, None)
+
+    assert torrent_manager.remove_torrent(tid, delete_files=False) is True
+    s = mgr_db(); assert s.get(DbTorrent, tid) is None; s.close()
+    assert sub.exists()  # files kept
+
+
+def test_remove_delete_files_rmtrees(mgr_db, monkeypatch, tmp_path):
+    root = tmp_path / "downloads"; sub = root / "movie"; sub.mkdir(parents=True)
+    (sub / "f.mkv").write_bytes(b"x")
+    tid = _seed(mgr_db, state="finished")
+    s = mgr_db(); s.get(DbTorrent, tid).save_path = str(sub); s.commit(); s.close()
+    monkeypatch.setattr("app.torrent.manager.settings.default_download_path", root, raising=False)
+    torrent_manager.active_torrents.pop(tid, None)
+
+    assert torrent_manager.remove_torrent(tid, delete_files=True) is True
+    s = mgr_db(); assert s.get(DbTorrent, tid) is None; s.close()
+    assert not sub.exists()  # files deleted
+
+
+def test_remove_unloads_active_handle(mgr_db, monkeypatch):
+    tid = _seed(mgr_db, state="downloading")
+    handle = _types.SimpleNamespace()
+    torrent_manager.active_torrents[tid] = (handle, {})
+    removed = {}
+    monkeypatch.setattr(torrent_manager.session, "remove_torrent", lambda h: removed.setdefault("h", h))
+
+    assert torrent_manager.remove_torrent(tid, delete_files=False) is True
+    assert removed["h"] is handle
+    assert tid not in torrent_manager.active_torrents

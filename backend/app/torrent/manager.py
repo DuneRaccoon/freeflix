@@ -796,37 +796,34 @@ class TorrentManager:
         return True
     
     def remove_torrent(self, torrent_id: str, delete_files: bool = False) -> bool:
-        """Remove a torrent and optionally delete downloaded files"""
+        """Remove a torrent: unload from the session, hard-delete the DB row
+        (watch history is detached via ON DELETE SET NULL), and optionally
+        delete the downloaded files."""
         try:
+            removed = False
             if torrent_id in self.active_torrents:
                 handle, _ = self.active_torrents[torrent_id]
-                
-                # Remove the torrent
-                self.session.remove_torrent(handle, 1 if delete_files else 0)
-                
-                # Remove from active torrents
-                self.active_torrents.pop(torrent_id)
-            
-            # Remove from database
+                try:
+                    self.session.remove_torrent(handle)
+                except Exception as e:
+                    logger.warning(f"remove: session.remove_torrent failed for {torrent_id}: {e}")
+                self.active_torrents.pop(torrent_id, None)
+                removed = True
+
+            save_path = None
             with get_db() as db:
-                torrent: DbTorrent = DbTorrent.get_by_id(db, torrent_id)
+                torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
                 if torrent:
-                    # Log remove action before deleting
-                    torrent.add_log(
-                        db,
-                        message=f"Torrent removed (files {'deleted' if delete_files else 'kept'})",
-                        level="INFO"
-                    )
-                    if delete_files:
-                        # Delete the torrent
-                        torrent.delete(db)
-                        
-                        path = Path(torrent.save_path)
-                        if path.exists():
-                            shutil.rmtree(path)
-            
+                    save_path = torrent.save_path     # capture BEFORE delete
+                    db.delete(torrent)                # hard delete; fires download_logs cascade + FK SET NULL on progress
+                    db.commit()
+                    removed = True
+
+            if delete_files and save_path:
+                safe_rmtree(save_path, settings.default_download_path)
+
             logger.info(f"Removed torrent {torrent_id} (delete_files={delete_files})")
-            return True
+            return removed
         except Exception as e:
             logger.error(f"Error removing torrent {torrent_id}: {e}")
             return False

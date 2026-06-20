@@ -104,7 +104,14 @@ class Torrent(Model):
         return db.query(cls).filter(
             ~cls.state.in_(['finished', 'error', 'stopped'])
         ).all()
-    
+
+    @classmethod
+    def find_loadable_on_startup(cls, db: Session) -> List["Torrent"]:
+        """Torrents to auto re-add to the libtorrent session on startup (were
+        mid-download). Paused/stopped/finished/seeding/error stay unloaded."""
+        from app.torrent.states import ACTIVE_DOWNLOAD_STATES
+        return db.query(cls).filter(cls.state.in_(tuple(ACTIVE_DOWNLOAD_STATES))).all()
+
     def add_log(self, db: Session, message: str, level: str = "INFO", 
                 state: str = None, progress: float = None, 
                 download_rate: float = None) -> "TorrentLog":

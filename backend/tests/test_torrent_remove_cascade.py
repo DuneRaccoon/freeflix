@@ -63,3 +63,18 @@ def test_deleting_torrent_preserves_watch_history(session):
 
     # Torrent logs cascade away
     assert session.query(TorrentLog).filter_by(torrent_id=torrent.id).count() == 0
+
+
+def test_find_loadable_on_startup_only_active(session):
+    rows = [
+        DbTorrent(movie_title="a", quality="1080p", magnet="m", url="u", save_path="/p", state="downloading"),
+        DbTorrent(movie_title="b", quality="1080p", magnet="m", url="u", save_path="/p", state="paused"),
+        DbTorrent(movie_title="c", quality="1080p", magnet="m", url="u", save_path="/p", state="finished"),
+        DbTorrent(movie_title="d", quality="1080p", magnet="m", url="u", save_path="/p", state="queued"),
+    ]
+    session.add_all(rows)
+    session.commit()
+
+    loadable = DbTorrent.find_loadable_on_startup(session)
+    titles = sorted(t.movie_title for t in loadable)
+    assert titles == ["a", "d"]  # downloading + queued only

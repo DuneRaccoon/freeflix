@@ -724,124 +724,76 @@ class TorrentManager:
             return []
     
     def pause_torrent(self, torrent_id: str) -> bool:
-        """Pause a torrent download"""
+        """Pause a download: save resume data, unload from the session (freeing
+        the slot), and mark it paused. Survives restart; resumable later."""
+        found = False
         if torrent_id in self.active_torrents:
             handle, _ = self.active_torrents[torrent_id]
-            handle.pause()
-            
-            with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    torrent.update(db, state='paused')
-                    # Log pause action
-                    torrent.add_log(
-                        db,
-                        message="Download paused",
-                        level="INFO",
-                        state='paused'
-                    )
-            
+            try:
+                handle.save_resume_data()
+            except Exception:
+                pass
+            try:
+                handle.pause()
+            except Exception:
+                pass
+            try:
+                self.session.remove_torrent(handle)
+            except Exception as e:
+                logger.warning(f"pause: remove_torrent failed for {torrent_id}: {e}")
+            self.active_torrents.pop(torrent_id, None)
+            found = True
+
+        with get_db() as db:
+            torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+            if torrent:
+                torrent.state = "paused"
+                db.add(torrent)
+                db.commit()
+                torrent.add_log(db, message="Download paused", level="INFO", state="paused")
+                found = True
+
+        if found:
             logger.info(f"Paused torrent {torrent_id}")
-            return True
         else:
-            logger.warning(f"Torrent {torrent_id} not found in active torrents")
-            return False
+            logger.warning(f"Pause: torrent {torrent_id} not found")
+        return found
     
     def resume_torrent(self, torrent_id: str) -> bool:
-        """Resume a paused torrent download"""
-        if torrent_id in self.active_torrents:
-            handle, _ = self.active_torrents[torrent_id]
-            handle.resume()
-            
-            with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    torrent.update(db, state='downloading')
-                    # Log resume action
-                    torrent.add_log(
-                        db,
-                        message="Download resumed",
-                        level="INFO",
-                        state='downloading'
-                    )
-            
-            logger.info(f"Resumed torrent {torrent_id}")
-            return True
-        else:
-            # Check if it's in the database but not active
-            try:
-                with get_db() as db:
-                    torrent: DbTorrent = db.query(DbTorrent).filter(
-                        DbTorrent.id == torrent_id,
-                        DbTorrent.state == 'paused'
-                    ).first()
-                    
-                    if torrent:
-                        # Add the torrent back to the session
-                        handle = self._add_torrent(
-                            torrent_id, 
-                            torrent.magnet, 
-                            Path(torrent.save_path), 
-                            torrent.meta_data or {},
-                            torrent.resume_data
-                        )
-                        handle.resume()
-                        
-                        torrent.update(db, state='downloading')
-                        # Log resume action
-                        torrent.add_log(
-                            db,
-                            message="Download re-added and resumed",
-                            level="INFO",
-                            state='downloading'
-                        )
-                        
-                        logger.info(f"Re-added and resumed torrent {torrent_id}")
-                        return True
-                    else:
-                        logger.warning(f"Torrent {torrent_id} not found or not paused")
-                        return False
-                    
-            except Exception as e:
-                logger.error(f"Error resuming torrent {torrent_id}: {e}")
+        """Resume a paused/stopped/errored torrent: re-add to the session (fast
+        via resume data, correct via on-disk recheck) and continue downloading."""
+        with get_db() as db:
+            torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+            if not torrent:
+                logger.warning(f"Resume: torrent {torrent_id} not found")
                 return False
-        
-        return False
-    
-    def stop_torrent(self, torrent_id: str) -> bool:
-        """Stop a torrent download completely"""
-        if torrent_id in self.active_torrents:
-            handle, _ = self.active_torrents[torrent_id]
-            
-            # Request resume data before removing
-            handle.save_resume_data()
-            
-            # Give a moment for the resume data alert to be processed
-            time.sleep(0.5)
-            
-            # Remove the torrent (keep files)
-            self.session.remove_torrent(handle)
-            
-            # Remove from active torrents
-            self.active_torrents.pop(torrent_id)
-            
-            with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    torrent.update(db, state='stopped')
-                    # Log stop action
-                    torrent.add_log(
-                        db,
-                        message="Download stopped",
-                        level="INFO",
-                        state='stopped'
-                    )
-            
-            logger.info(f"Stopped torrent {torrent_id}")
-            return True
-        else:
-            logger.warning(f"Torrent {torrent_id} not found in active torrents")
+            magnet = torrent.magnet
+            save_path = Path(torrent.save_path)
+            meta = torrent.meta_data or {}
+            resume_blob = torrent.resume_data
+
+        try:
+            if torrent_id in self.active_torrents:
+                handle, _ = self.active_torrents[torrent_id]
+                handle.resume()
+            else:
+                handle = self._add_torrent(torrent_id, magnet, save_path, meta, resume_blob)
+                handle.resume()
+        except Exception as e:
+            logger.error(f"Resume: failed to re-add torrent {torrent_id}: {e}")
             return False
+
+        with get_db() as db:
+            torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+            if torrent:
+                torrent.state = "downloading"
+                torrent.error_message = None
+                db.add(torrent)
+                db.commit()
+                torrent.add_log(db, message="Download resumed", level="INFO", state="downloading")
+
+        logger.info(f"Resumed torrent {torrent_id}")
+        return True
     
     def remove_torrent(self, torrent_id: str, delete_files: bool = False) -> bool:
         """Remove a torrent and optionally delete downloaded files"""

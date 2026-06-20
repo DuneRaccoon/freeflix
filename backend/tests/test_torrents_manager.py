@@ -50,3 +50,83 @@ def test_add_torrent_from_resume_data(monkeypatch):
 
     assert seen["buf"] == b"resume-bytes"
     assert "t2" in torrent_manager.active_torrents
+
+
+import types as _types
+from contextlib import contextmanager
+from pathlib import Path
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.database.session import Base
+from app.database.models import Torrent as DbTorrent
+
+
+@pytest.fixture()
+def mgr_db(monkeypatch, tmp_path):
+    """Point the manager's get_db at a throwaway SQLite session."""
+    engine = create_engine(f"sqlite:///{tmp_path/'mgr.db'}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+
+    @contextmanager
+    def fake_get_db():
+        s = Session()
+        try:
+            yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+        finally:
+            s.close()
+
+    monkeypatch.setattr("app.torrent.manager.get_db", fake_get_db)
+    return Session
+
+
+def _seed(Session, **kw):
+    s = Session()
+    t = DbTorrent(movie_title="m", quality="1080p", magnet="magnet:?xt=test",
+                  url="u", save_path=str(Path("/tmp/m")), **kw)
+    s.add(t); s.commit(); s.refresh(t); tid = t.id; s.close()
+    return tid
+
+
+def test_pause_unloads_and_marks_paused(mgr_db, monkeypatch):
+    tid = _seed(mgr_db, state="downloading")
+    calls = {}
+    handle = _types.SimpleNamespace(
+        save_resume_data=lambda: calls.setdefault("saved", True),
+        pause=lambda: calls.setdefault("paused", True),
+    )
+    torrent_manager.active_torrents[tid] = (handle, {})
+    monkeypatch.setattr(torrent_manager.session, "remove_torrent", lambda h: calls.setdefault("removed", h))
+
+    assert torrent_manager.pause_torrent(tid) is True
+    assert calls.get("saved") and calls.get("paused") and calls.get("removed") is handle
+    assert tid not in torrent_manager.active_torrents
+    s = mgr_db(); assert s.get(DbTorrent, tid).state == "paused"; s.close()
+
+
+def test_resume_readds_and_marks_downloading(mgr_db, monkeypatch):
+    tid = _seed(mgr_db, state="paused", error_message="boom")
+    torrent_manager.active_torrents.pop(tid, None)
+    fake_handle = _types.SimpleNamespace(resume=lambda: None)
+    added = {}
+
+    def fake_add(torrent_id, magnet, save_path, meta, resume_data=None):
+        added["id"] = torrent_id
+        torrent_manager.active_torrents[torrent_id] = (fake_handle, meta)
+        return fake_handle
+
+    monkeypatch.setattr(torrent_manager, "_add_torrent", fake_add)
+
+    assert torrent_manager.resume_torrent(tid) is True
+    assert added["id"] == tid
+    s = mgr_db(); row = s.get(DbTorrent, tid)
+    assert row.state == "downloading" and row.error_message is None; s.close()
+
+
+def test_stop_torrent_removed():
+    assert not hasattr(torrent_manager, "stop_torrent")

@@ -291,13 +291,14 @@ export const COLLECTION_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: 'Any Collection' }, { value: 86311, label: 'The Avengers' },
   { value: 1241, label: 'Harry Potter' }, { value: 10, label: 'Star Wars' },
   { value: 645, label: 'James Bond 007' }, { value: 9485, label: 'Fast & Furious' },
+  { value: 119, label: 'Lord of the Rings' }, { value: 121938, label: 'The Hobbit' },
+  { value: 328, label: 'Jurassic Park' }, { value: 131635, label: 'The Hunger Games' },
+  { value: 295, label: 'Pirates of the Caribbean' }, { value: 87359, label: 'Mission Impossible' },
   { value: 404609, label: 'John Wick' }, { value: 263, label: 'Dark Knight' },
   { value: 2344, label: 'The Matrix' }, { value: 10194, label: 'Toy Story' },
   { value: 2150, label: 'Shrek' }, { value: 86066, label: 'Despicable Me' },
   { value: 87096, label: 'Avatar' }, { value: 748, label: 'X-Men' },
-  { value: 8091, label: 'Alien' }, { value: 328, label: 'Jurassic Park' },
-  { value: 131635, label: 'The Hunger Games' }, { value: 295, label: 'Pirates of the Caribbean' },
-  { value: 87359, label: 'Mission Impossible' },
+  { value: 8091, label: 'Alien' },
 ];
 
 export const BEST_OF_OPTIONS: { value: string; label: string }[] = [

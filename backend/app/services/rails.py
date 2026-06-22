@@ -42,8 +42,12 @@ _COMPANY_POOL = [
 ]
 _COLLECTION_POOL = [
     ("86311", "The Avengers"), ("1241", "Harry Potter"), ("10", "Star Wars"),
-    ("645", "James Bond"), ("9485", "Fast & Furious"), ("404609", "John Wick"),
-    ("87096", "Avatar"), ("328", "Jurassic Park"), ("131635", "The Hunger Games"),
+    ("645", "James Bond 007"), ("9485", "Fast & Furious"), ("119", "Lord of the Rings"),
+    ("121938", "The Hobbit"), ("328", "Jurassic Park"), ("131635", "The Hunger Games"),
+    ("295", "Pirates of the Caribbean"), ("87359", "Mission Impossible"), ("404609", "John Wick"),
+    ("263", "Dark Knight"), ("2344", "The Matrix"), ("10194", "Toy Story"),
+    ("2150", "Shrek"), ("86066", "Despicable Me"), ("87096", "Avatar"),
+    ("748", "X-Men"), ("8091", "Alien"),
 ]
 _ORIGIN_POOL = ["KR", "JP", "IN", "GB", "FR", "ES", "IT", "CN"]
 _BEST_POOL = ["2025", "2024", "2023", "2022", "2021", "2020"]

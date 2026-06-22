@@ -54,10 +54,10 @@ def test_country_origin_passthrough(monkeypatch):
     assert cap["api"] == "discover" and cap["origin"] == "KR"
 
 
-def test_collection_maps_to_id(monkeypatch):
+def test_collection_uses_collection_api_and_id(monkeypatch):
     cap = _capture(monkeypatch)
     asyncio.run(catalog.browse(collection="86311", mode="movie"))
-    assert cap["id"] == "86311"
+    assert cap["api"] == "collection" and cap["id"] == "86311"
 
 
 def test_year_forces_discover(monkeypatch):

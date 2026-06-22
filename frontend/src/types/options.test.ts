@@ -21,4 +21,11 @@ describe('catalog option constants', () => {
     expect(COMPANY_OPTIONS.find((o) => o.label === 'A24')?.value).toBe(41077);
     expect(COLLECTION_OPTIONS.find((o) => o.label === 'The Avengers')?.value).toBe(86311);
   });
+
+  it('COLLECTION_OPTIONS includes the full franchise list (incl. LOTR + Hobbit)', () => {
+    expect(COLLECTION_OPTIONS.find((o) => o.label === 'Lord of the Rings')?.value).toBe(119);
+    expect(COLLECTION_OPTIONS.find((o) => o.label === 'The Hobbit')?.value).toBe(121938);
+    // 20 franchises + the "Any Collection" sentinel
+    expect(COLLECTION_OPTIONS).toHaveLength(21);
+  });
 });

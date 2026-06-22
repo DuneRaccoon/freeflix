@@ -119,7 +119,10 @@ async def browse(api: str = "popular", sort: str = "popularity.desc", page: int 
     if year:
         disc["year"] = year
     if disc:
-        params.update({"api": "discover", "genre": 0, "year": 0})  # mirror proven discover URL shape
+        # Collection (franchise) lookups use the dedicated `api=collection` mode;
+        # every other filter uses `api=discover`. Both carry the genre=0/year=0
+        # placeholders that mirror the proven-working URL shape.
+        params.update({"api": "collection" if collection else "discover", "genre": 0, "year": 0})
         params.update(disc)                                        # real values win over placeholders
     else:
         params["api"] = api

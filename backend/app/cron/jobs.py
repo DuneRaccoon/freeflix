@@ -42,8 +42,9 @@ async def _find_movies_for_schedule(search_params):
         year_raw = (search_params.year or "all")
         year = int(year_raw) if str(year_raw).isdigit() else 0
         sort = _ORDER_TO_SORT.get(search_params.order_by or "featured", "popularity.desc")
-        page = await catalog.browse(api="popular", sort=sort, genre=genre, year=year,
-                                    page=search_params.page or 1)
+        page = await catalog.browse(api="popular", sort=sort,
+                                    genres=str(genre) if genre else None,
+                                    year=year, page=search_params.page or 1)
     return page.results
 
 

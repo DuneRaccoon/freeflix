@@ -127,6 +127,12 @@ async def browse(api: str = "popular", sort: str = "popularity.desc", page: int 
     else:
         params["api"] = api
     data = await _get(params) or {}
+    if collection:
+        # The `api=collection` endpoint returns the collection envelope with its
+        # movies under `parts` (a single unpaginated list), not `results`.
+        parts = data.get("parts") or []
+        results = [normalize_item(r, media_type=mode) for r in parts if r.get("id")]
+        return CatalogPage(page=1, results=results, total_pages=1, total_results=len(results))
     return CatalogPage(
         page=data.get("page", page),
         results=[normalize_item(r, media_type=mode) for r in data.get("results", []) if r.get("id")],

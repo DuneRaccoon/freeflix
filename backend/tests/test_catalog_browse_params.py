@@ -76,3 +76,23 @@ def test_merge_genre_dedups():
     assert catalog._merge_genre("16", 16) == "16"
     assert catalog._merge_genre(None, 16) == "16"
     assert catalog._merge_genre("28", 16) == "28,16"
+
+
+def test_collection_response_reads_parts(monkeypatch):
+    """The api=collection endpoint returns movies under `parts`, not `results`."""
+    async def fake_get(params):
+        return {
+            "id": 87359, "name": "Mission: Impossible Collection",
+            "parts": [
+                {"id": 954, "title": "Mission: Impossible", "release_date": "1996-05-22"},
+                {"id": 955, "title": "Mission: Impossible II", "release_date": "2000-05-24"},
+                {"title": "no id — dropped"},
+            ],
+        }
+
+    monkeypatch.setattr(catalog, "_get", fake_get)
+    page = asyncio.run(catalog.browse(collection="87359", mode="movie"))
+    assert page.total_results == 2          # the id-less part is dropped
+    assert page.total_pages == 1
+    assert page.results[0].tmdb_id == 954
+    assert {i.title for i in page.results} == {"Mission: Impossible", "Mission: Impossible II"}

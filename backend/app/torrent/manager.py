@@ -825,9 +825,10 @@ class TorrentManager:
             except Exception as e:
                 logger.error(f"Error saving resume data for torrent {torrent_id}: {e}")
         
-        # Give a moment for resume data alerts to be processed
-        time.sleep(1)
-        
+        # Give a moment for resume data alerts to be processed (await — this is
+        # an async method on the event loop; a blocking sleep would stall it).
+        await asyncio.sleep(1)
+
         # Process any remaining alerts
         alerts = self.session.pop_alerts()
         for alert in alerts:

@@ -10,3 +10,5 @@ export { default as Modal } from './Modal';
 export type { ModalProps } from './Modal';
 export { Input, Select, Toggle, Field } from './Field';
 export type { InputProps, SelectProps, SelectOption, ToggleProps, FieldProps } from './Field';
+export { RadioGroup } from './RadioGroup';
+export type { RadioGroupProps, RadioOption } from './RadioGroup';

@@ -14,19 +14,15 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.database.models import Torrent as DbTorrent
 from app.models import ActivityCountResponse
+from app.config import settings
+from app.torrent.states import ACTIVE_DOWNLOAD_STATES
 
 router = APIRouter()
 
-# States that count as "active" for the activity badge.
-# "paused" is intentionally excluded: a user-paused torrent should not
-# keep the nav badge lit.
-ACTIVE_STATES = {
-    "queued",
-    "checking",
-    "downloading_metadata",
-    "downloading",
-    "allocating",
-}
+# States that count as "active" for the activity badge — the canonical
+# mid-download set. "paused" is intentionally excluded (it lives in
+# RESUMABLE_STATES): a user-paused torrent should not keep the nav badge lit.
+ACTIVE_STATES = ACTIVE_DOWNLOAD_STATES
 
 
 @router.get("/count", response_model=ActivityCountResponse)
@@ -50,4 +46,5 @@ async def get_activity_count(
     return ActivityCountResponse(
         active_downloads=count,
         aggregate_progress=round(aggregate, 2),
+        max_active_downloads=settings.effective_max_active_downloads(),
     )

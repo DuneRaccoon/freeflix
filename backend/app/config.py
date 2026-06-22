@@ -82,6 +82,13 @@ class Settings(BaseSettings):
     
     cache_movies_for: int = 365  # 365 days
     
+    def effective_max_active_downloads(self) -> int:
+        """Configured concurrent-download ceiling, capped to 2 on ARM (Raspberry Pi)."""
+        import platform
+        if "arm" in platform.machine().lower():
+            return min(self.max_active_downloads, 2)
+        return self.max_active_downloads
+
     # Create necessary directories on startup
     def initialize(self):
         self.default_download_path.mkdir(parents=True, exist_ok=True)

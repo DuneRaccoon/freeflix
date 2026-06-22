@@ -11,6 +11,7 @@ const mockListTorrents = vi.fn();
 const mockPerformTorrentAction = vi.fn();
 const mockDeleteTorrent = vi.fn();
 const mockPrioritizeForStreaming = vi.fn();
+const mockBatchAction = vi.fn();
 
 vi.mock('@/services/torrents', () => ({
   torrentsService: {
@@ -18,6 +19,21 @@ vi.mock('@/services/torrents', () => ({
     performTorrentAction: (...args: unknown[]) => mockPerformTorrentAction(...args),
     deleteTorrent: (...args: unknown[]) => mockDeleteTorrent(...args),
     prioritizeForStreaming: (...args: unknown[]) => mockPrioritizeForStreaming(...args),
+    batchAction: (...args: unknown[]) => mockBatchAction(...args),
+  },
+}));
+
+const mockGetCount = vi.fn();
+vi.mock('@/services/activity', () => ({
+  activityService: { getCount: (...a: unknown[]) => mockGetCount(...a) },
+}));
+
+const mockToastSuccess = vi.fn();
+const mockToastError = vi.fn();
+vi.mock('react-hot-toast', () => ({
+  toast: {
+    success: (...a: unknown[]) => mockToastSuccess(...a),
+    error: (...a: unknown[]) => mockToastError(...a),
   },
 }));
 
@@ -61,6 +77,8 @@ beforeEach(async () => {
   mockPerformTorrentAction.mockResolvedValue({});
   mockDeleteTorrent.mockResolvedValue({});
   mockPrioritizeForStreaming.mockResolvedValue(true);
+  mockBatchAction.mockResolvedValue({ action: 'pause', succeeded: 0, failed: 0, results: [] });
+  mockGetCount.mockResolvedValue({ active_downloads: 0, aggregate_progress: 0, max_active_downloads: 2 });
   // Import component fresh each test suite (cached after first load)
   if (!DownloadsView) {
     const mod = await import('./DownloadsView');
@@ -170,5 +188,43 @@ describe('DownloadsView', () => {
     render(<DownloadsView />);
 
     await screen.findByTestId('empty-state');
+  });
+
+  it('shows a Resume button for a stopped torrent', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent({ id: 's1', state: TorrentState.STOPPED })]);
+    render(<DownloadsView />);
+    expect(await screen.findByRole('button', { name: 'Resume' })).toBeInTheDocument();
+  });
+
+  it('does not show a Stop button', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent({ id: 'd1', state: TorrentState.DOWNLOADING })]);
+    render(<DownloadsView />);
+    await screen.findByRole('button', { name: 'Pause' });
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+  });
+
+  it('remove with "Delete everything" calls deleteTorrent(id, true)', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent({ id: 'r9', movie_title: 'Bye' })]);
+    render(<DownloadsView />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm removal' });
+    await userEvent.click(within(dialog).getByRole('radio', { name: /Delete everything/i }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm remove' }));
+    expect(mockDeleteTorrent).toHaveBeenCalledWith('r9', true);
+  });
+
+  it('Pause all calls batchAction("pause")', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent({ id: 'a', state: TorrentState.DOWNLOADING })]);
+    render(<DownloadsView />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pause all' }));
+    expect(mockBatchAction).toHaveBeenCalledWith('pause');
+  });
+
+  it('shows an error toast when an action fails', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent({ id: 'p1', state: TorrentState.DOWNLOADING })]);
+    mockPerformTorrentAction.mockRejectedValueOnce(new Error('boom'));
+    render(<DownloadsView />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pause' }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalled());
   });
 });

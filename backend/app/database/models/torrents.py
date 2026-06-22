@@ -48,7 +48,7 @@ class Torrent(Model):
     user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Nullable for backward compatibility
     user = relationship("User", back_populates="downloads")
     
-    streaming_progress = relationship("UserStreamingProgress", back_populates="torrent", cascade="all, delete-orphan")
+    streaming_progress = relationship("UserStreamingProgress", back_populates="torrent", passive_deletes=True)
     
     def to_status(self) -> TorrentStatus:
         """Convert database Torrent model to TorrentStatus Pydantic model."""
@@ -104,7 +104,14 @@ class Torrent(Model):
         return db.query(cls).filter(
             ~cls.state.in_(['finished', 'error', 'stopped'])
         ).all()
-    
+
+    @classmethod
+    def find_loadable_on_startup(cls, db: Session) -> List["Torrent"]:
+        """Torrents to auto re-add to the libtorrent session on startup (were
+        mid-download). Paused/stopped/finished/seeding/error stay unloaded."""
+        from app.torrent.states import ACTIVE_DOWNLOAD_STATES
+        return db.query(cls).filter(cls.state.in_(tuple(ACTIVE_DOWNLOAD_STATES))).all()
+
     def add_log(self, db: Session, message: str, level: str = "INFO", 
                 state: str = None, progress: float = None, 
                 download_rate: float = None) -> "TorrentLog":

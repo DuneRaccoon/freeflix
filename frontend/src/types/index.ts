@@ -114,7 +114,21 @@ export interface TorrentRequest {
   save_path?: string;
 }
 
-export type TorrentAction = 'pause' | 'resume' | 'stop' | 'remove';
+export type TorrentAction = 'pause' | 'resume';
+
+export type TorrentBatchActionType = 'pause' | 'resume' | 'clear_completed' | 'retry';
+
+export interface TorrentBatchResult {
+  id: string;
+  success: boolean;
+}
+
+export interface TorrentBatchResponse {
+  action: string;
+  succeeded: number;
+  failed: number;
+  results: TorrentBatchResult[];
+}
 
 // --- Catalog (new TMDB-shaped API) ---
 export interface CatalogItem {
@@ -355,7 +369,7 @@ export interface StreamingInfo {
 export interface StreamingProgress {
   id: string;
   user_id: string;
-  torrent_id: string;
+  torrent_id: string | null; // NULL once the torrent is removed; watch history survives
   movie_id: string;
   current_time: number;
   duration: number | null;

@@ -15,6 +15,8 @@ from app.database.session import get_db, init_db
 from app.database.models import Torrent as DbTorrent, TorrentLog
 from app.models import TorrentState, TorrentStatus, Movie, Torrent as TorrentModel
 from app.config import settings
+from app.torrent.storage import encode_resume_data, decode_resume_data, safe_rmtree
+from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
 
 # Ordered list of torrent states
 TORRENT_STATES = [
@@ -78,76 +80,50 @@ class TorrentManager:
         try:
             with get_db() as db:
                 # Use the model's new class method to find active torrents
-                active_torrents = DbTorrent.find_active(db)
+                active_torrents = DbTorrent.find_loadable_on_startup(db)
                 
                 for torrent in active_torrents:
-                    if torrent.state != 'error':
-                        try:
-                            metadata_dict = torrent.meta_data or {}
-                            self._add_torrent(
-                                torrent.id, 
-                                torrent.magnet, 
-                                Path(torrent.save_path), 
-                                metadata_dict, 
-                                torrent.resume_data
-                            )
-                            logger.info(f"Loaded torrent {torrent.id} - {torrent.movie_title} ({torrent.quality})")
-                        except Exception as e:
-                            logger.error(f"Error loading torrent {torrent.id}: {e}")
-                            # Update torrent state to error
-                            torrent.update(db, state='error', error_message=str(e))
+                    try:
+                        metadata_dict = torrent.meta_data or {}
+                        self._add_torrent(
+                            torrent.id, 
+                            torrent.magnet, 
+                            Path(torrent.save_path), 
+                            metadata_dict, 
+                            torrent.resume_data
+                        )
+                        logger.info(f"Loaded torrent {torrent.id} - {torrent.movie_title} ({torrent.quality})")
+                    except Exception as e:
+                        logger.error(f"Error loading torrent {torrent.id}: {e}")
+                        # Mark errored in the SAME session — CRUDMixin.update() opens
+                        # `with db as session:` which closes/detaches on exit and would
+                        # break the remaining loop iterations.
+                        torrent.state = 'error'
+                        torrent.error_message = str(e)
+                        db.commit()
         except Exception as e:
             logger.error(f"Error loading saved torrents: {e}")
     
-    def _save_resume_data(self, torrent_id: str, resume_data: bytes):
-        """Save resume data for a torrent to the database"""
+    def _add_torrent(self, torrent_id: str, magnet_uri: str, save_path: Path,
+                    metadata: Dict[str, Any], resume_data: Optional[str] = None) -> lt.torrent_handle:
+        """Add a torrent to the libtorrent session (libtorrent 2.0 API)."""
         try:
-            with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    torrent.update(db, resume_data=resume_data)
-        except Exception as e:
-            logger.error(f"Error saving resume data for torrent {torrent_id}: {e}")
-    
-    def _add_torrent(self, torrent_id: str, magnet_uri: str, save_path: Path, 
-                    metadata: Dict[str, Any], resume_data: Optional[bytes] = None) -> lt.torrent_handle:
-        """Add a torrent to the libtorrent session"""
-        try:
-            params = {
-                'save_path': str(save_path),
-                'storage_mode': lt.storage_mode_t.storage_mode_sparse
-            }
-            
-            # Try to use resume data if available
+            atp = None
             if resume_data:
-                # Using add_torrent_params with resume data
-                # In newer libtorrent versions, we need to create params properly
-                atp = lt.add_torrent_params()
-                atp.save_path = str(save_path)
-                atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
-                
-                # Parse the resume data if available
-                if resume_data:
-                    try:
-                        # For libtorrent 2.0+, we need to use bdecode to parse the resume data
-                        atp.resume_data = lt.bdecode(resume_data)
-                    except Exception as e:
-                        logger.error(f"Error parsing resume data: {e}")
-                
-                # Add the magnet URI
-                atp.url = magnet_uri
-                
-                # Add the torrent to the session
-                handle = self.session.add_torrent(atp)
-            else:
-                handle = lt.add_magnet_uri(self.session, magnet_uri, params)
-            
-            # Enable sequential download
+                try:
+                    atp = lt.read_resume_data(decode_resume_data(resume_data))
+                except Exception as e:
+                    logger.warning(f"resume_data unusable for {torrent_id} ({e}); re-adding from magnet")
+                    atp = None
+            if atp is None:
+                atp = lt.parse_magnet_uri(magnet_uri)
+
+            atp.save_path = str(save_path)
+            atp.storage_mode = lt.storage_mode_t.storage_mode_sparse
+
+            handle = self.session.add_torrent(atp)
             handle.set_sequential_download(True)
-            
-            # Store the handle and metadata
             self.active_torrents[torrent_id] = (handle, metadata)
-            
             return handle
         except Exception as e:
             logger.error(f"Error adding torrent {torrent_id}: {e}")
@@ -186,6 +162,18 @@ class TorrentManager:
                                 logger.warning(f"Torrent {torrent_id} not found in database, but exists in active_torrents")
                                 continue
                             
+                            # Never resurrect a paused torrent (defensive -- paused
+                            # torrents are normally unloaded from the session).
+                            if torrent.state == 'paused':
+                                continue
+
+                            # Keep resume data fresh for fast pause/resume + crash recovery.
+                            try:
+                                if handle.need_save_resume_data():
+                                    handle.save_resume_data()
+                            except Exception:
+                                pass
+
                             # Update basic state and progress
                             torrent.state = state_str
                             torrent.progress = status.progress * 100
@@ -329,7 +317,7 @@ class TorrentManager:
                 # Get all active torrent IDs from the database
                 active_ids = set(
                     row[0] for row in db.query(DbTorrent.id).filter(
-                        ~DbTorrent.state.in_(['error', 'finished', 'stopped'])
+                        ~DbTorrent.state.in_(['error', 'finished', 'stopped', 'paused'])
                     ).all()
                 )
                 
@@ -371,23 +359,20 @@ class TorrentManager:
             
             elif isinstance(alert, lt.save_resume_data_alert):
                 torrent_handle = alert.handle
-                resume_data = alert.resume_data
-                
-                # Find the torrent_id for this handle
-                for torrent_id, (handle, _) in self.active_torrents.items():
-                    if handle == torrent_handle:
-                        # Save resume data in a new session
-                        with get_db() as db:
-                            torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
-                            if torrent:
-                                try:
-                                    # In libtorrent 2.0+, resume_data is already a bytes object
-                                    # We need to store it as-is
-                                    torrent.resume_data = resume_data
+                try:
+                    buf = lt.write_resume_data_buf(alert.params)
+                except Exception as e:
+                    logger.error(f"write_resume_data_buf failed: {e}")
+                    buf = None
+                if buf is not None:
+                    for torrent_id, (handle, _) in self.active_torrents.items():
+                        if handle == torrent_handle:
+                            with get_db() as db:
+                                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                                if torrent:
+                                    torrent.resume_data = encode_resume_data(buf)
                                     db.commit()
-                                except Exception as e:
-                                    logger.error(f"Error saving resume data: {e}")
-                        break
+                            break
             
             elif isinstance(alert, lt.torrent_error_alert):
                 torrent_handle = alert.handle
@@ -635,268 +620,109 @@ class TorrentManager:
                     error_db.commit()
             raise
 
-    # Improved get_torrent_status method 
-    def get_torrent_status(self, torrent_id: str) -> Optional[TorrentStatus]:
-        """Get the current status of a torrent"""
-        try:
-            # Use a dedicated session
-            with get_db() as db:
-                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
-                if not torrent:
-                    return None
-                
-                # Build status object
-                status = TorrentStatus(
-                    id=torrent.id,
-                    movie_title=torrent.movie_title,
-                    quality=torrent.quality,
-                    state=TorrentState(torrent.state),
-                    magnet=torrent.magnet,
-                    progress=torrent.progress,
-                    download_rate=torrent.meta_data.get('download_rate', 0.0) if torrent.meta_data else 0.0,
-                    upload_rate=torrent.meta_data.get('upload_rate', 0.0) if torrent.meta_data else 0.0,
-                    total_downloaded=torrent.meta_data.get('total_downloaded', 0) if torrent.meta_data else 0,
-                    total_uploaded=torrent.meta_data.get('total_uploaded', 0) if torrent.meta_data else 0,
-                    num_peers=torrent.meta_data.get('num_peers', 0) if torrent.meta_data else 0,
-                    save_path=torrent.save_path,
-                    created_at=torrent.created_at,
-                    updated_at=torrent.updated_at,
-                    eta=torrent.meta_data.get('eta') if torrent.meta_data else None,
-                    error_message=torrent.error_message
-                )
-                
-                # Update with real-time information if the torrent is active
-                if torrent_id in self.active_torrents:
-                    handle, _ = self.active_torrents[torrent_id]
-                    lt_status = handle.status()
-                    
-                    # Update real-time fields
-                    status.download_rate = lt_status.download_rate / 1000  # B/s to kB/s
-                    status.upload_rate = lt_status.upload_rate / 1000  # B/s to kB/s
-                    status.num_peers = lt_status.num_peers
-                    
-                    # Calculate ETA if downloading
-                    if status.state == TorrentState.DOWNLOADING and lt_status.download_rate > 0:
-                        total_size = lt_status.total_wanted
-                        downloaded = lt_status.total_wanted_done
-                        remaining = total_size - downloaded
-                        status.eta = int(remaining / lt_status.download_rate)
-                
-                return status
-        except Exception as e:
-            logger.error(f"Error getting status for torrent {torrent_id}: {e}")
-            return None
-
-    # Improved get_all_torrents method
-    def get_all_torrents(self) -> List[TorrentStatus]:
-        """Get the status of all torrents"""
-        try:
-            results = []
-            
-            # Use a dedicated session
-            with get_db() as db:
-                # Get all torrents from the database
-                torrents = db.query(DbTorrent).all()
-                
-                for torrent in torrents:
-                    # Build status object
-                    status = TorrentStatus(
-                        id=torrent.id,
-                        movie_title=torrent.movie_title,
-                        quality=torrent.quality,
-                        state=TorrentState(torrent.state),
-                        magnet=torrent.magnet,
-                        progress=torrent.progress,
-                        download_rate=torrent.meta_data.get('download_rate', 0.0) if torrent.meta_data else 0.0,
-                        upload_rate=torrent.meta_data.get('upload_rate', 0.0) if torrent.meta_data else 0.0,
-                        total_downloaded=torrent.meta_data.get('total_downloaded', 0) if torrent.meta_data else 0,
-                        total_uploaded=torrent.meta_data.get('total_uploaded', 0) if torrent.meta_data else 0,
-                        num_peers=torrent.meta_data.get('num_peers', 0) if torrent.meta_data else 0,
-                        save_path=torrent.save_path,
-                        created_at=torrent.created_at,
-                        updated_at=torrent.updated_at,
-                        eta=torrent.meta_data.get('eta') if torrent.meta_data else None,
-                        error_message=torrent.error_message
-                    )
-                    
-                    # Update with real-time information if the torrent is active
-                    if torrent.id in self.active_torrents:
-                        handle, _ = self.active_torrents[torrent.id]
-                        lt_status = handle.status()
-                        
-                        # Update real-time fields
-                        status.download_rate = lt_status.download_rate / 1000  # B/s to kB/s
-                        status.upload_rate = lt_status.upload_rate / 1000  # B/s to kB/s
-                        status.num_peers = lt_status.num_peers
-                        
-                        # Calculate ETA if downloading
-                        if status.state == TorrentState.DOWNLOADING and lt_status.download_rate > 0:
-                            total_size = lt_status.total_wanted
-                            downloaded = lt_status.total_wanted_done
-                            remaining = total_size - downloaded
-                            status.eta = int(remaining / lt_status.download_rate)
-                    
-                    results.append(status)
-                
-            return results
-        except Exception as e:
-            logger.error(f"Error getting all torrents: {e}")
-            return []
-    
     def pause_torrent(self, torrent_id: str) -> bool:
-        """Pause a torrent download"""
+        """Pause a download: save resume data, unload from the session (freeing
+        the slot), and mark it paused. Survives restart; resumable later."""
+        found = False
         if torrent_id in self.active_torrents:
             handle, _ = self.active_torrents[torrent_id]
-            handle.pause()
-            
-            with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    torrent.update(db, state='paused')
-                    # Log pause action
-                    torrent.add_log(
-                        db,
-                        message="Download paused",
-                        level="INFO",
-                        state='paused'
-                    )
-            
+            try:
+                handle.save_resume_data()
+            except Exception:
+                pass
+            try:
+                handle.pause()
+            except Exception:
+                pass
+            try:
+                self.session.remove_torrent(handle)
+            except Exception as e:
+                logger.warning(f"pause: remove_torrent failed for {torrent_id}: {e}")
+            self.active_torrents.pop(torrent_id, None)
+            found = True
+
+        with get_db() as db:
+            torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+            if torrent:
+                torrent.state = "paused"
+                db.add(torrent)
+                db.commit()
+                torrent.add_log(db, message="Download paused", level="INFO", state="paused")
+                found = True
+
+        if found:
             logger.info(f"Paused torrent {torrent_id}")
-            return True
         else:
-            logger.warning(f"Torrent {torrent_id} not found in active torrents")
-            return False
+            logger.warning(f"Pause: torrent {torrent_id} not found")
+        return found
     
     def resume_torrent(self, torrent_id: str) -> bool:
-        """Resume a paused torrent download"""
-        if torrent_id in self.active_torrents:
-            handle, _ = self.active_torrents[torrent_id]
-            handle.resume()
-            
-            with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    torrent.update(db, state='downloading')
-                    # Log resume action
-                    torrent.add_log(
-                        db,
-                        message="Download resumed",
-                        level="INFO",
-                        state='downloading'
-                    )
-            
-            logger.info(f"Resumed torrent {torrent_id}")
-            return True
-        else:
-            # Check if it's in the database but not active
-            try:
-                with get_db() as db:
-                    torrent: DbTorrent = db.query(DbTorrent).filter(
-                        DbTorrent.id == torrent_id,
-                        DbTorrent.state == 'paused'
-                    ).first()
-                    
-                    if torrent:
-                        # Add the torrent back to the session
-                        handle = self._add_torrent(
-                            torrent_id, 
-                            torrent.magnet, 
-                            Path(torrent.save_path), 
-                            torrent.meta_data or {},
-                            torrent.resume_data
-                        )
-                        handle.resume()
-                        
-                        torrent.update(db, state='downloading')
-                        # Log resume action
-                        torrent.add_log(
-                            db,
-                            message="Download re-added and resumed",
-                            level="INFO",
-                            state='downloading'
-                        )
-                        
-                        logger.info(f"Re-added and resumed torrent {torrent_id}")
-                        return True
-                    else:
-                        logger.warning(f"Torrent {torrent_id} not found or not paused")
-                        return False
-                    
-            except Exception as e:
-                logger.error(f"Error resuming torrent {torrent_id}: {e}")
+        """Resume a paused/stopped/errored torrent: re-add to the session (fast
+        via resume data, correct via on-disk recheck) and continue downloading."""
+        with get_db() as db:
+            torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+            if not torrent:
+                logger.warning(f"Resume: torrent {torrent_id} not found")
                 return False
-        
-        return False
-    
-    def stop_torrent(self, torrent_id: str) -> bool:
-        """Stop a torrent download completely"""
-        if torrent_id in self.active_torrents:
-            handle, _ = self.active_torrents[torrent_id]
-            
-            # Request resume data before removing
-            handle.save_resume_data()
-            
-            # Give a moment for the resume data alert to be processed
-            time.sleep(0.5)
-            
-            # Remove the torrent (keep files)
-            self.session.remove_torrent(handle)
-            
-            # Remove from active torrents
-            self.active_torrents.pop(torrent_id)
-            
-            with get_db() as db:
-                torrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    torrent.update(db, state='stopped')
-                    # Log stop action
-                    torrent.add_log(
-                        db,
-                        message="Download stopped",
-                        level="INFO",
-                        state='stopped'
-                    )
-            
-            logger.info(f"Stopped torrent {torrent_id}")
-            return True
-        else:
-            logger.warning(f"Torrent {torrent_id} not found in active torrents")
-            return False
-    
-    def remove_torrent(self, torrent_id: str, delete_files: bool = False) -> bool:
-        """Remove a torrent and optionally delete downloaded files"""
+            magnet = torrent.magnet
+            save_path = Path(torrent.save_path)
+            meta = torrent.meta_data or {}
+            resume_blob = torrent.resume_data
+
         try:
             if torrent_id in self.active_torrents:
                 handle, _ = self.active_torrents[torrent_id]
-                
-                # Remove the torrent
-                self.session.remove_torrent(handle, 1 if delete_files else 0)
-                
-                # Remove from active torrents
-                self.active_torrents.pop(torrent_id)
-            
-            # Remove from database
-            with get_db() as db:
-                torrent: DbTorrent = DbTorrent.get_by_id(db, torrent_id)
-                if torrent:
-                    # Log remove action before deleting
-                    torrent.add_log(
-                        db,
-                        message=f"Torrent removed (files {'deleted' if delete_files else 'kept'})",
-                        level="INFO"
-                    )
-                    if delete_files:
-                        # Delete the torrent
-                        torrent.delete(db)
-                        
-                        path = Path(torrent.save_path)
-                        if path.exists():
-                            shutil.rmtree(path)
-            
-            logger.info(f"Removed torrent {torrent_id} (delete_files={delete_files})")
-            return True
+                handle.resume()
+            else:
+                handle = self._add_torrent(torrent_id, magnet, save_path, meta, resume_blob)
+                handle.resume()
         except Exception as e:
-            logger.error(f"Error removing torrent {torrent_id}: {e}")
+            logger.error(f"Resume: failed to re-add torrent {torrent_id}: {e}")
+            return False
+
+        with get_db() as db:
+            torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+            if torrent:
+                torrent.state = "downloading"
+                torrent.error_message = None
+                db.add(torrent)
+                db.commit()
+                torrent.add_log(db, message="Download resumed", level="INFO", state="downloading")
+
+        logger.info(f"Resumed torrent {torrent_id}")
+        return True
+    
+    def remove_torrent(self, torrent_id: str, delete_files: bool = False) -> bool:
+        """Remove a torrent: unload from the session, hard-delete the DB row
+        (watch history is detached via ON DELETE SET NULL), and optionally
+        delete the downloaded files."""
+        try:
+            removed = False
+            if torrent_id in self.active_torrents:
+                handle, _ = self.active_torrents[torrent_id]
+                try:
+                    self.session.remove_torrent(handle)
+                except Exception as e:
+                    logger.warning(f"remove: session.remove_torrent failed for {torrent_id}: {e}")
+                self.active_torrents.pop(torrent_id, None)
+                removed = True
+
+            save_path = None
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+                if torrent:
+                    save_path = torrent.save_path     # capture BEFORE delete
+                    db.delete(torrent)                # hard delete; fires download_logs cascade + FK SET NULL on progress
+                    db.commit()
+                    removed = True
+
+            if delete_files and save_path:
+                safe_rmtree(save_path, settings.default_download_path)
+
+            logger.info(f"Removed torrent {torrent_id} (delete_files={delete_files})")
+            return removed
+        except Exception as e:
+            logger.error(f"Error removing torrent {torrent_id}: {e}", exc_info=True)
             return False
     
     def get_torrent_status(self, torrent_id: str) -> Optional[TorrentStatus]:
@@ -999,9 +825,10 @@ class TorrentManager:
             except Exception as e:
                 logger.error(f"Error saving resume data for torrent {torrent_id}: {e}")
         
-        # Give a moment for resume data alerts to be processed
-        time.sleep(1)
-        
+        # Give a moment for resume data alerts to be processed (await — this is
+        # an async method on the event loop; a blocking sleep would stall it).
+        await asyncio.sleep(1)
+
         # Process any remaining alerts
         alerts = self.session.pop_alerts()
         for alert in alerts:

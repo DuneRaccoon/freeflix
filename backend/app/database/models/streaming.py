@@ -14,7 +14,7 @@ class UserStreamingProgress(Model):
     
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    torrent_id = Column(String, ForeignKey("torrents.id", ondelete="CASCADE"), nullable=False, index=True)
+    torrent_id = Column(String, ForeignKey("torrents.id", ondelete="SET NULL"), nullable=True, index=True)
     movie_id = Column(String, nullable=False, index=True)  # To track progress even if torrent changes
     
     # Progress information

@@ -167,3 +167,27 @@ def test_remove_unloads_active_handle(mgr_db, monkeypatch):
     assert torrent_manager.remove_torrent(tid, delete_files=False) is True
     assert removed["h"] is handle
     assert tid not in torrent_manager.active_torrents
+
+
+def test_add_torrent_resume_data_falls_back_to_magnet(monkeypatch):
+    """If resume_data is present but unusable, _add_torrent re-adds from magnet."""
+    torrent_manager.active_torrents.clear()
+    calls = {}
+
+    def boom(buf):
+        raise RuntimeError("corrupt resume data")
+
+    def fake_parse(uri):
+        calls["uri"] = uri
+        return _fake_atp()
+
+    fake_handle = types.SimpleNamespace(set_sequential_download=lambda v: None)
+    monkeypatch.setattr(lt, "read_resume_data", boom)
+    monkeypatch.setattr(lt, "parse_magnet_uri", fake_parse)
+    monkeypatch.setattr(torrent_manager.session, "add_torrent", lambda atp: fake_handle)
+
+    blob = encode_resume_data(b"whatever")
+    torrent_manager._add_torrent("tfb", "magnet:?xt=urn:btih:fallback", "/tmp/x", {}, resume_data=blob)
+
+    assert calls["uri"] == "magnet:?xt=urn:btih:fallback"  # fell back to magnet
+    assert "tfb" in torrent_manager.active_torrents

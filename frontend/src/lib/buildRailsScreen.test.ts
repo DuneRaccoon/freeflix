@@ -63,4 +63,13 @@ describe('buildRailsScreen', () => {
     expect(byTitle['X-Men']).toEqual({ type: 'collection', id: '748' });
     expect(byTitle['Action']).toBeUndefined();
   });
+
+  it('falls back to the rail key for feed identity when params carry no feed id', async () => {
+    (railsService.getRails as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { key: 'company-999', title: 'Mystery Studio', params: { api: 'popular' } },
+    ]);
+    const screen = await buildRailsScreen('movie');
+    const row = screen.rows.find((r) => r.title === 'Mystery Studio');
+    expect(row?.feed).toEqual({ type: 'company', id: '999' });
+  });
 });

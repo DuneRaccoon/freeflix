@@ -234,7 +234,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                 <div
                   className={cn(
                     'relative z-[2] aspect-[2/3] rounded-[10px] overflow-hidden border border-hairline',
-                    'bg-surface transition-[transform,box-shadow,border-color] duration-300 ease-out',
+                    'bg-surface transition-[transform,box-shadow,border-color] duration-[360ms] ease-card',
                     'group-hover:scale-[1.04] group-hover:-translate-y-1',
                     'group-hover:shadow-[0_18px_44px_rgba(0,0,0,.6)] group-hover:border-gold/35',
                   )}

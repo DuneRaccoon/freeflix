@@ -93,7 +93,7 @@ const FeaturedRail: React.FC<FeaturedRailProps> = ({ items }) => {
                 // Smooth scale-up + gold glow + border warm-up.
                 // No upward lift → the card never grows into the overlapped
                 // hero where overflow-x-auto would clip its top (the "jagged" look).
-                'transition-[transform,box-shadow,border-color] duration-300 ease-out will-change-transform',
+                'transition-[transform,box-shadow,border-color] duration-[360ms] ease-card will-change-transform',
                 'origin-center hover:scale-[1.035] hover:z-10',
                 'hover:border-gold/50',
                 'hover:shadow-[0_26px_64px_rgba(0,0,0,.6),0_0_40px_rgba(201,168,106,.22)]',

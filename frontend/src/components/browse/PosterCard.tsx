@@ -143,7 +143,7 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
       <div
         className={cn(
           'relative aspect-[2/3] rounded-[11px]',
-          'transition-[transform,box-shadow] duration-300 ease-out will-change-transform',
+          'transition-[transform,box-shadow] duration-[360ms] ease-card will-change-transform',
           'group-hover:scale-[1.06] group-hover:-translate-y-1 group-hover:z-20',
           'group-focus-within:scale-[1.06] group-focus-within:-translate-y-1 group-focus-within:z-20',
           'group-hover:shadow-[0_20px_46px_rgba(0,0,0,.62)] group-focus-within:shadow-[0_20px_46px_rgba(0,0,0,.62)]',

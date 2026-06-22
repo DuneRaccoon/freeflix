@@ -21,6 +21,11 @@
   --font-ui: var(--font-inter-tight), system-ui, -apple-system, sans-serif;
 
   --radius-card: 12px;
+
+  /* Card hover grow — gentle ease-in-out so cards swell in smoothly instead
+     of snapping to size. Tune here to adjust the feel everywhere at once
+     (Tailwind generates the `ease-card` utility from this token). */
+  --ease-card: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* FRÈ base: dark canvas + UI font (the legacy `body` rule below still
@@ -349,11 +354,14 @@ body.user-selection-mode main {
 /* slow Ken-Burns for hero backdrops */
 .ff-kenburns { animation: ff-kenburns 40s ease-in-out infinite alternate; will-change: transform; }
 
-/* spotlight-on-hover: dim siblings, warm the hovered/focused child */
-.ff-spotlight-row:hover > *,
-.ff-spotlight-row:focus-within > * { transition: opacity .35s ease, filter .35s ease; }
-.ff-spotlight-row:hover > *:not(:hover):not(:focus-within),
-.ff-spotlight-row:focus-within > *:not(:hover):not(:focus-within) {
+/* spotlight-on-hover: dim siblings, warm the hovered/focused child.
+   The dim only engages when a card itself is hovered/focused (`:has(> *:hover)`),
+   NOT merely when the row/gap is hovered — sweeping into the track's padding or
+   the gaps between cards no longer darkens everything. The transition is
+   unconditional so the siblings fade back in smoothly when the card releases. */
+.ff-spotlight-row > * { transition: opacity .35s ease, filter .35s ease; }
+.ff-spotlight-row:has(> *:hover) > *:not(:hover),
+.ff-spotlight-row:has(> *:focus-within) > *:not(:focus-within) {
   opacity: .55; filter: saturate(.8) brightness(.9);
 }
 

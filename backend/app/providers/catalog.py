@@ -84,13 +84,45 @@ async def _get(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             return None
 
 
-async def browse(api: str = "popular", sort: str = "popularity.desc",
-                 genre: int = 0, year: int = 0, page: int = 1, mode: str = "movie") -> CatalogPage:
-    params = {"api": api, "mode": mode, "page": page, "sort": sort}
-    if genre:
-        params["genre"] = genre
+def _merge_genre(existing: Optional[str], genre_id: int) -> str:
+    """Append genre_id to a comma-separated genres string, de-duplicated, order-preserving."""
+    ids = [p for p in (existing or "").split(",") if p.strip()]
+    gid = str(genre_id)
+    if gid not in ids:
+        ids.append(gid)
+    return ",".join(ids)
+
+
+async def browse(api: str = "popular", sort: str = "popularity.desc", page: int = 1,
+                 mode: str = "movie", *, genres: Optional[str] = None, year: int = 0,
+                 provider: Optional[str] = None, origin: Optional[str] = None,
+                 company: Optional[str] = None, collection: Optional[str] = None,
+                 lang: Optional[str] = None) -> CatalogPage:
+    params: Dict[str, Any] = {"mode": mode, "page": page, "sort": sort}
+    disc: Dict[str, Any] = {}
+    eff_genres, eff_lang = genres, lang
+    if origin == "anime":                       # anime = genres:16 + lang:ja, not an origin
+        eff_genres = _merge_genre(eff_genres, 16)
+        eff_lang = eff_lang or "ja"
+    elif origin:
+        disc["origin"] = origin
+    if eff_genres:
+        disc["genres"] = eff_genres
+    if eff_lang:
+        disc["lang"] = eff_lang
+    if provider:
+        disc["network" if mode == "tv" else "provider"] = provider
+    if company:
+        disc["company"] = company
+    if collection:
+        disc["id"] = collection
     if year:
-        params["year"] = year
+        disc["year"] = year
+    if disc:
+        params.update({"api": "discover", "genre": 0, "year": 0})  # mirror proven discover URL shape
+        params.update(disc)                                        # real values win over placeholders
+    else:
+        params["api"] = api
     data = await _get(params) or {}
     return CatalogPage(
         page=data.get("page", page),

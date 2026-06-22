@@ -308,7 +308,7 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
         aria-label="Origin filter"
       />
 
-      {/* ── Best of year chip (feed; suppresses discover filters) ── */}
+      {/* ── Best of year chip (a feed; if combined with discover filters the backend currently lets discover win) ── */}
       <FilterChip
         label="Best of"
         value={api}

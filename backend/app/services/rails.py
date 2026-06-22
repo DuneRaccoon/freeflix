@@ -32,7 +32,7 @@ _ORIGIN_LABELS = {
     "FR": "French", "ES": "Spanish", "IT": "Italian", "CN": "Chinese",
 }
 _PROVIDER_POOL = [
-    ("8", "Netflix"), ("9", "Prime Video"), ("337", "Disney+"), ("1899", "Max"),
+    ("8", "Netflix"), ("9", "Prime Video"), ("337", "Disney+"), ("1899", "HBO Max"),
     ("15", "Hulu"), ("350", "Apple TV+"), ("531", "Paramount+"), ("386", "Peacock"),
 ]
 _COMPANY_POOL = [
@@ -125,7 +125,10 @@ def plan_rails(user_id: Optional[str], mode: str = "movie", limit: int = 10,
     used_genres = set()
 
     if user_id:
-        aff = affinity(user_id, mode)
+        try:
+            aff = affinity(user_id, mode)
+        except Exception:
+            aff = {"genres": Counter(), "origins": Counter()}
         for gid, _ in aff["genres"].most_common(2):
             used_genres.add(gid)
             rails.append(RailSpec(key=f"taste-genre-{gid}", eyebrow="For you",

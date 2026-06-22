@@ -201,14 +201,6 @@ class RailsResponse(BaseModel):
     rails: List[RailSpec] = []
 
 
-class MovieBrowseParams(BaseModel):
-    api: Literal['popular', 'top_rated'] = 'popular'
-    sort: str = 'popularity.desc'
-    genre: int = 0
-    year: int = 0
-    page: int = 1
-
-
 class SeasonSummary(BaseModel):
     season_number: int
     name: str = ""

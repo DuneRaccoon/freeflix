@@ -63,3 +63,12 @@ def test_lang_to_origin_mapping():
     assert rails._LANG_TO_ORIGIN["ja"] == "JP"
     assert rails._LANG_TO_ORIGIN["hi"] == "IN"
     assert "en" not in rails._LANG_TO_ORIGIN
+
+
+def test_plan_rails_survives_affinity_failure(monkeypatch):
+    def boom(uid, mode):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(rails, "affinity", boom)
+    plan = rails.plan_rails(user_id="u1", mode="movie", limit=8)
+    assert len(plan) == 8
+    assert all(r.eyebrow != "For you" for r in plan)

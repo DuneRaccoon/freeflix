@@ -30,3 +30,17 @@ def test_rails_tv_mode(client):
     r = client.get("/api/v1/rails?mode=tv&limit=6")
     assert r.status_code == 200
     assert r.json()["rails"][0]["title"].endswith("Series")
+
+
+def test_rails_include_wildcards_by_default(client):
+    r = client.get("/api/v1/rails?mode=movie&limit=10")
+    assert r.status_code == 200
+    keys = [rail["key"] for rail in r.json()["rails"]]
+    assert any(k.startswith("rand-") for k in keys)
+
+
+def test_rails_random_slots_zero_has_no_wildcards(client):
+    r = client.get("/api/v1/rails?mode=movie&limit=10&random_slots=0")
+    assert r.status_code == 200
+    keys = [rail["key"] for rail in r.json()["rails"]]
+    assert all(not k.startswith("rand-") for k in keys)

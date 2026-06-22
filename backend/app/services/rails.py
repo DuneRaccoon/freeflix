@@ -8,6 +8,7 @@ lineups rotate (and differ per surface).
 """
 import datetime
 import hashlib
+import random
 from collections import Counter
 from typing import List, Optional, Dict, Any
 
@@ -112,8 +113,53 @@ def affinity(user_id: str, mode: str) -> Dict[str, Counter]:
     return {"genres": genres, "origins": origins}
 
 
+def _sig(params: Dict[str, Any]):
+    """Content identity of a rail's filter, for de-duping across rails."""
+    for k in ("genres", "provider", "network", "origin", "company", "collection"):
+        if params.get(k):
+            return (k, str(params[k]))
+    return ("api", str(params.get("api") or "popular"))
+
+
+def _random_rail(mode: str, used_sigs: set) -> Optional["RailSpec"]:
+    """One 'wildcard' rail with a randomly chosen dimension + value, re-rolled per
+    call. De-duped against `used_sigs` (mutated) so it never repeats content already
+    on the page. Returns None if no fresh pick is found."""
+    is_tv = mode == "tv"
+    noun = "Series" if is_tv else "Movies"
+    dims = ["genre", "provider", "origin", "best"]
+    if not is_tv:                       # company/collection are movie-only
+        dims += ["company", "collection"]
+    for _ in range(12):
+        dim = random.choice(dims)
+        if dim == "genre":
+            gid = random.choice(list(_GENRE_LABELS))
+            params, title = {"genres": str(gid)}, _GENRE_LABELS[gid]
+        elif dim == "provider":
+            pid, label = random.choice(_PROVIDER_POOL)
+            params, title = {"provider": pid}, label
+        elif dim == "origin":
+            code = random.choice(_ORIGIN_POOL)
+            params, title = {"origin": code}, f"{_ORIGIN_LABELS[code]} {noun}"
+        elif dim == "best":
+            yr = random.choice(_BEST_POOL)
+            params, title = {"api": f"best_{yr}"}, f"Best of {yr}"
+        elif dim == "company":
+            cid, label = random.choice(_COMPANY_POOL)
+            params, title = {"company": cid}, label
+        else:                           # collection
+            col, label = random.choice(_COLLECTION_POOL)
+            params, title = {"collection": col}, label
+        sig = _sig(params)
+        if sig not in used_sigs:
+            used_sigs.add(sig)
+            return RailSpec(key=f"rand-{sig[0]}-{sig[1]}", title=title,
+                            eyebrow="Surprise pick", params=params)
+    return None
+
+
 def plan_rails(user_id: Optional[str], mode: str = "movie", limit: int = 10,
-               surface: str = "") -> List[RailSpec]:
+               surface: str = "", random_slots: int = 0) -> List[RailSpec]:
     is_tv = mode == "tv"
     noun = "Series" if is_tv else "Movies"
     href = "/tv" if is_tv else "/movies"
@@ -175,4 +221,18 @@ def plan_rails(user_id: Optional[str], mode: str = "movie", limit: int = 10,
         if len(rails) >= limit:
             break
         rails.append(rail)
+
+    # Wildcard placements: re-rolled on every call (not seeded), inserted at fixed
+    # slots after the evergreen leads. The personalised + daily-rotating rails above
+    # stay deterministic; only these slots change per page load.
+    if random_slots > 0:
+        used_sigs = {_sig(r.params) for r in rails}
+        placements = (3, 7, 11, 5, 9)
+        for i in range(random_slots):
+            wild = _random_rail(mode, used_sigs)
+            if wild is None:
+                break
+            pos = placements[i] if i < len(placements) else len(rails)
+            rails.insert(min(pos, len(rails)), wild)
+
     return rails[:limit]

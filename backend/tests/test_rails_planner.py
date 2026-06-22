@@ -72,3 +72,33 @@ def test_plan_rails_survives_affinity_failure(monkeypatch):
     plan = rails.plan_rails(user_id="u1", mode="movie", limit=8)
     assert len(plan) == 8
     assert all(r.eyebrow != "For you" for r in plan)
+
+
+def test_random_slots_off_by_default_is_deterministic():
+    plan = rails.plan_rails(user_id=None, mode="movie", limit=10)
+    assert all(not r.key.startswith("rand-") for r in plan)
+
+
+def test_random_slots_inject_labeled_wildcards():
+    plan = rails.plan_rails(user_id=None, mode="movie", limit=10, random_slots=2)
+    wild = [r for r in plan if r.key.startswith("rand-")]
+    assert len(wild) == 2
+    assert all(r.eyebrow == "Surprise pick" for r in wild)
+    assert len(plan) == 10
+    # Leads are untouched — wildcards never displace position 0.
+    assert plan[0].key == "trending"
+
+
+def test_wildcards_do_not_duplicate_existing_content():
+    plan = rails.plan_rails(user_id=None, mode="movie", limit=14, random_slots=3)
+    wild = [r for r in plan if r.key.startswith("rand-")]
+    other_sigs = {rails._sig(r.params) for r in plan if not r.key.startswith("rand-")}
+    wild_sigs = [rails._sig(r.params) for r in wild]
+    assert len(wild_sigs) == len(set(wild_sigs))          # distinct from each other
+    assert all(s not in other_sigs for s in wild_sigs)    # distinct from the rest
+
+
+def test_wildcards_respect_tv_mode_gating():
+    plan = rails.plan_rails(user_id=None, mode="tv", limit=14, random_slots=4)
+    wild = [r for r in plan if r.key.startswith("rand-")]
+    assert all("company" not in r.params and "collection" not in r.params for r in wild)

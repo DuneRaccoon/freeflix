@@ -13,6 +13,7 @@ async def get_rails(
     user_id: Optional[str] = Query(None),
     surface: str = Query(""),
     limit: int = Query(10, ge=1, le=20),
+    random_slots: int = Query(2, ge=0, le=5),
 ):
     return RailsResponse(rails=rails_service.plan_rails(
-        user_id=user_id, mode=mode, limit=limit, surface=surface))
+        user_id=user_id, mode=mode, limit=limit, surface=surface, random_slots=random_slots))

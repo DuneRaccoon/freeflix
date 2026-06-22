@@ -242,5 +242,23 @@ describe('useSearchUrlState', () => {
       expect(url).not.toContain('provider=');
       expect(url).not.toContain('origin=');
     });
+
+    it('serialises company, collection and api into the URL', () => {
+      const { result } = renderSearchHook();
+      act(() => { result.current.setState({ company: 420, collection: 86311, api: 'best_2025' }); });
+      const url: string = mockReplace.mock.calls[0][0];
+      expect(url).toContain('company=420');
+      expect(url).toContain('collection=86311');
+      expect(url).toContain('api=best_2025');
+    });
+
+    it('omits company, collection and api at their defaults', () => {
+      const { result } = renderSearchHook({ company: '420', collection: '86311', api: 'best_2025' });
+      act(() => { result.current.setState({ company: 0, collection: 0, api: '' }); });
+      const url: string = mockReplace.mock.calls[0][0];
+      expect(url).not.toContain('company=');
+      expect(url).not.toContain('collection=');
+      expect(url).not.toContain('api=');
+    });
   });
 });

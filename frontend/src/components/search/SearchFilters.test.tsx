@@ -178,10 +178,12 @@ describe('SearchFilters', () => {
         <SearchFilters type="all" genre={0} year={0} sort="" provider={0} origin="" company={0} collection={0} api="" onChange={() => {}} />,
       );
       expect(screen.queryByLabelText('Studio filter')).toBeNull();
+      expect(screen.queryByLabelText('Collection filter')).toBeNull();
       rerender(
         <SearchFilters type="movie" genre={0} year={0} sort="" provider={0} origin="" company={0} collection={0} api="" onChange={() => {}} />,
       );
       expect(screen.getByLabelText('Studio filter')).toBeInTheDocument();
+      expect(screen.getByLabelText('Collection filter')).toBeInTheDocument();
     });
 
     it('renders Streaming and Origin chips for all types', () => {
@@ -190,6 +192,7 @@ describe('SearchFilters', () => {
       );
       expect(screen.getByLabelText('Streaming filter')).toBeInTheDocument();
       expect(screen.getByLabelText('Origin filter')).toBeInTheDocument();
+      expect(screen.getByLabelText('Best of year filter')).toBeInTheDocument();
     });
   });
 });

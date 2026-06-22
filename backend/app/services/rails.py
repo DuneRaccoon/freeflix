@@ -4,7 +4,9 @@ Returns ordered RailSpec (title + browse params); the frontend fetches each
 rail's items via the existing browse endpoint. Taste is a genre/origin affinity
 tally over the profile's recent progress + watchlist, joined to CatalogItemCache.
 Remaining rails are filled from a candidate pool by a daily per-profile seed so
-lineups rotate (and differ per surface).
+lineups rotate (and differ per surface). A few per-request "wildcard" rails
+(random_slots) re-roll on every call, drawn from any dimension and deduped
+against the rest of the lineup.
 """
 import datetime
 import hashlib
@@ -114,7 +116,10 @@ def affinity(user_id: str, mode: str) -> Dict[str, Counter]:
 
 
 def _sig(params: Dict[str, Any]):
-    """Content identity of a rail's filter, for de-duping across rails."""
+    """Content identity of a rail's filter, for de-duping across rails.
+
+    Assumes one filter dimension per rail (every rail this planner builds is
+    single-key); returns the first dimension found in priority order."""
     for k in ("genres", "provider", "network", "origin", "company", "collection"):
         if params.get(k):
             return (k, str(params[k]))

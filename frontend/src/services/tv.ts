@@ -1,8 +1,8 @@
 import apiClient from './api-client';
-import { CatalogPage, ShowDetail, SeasonDetail, TorrentHit } from '@/types';
+import { CatalogPage, ShowDetail, SeasonDetail, TorrentHit, BrowseParams } from '@/types';
 
 export const tvService = {
-  browse: async (params: { api?: string; sort?: string; genre?: number; year?: number; page?: number }): Promise<CatalogPage> => {
+  browse: async (params: BrowseParams): Promise<CatalogPage> => {
     const response = await apiClient.get('/tv', { params });
     return response.data;
   },

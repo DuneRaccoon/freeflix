@@ -3,36 +3,15 @@
 /**
  * HomeBrowse — Home page content component.
  *
- * Fetches in parallel:
- *  - moviesService.browse({ api: 'popular' })        → hero + featured + trending row
- *  - moviesService.browse({ api: 'popular', sort: 'primary_release_date.desc' }) → Latest
- *  - moviesService.browse({ api: 'top_rated' })       → Top 10 ranked row
- *  - 2 genre browses (Action & Adventure, Drama)      → genre rows
- *
- * Each call degrades gracefully to an empty result on error.
+ * Uses buildRailsScreen to fetch planner-driven carousels.
  * Shows a skeleton while loading, then renders <BrowseScreen/>.
  */
 
 import React, { useEffect, useState } from 'react';
-import { CatalogItem, CatalogPage } from '@/types';
-import { moviesService } from '@/services/movies';
+import { CatalogItem } from '@/types';
+import { useUser } from '@/context/UserContext';
+import { buildRailsScreen } from '@/lib/buildRailsScreen';
 import BrowseScreen, { RowConfig } from '@/components/browse/BrowseScreen';
-
-// ---------------------------------------------------------------------------
-// Empty page fallback
-// ---------------------------------------------------------------------------
-
-const emptyPage: CatalogPage = { page: 1, results: [], total_pages: 0, total_results: 0 };
-
-async function safeBrowse(
-  params: Parameters<typeof moviesService.browse>[0],
-): Promise<CatalogPage> {
-  try {
-    return await moviesService.browse(params);
-  } catch {
-    return emptyPage;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Loading skeleton
@@ -87,6 +66,7 @@ function HomeSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function HomeBrowse() {
+  const { currentUser } = useUser();
   const [isLoading, setIsLoading] = useState(true);
   const [hero, setHero] = useState<CatalogItem | undefined>(undefined);
   const [featured, setFeatured] = useState<CatalogItem[]>([]);
@@ -94,81 +74,22 @@ export default function HomeBrowse() {
 
   useEffect(() => {
     let cancelled = false;
-
-    async function fetchAll() {
+    async function load() {
       setIsLoading(true);
-
-      // Fetch all data sources in parallel; each degrades gracefully on error.
-      const [popular, latest, topRated, actionPage, dramaPage] = await Promise.all([
-        safeBrowse({ api: 'popular' }),
-        safeBrowse({ api: 'popular', sort: 'primary_release_date.desc' }),
-        safeBrowse({ api: 'top_rated' }),
-        safeBrowse({ api: 'popular', genre: 28 }), // Action (movie genre id 28)
-        safeBrowse({ api: 'popular', genre: 18 }), // Drama (movie genre id 18)
-      ]);
-
+      const screen = await buildRailsScreen('movie', currentUser?.id, 'home');
       if (cancelled) return;
-
-      // Derive hero + featured from the popular results.
-      const heroItem = popular.results[0] as CatalogItem | undefined;
-      const featuredItems = popular.results.slice(1, 7);
-
-      const newRows: RowConfig[] = [
-        {
-          key: 'trending',
-          title: 'Trending Now',
-          items: popular.results,
-          seeAllHref: '/movies',
-        },
-        {
-          key: 'latest',
-          title: 'New Releases',
-          items: latest.results,
-        },
-        {
-          key: 'top10',
-          title: 'Top 10 Movies This Week',
-          eyebrow: 'Most watched · this week',
-          items: topRated.results.slice(0, 10),
-          variant: 'ranked',
-        },
-        {
-          key: 'action',
-          title: 'Action & Adventure',
-          eyebrow: 'Genre',
-          items: actionPage.results,
-        },
-        {
-          key: 'drama',
-          title: 'Drama',
-          eyebrow: 'Genre',
-          items: dramaPage.results,
-        },
-      ];
-
-      setHero(heroItem);
-      setFeatured(featuredItems);
-      setRows(newRows);
+      setHero(screen.hero);
+      setFeatured(screen.featured);
+      setRows(screen.rows);
       setIsLoading(false);
     }
+    load();
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
 
-    fetchAll();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (isLoading) {
-    return <HomeSkeleton />;
-  }
+  if (isLoading) return <HomeSkeleton />;
 
   return (
-    <BrowseScreen
-      hero={hero}
-      featured={featured}
-      rows={rows}
-      showContinueWatching
-    />
+    <BrowseScreen hero={hero} featured={featured} rows={rows} showContinueWatching />
   );
 }

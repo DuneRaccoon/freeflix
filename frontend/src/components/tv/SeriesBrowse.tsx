@@ -3,14 +3,7 @@
 /**
  * SeriesBrowse — Series/TV hub page content component.
  *
- * Fetches in parallel:
- *  - tvService.browse({ api: 'popular' })             → hero + featured + Trending Series row
- *  - tvService.browse({ api: 'top_rated' })           → Top Rated (ranked) row
- *  - tvService.browse({ api: 'on_the_air' })          → On The Air row
- *  - tvService.browse({ api: 'popular', genre: 10759 }) → Action & Adventure row
- *  - tvService.browse({ api: 'popular', genre: 10765 }) → Sci-Fi & Fantasy row
- *
- * Each call degrades gracefully to an empty result on error.
+ * Uses buildRailsScreen to fetch planner-driven carousels.
  * Shows a skeleton while loading, then renders <BrowseScreen/>.
  * showContinueWatching is false — the Home page owns that section.
  *
@@ -19,25 +12,10 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { CatalogItem, CatalogPage } from '@/types';
-import { tvService } from '@/services/tv';
+import { CatalogItem } from '@/types';
+import { useUser } from '@/context/UserContext';
+import { buildRailsScreen } from '@/lib/buildRailsScreen';
 import BrowseScreen, { RowConfig } from '@/components/browse/BrowseScreen';
-
-// ---------------------------------------------------------------------------
-// Empty page fallback
-// ---------------------------------------------------------------------------
-
-const emptyPage: CatalogPage = { page: 1, results: [], total_pages: 0, total_results: 0 };
-
-async function safeBrowse(
-  params: Parameters<typeof tvService.browse>[0],
-): Promise<CatalogPage> {
-  try {
-    return await tvService.browse(params);
-  } catch {
-    return emptyPage;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Loading skeleton
@@ -92,6 +70,7 @@ function SeriesSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function SeriesBrowse() {
+  const { currentUser } = useUser();
   const [isLoading, setIsLoading] = useState(true);
   const [hero, setHero] = useState<CatalogItem | undefined>(undefined);
   const [featured, setFeatured] = useState<CatalogItem[]>([]);
@@ -99,81 +78,22 @@ export default function SeriesBrowse() {
 
   useEffect(() => {
     let cancelled = false;
-
-    async function fetchAll() {
+    async function load() {
       setIsLoading(true);
-
-      // Fetch all data sources in parallel; each degrades gracefully on error.
-      const [popular, topRated, onTheAir, actionPage, sciFiPage] = await Promise.all([
-        safeBrowse({ api: 'popular' }),
-        safeBrowse({ api: 'top_rated' }),
-        safeBrowse({ api: 'on_the_air' }),
-        safeBrowse({ api: 'popular', genre: 10759 }), // Action & Adventure (TV genre id 10759)
-        safeBrowse({ api: 'popular', genre: 10765 }), // Sci-Fi & Fantasy (TV genre id 10765)
-      ]);
-
+      const screen = await buildRailsScreen('tv', currentUser?.id, 'tv');
       if (cancelled) return;
-
-      // Derive hero + featured from the popular results.
-      const heroItem = popular.results[0] as CatalogItem | undefined;
-      const featuredItems = popular.results.slice(1, 7);
-
-      const newRows: RowConfig[] = [
-        {
-          key: 'trending',
-          title: 'Trending Series',
-          items: popular.results,
-          seeAllHref: '/tv',
-        },
-        {
-          key: 'top-rated',
-          title: 'Top Rated Series',
-          eyebrow: 'Critically acclaimed',
-          items: topRated.results.slice(0, 10),
-          variant: 'ranked',
-        },
-        {
-          key: 'on-the-air',
-          title: 'On The Air',
-          items: onTheAir.results,
-        },
-        {
-          key: 'action',
-          title: 'Action & Adventure',
-          eyebrow: 'Genre',
-          items: actionPage.results,
-        },
-        {
-          key: 'scifi',
-          title: 'Sci-Fi & Fantasy',
-          eyebrow: 'Genre',
-          items: sciFiPage.results,
-        },
-      ];
-
-      setHero(heroItem);
-      setFeatured(featuredItems);
-      setRows(newRows);
+      setHero(screen.hero);
+      setFeatured(screen.featured);
+      setRows(screen.rows);
       setIsLoading(false);
     }
+    load();
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
 
-    fetchAll();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (isLoading) {
-    return <SeriesSkeleton />;
-  }
+  if (isLoading) return <SeriesSkeleton />;
 
   return (
-    <BrowseScreen
-      hero={hero}
-      featured={featured}
-      rows={rows}
-      showContinueWatching={false}
-    />
+    <BrowseScreen hero={hero} featured={featured} rows={rows} showContinueWatching={false} />
   );
 }

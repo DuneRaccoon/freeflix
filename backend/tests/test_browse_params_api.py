@@ -61,3 +61,15 @@ def test_tv_forwards_provider_and_origin(client):
 def test_movie_invalid_api_rejected(client):
     r = client.get("/api/v1/movies?api=bogus")
     assert r.status_code == 422
+
+
+def test_tv_genre_alias_folds_to_genres(client):
+    r = client.get("/api/v1/tv?genre=18")
+    assert r.status_code == 200
+    assert client.captured["genres"] == "18"
+    assert client.captured["mode"] == "tv"
+
+
+def test_tv_invalid_api_rejected(client):
+    r = client.get("/api/v1/tv?api=bogus")
+    assert r.status_code == 422

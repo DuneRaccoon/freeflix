@@ -20,6 +20,8 @@
 
 import React, { useRef } from 'react';
 import { cn } from '@/lib/cn';
+import { FeedTheme, railStyleVars } from '@/lib/feedThemes';
+import RailBackdrop from './RailBackdrop';
 
 export interface RowProps {
   title: string;
@@ -27,6 +29,8 @@ export interface RowProps {
   seeAllHref?: string;
   children: React.ReactNode;
   className?: string;
+  /** Per-feed theme; null/undefined renders the default gold look. */
+  theme?: FeedTheme | null;
 }
 
 function ChevronLeftIcon() {
@@ -69,8 +73,12 @@ const Row: React.FC<RowProps> = ({
   seeAllHref,
   children,
   className,
+  theme,
 }) => {
   const trackRef = useRef<HTMLDivElement>(null);
+  // Exactly one font-family class (tailwind-merge can't de-conflict custom tokens).
+  const titleFontClass = theme?.title?.font === 'ui' ? 'font-ui' : 'font-display';
+  const eyebrowText = theme?.eyebrowOverride ?? eyebrow;
 
   /** Page by the full visible width so each press advances a whole screen of cards. */
   function scrollPrev() {
@@ -86,20 +94,27 @@ const Row: React.FC<RowProps> = ({
   return (
     <section
       className={cn('relative z-[2] px-14 max-sm:px-[18px]', className)}
+      style={railStyleVars(theme ?? null)}
       aria-labelledby={`row-heading-${title.replace(/\s+/g, '-').toLowerCase()}`}
     >
+      {theme && <RailBackdrop theme={theme} />}
+
       {/* ── Row header ── */}
       <div className="flex items-end justify-between gap-6 pt-[54px] pb-1 max-sm:pt-10 max-sm:pb-1">
         {/* Left: eyebrow + title */}
         <div className="flex flex-col gap-1.5">
-          {eyebrow && (
-            <span className="text-[11px] tracking-[.32em] uppercase text-gold font-semibold">
-              {eyebrow}
+          {eyebrowText && (
+            <span className="text-[11px] tracking-[.32em] uppercase text-[var(--rail-accent)] font-semibold">
+              {eyebrowText}
             </span>
           )}
           <h2
             id={`row-heading-${title.replace(/\s+/g, '-').toLowerCase()}`}
-            className="font-display font-normal text-[30px] leading-none tracking-[-0.02em] text-text m-0 max-sm:text-[25px]"
+            className={cn(
+              'font-normal text-[30px] leading-none tracking-[-0.02em] text-text m-0 max-sm:text-[25px]',
+              titleFontClass,
+              theme?.title?.className,
+            )}
           >
             {title}
           </h2>
@@ -115,7 +130,7 @@ const Row: React.FC<RowProps> = ({
                 'inline-flex items-center gap-1.5 whitespace-nowrap',
                 'pb-[3px] border-b border-transparent',
                 'transition-[color,border-color] duration-[250ms]',
-                'hover:text-gold-lite hover:border-hairline',
+                'hover:text-[var(--rail-accent-soft)] hover:border-hairline',
                 'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)] focus-visible:rounded',
               )}
             >
@@ -149,7 +164,7 @@ const Row: React.FC<RowProps> = ({
                 'w-8 h-8 flex-none rounded-full grid place-items-center cursor-pointer',
                 'border border-hairline bg-surface-2/60 text-text',
                 'transition-[border-color,color,background] duration-200',
-                'hover:border-gold/55 hover:text-gold-lite hover:bg-surface-2/85',
+                'hover:border-[color:color-mix(in_srgb,var(--rail-accent)_55%,transparent)] hover:text-[var(--rail-accent-soft)] hover:bg-surface-2/85',
                 'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
               )}
             >
@@ -163,7 +178,7 @@ const Row: React.FC<RowProps> = ({
                 'w-8 h-8 flex-none rounded-full grid place-items-center cursor-pointer',
                 'border border-hairline bg-surface-2/60 text-text',
                 'transition-[border-color,color,background] duration-200',
-                'hover:border-gold/55 hover:text-gold-lite hover:bg-surface-2/85',
+                'hover:border-[color:color-mix(in_srgb,var(--rail-accent)_55%,transparent)] hover:text-[var(--rail-accent-soft)] hover:bg-surface-2/85',
                 'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
               )}
             >

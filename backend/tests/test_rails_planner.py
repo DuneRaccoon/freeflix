@@ -24,6 +24,7 @@ def test_surface_changes_lineup():
     movies = rails.plan_rails(user_id=None, mode="movie", limit=10, surface="movies")
     # Leads are identical; the seeded tail differs.
     assert [r.key for r in home] != [r.key for r in movies]
+    assert [r.key for r in home[:3]] == [r.key for r in movies[:3]]
 
 
 def test_taste_genre_and_origin_rails(monkeypatch):
@@ -54,6 +55,7 @@ def test_parse_content_id():
     assert rails._parse_content_id("movie:123") == ("movie", 123)
     assert rails._parse_content_id("tv:456:s1:e2") == ("tv", 456)
     assert rails._parse_content_id("garbage") == (None, None)
+    assert rails._parse_content_id("xyzzy:99") == (None, None)
 
 
 def test_lang_to_origin_mapping():

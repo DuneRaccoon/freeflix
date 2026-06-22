@@ -54,9 +54,10 @@ def _parse_content_id(cid: str):
     if not cid or ":" not in cid:
         return None, None
     parts = cid.split(":")
-    mt = "tv" if parts[0] == "tv" else "movie" if parts[0] == "movie" else None
+    if parts[0] not in ("movie", "tv"):
+        return None, None
     try:
-        return mt, int(parts[1])
+        return parts[0], int(parts[1])
     except (IndexError, ValueError):
         return None, None
 

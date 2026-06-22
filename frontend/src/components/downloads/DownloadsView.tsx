@@ -248,7 +248,7 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
             size="sm"
             variant="danger"
             disabled={busy}
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => { setDeleteMode('keep'); setConfirmDelete(true); }}
             aria-label="Remove"
           >
             Remove

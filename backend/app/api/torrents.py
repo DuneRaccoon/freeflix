@@ -7,7 +7,11 @@ import uuid as _uuid
 from dataclasses import dataclass
 from typing import Optional as _Optional, Tuple as _Tuple
 
-from app.models import TorrentRequest, TorrentStatus, TorrentAction
+from app.models import (
+    TorrentRequest, TorrentStatus, TorrentAction,
+    TorrentBatchAction, TorrentBatchResponse, TorrentBatchResult,
+)
+from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
 from app.services import movies as movie_service
 from app.services import tv as tv_service
 from app.services.torrents_select import select_best, available_qualities
@@ -136,26 +140,48 @@ async def torrent_action(
     action: TorrentAction,
     torrent_id: str = Path(..., description="ID of the torrent")
 ):
-    """
-    Perform an action on a torrent.
-    
-    - **action**: The action to perform (pause, resume, stop, remove)
-    """
-    if action.action == "pause":
+    """Pause or resume a torrent. ('stop' is a legacy alias of pause; use DELETE to remove.)"""
+    if action.action in ("pause", "stop"):
         success = torrent_manager.pause_torrent(torrent_id)
     elif action.action == "resume":
         success = torrent_manager.resume_torrent(torrent_id)
-    elif action.action == "stop":
-        success = torrent_manager.stop_torrent(torrent_id)
-    elif action.action == "remove":
-        success = torrent_manager.remove_torrent(torrent_id)
-    else:
-        raise HTTPException(status_code=400, detail=f"Invalid action: {action.action}")
-    
+    else:  # pragma: no cover - guarded by the Literal
+        raise HTTPException(status_code=400, detail=f"Unsupported action '{action.action}'")
+
     if not success:
         raise HTTPException(status_code=404, detail="Torrent not found or action failed")
-    
+
     return {"success": True, "action": action.action, "torrent_id": torrent_id}
+
+
+@router.post("/batch", response_model=TorrentBatchResponse, summary="Batch torrent action")
+async def batch_action(payload: TorrentBatchAction):
+    """Apply an action to every torrent matching the action's target set."""
+    all_t = torrent_manager.get_all_torrents()
+    results: List[TorrentBatchResult] = []
+
+    def _run(ids, fn):
+        for tid in ids:
+            results.append(TorrentBatchResult(id=tid, success=bool(fn(tid))))
+
+    if payload.action == "pause":
+        _run([t.id for t in all_t if t.state.value in ACTIVE_DOWNLOAD_STATES],
+             torrent_manager.pause_torrent)
+    elif payload.action == "resume":
+        _run([t.id for t in all_t if t.state.value in RESUMABLE_STATES],
+             torrent_manager.resume_torrent)
+    elif payload.action == "clear_completed":
+        _run([t.id for t in all_t if t.state.value in ("finished", "seeding")],
+             lambda tid: torrent_manager.remove_torrent(tid, delete_files=False))
+    elif payload.action == "retry":
+        _run([t.id for t in all_t if t.state.value == "error"],
+             torrent_manager.resume_torrent)
+
+    succeeded = sum(1 for r in results if r.success)
+    return TorrentBatchResponse(
+        action=payload.action, succeeded=succeeded,
+        failed=len(results) - succeeded, results=results,
+    )
 
 
 @router.delete("/{torrent_id}", response_model=Dict[str, Any], summary="Delete a torrent")

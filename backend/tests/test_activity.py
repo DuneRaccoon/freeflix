@@ -170,3 +170,12 @@ def test_count_all_active_states(client, db_session):
     data = resp.json()
     assert data["active_downloads"] == len(ACTIVE_STATES)
     assert data["aggregate_progress"] == pytest.approx(50.0, abs=0.1)
+
+
+def test_count_includes_max_active_downloads(client):
+    resp = client.get("/api/v1/activity/count")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "max_active_downloads" in data
+    assert isinstance(data["max_active_downloads"], int)
+    assert data["max_active_downloads"] >= 1

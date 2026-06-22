@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.database.models import Torrent as DbTorrent
 from app.models import ActivityCountResponse
+from app.config import settings
 
 router = APIRouter()
 
@@ -50,4 +51,5 @@ async def get_activity_count(
     return ActivityCountResponse(
         active_downloads=count,
         aggregate_progress=round(aggregate, 2),
+        max_active_downloads=settings.effective_max_active_downloads(),
     )

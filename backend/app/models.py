@@ -342,7 +342,25 @@ class TorrentRequest(BaseModel):
     episode: Optional[int] = Field(None, ge=1)
 
 class TorrentAction(BaseModel):
-    action: Literal['pause', 'resume', 'stop', 'remove']
+    # 'stop' is accepted as a legacy alias of 'pause'. Use DELETE to remove.
+    action: Literal['pause', 'resume', 'stop']
+
+
+class TorrentBatchAction(BaseModel):
+    action: Literal['pause', 'resume', 'clear_completed', 'retry']
+    delete_files: bool = False
+
+
+class TorrentBatchResult(BaseModel):
+    id: str
+    success: bool
+
+
+class TorrentBatchResponse(BaseModel):
+    action: str
+    succeeded: int
+    failed: int
+    results: List[TorrentBatchResult]
 
 
 class ScheduleConfig(BaseModel):
@@ -512,3 +530,4 @@ class ActivityCountResponse(BaseModel):
     """Active-download summary returned by GET /api/v1/activity/count."""
     active_downloads: int
     aggregate_progress: float  # 0.0–100.0, mean progress across active torrents
+    max_active_downloads: int  # configured concurrent-download ceiling (ARM-capped)

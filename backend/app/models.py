@@ -188,6 +188,19 @@ class CatalogPage(BaseModel):
     total_results: int = 0
 
 
+class RailSpec(BaseModel):
+    key: str
+    title: str
+    eyebrow: Optional[str] = None
+    variant: Literal['poster', 'ranked'] = 'poster'
+    params: Dict[str, Any] = {}
+    see_all_href: Optional[str] = None
+
+
+class RailsResponse(BaseModel):
+    rails: List[RailSpec] = []
+
+
 class MovieBrowseParams(BaseModel):
     api: Literal['popular', 'top_rated'] = 'popular'
     sort: str = 'popularity.desc'

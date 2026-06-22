@@ -1,9 +1,11 @@
 'use client';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { TorrentState, TorrentStatus } from '@/types';
+import { toast } from 'react-hot-toast';
+import { TorrentState, TorrentStatus, TorrentBatchActionType } from '@/types';
 import { torrentsService } from '@/services/torrents';
-import { Badge, Button, Modal, Pill, Progress } from '@/components/ui/fre';
+import { activityService } from '@/services/activity';
+import { Badge, Button, Modal, Pill, Progress, RadioGroup } from '@/components/ui/fre';
 import { cn } from '@/lib/cn';
 
 // ---------------------------------------------------------------------------
@@ -96,18 +98,34 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteMode, setDeleteMode] = useState<'keep' | 'all'>('keep');
 
-  const act = async (action: 'pause' | 'resume' | 'stop') => {
+  const act = async (action: 'pause' | 'resume') => {
     setBusy(true);
-    try { await torrentsService.performTorrentAction(torrent.id, action); }
-    finally { setBusy(false); onRefresh(); }
+    try {
+      await torrentsService.performTorrentAction(torrent.id, action);
+      toast.success(action === 'pause' ? 'Download paused' : 'Download resumed');
+    } catch {
+      toast.error(`Could not ${action} download`);
+    } finally {
+      setBusy(false);
+      onRefresh();
+    }
   };
 
   const remove = async () => {
     setBusy(true);
     setConfirmDelete(false);
-    try { await torrentsService.deleteTorrent(torrent.id, false); }
-    finally { setBusy(false); onRefresh(); }
+    const deleteFiles = deleteMode === 'all';
+    try {
+      await torrentsService.deleteTorrent(torrent.id, deleteFiles);
+      toast.success(deleteFiles ? 'Removed and deleted files' : 'Removed from downloads');
+    } catch {
+      toast.error('Could not remove download');
+    } finally {
+      setBusy(false);
+      onRefresh();
+    }
   };
 
   const watch = async () => {
@@ -129,14 +147,14 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
   const canPause =
     torrent.state === TorrentState.DOWNLOADING ||
     torrent.state === TorrentState.DOWNLOADING_METADATA ||
+    torrent.state === TorrentState.QUEUED ||
+    torrent.state === TorrentState.CHECKING ||
+    torrent.state === TorrentState.ALLOCATING ||
     torrent.state === TorrentState.SEEDING;
 
-  const canResume = torrent.state === TorrentState.PAUSED;
-
-  const canStop =
-    torrent.state !== TorrentState.STOPPED &&
-    torrent.state !== TorrentState.FINISHED &&
-    torrent.state !== TorrentState.ERROR;
+  const canResume =
+    torrent.state === TorrentState.PAUSED ||
+    torrent.state === TorrentState.STOPPED;
 
   return (
     <>
@@ -226,17 +244,6 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
               Resume
             </Button>
           )}
-          {canStop && (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => act('stop')}
-              aria-label="Stop"
-            >
-              Stop
-            </Button>
-          )}
           <Button
             size="sm"
             variant="danger"
@@ -255,10 +262,19 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
         onClose={() => setConfirmDelete(false)}
         label="Confirm removal"
       >
-        <p className="font-ui text-sm text-text mb-5">
+        <p className="font-ui text-sm text-text mb-4">
           Remove <strong className="text-gold-lite">{torrent.movie_title}</strong> from downloads?
-          The torrent file will be deleted but local data is kept.
         </p>
+        <RadioGroup
+          name={`remove-${torrent.id}`}
+          value={deleteMode}
+          onChange={(v) => setDeleteMode(v as 'keep' | 'all')}
+          options={[
+            { value: 'keep', label: 'Remove from list', hint: 'Keep the downloaded files on disk' },
+            { value: 'all', label: 'Delete everything', hint: 'Delete files and the download record' },
+          ]}
+          className="mb-5"
+        />
         <div className="flex gap-3 justify-end">
           <Button size="sm" variant="glass" onClick={() => setConfirmDelete(false)}>
             Cancel
@@ -283,6 +299,7 @@ const DownloadsView: React.FC = () => {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [polling, setPolling] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [maxActive, setMaxActive] = useState(2);
   const pollingRef = useRef(polling);
   pollingRef.current = polling;
 
@@ -307,6 +324,33 @@ const DownloadsView: React.FC = () => {
     return () => clearInterval(id);
   }, [fetch, polling]);
 
+  // Configured concurrent-download ceiling (ARM-capped on the backend)
+  useEffect(() => {
+    activityService.getCount()
+      .then((c) => setMaxActive(c.max_active_downloads ?? 2))
+      .catch(() => {});
+  }, []);
+
+  const runBatch = async (action: TorrentBatchActionType, label: string) => {
+    try {
+      const res = await torrentsService.batchAction(action);
+      toast.success(`${label}: ${res.succeeded} done${res.failed ? `, ${res.failed} failed` : ''}`);
+    } catch {
+      toast.error(`${label} failed`);
+    } finally {
+      fetch();
+    }
+  };
+
+  const hasActive = torrents.some((t) => ACTIVE_STATES.has(t.state));
+  const hasPaused = torrents.some(
+    (t) => t.state === TorrentState.PAUSED || t.state === TorrentState.STOPPED,
+  );
+  const hasCompleted = torrents.some(
+    (t) => t.state === TorrentState.FINISHED || t.state === TorrentState.SEEDING,
+  );
+  const hasErrored = torrents.some((t) => t.state === TorrentState.ERROR);
+
   const activeCount = torrents.filter((t) => ACTIVE_STATES.has(t.state)).length;
   const filtered = torrents.filter((t) => matchesFilter(t, filter));
 
@@ -322,7 +366,7 @@ const DownloadsView: React.FC = () => {
               data-testid="active-count"
               className="mt-0.5 font-ui text-sm text-muted"
             >
-              Active {activeCount} / 2
+              Active {activeCount} / {maxActive}
             </p>
           </div>
 
@@ -354,6 +398,18 @@ const DownloadsView: React.FC = () => {
               {label}
             </Pill>
           ))}
+        </div>
+
+        {/* Batch actions */}
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Batch actions">
+          <Button size="sm" variant="glass" disabled={!hasActive}
+            onClick={() => runBatch('pause', 'Paused all')}>Pause all</Button>
+          <Button size="sm" variant="glass" disabled={!hasPaused}
+            onClick={() => runBatch('resume', 'Resumed all')}>Resume all</Button>
+          <Button size="sm" variant="ghost" disabled={!hasCompleted}
+            onClick={() => runBatch('clear_completed', 'Cleared completed')}>Clear completed</Button>
+          <Button size="sm" variant="ghost" disabled={!hasErrored}
+            onClick={() => runBatch('retry', 'Retried errored')}>Retry errored</Button>
         </div>
 
         {/* List */}

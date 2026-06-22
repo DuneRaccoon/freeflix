@@ -33,4 +33,11 @@ describe('FeedMotif', () => {
     const el = container.firstChild as HTMLElement;
     expect(el.style.opacity).toBe('0.08');
   });
+
+  it('renders an aria-hidden layer for beams and halftone', () => {
+    const beams = render(<FeedMotif motif={{ kind: 'beams' }} color="#fff" />);
+    expect(beams.container.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    const halftone = render(<FeedMotif motif={{ kind: 'halftone' }} color="#fff" />);
+    expect(halftone.container.querySelector('[aria-hidden="true"]')).not.toBeNull();
+  });
 });

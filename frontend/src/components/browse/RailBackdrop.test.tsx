@@ -10,6 +10,9 @@ describe('RailBackdrop', () => {
     const { getByTestId } = render(<RailBackdrop theme={marvel} />);
     const backdrop = getByTestId('rail-backdrop');
     expect(backdrop.getAttribute('aria-hidden')).toBe('true');
+    expect(backdrop.className).toContain('pointer-events-none');
+    expect(backdrop.className).toContain('-z-10');
+    expect((backdrop.querySelector('div') as HTMLElement | null)?.style.background).toBeTruthy();
     // Band layer carries the theme background.
     const band = backdrop.querySelector('div');
     expect(band?.getAttribute('style')).toContain('background');

@@ -68,4 +68,17 @@ describe('MoviesBrowse', () => {
     const titles = (await screen.findAllByTestId('mock-row-title')).map((e) => e.textContent);
     expect(titles).toContain('Trending Movies');
   });
+
+  it('shows the movies skeleton during loading', async () => {
+    let resolveAll!: () => void;
+    const gate = new Promise<void>((res) => { resolveAll = res; });
+    (moviesService.browse as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      await gate;
+      return page([item(1, 'Popular Hero Movie')]);
+    });
+    render(<MoviesBrowse />);
+    expect(screen.getByTestId('movies-skeleton')).toBeInTheDocument();
+    resolveAll();
+    await screen.findByTestId('mock-browse-screen');
+  });
 });

@@ -43,4 +43,11 @@ describe('buildRailsScreen', () => {
     expect(screen.rows.length).toBeGreaterThan(0);
     expect(screen.rows[0].title).toBe('Trending Movies');
   });
+
+  it('falls back to default rails when the planner returns an empty array', async () => {
+    (railsService.getRails as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const screen = await buildRailsScreen('movie');
+    expect(screen.rows.length).toBeGreaterThan(0);
+    expect(screen.rows[0].title).toBe('Trending Movies');
+  });
 });

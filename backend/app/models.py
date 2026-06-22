@@ -491,7 +491,7 @@ class StreamingProgressResponse(BaseModel):
 
     id: str
     user_id: str
-    torrent_id: str
+    torrent_id: Optional[str] = None  # NULL after the torrent is removed (FK ON DELETE SET NULL); history survives
     movie_id: str
     current_time: float
     duration: Optional[float] = None

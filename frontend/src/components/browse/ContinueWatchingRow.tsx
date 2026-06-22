@@ -138,6 +138,10 @@ const ContinueWatchingRow: React.FC = () => {
     for (const item of allItems) {
       if (cards.length >= 6) break;
 
+      // A removed torrent (torrent_id NULL via FK ON DELETE SET NULL) has nothing
+      // to stream — keep the history row but don't offer it as a resumable card.
+      if (!item.torrent_id) continue;
+
       const parsed = parseContentId(item.movie_id);
 
       if (parsed.kind === 'tv') {
@@ -157,7 +161,7 @@ const ContinueWatchingRow: React.FC = () => {
           episode,
           showName,
           subLabel,
-          resumeUrl: resumeUrlFor(item),
+          resumeUrl: resumeUrlFor({ torrent_id: item.torrent_id, file_index: item.file_index }),
           upNextEpisode: item.completed ? episode + 1 : undefined,
         };
         cards.push(card);
@@ -169,7 +173,7 @@ const ContinueWatchingRow: React.FC = () => {
           kind: 'movie',
           item,
           displayTitle,
-          resumeUrl: resumeUrlFor(item),
+          resumeUrl: resumeUrlFor({ torrent_id: item.torrent_id, file_index: item.file_index }),
         });
       }
     }

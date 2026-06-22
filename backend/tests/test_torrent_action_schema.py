@@ -39,3 +39,20 @@ def test_batch_response_shape():
 def test_activity_response_has_max():
     r = ActivityCountResponse(active_downloads=0, aggregate_progress=0.0, max_active_downloads=2)
     assert r.max_active_downloads == 2
+
+
+def test_streaming_progress_response_allows_null_torrent_id():
+    """After a torrent is removed, surviving watch-history rows have
+    torrent_id=NULL (FK ON DELETE SET NULL); the response model must serialize
+    them instead of raising ValidationError (would 500 continue-watching)."""
+    from datetime import datetime
+    from app.models import StreamingProgressResponse
+
+    now = datetime(2026, 1, 1, 0, 0, 0)
+    resp = StreamingProgressResponse(
+        id="p1", user_id="u1", torrent_id=None, movie_id="movie:438631",
+        current_time=120.0, percentage=10.0, completed=False,
+        last_watched_at=now, created_at=now, updated_at=now,
+    )
+    assert resp.torrent_id is None
+    assert resp.movie_id == "movie:438631"

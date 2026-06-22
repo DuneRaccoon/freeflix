@@ -369,7 +369,7 @@ export interface StreamingInfo {
 export interface StreamingProgress {
   id: string;
   user_id: string;
-  torrent_id: string;
+  torrent_id: string | null; // NULL once the torrent is removed; watch history survives
   movie_id: string;
   current_time: number;
   duration: number | null;

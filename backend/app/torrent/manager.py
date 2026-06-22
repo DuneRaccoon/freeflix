@@ -825,7 +825,7 @@ class TorrentManager:
             logger.info(f"Removed torrent {torrent_id} (delete_files={delete_files})")
             return removed
         except Exception as e:
-            logger.error(f"Error removing torrent {torrent_id}: {e}")
+            logger.error(f"Error removing torrent {torrent_id}: {e}", exc_info=True)
             return False
     
     def get_torrent_status(self, torrent_id: str) -> Optional[TorrentStatus]:

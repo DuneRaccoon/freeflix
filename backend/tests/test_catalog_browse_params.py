@@ -38,7 +38,7 @@ def test_provider_movie_uses_provider(monkeypatch):
 def test_provider_tv_uses_network(monkeypatch):
     cap = _capture(monkeypatch)
     asyncio.run(catalog.browse(provider="8", mode="tv"))
-    assert cap["network"] == "8" and "provider" not in cap
+    assert cap["api"] == "discover" and cap["network"] == "8" and "provider" not in cap
 
 
 def test_anime_origin_is_genre16_plus_lang_ja(monkeypatch):
@@ -51,7 +51,7 @@ def test_anime_origin_is_genre16_plus_lang_ja(monkeypatch):
 def test_country_origin_passthrough(monkeypatch):
     cap = _capture(monkeypatch)
     asyncio.run(catalog.browse(origin="KR", mode="movie"))
-    assert cap["origin"] == "KR"
+    assert cap["api"] == "discover" and cap["origin"] == "KR"
 
 
 def test_collection_maps_to_id(monkeypatch):

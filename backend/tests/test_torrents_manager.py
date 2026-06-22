@@ -191,3 +191,27 @@ def test_add_torrent_resume_data_falls_back_to_magnet(monkeypatch):
 
     assert calls["uri"] == "magnet:?xt=urn:btih:fallback"  # fell back to magnet
     assert "tfb" in torrent_manager.active_torrents
+
+
+def test_load_saved_torrents_survives_one_failure(mgr_db, monkeypatch):
+    """A torrent that fails to load is marked 'error' and the loop continues to
+    the next one in the SAME session (regression: CRUDMixin.update() used to
+    close/detach the session mid-loop)."""
+    bad = _seed(mgr_db, state="downloading")
+    good = _seed(mgr_db, state="queued")
+    torrent_manager.active_torrents.clear()
+
+    def fake_add(torrent_id, magnet, save_path, meta, resume_data=None):
+        if torrent_id == bad:
+            raise RuntimeError("cannot add")
+        torrent_manager.active_torrents[torrent_id] = (_types.SimpleNamespace(), meta)
+
+    monkeypatch.setattr(torrent_manager, "_add_torrent", fake_add)
+
+    torrent_manager._load_saved_torrents()  # must not raise
+
+    s = mgr_db()
+    assert s.get(DbTorrent, bad).state == "error"
+    assert s.get(DbTorrent, bad).error_message == "cannot add"
+    assert good in torrent_manager.active_torrents  # loop reached the second torrent
+    s.close()

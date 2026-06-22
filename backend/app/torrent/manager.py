@@ -95,8 +95,12 @@ class TorrentManager:
                         logger.info(f"Loaded torrent {torrent.id} - {torrent.movie_title} ({torrent.quality})")
                     except Exception as e:
                         logger.error(f"Error loading torrent {torrent.id}: {e}")
-                        # Update torrent state to error
-                        torrent.update(db, state='error', error_message=str(e))
+                        # Mark errored in the SAME session — CRUDMixin.update() opens
+                        # `with db as session:` which closes/detaches on exit and would
+                        # break the remaining loop iterations.
+                        torrent.state = 'error'
+                        torrent.error_message = str(e)
+                        db.commit()
         except Exception as e:
             logger.error(f"Error loading saved torrents: {e}")
     

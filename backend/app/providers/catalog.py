@@ -84,14 +84,55 @@ async def _get(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             return None
 
 
-async def browse(api: str = "popular", sort: str = "popularity.desc",
-                 genre: int = 0, year: int = 0, page: int = 1, mode: str = "movie") -> CatalogPage:
-    params = {"api": api, "mode": mode, "page": page, "sort": sort}
-    if genre:
-        params["genre"] = genre
+def _merge_genre(existing: Optional[str], genre_id: int) -> str:
+    """Append genre_id to a comma-separated genres string, de-duplicated, order-preserving."""
+    ids = [p for p in (existing or "").split(",") if p.strip()]
+    gid = str(genre_id)
+    if gid not in ids:
+        ids.append(gid)
+    return ",".join(ids)
+
+
+async def browse(api: str = "popular", sort: str = "popularity.desc", page: int = 1,
+                 mode: str = "movie", *, genres: Optional[str] = None, year: int = 0,
+                 provider: Optional[str] = None, origin: Optional[str] = None,
+                 company: Optional[str] = None, collection: Optional[str] = None,
+                 lang: Optional[str] = None) -> CatalogPage:
+    params: Dict[str, Any] = {"mode": mode, "page": page, "sort": sort}
+    disc: Dict[str, Any] = {}
+    eff_genres, eff_lang = genres, lang
+    if origin == "anime":                       # anime = genres:16 + lang:ja, not an origin
+        eff_genres = _merge_genre(eff_genres, 16)
+        eff_lang = eff_lang or "ja"
+    elif origin:
+        disc["origin"] = origin
+    if eff_genres:
+        disc["genres"] = eff_genres
+    if eff_lang:
+        disc["lang"] = eff_lang
+    if provider:
+        disc["network" if mode == "tv" else "provider"] = provider
+    if company:
+        disc["company"] = company
+    if collection:
+        disc["id"] = collection
     if year:
-        params["year"] = year
+        disc["year"] = year
+    if disc:
+        # Collection (franchise) lookups use the dedicated `api=collection` mode;
+        # every other filter uses `api=discover`. Both carry the genre=0/year=0
+        # placeholders that mirror the proven-working URL shape.
+        params.update({"api": "collection" if collection else "discover", "genre": 0, "year": 0})
+        params.update(disc)                                        # real values win over placeholders
+    else:
+        params["api"] = api
     data = await _get(params) or {}
+    if collection:
+        # The `api=collection` endpoint returns the collection envelope with its
+        # movies under `parts` (a single unpaginated list), not `results`.
+        parts = data.get("parts") or []
+        results = [normalize_item(r, media_type=mode) for r in parts if r.get("id")]
+        return CatalogPage(page=1, results=results, total_pages=1, total_results=len(results))
     return CatalogPage(
         page=data.get("page", page),
         results=[normalize_item(r, media_type=mode) for r in data.get("results", []) if r.get("id")],

@@ -1,9 +1,9 @@
 import apiClient from './api-client';
-import { CatalogPage, MovieDetail, TorrentHit } from '@/types';
+import { CatalogPage, MovieDetail, TorrentHit, BrowseParams } from '@/types';
 
 export const moviesService = {
   // Browse movies (api = popular | top_rated)
-  browse: async (params: { api?: string; sort?: string; genre?: number; year?: number; page?: number }): Promise<CatalogPage> => {
+  browse: async (params: BrowseParams): Promise<CatalogPage> => {
     const response = await apiClient.get('/movies', { params });
     return response.data;
   },

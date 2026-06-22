@@ -110,11 +110,9 @@ const SearchView: React.FC = () => {
 
   // ── Whether anything is "active" (query or filter set) ────────────────────
   const isActive =
-    state.q.trim() !== '' ||
-    state.genre !== 0 ||
-    state.year !== 0 ||
-    state.sort !== '' ||
-    state.type !== 'all';
+    state.q.trim() !== '' || state.genre !== 0 || state.year !== 0 ||
+    state.sort !== '' || state.type !== 'all' || state.provider !== 0 ||
+    state.origin !== '' || state.company !== 0 || state.collection !== 0 || state.api !== '';
 
   // ── Generation counter (stale-response guard) ─────────────────────────────
   // Incremented each time the query/filter key changes. fetchPage captures the
@@ -123,7 +121,7 @@ const SearchView: React.FC = () => {
   const fetchSeqRef = useRef(0);
 
   // ── Reset when query/type/filter changes ──────────────────────────────────
-  const fetchKey = `${state.q}|${state.type}|${state.genre}|${state.year}|${state.sort}`;
+  const fetchKey = `${state.q}|${state.type}|${state.genre}|${state.year}|${state.sort}|${state.provider}|${state.origin}|${state.company}|${state.collection}|${state.api}`;
   const prevFetchKey = useRef<string>('');
   useEffect(() => {
     if (fetchKey !== prevFetchKey.current) {
@@ -157,20 +155,24 @@ const SearchView: React.FC = () => {
 
       try {
         const q = state.q.trim();
-        const { type, genre, year, sort } = state;
+        const { type, genre, year, sort, provider, origin, company, collection, api } = state;
+        const common = {
+          sort: sort || undefined,
+          genres: genre ? String(genre) : undefined,
+          year: year || undefined,
+          provider: provider || undefined,
+          origin: origin || undefined,
+          api: api || undefined,
+        };
 
         const fetchMovies = async (): Promise<CatalogPage> => {
-          if (q) {
-            return moviesService.search(q, page);
-          }
-          return moviesService.browse({ sort: sort || undefined, genre: genre || undefined, year: year || undefined, page });
+          if (q) return moviesService.search(q, page);
+          return moviesService.browse({ ...common, company: company || undefined, collection: collection || undefined, page });
         };
 
         const fetchTv = async (): Promise<CatalogPage> => {
-          if (q) {
-            return tvService.search(q, page);
-          }
-          return tvService.browse({ sort: sort || undefined, genre: genre || undefined, year: year || undefined, page });
+          if (q) return tvService.search(q, page);
+          return tvService.browse({ ...common, page });
         };
 
         let newPages: CatalogPage[];
@@ -207,7 +209,7 @@ const SearchView: React.FC = () => {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.q, state.type, state.genre, state.year, state.sort, isActive],
+    [state.q, state.type, state.genre, state.year, state.sort, state.provider, state.origin, state.company, state.collection, state.api, isActive],
   );
 
   // Run on mount + when state changes
@@ -342,6 +344,11 @@ const SearchView: React.FC = () => {
               genre={state.genre}
               year={state.year}
               sort={state.sort}
+              provider={state.provider}
+              origin={state.origin}
+              company={state.company}
+              collection={state.collection}
+              api={state.api}
               onChange={(partial) => setState(partial)}
             />
           </div>

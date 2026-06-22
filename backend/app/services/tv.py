@@ -24,8 +24,12 @@ def _cache_page(page: CatalogPage) -> None:
         logger.error(f"Failed to cache tv page: {e}")
 
 
-async def browse(api: str, sort: str, genre: int, year: int, page: int) -> CatalogPage:
-    result = await catalog.browse(api=api, sort=sort, genre=genre, year=year, page=page, mode="tv")
+async def browse(api: str, sort: str, page: int, *, genres=None, year=0, provider=None,
+                 origin=None, lang=None) -> CatalogPage:
+    result = await catalog.browse(
+        api=api, sort=sort, page=page, mode="tv", genres=genres, year=year,
+        provider=provider, origin=origin, lang=lang,
+    )
     _cache_page(result)
     return result
 

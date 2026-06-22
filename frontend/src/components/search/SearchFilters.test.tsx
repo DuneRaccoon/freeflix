@@ -28,6 +28,11 @@ function defaultProps(overrides?: Partial<React.ComponentProps<typeof SearchFilt
     genre: 0,
     year: 0,
     sort: '',
+    provider: 0,
+    origin: '',
+    company: 0,
+    collection: 0,
+    api: '',
     onChange: vi.fn(),
     ...overrides,
   };
@@ -164,6 +169,30 @@ describe('SearchFilters', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Sort by' }));
       const activeOpt = screen.getByRole('option', { name: sortOpt.label });
       expect(activeOpt).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
+  describe('new discover dimension chips', () => {
+    it('shows Studio + Collection chips only for type=movie', () => {
+      const { rerender } = render(
+        <SearchFilters type="all" genre={0} year={0} sort="" provider={0} origin="" company={0} collection={0} api="" onChange={() => {}} />,
+      );
+      expect(screen.queryByLabelText('Studio filter')).toBeNull();
+      expect(screen.queryByLabelText('Collection filter')).toBeNull();
+      rerender(
+        <SearchFilters type="movie" genre={0} year={0} sort="" provider={0} origin="" company={0} collection={0} api="" onChange={() => {}} />,
+      );
+      expect(screen.getByLabelText('Studio filter')).toBeInTheDocument();
+      expect(screen.getByLabelText('Collection filter')).toBeInTheDocument();
+    });
+
+    it('renders Streaming and Origin chips for all types', () => {
+      render(
+        <SearchFilters type="all" genre={0} year={0} sort="" provider={0} origin="" company={0} collection={0} api="" onChange={() => {}} />,
+      );
+      expect(screen.getByLabelText('Streaming filter')).toBeInTheDocument();
+      expect(screen.getByLabelText('Origin filter')).toBeInTheDocument();
+      expect(screen.getByLabelText('Best of year filter')).toBeInTheDocument();
     });
   });
 });

@@ -12,6 +12,11 @@ export interface SearchState {
   genre: number;
   year: number;
   sort: string;
+  provider: number;
+  origin: string;
+  company: number;
+  collection: number;
+  api: string;          // best_YYYY feed (mutually exclusive with discover filters)
 }
 
 export interface UseSearchUrlStateReturn {
@@ -24,11 +29,8 @@ export interface UseSearchUrlStateReturn {
 // ---------------------------------------------------------------------------
 
 const DEFAULTS: SearchState = {
-  q: '',
-  type: 'all',
-  genre: 0,
-  year: 0,
-  sort: '',
+  q: '', type: 'all', genre: 0, year: 0, sort: '',
+  provider: 0, origin: '', company: 0, collection: 0, api: '',
 };
 
 function parseType(raw: string | null): 'all' | 'movie' | 'tv' {
@@ -49,6 +51,11 @@ function toQueryString(state: SearchState): string {
   if (state.genre !== 0) params.set('genre', String(state.genre));
   if (state.year !== 0) params.set('year', String(state.year));
   if (state.sort) params.set('sort', state.sort);
+  if (state.provider !== 0) params.set('provider', String(state.provider));
+  if (state.origin) params.set('origin', state.origin);
+  if (state.company !== 0) params.set('company', String(state.company));
+  if (state.collection !== 0) params.set('collection', String(state.collection));
+  if (state.api) params.set('api', state.api);
   return params.toString();
 }
 
@@ -77,6 +84,11 @@ export function useSearchUrlState(): UseSearchUrlStateReturn {
     genre: parseNum(params?.get('genre')),
     year: parseNum(params?.get('year')),
     sort: params?.get('sort') ?? DEFAULTS.sort,
+    provider: parseNum(params?.get('provider')),
+    origin: params?.get('origin') ?? DEFAULTS.origin,
+    company: parseNum(params?.get('company')),
+    collection: parseNum(params?.get('collection')),
+    api: params?.get('api') ?? DEFAULTS.api,
   }));
 
   const setState = useCallback(

@@ -146,7 +146,7 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
           'transition-[transform,box-shadow] duration-[360ms] ease-card will-change-transform',
           'group-hover:scale-[1.06] group-hover:-translate-y-1 group-hover:z-20',
           'group-focus-within:scale-[1.06] group-focus-within:-translate-y-1 group-focus-within:z-20',
-          'group-hover:shadow-[0_20px_46px_rgba(0,0,0,.62)] group-focus-within:shadow-[0_20px_46px_rgba(0,0,0,.62)]',
+          'group-hover:shadow-[0_20px_46px_rgba(0,0,0,.62),0_0_34px_var(--rail-card-glow)] group-focus-within:shadow-[0_20px_46px_rgba(0,0,0,.62),0_0_34px_var(--rail-card-glow)]',
         )}
       >
         {/* Poster art + main card link (focus ring lives here, NOT clipped) */}
@@ -155,7 +155,7 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
           className={cn(
             'absolute inset-0 block rounded-[11px] border border-hairline bg-surface',
             'text-inherit no-underline transition-[border-color] duration-300',
-            'group-hover:border-gold/35',
+            'group-hover:border-[color:color-mix(in_srgb,var(--rail-accent)_35%,transparent)]',
             'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
           )}
           aria-label={`${item.title}${item.year ? ` (${item.year})` : ''}`}
@@ -267,7 +267,7 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
                 {genreChips.map((g) => (
                   <span
                     key={g}
-                    className="text-[9.5px] tracking-[.08em] uppercase text-gold-lite border border-gold/32 rounded px-1.5 py-0.5"
+                    className="text-[9.5px] tracking-[.08em] uppercase text-[var(--rail-accent-soft)] border border-[color:color-mix(in_srgb,var(--rail-accent)_32%,transparent)] rounded px-1.5 py-0.5"
                   >
                     {g}
                   </span>

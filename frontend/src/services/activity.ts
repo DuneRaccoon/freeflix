@@ -4,6 +4,7 @@ import apiClient from './api-client';
 export interface ActivityCount {
   active_downloads: number;
   aggregate_progress: number; // 0.0–100.0, mean progress across active torrents
+  max_active_downloads: number; // configured concurrent-download ceiling
 }
 
 export const activityService = {

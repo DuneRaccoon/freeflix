@@ -1,5 +1,5 @@
 import apiClient from './api-client';
-import { TorrentStatus, TorrentRequest, TorrentAction, CatalogTorrentRequest } from '@/types';
+import { TorrentStatus, TorrentRequest, TorrentAction, TorrentBatchActionType, TorrentBatchResponse, CatalogTorrentRequest } from '@/types';
 
 export const torrentsService = {
   // Download a movie (legacy YTS-shaped request)
@@ -28,8 +28,8 @@ export const torrentsService = {
     return response.data;
   },
 
-  // Perform action on torrent (pause, resume, stop, remove)
-  performTorrentAction: async (torrentId: string, action: string): Promise<any> => {
+  // Perform action on torrent (pause | resume)
+  performTorrentAction: async (torrentId: string, action: TorrentAction): Promise<any> => {
     const response = await apiClient.post(`/torrents/action/${torrentId}`, { action });
     return response.data;
   },
@@ -39,6 +39,15 @@ export const torrentsService = {
     const response = await apiClient.delete(`/torrents/${torrentId}`, {
       params: { delete_files: deleteFiles }
     });
+    return response.data;
+  },
+
+  // Batch action across torrents (pause/resume all, clear completed, retry errored)
+  batchAction: async (
+    action: TorrentBatchActionType,
+    deleteFiles = false,
+  ): Promise<TorrentBatchResponse> => {
+    const response = await apiClient.post(`/torrents/batch`, { action, delete_files: deleteFiles });
     return response.data;
   },
   

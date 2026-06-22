@@ -7,7 +7,7 @@ vi.mock('@/context/UserContext', () => ({
   useUser: () => ({ currentUser: { id: '1', display_name: 'Ben', avatar: null }, logout: vi.fn() }),
 }));
 vi.mock('@/services/activity', () => ({
-  activityService: { getCount: vi.fn().mockResolvedValue({ active_downloads: 0, aggregate_progress: 0 }) },
+  activityService: { getCount: vi.fn().mockResolvedValue({ active_downloads: 0, aggregate_progress: 0, max_active_downloads: 2 }) },
 }));
 
 import TopNav from './TopNav';
@@ -17,7 +17,7 @@ const mockGetCount = vi.mocked(activityService.getCount);
 
 describe('TopNav', () => {
   beforeEach(() => {
-    mockGetCount.mockResolvedValue({ active_downloads: 0, aggregate_progress: 0 });
+    mockGetCount.mockResolvedValue({ active_downloads: 0, aggregate_progress: 0, max_active_downloads: 2 });
   });
 
   it('renders the four primary links and marks the active one', async () => {
@@ -44,7 +44,7 @@ describe('TopNav', () => {
   });
 
   it('shows the activity pill with the correct download count when there are active downloads', async () => {
-    mockGetCount.mockResolvedValue({ active_downloads: 3, aggregate_progress: 45.5 });
+    mockGetCount.mockResolvedValue({ active_downloads: 3, aggregate_progress: 45.5, max_active_downloads: 2 });
     await act(async () => { render(<TopNav />); });
     await waitFor(() => {
       const activityLink = screen.getByRole('link', { name: /activity: 3 active downloads/i });
@@ -59,7 +59,7 @@ describe('TopNav', () => {
   });
 
   it('shows singular label for exactly 1 active download', async () => {
-    mockGetCount.mockResolvedValue({ active_downloads: 1, aggregate_progress: 20 });
+    mockGetCount.mockResolvedValue({ active_downloads: 1, aggregate_progress: 20, max_active_downloads: 2 });
     await act(async () => { render(<TopNav />); });
     await waitFor(() => {
       expect(screen.getByRole('link', { name: /activity: 1 active download$/i })).toBeInTheDocument();

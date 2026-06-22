@@ -41,11 +41,8 @@ describe('useSearchUrlState', () => {
     it('uses defaults when no search params are present', () => {
       const { result } = renderSearchHook();
       expect(result.current.state).toEqual({
-        q: '',
-        type: 'all',
-        genre: 0,
-        year: 0,
-        sort: '',
+        q: '', type: 'all', genre: 0, year: 0, sort: '',
+        provider: 0, origin: '', company: 0, collection: 0, api: '',
       });
     });
 
@@ -98,7 +95,21 @@ describe('useSearchUrlState', () => {
         genre: 878,
         year: 2021,
         sort: 'vote_average.desc',
+        provider: 0,
+        origin: '',
+        company: 0,
+        collection: 0,
+        api: '',
       });
+    });
+
+    it('hydrates the new discover dimensions', () => {
+      const { result } = renderSearchHook({ provider: '8', origin: 'KR', company: '420', collection: '86311', api: 'best_2025' });
+      expect(result.current.state.provider).toBe(8);
+      expect(result.current.state.origin).toBe('KR');
+      expect(result.current.state.company).toBe(420);
+      expect(result.current.state.collection).toBe(86311);
+      expect(result.current.state.api).toBe('best_2025');
     });
   });
 
@@ -214,6 +225,22 @@ describe('useSearchUrlState', () => {
 
       const url: string = mockReplace.mock.calls[0][0];
       expect(url).toBe('/search?q=dune&type=movie&genre=878');
+    });
+
+    it('serialises provider + origin into the URL', () => {
+      const { result } = renderSearchHook();
+      act(() => { result.current.setState({ provider: 8, origin: 'KR' }); });
+      const url: string = mockReplace.mock.calls[0][0];
+      expect(url).toContain('provider=8');
+      expect(url).toContain('origin=KR');
+    });
+
+    it('omits provider when 0 and origin when empty', () => {
+      const { result } = renderSearchHook({ provider: '8', origin: 'KR' });
+      act(() => { result.current.setState({ provider: 0, origin: '' }); });
+      const url: string = mockReplace.mock.calls[0][0];
+      expect(url).not.toContain('provider=');
+      expect(url).not.toContain('origin=');
     });
   });
 });

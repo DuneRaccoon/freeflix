@@ -21,7 +21,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/cn';
 import { Pill } from '@/components/ui/fre';
-import { GENRE_OPTIONS, SORT_OPTIONS, YEAR_OPTIONS } from '@/types';
+import { GENRE_OPTIONS, SORT_OPTIONS, YEAR_OPTIONS, PROVIDER_OPTIONS, ORIGIN_OPTIONS, COMPANY_OPTIONS, COLLECTION_OPTIONS, BEST_OF_OPTIONS } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,7 +32,12 @@ export interface SearchFiltersProps {
   genre: number;
   year: number;
   sort: string;
-  onChange: (partial: Partial<{ type: 'all' | 'movie' | 'tv'; genre: number; year: number; sort: string }>) => void;
+  provider: number;
+  origin: string;
+  company: number;
+  collection: number;
+  api: string;
+  onChange: (partial: Partial<{ type: 'all' | 'movie' | 'tv'; genre: number; year: number; sort: string; provider: number; origin: string; company: number; collection: number; api: string }>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +215,11 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
   genre,
   year,
   sort,
+  provider,
+  origin,
+  company,
+  collection,
+  api,
   onChange,
 }) => {
   return (
@@ -278,6 +288,55 @@ const SearchFilters: React.FC<SearchFiltersProps> = ({
         defaultLabel="Popular"
         aria-label="Sort by"
       />
+
+      {/* ── Streaming chip (provider/network) ── */}
+      <FilterChip
+        label="Streaming"
+        value={provider}
+        options={PROVIDER_OPTIONS}
+        onSelect={(v) => onChange({ provider: v })}
+        aria-label="Streaming filter"
+      />
+
+      {/* ── Origin chip (+ Anime) ── */}
+      <FilterChip
+        label="Origin"
+        value={origin}
+        options={ORIGIN_OPTIONS}
+        onSelect={(v) => onChange({ origin: v })}
+        defaultLabel="Anywhere"
+        aria-label="Origin filter"
+      />
+
+      {/* ── Best of year chip (feed; suppresses discover filters) ── */}
+      <FilterChip
+        label="Best of"
+        value={api}
+        options={BEST_OF_OPTIONS}
+        onSelect={(v) => onChange({ api: v })}
+        defaultLabel="Any Year"
+        aria-label="Best of year filter"
+      />
+
+      {/* ── Studio + Collection (movie-only) ── */}
+      {type === 'movie' && (
+        <>
+          <FilterChip
+            label="Studio"
+            value={company}
+            options={COMPANY_OPTIONS}
+            onSelect={(v) => onChange({ company: v })}
+            aria-label="Studio filter"
+          />
+          <FilterChip
+            label="Saga"
+            value={collection}
+            options={COLLECTION_OPTIONS}
+            onSelect={(v) => onChange({ collection: v })}
+            aria-label="Collection filter"
+          />
+        </>
+      )}
     </div>
   );
 };

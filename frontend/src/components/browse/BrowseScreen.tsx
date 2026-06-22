@@ -33,6 +33,7 @@ import ContinueWatchingRow from './ContinueWatchingRow';
 import Row from './Row';
 import RankedRow from './RankedRow';
 import PosterCard from './PosterCard';
+import { FeedIdentity, resolveFeedTheme } from '@/lib/feedThemes';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +52,8 @@ export interface RowConfig {
   items: CatalogItem[];
   /** 'poster' = Row + PosterCard grid; 'ranked' = RankedRow with numerals */
   variant?: 'poster' | 'ranked';
+  /** Curated-feed identity used to resolve a per-feed theme. */
+  feed?: FeedIdentity;
 }
 
 export interface BrowseScreenProps {
@@ -93,6 +96,8 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
 
       {/* ── 4. Content rows ── */}
       {visibleRows.map((row) => {
+        const theme = resolveFeedTheme(row.feed);
+
         if (row.variant === 'ranked') {
           return (
             <RankedRow
@@ -101,6 +106,7 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
               eyebrow={row.eyebrow}
               items={row.items}
               seeAllHref={row.seeAllHref}
+              theme={theme}
             />
           );
         }
@@ -112,6 +118,7 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
             title={row.title}
             eyebrow={row.eyebrow}
             seeAllHref={row.seeAllHref}
+            theme={theme}
           >
             {row.items.map((item) => (
               <PosterCard key={item.tmdb_id} item={item} />

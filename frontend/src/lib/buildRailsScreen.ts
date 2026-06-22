@@ -3,6 +3,7 @@ import { RowConfig } from '@/components/browse/BrowseScreen';
 import { railsService, RailSpec } from '@/services/rails';
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
+import { feedIdentityFromParams, feedIdentityFromKey } from '@/lib/feedThemes';
 
 const emptyPage: CatalogPage = { page: 1, results: [], total_pages: 0, total_results: 0 };
 
@@ -52,6 +53,7 @@ export async function buildRailsScreen(
     variant: r.variant,
     seeAllHref: r.see_all_href,
     items: pages[i].results,
+    feed: feedIdentityFromParams(r.params) ?? feedIdentityFromKey(r.key),
   }));
 
   return {

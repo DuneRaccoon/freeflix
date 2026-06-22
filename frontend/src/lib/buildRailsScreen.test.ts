@@ -50,4 +50,17 @@ describe('buildRailsScreen', () => {
     expect(screen.rows.length).toBeGreaterThan(0);
     expect(screen.rows[0].title).toBe('Trending Movies');
   });
+
+  it('derives a feed identity for curated marquee rails and leaves others undefined', async () => {
+    (railsService.getRails as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { key: 'company-420', title: 'Marvel Studios', params: { company: 420, api: 'popular' } },
+      { key: 'collection-748', title: 'X-Men', params: { collection: 748 } },
+      { key: 'genre-28', title: 'Action', params: { genres: '28' } },
+    ]);
+    const screen = await buildRailsScreen('movie');
+    const byTitle = Object.fromEntries(screen.rows.map((r) => [r.title, r.feed]));
+    expect(byTitle['Marvel Studios']).toEqual({ type: 'company', id: '420' });
+    expect(byTitle['X-Men']).toEqual({ type: 'collection', id: '748' });
+    expect(byTitle['Action']).toBeUndefined();
+  });
 });

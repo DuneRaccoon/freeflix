@@ -62,9 +62,9 @@ describe('HomeBrowse', () => {
   it('uses buildMixedRailsScreen to fetch mixed movie and tv content', async () => {
     render(<HomeBrowse />);
     await screen.findByTestId('mock-browse-screen');
-    // buildMixedRailsScreen is now called with no arguments and fetches both movies and TV
-    const rows = (await screen.findAllByTestId('mock-row-title')).map((e) => e.textContent);
-    expect(rows.length).toBeGreaterThan(0);
+    // buildMixedRailsScreen fetches from BOTH services to blend movies + series
+    expect(moviesService.browse).toHaveBeenCalled();
+    expect(tvService.browse).toHaveBeenCalled();
   });
 
   it('passes the first popular item as the hero', async () => {

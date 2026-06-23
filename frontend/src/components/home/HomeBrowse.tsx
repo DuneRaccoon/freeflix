@@ -3,7 +3,7 @@
 /**
  * HomeBrowse — Home page content component.
  *
- * Uses buildRailsScreen to fetch planner-driven carousels.
+ * Uses buildMixedRailsScreen to fetch mixed movies + series carousels.
  * Shows a skeleton while loading, then renders <BrowseScreen/>.
  */
 

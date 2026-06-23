@@ -536,6 +536,13 @@ class WatchlistItemResponse(BaseModel):
     created_at: datetime
 
 
+class WatchlistItemUpdate(BaseModel):
+    title: Optional[str] = None
+    poster_url: Optional[str] = None
+    year: Optional[int] = None
+    vote_average: Optional[float] = None
+
+
 # Activity models
 class ActivityCountResponse(BaseModel):
     """Active-download summary returned by GET /api/v1/activity/count."""

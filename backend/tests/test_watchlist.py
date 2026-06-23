@@ -285,3 +285,29 @@ def test_add_persists_and_returns_metadata(client, test_user):
     assert data["poster_url"] == "https://image.tmdb.org/t/p/w500/fc.jpg"
     assert data["year"] == 1999
     assert data["vote_average"] == 8.4
+
+
+def test_patch_updates_metadata(client, test_user):
+    client.post(
+        f"/api/v1/watchlist/{test_user.id}/add",
+        json={"content_id": "movie:680", "tmdb_id": "680",
+              "media_type": "movie", "title": "Pulp Fiction"},
+    )
+    resp = client.patch(
+        f"/api/v1/watchlist/{test_user.id}/movie:680",
+        json={"poster_url": "https://image.tmdb.org/t/p/w500/pf.jpg",
+              "year": 1994, "vote_average": 8.5},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["poster_url"] == "https://image.tmdb.org/t/p/w500/pf.jpg"
+    assert data["year"] == 1994
+    assert data["vote_average"] == 8.5
+
+
+def test_patch_unknown_returns_404(client, test_user):
+    resp = client.patch(
+        f"/api/v1/watchlist/{test_user.id}/movie:000000",
+        json={"poster_url": "x"},
+    )
+    assert resp.status_code == 404

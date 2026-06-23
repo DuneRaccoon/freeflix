@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from app.database.session import get_db
 from app.database.models import User
 from app.database.models.watchlist import UserWatchlist
-from app.models import WatchlistItemCreate, WatchlistItemResponse
+from app.models import WatchlistItemCreate, WatchlistItemResponse, WatchlistItemUpdate
 
 router = APIRouter()
 
@@ -66,6 +66,27 @@ async def remove_from_watchlist(
         session.delete(entry)
         session.commit()
         return {"message": "Removed from watchlist"}
+
+
+@router.patch("/{user_id}/{content_id}", response_model=WatchlistItemResponse)
+async def update_watchlist_item(
+    user_id: str,
+    content_id: str,
+    patch: WatchlistItemUpdate,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Patch display metadata (poster/year/rating/title) on a saved item."""
+    with db as session:
+        entry = UserWatchlist.find(session, user_id, content_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Item not in watchlist")
+
+        updates = patch.model_dump(exclude_unset=True)
+        for field, value in updates.items():
+            setattr(entry, field, value)
+        session.commit()
+        session.refresh(entry)
+        return WatchlistItemResponse.model_validate(entry)
 
 
 @router.get("/{user_id}", response_model=List[WatchlistItemResponse])

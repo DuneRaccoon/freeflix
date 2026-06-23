@@ -151,7 +151,7 @@ const FeaturedRail: React.FC<FeaturedRailProps> = ({ items, showMediaType }) => 
               {showMediaType && (
                 <MediaTypeBadge
                   mediaType={item.media_type}
-                  className="absolute top-3.5 right-3.5 z-[2]"
+                  className="absolute top-3.5 right-3.5 z-[2] pointer-events-none"
                 />
               )}
 

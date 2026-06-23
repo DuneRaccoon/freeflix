@@ -210,6 +210,27 @@ describe('RankedRow', () => {
 
     errSpy.mockRestore();
   });
+
+  // ── Media-type badge (mixed home page only) ─────────────────────────────────
+  describe('media-type badge', () => {
+    it('is absent by default (single-type hubs stay clean)', () => {
+      render(<RankedRow title="Top 10" items={movieItems} />);
+      expect(screen.queryAllByTestId('media-type-badge')).toHaveLength(0);
+    });
+
+    it('marks each poster with its type when showMediaType is set', () => {
+      render(
+        <RankedRow
+          title="Top 10"
+          items={[makeItem(1, 'A Film', 'movie'), makeItem(101, 'A Show', 'tv')]}
+          showMediaType
+        />,
+      );
+      const badges = screen.getAllByTestId('media-type-badge');
+      expect(badges).toHaveLength(2);
+      expect(badges.map((b) => b.textContent)).toEqual(['Film', 'Series']);
+    });
+  });
 });
 
 const items: CatalogItem[] = [

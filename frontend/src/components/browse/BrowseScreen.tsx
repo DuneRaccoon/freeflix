@@ -121,7 +121,7 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
             theme={theme}
           >
             {row.items.map((item) => (
-              <PosterCard key={item.tmdb_id} item={item} />
+              <PosterCard key={`${item.media_type}-${item.tmdb_id}`} item={item} />
             ))}
           </Row>
         );

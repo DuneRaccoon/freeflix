@@ -515,6 +515,9 @@ class WatchlistItemCreate(BaseModel):
     tmdb_id: str
     media_type: str   # "movie" | "tv"
     title: Optional[str] = None
+    poster_url: Optional[str] = None
+    year: Optional[int] = None
+    vote_average: Optional[float] = None
 
 
 class WatchlistItemResponse(BaseModel):
@@ -526,8 +529,18 @@ class WatchlistItemResponse(BaseModel):
     tmdb_id: str
     media_type: str
     title: Optional[str] = None
+    poster_url: Optional[str] = None
+    year: Optional[int] = None
+    vote_average: Optional[float] = None
     added_at: datetime
     created_at: datetime
+
+
+class WatchlistItemUpdate(BaseModel):
+    title: Optional[str] = None
+    poster_url: Optional[str] = None
+    year: Optional[int] = None
+    vote_average: Optional[float] = None
 
 
 # Activity models

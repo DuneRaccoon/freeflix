@@ -18,13 +18,24 @@ vi.mock('@/context/UserContext', () => ({
 const mockAdd = vi.fn();
 const mockRemove = vi.fn();
 const mockList = vi.fn();
+const mockUpdate = vi.fn();
 
 vi.mock('@/services/watchlist', () => ({
   watchlistService: {
     add: (...args: unknown[]) => mockAdd(...args),
     remove: (...args: unknown[]) => mockRemove(...args),
     list: (...args: unknown[]) => mockList(...args),
+    update: (...args: unknown[]) => mockUpdate(...args),
   },
+}));
+
+const mockGetDetail = vi.fn();
+const mockGetShow = vi.fn();
+vi.mock('@/services/movies', () => ({
+  moviesService: { getDetail: (...a: unknown[]) => mockGetDetail(...a) },
+}));
+vi.mock('@/services/tv', () => ({
+  tvService: { getShow: (...a: unknown[]) => mockGetShow(...a) },
 }));
 
 // ---------------------------------------------------------------------------
@@ -67,6 +78,9 @@ function renderWithProvider(contentId?: string) {
 describe('WatchlistContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetDetail.mockResolvedValue({ poster_url: 'p.jpg', year: 1999, vote_average: 8.4, title: 'X' });
+    mockGetShow.mockResolvedValue({ poster_url: 'p.jpg', year: 2011, vote_average: 8.4, name: 'X' });
+    mockUpdate.mockResolvedValue({});
   });
 
   it('loads the watchlist on mount and is no longer loading', async () => {
@@ -156,6 +170,34 @@ describe('WatchlistContext', () => {
     expect(mockRemove).toHaveBeenCalledWith('user-1', 'movie:1');
     await waitFor(() => expect(screen.getByTestId('saved').textContent).toBe('false'));
     expect(screen.getByTestId('count').textContent).toBe('0');
+  });
+
+  it('hydrates a saved item that is missing poster metadata', async () => {
+    mockList.mockResolvedValueOnce([
+      { id: 'w1', user_id: 'user-1', content_id: 'movie:550', tmdb_id: '550',
+        media_type: 'movie', title: 'Fight Club',
+        added_at: new Date().toISOString(), created_at: new Date().toISOString() },
+    ]);
+    mockGetDetail.mockResolvedValueOnce({ poster_url: 'fc.jpg', year: 1999, vote_average: 8.4, title: 'Fight Club' });
+
+    renderWithProvider('movie:550');
+    await waitFor(() => expect(mockGetDetail).toHaveBeenCalledWith(550));
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith('user-1', 'movie:550', {
+        poster_url: 'fc.jpg', year: 1999, vote_average: 8.4, title: 'Fight Club',
+      }),
+    );
+  });
+
+  it('does not hydrate items that already have a poster_url', async () => {
+    mockList.mockResolvedValueOnce([
+      { id: 'w2', user_id: 'user-1', content_id: 'movie:551', tmdb_id: '551',
+        media_type: 'movie', title: 'X', poster_url: 'already.jpg',
+        added_at: new Date().toISOString(), created_at: new Date().toISOString() },
+    ]);
+    renderWithProvider('movie:551');
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+    expect(mockGetDetail).not.toHaveBeenCalled();
   });
 
   it('useWatchlist throws when used outside WatchlistProvider', () => {

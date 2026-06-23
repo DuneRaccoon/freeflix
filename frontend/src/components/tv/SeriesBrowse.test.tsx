@@ -2,15 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import SeriesBrowse from './SeriesBrowse';
 
+const mockWatchlistItems: Array<{
+  id: string; user_id: string; content_id: string; tmdb_id: string;
+  media_type: 'movie' | 'tv'; title: string; added_at: string; created_at: string;
+}> = [];
+vi.mock('@/context/WatchlistContext', () => ({
+  useWatchlist: () => ({ items: mockWatchlistItems }),
+}));
+
 vi.mock('@/context/UserContext', () => ({ useUser: () => ({ currentUser: { id: 'u1' } }) }));
 vi.mock('@/services/rails', () => ({ railsService: { getRails: vi.fn() } }));
 vi.mock('@/services/movies', () => ({ moviesService: { browse: vi.fn() } }));
 vi.mock('@/services/tv', () => ({ tvService: { browse: vi.fn() } }));
 vi.mock('@/components/browse/BrowseScreen', () => ({
-  default: ({ hero, rows }: { hero?: { title: string }; rows: Array<{ title: string }> }) => (
+  default: ({ hero, rows }: { hero?: { title: string }; rows: Array<{ title: string; items?: unknown[] }> }) => (
     <div data-testid="mock-browse-screen">
       {hero && <h1 data-testid="mock-hero-title">{hero.title}</h1>}
-      {rows.map((r) => (<h2 key={r.title} data-testid="mock-row-title">{r.title}</h2>))}
+      {rows.map((r) => (<h2 key={r.title} data-testid="mock-row-title" data-count={(r.items ?? []).length}>{r.title}</h2>))}
     </div>
   ),
 }));
@@ -27,6 +35,7 @@ const page = (items: ReturnType<typeof item>[]) => ({ page: 1, results: items, t
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockWatchlistItems.length = 0;
   (railsService.getRails as ReturnType<typeof vi.fn>).mockResolvedValue([
     { key: 'trending', title: 'Trending Series', params: { api: 'popular' }, see_all_href: '/tv' },
     { key: 'top-rated', title: 'Top Rated Series', eyebrow: 'Critically acclaimed', variant: 'ranked', params: { api: 'top_rated' } },
@@ -80,5 +89,24 @@ describe('SeriesBrowse', () => {
     expect(screen.getByTestId('series-skeleton')).toBeInTheDocument();
     resolveAll();
     await screen.findByTestId('mock-browse-screen');
+  });
+
+  it('injects a "My List" row after the first rail', async () => {
+    mockWatchlistItems.push(
+      { id: 'w2', user_id: 'u1', content_id: 'tv:2', tmdb_id: '2', media_type: 'tv', title: 'T', added_at: '', created_at: '' },
+    );
+    render(<SeriesBrowse />);
+    const titles = (await screen.findAllByTestId('mock-row-title')).map((e) => e.textContent);
+    expect(titles[1]).toBe('My List');
+  });
+
+  it('the Series My List row only includes tv', async () => {
+    mockWatchlistItems.push(
+      { id: 'w1', user_id: 'u1', content_id: 'movie:1', tmdb_id: '1', media_type: 'movie', title: 'M', added_at: '', created_at: '' },
+      { id: 'w2', user_id: 'u1', content_id: 'tv:2', tmdb_id: '2', media_type: 'tv', title: 'T', added_at: '', created_at: '' },
+    );
+    render(<SeriesBrowse />);
+    const myList = (await screen.findAllByTestId('mock-row-title')).find((e) => e.textContent === 'My List')!;
+    expect(myList.getAttribute('data-count')).toBe('1');
   });
 });

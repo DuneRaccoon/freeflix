@@ -30,6 +30,7 @@ import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { buildContentId } from '@/lib/contentId';
+import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 
 export interface HeroProps {
   item: CatalogItem;
@@ -125,12 +126,7 @@ const Hero: React.FC<HeroProps> = ({ item }) => {
   const saved = isSaved(contentId);
 
   function handleMyList() {
-    toggle({
-      content_id: contentId,
-      tmdb_id: String(item.tmdb_id),
-      media_type: item.media_type as 'movie' | 'tv',
-      title: item.title,
-    });
+    toggle(toWatchlistCreate(item));
   }
 
   return (

@@ -1,8 +1,10 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useUser } from '@/context/UserContext';
-import { watchlistService, WatchlistItem, WatchlistItemCreate } from '@/services/watchlist';
+import { watchlistService, WatchlistItem, WatchlistItemCreate, WatchlistItemUpdate } from '@/services/watchlist';
+import { moviesService } from '@/services/movies';
+import { tvService } from '@/services/tv';
 
 type WatchlistContextType = {
   /** Ordered list of saved items (newest first). */
@@ -89,6 +91,9 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           tmdb_id: item.tmdb_id,
           media_type: item.media_type,
           title: item.title ?? null,
+          poster_url: item.poster_url ?? null,
+          year: item.year ?? null,
+          vote_average: item.vote_average ?? null,
           added_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
         };
@@ -113,6 +118,64 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     },
     [currentUser, savedIds, refresh],
   );
+
+  // Lazy backfill: older saved rows (and any save predating metadata retention)
+  // have no poster_url. Hydrate them from the catalog API once, patch them in
+  // memory for an immediate correct render, and persist the result so future
+  // loads — and the Home/Movies/Series carousels — are correct.
+  const healedRef = useRef<Set<string>>(new Set());
+
+  async function hydrateItem(userId: string, item: WatchlistItem) {
+    try {
+      const tmdbId = Number(item.tmdb_id);
+      let patch: WatchlistItemUpdate;
+      if (item.media_type === 'tv') {
+        const show = await tvService.getShow(tmdbId);
+        patch = {
+          poster_url: show.poster_url,
+          year: show.year,
+          vote_average: show.vote_average,
+          title: item.title ?? show.name,
+        };
+      } else {
+        const movie = await moviesService.getDetail(tmdbId);
+        patch = {
+          poster_url: movie.poster_url,
+          year: movie.year,
+          vote_average: movie.vote_average,
+          title: item.title ?? movie.title,
+        };
+      }
+      setItems((prev) =>
+        prev.map((i) => (i.content_id === item.content_id ? { ...i, ...patch } : i)),
+      );
+      await watchlistService.update(userId, item.content_id, patch);
+    } catch (err) {
+      console.error('WatchlistContext: failed to hydrate item', item.content_id, err);
+    }
+  }
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const userId = currentUser.id;
+    // poster_url is the heal sentinel: a healed row always gets poster_url set
+    // (even to null if TMDB has none), and healedRef then blocks re-entry — so
+    // year/vote_average are intentionally NOT part of the trigger.
+    const needsHeal = items.filter(
+      (i) =>
+        !i.poster_url &&
+        !i.id.startsWith('optimistic-') &&
+        !healedRef.current.has(i.content_id),
+    );
+    if (needsHeal.length === 0) return;
+    needsHeal.forEach((item) => {
+      healedRef.current.add(item.content_id);
+      hydrateItem(userId, item);
+    });
+    // hydrateItem is recreated each render but the effect intentionally depends
+    // only on items + currentUser; healedRef prevents duplicate hydration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, currentUser]);
 
   return (
     <WatchlistContext.Provider

@@ -27,6 +27,7 @@ import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { buildContentId } from '@/lib/contentId';
+import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 
 import DetailHero from '@/components/detail/DetailHero';
 import SourcePicker from '@/components/detail/SourcePicker';
@@ -179,12 +180,7 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
   const saved = isSaved(contentId);
 
   function handleMyList() {
-    toggle({
-      content_id: contentId,
-      tmdb_id: String(movie.tmdb_id),
-      media_type: 'movie',
-      title: movie.title,
-    });
+    toggle(toWatchlistCreate(movie));
   }
 
   // ── on mount: fetch torrents + "more like this" ────────────────────────────

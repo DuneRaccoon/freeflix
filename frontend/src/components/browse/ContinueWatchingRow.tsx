@@ -224,7 +224,7 @@ const ContinueWatchingRow: React.FC = () => {
 
         <div className="flex items-center gap-3.5 max-sm:gap-2">
           <a
-            href="/my-movies"
+            href="/my-list"
             className={cn(
               'text-[12px] tracking-[.04em] text-muted no-underline',
               'inline-flex items-center gap-1.5 whitespace-nowrap',

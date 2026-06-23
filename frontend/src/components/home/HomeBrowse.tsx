@@ -10,7 +10,9 @@
 import React, { useEffect, useState } from 'react';
 import { CatalogItem } from '@/types';
 import { useUser } from '@/context/UserContext';
+import { useWatchlist } from '@/context/WatchlistContext';
 import { buildRailsScreen } from '@/lib/buildRailsScreen';
+import { buildWatchlistRow, insertWatchlistRow } from '@/lib/watchlist/watchlistRow';
 import BrowseScreen, { RowConfig } from '@/components/browse/BrowseScreen';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,7 @@ function HomeSkeleton() {
 
 export default function HomeBrowse() {
   const { currentUser } = useUser();
+  const { items: watchlistItems } = useWatchlist();
   const [isLoading, setIsLoading] = useState(true);
   const [hero, setHero] = useState<CatalogItem | undefined>(undefined);
   const [featured, setFeatured] = useState<CatalogItem[]>([]);
@@ -89,7 +92,9 @@ export default function HomeBrowse() {
 
   if (isLoading) return <HomeSkeleton />;
 
+  const displayRows = insertWatchlistRow(rows, buildWatchlistRow(watchlistItems, 'all'));
+
   return (
-    <BrowseScreen hero={hero} featured={featured} rows={rows} showContinueWatching />
+    <BrowseScreen hero={hero} featured={featured} rows={displayRows} showContinueWatching />
   );
 }

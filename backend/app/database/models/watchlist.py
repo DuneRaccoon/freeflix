@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, String, UniqueConstraint, func
+    Column, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func
 )
 from sqlalchemy.orm import relationship, Session
 import datetime
@@ -29,6 +29,12 @@ class UserWatchlist(Model):
     tmdb_id = Column(String, nullable=False)
     media_type = Column(String, nullable=False)   # "movie" | "tv"
     title = Column(String, nullable=True)
+
+    # Denormalised display metadata (nullable; legacy rows backfilled lazily
+    # via WatchlistContext auto-heal). sync_columns adds these on startup.
+    poster_url = Column(String, nullable=True)
+    year = Column(Integer, nullable=True)
+    vote_average = Column(Float, nullable=True)
 
     added_at = Column(
         DateTime,

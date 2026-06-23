@@ -6,6 +6,9 @@ export interface WatchlistItemCreate {
   tmdb_id: string;
   media_type: 'movie' | 'tv';
   title?: string;
+  poster_url?: string | null;
+  year?: number | null;
+  vote_average?: number | null;
 }
 
 export interface WatchlistItem {
@@ -15,8 +18,18 @@ export interface WatchlistItem {
   tmdb_id: string;
   media_type: string;
   title?: string | null;
+  poster_url?: string | null;
+  year?: number | null;
+  vote_average?: number | null;
   added_at: string;
   created_at: string;
+}
+
+export interface WatchlistItemUpdate {
+  title?: string | null;
+  poster_url?: string | null;
+  year?: number | null;
+  vote_average?: number | null;
 }
 
 export const watchlistService = {
@@ -42,6 +55,21 @@ export const watchlistService = {
    */
   list: async (userId: string): Promise<WatchlistItem[]> => {
     const response = await apiClient.get(`/watchlist/${userId}`);
+    return response.data;
+  },
+
+  /**
+   * Patch display metadata (poster/year/rating/title) on a saved item.
+   */
+  update: async (
+    userId: string,
+    contentId: string,
+    patch: WatchlistItemUpdate,
+  ): Promise<WatchlistItem> => {
+    const response = await apiClient.patch(
+      `/watchlist/${userId}/${encodeURIComponent(contentId)}`,
+      patch,
+    );
     return response.data;
   },
 };

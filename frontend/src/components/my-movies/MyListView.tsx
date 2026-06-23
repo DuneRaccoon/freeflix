@@ -12,40 +12,12 @@
  * toggle button — no extra wiring needed here.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useWatchlist } from '@/context/WatchlistContext';
 import PosterCard from '@/components/browse/PosterCard';
 import { cn } from '@/lib/cn';
-import type { CatalogItem } from '@/types';
-import type { WatchlistItem } from '@/services/watchlist';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Converts a WatchlistItem into the minimal CatalogItem shape that PosterCard
- * needs.  Fields we don't store on the watchlist (poster_url, year, vote_average,
- * etc.) are left null / 0 so PosterCard falls back gracefully.
- */
-function watchlistItemToCatalogItem(item: WatchlistItem): CatalogItem {
-  return {
-    tmdb_id: Number(item.tmdb_id),
-    media_type: (item.media_type as 'movie' | 'tv') ?? 'movie',
-    title: item.title ?? '—',
-    year: null,
-    overview: null,
-    poster_url: null,
-    backdrop_url: null,
-    genre_ids: [],
-    genres: [],
-    vote_average: 0,
-    vote_count: 0,
-    popularity: 0,
-    original_language: null,
-  };
-}
+import { watchlistItemToCatalogItem } from '@/lib/watchlist/toCatalogItem';
 
 // ---------------------------------------------------------------------------
 // Skeleton placeholder
@@ -144,11 +116,27 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
+// Filter tabs
+// ---------------------------------------------------------------------------
+
+type ListFilter = 'all' | 'movie' | 'tv';
+
+const TABS: { id: ListFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'movie', label: 'Movies' },
+  { id: 'tv', label: 'Series' },
+];
+
+// ---------------------------------------------------------------------------
 // Main view
 // ---------------------------------------------------------------------------
 
 const MyListView: React.FC = () => {
   const { items, isLoading } = useWatchlist();
+  const [filter, setFilter] = useState<ListFilter>('all');
+
+  const visibleItems =
+    filter === 'all' ? items : items.filter((i) => i.media_type === filter);
 
   return (
     <div
@@ -163,24 +151,56 @@ const MyListView: React.FC = () => {
         <h1 className="font-display font-normal text-[40px] leading-none tracking-[-0.025em] text-text m-0 max-sm:text-[30px]">
           My List
         </h1>
-        {!isLoading && items.length > 0 && (
+        {!isLoading && visibleItems.length > 0 && (
           <p className="mt-3 text-[13px] text-muted">
-            {items.length} {items.length === 1 ? 'title' : 'titles'} saved
+            {visibleItems.length} {visibleItems.length === 1 ? 'title' : 'titles'} saved
           </p>
         )}
       </header>
 
+      {/* ── Type filter tabs ── */}
+      {!isLoading && items.length > 0 && (
+        <div
+          role="tablist"
+          aria-label="Filter saved titles"
+          data-testid="my-list-tabs"
+          className="mb-8 inline-flex gap-1 rounded-full border border-hairline bg-surface/60 p-1"
+        >
+          {TABS.map((tab) => {
+            const active = filter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                data-testid={`my-list-tab-${tab.id}`}
+                onClick={() => setFilter(tab.id)}
+                className={cn(
+                  'rounded-full px-4 py-1.5 font-ui text-[13px] font-medium tracking-[0.01em]',
+                  'transition-[background-color,color] duration-200',
+                  'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+                  active ? 'bg-gold text-ink' : 'text-muted hover:text-text',
+                )}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── Content ── */}
       {isLoading ? (
         <MyListSkeleton />
-      ) : items.length === 0 ? (
+      ) : items.length === 0 || visibleItems.length === 0 ? (
         <EmptyState />
       ) : (
         <div
           data-testid="my-list-grid"
           className="flex flex-wrap gap-x-5 gap-y-10"
         >
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <PosterCard
               key={item.content_id}
               item={watchlistItemToCatalogItem(item)}

@@ -26,6 +26,7 @@ import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { buildContentId } from '@/lib/contentId';
+import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 
 import DetailHero from '@/components/detail/DetailHero';
 import EpisodeList from '@/components/tv/EpisodeList';
@@ -152,12 +153,7 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
   const saved = isSaved(contentId);
 
   function handleMyList() {
-    toggle({
-      content_id: contentId,
-      tmdb_id: String(show.tmdb_id),
-      media_type: 'tv',
-      title: show.name,
-    });
+    toggle(toWatchlistCreate({ ...show, title: show.name }));
   }
 
   // ── on mount: fetch "more like this" ───────────────────────────────────────

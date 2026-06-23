@@ -11,7 +11,7 @@ import React, { useEffect, useState } from 'react';
 import { CatalogItem } from '@/types';
 import { useUser } from '@/context/UserContext';
 import { useWatchlist } from '@/context/WatchlistContext';
-import { buildRailsScreen } from '@/lib/buildRailsScreen';
+import { buildMixedRailsScreen } from '@/lib/buildMixedRailsScreen';
 import { buildWatchlistRow, insertWatchlistRow } from '@/lib/watchlist/watchlistRow';
 import BrowseScreen, { RowConfig } from '@/components/browse/BrowseScreen';
 
@@ -79,7 +79,7 @@ export default function HomeBrowse() {
     let cancelled = false;
     async function load() {
       setIsLoading(true);
-      const screen = await buildRailsScreen('movie', currentUser?.id, 'home');
+      const screen = await buildMixedRailsScreen();
       if (cancelled) return;
       setHero(screen.hero);
       setFeatured(screen.featured);

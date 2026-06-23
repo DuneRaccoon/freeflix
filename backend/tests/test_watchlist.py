@@ -303,6 +303,9 @@ def test_patch_updates_metadata(client, test_user):
     assert data["poster_url"] == "https://image.tmdb.org/t/p/w500/pf.jpg"
     assert data["year"] == 1994
     assert data["vote_average"] == 8.5
+    assert data["title"] == "Pulp Fiction"
+    assert data["content_id"] == "movie:680"
+    assert data["media_type"] == "movie"
 
 
 def test_patch_unknown_returns_404(client, test_user):

@@ -159,4 +159,13 @@ describe('MyListView', () => {
     render(<MyListView />);
     expect(screen.getByTestId('my-list-view')).toBeInTheDocument();
   });
+
+  it('renders the stored poster year and rating for a saved item', () => {
+    mockItems.push(
+      makeItem({ content_id: 'movie:550', tmdb_id: '550', title: 'Fight Club', year: 1999, vote_average: 8.4 }),
+    );
+    render(<MyListView />);
+    expect(screen.getAllByText('1999').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('8.4').length).toBeGreaterThan(0);
+  });
 });

@@ -17,35 +17,7 @@ import Link from 'next/link';
 import { useWatchlist } from '@/context/WatchlistContext';
 import PosterCard from '@/components/browse/PosterCard';
 import { cn } from '@/lib/cn';
-import type { CatalogItem } from '@/types';
-import type { WatchlistItem } from '@/services/watchlist';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Converts a WatchlistItem into the minimal CatalogItem shape that PosterCard
- * needs.  Fields we don't store on the watchlist (poster_url, year, vote_average,
- * etc.) are left null / 0 so PosterCard falls back gracefully.
- */
-function watchlistItemToCatalogItem(item: WatchlistItem): CatalogItem {
-  return {
-    tmdb_id: Number(item.tmdb_id),
-    media_type: (item.media_type as 'movie' | 'tv') ?? 'movie',
-    title: item.title ?? '—',
-    year: null,
-    overview: null,
-    poster_url: null,
-    backdrop_url: null,
-    genre_ids: [],
-    genres: [],
-    vote_average: 0,
-    vote_count: 0,
-    popularity: 0,
-    original_language: null,
-  };
-}
+import { watchlistItemToCatalogItem } from '@/lib/watchlist/toCatalogItem';
 
 // ---------------------------------------------------------------------------
 // Skeleton placeholder

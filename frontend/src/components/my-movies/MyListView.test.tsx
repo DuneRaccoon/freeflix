@@ -197,4 +197,30 @@ describe('MyListView', () => {
     render(<MyListView />);
     expect(screen.queryByTestId('my-list-tabs')).not.toBeInTheDocument();
   });
+
+  it('shows the empty state when the active filter matches no items', async () => {
+    const user = userEvent.setup();
+    mockItems.push(
+      makeItem({ content_id: 'movie:1', tmdb_id: '1', title: 'A Movie', media_type: 'movie' }),
+    );
+    render(<MyListView />);
+    // Switching to Series (no tv items saved) collapses to the empty state,
+    // but the tabs remain visible so the user can switch back.
+    await user.click(screen.getByTestId('my-list-tab-tv'));
+    expect(screen.getByText(/Your list is empty/i)).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-tabs')).toBeInTheDocument();
+    expect(screen.queryByTestId('my-list-grid')).not.toBeInTheDocument();
+  });
+
+  it('filters to series when the Series tab is selected', async () => {
+    const user = userEvent.setup();
+    mockItems.push(
+      makeItem({ content_id: 'movie:1', tmdb_id: '1', title: 'A Movie', media_type: 'movie' }),
+      makeItem({ content_id: 'tv:2', id: 'w2', tmdb_id: '2', title: 'A Series', media_type: 'tv' }),
+    );
+    render(<MyListView />);
+    await user.click(screen.getByTestId('my-list-tab-tv'));
+    expect(screen.getAllByText('A Series').length).toBeGreaterThan(0);
+    expect(screen.queryByText('A Movie')).not.toBeInTheDocument();
+  });
 });

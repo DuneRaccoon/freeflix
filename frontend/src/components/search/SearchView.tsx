@@ -361,6 +361,8 @@ const SearchView: React.FC = () => {
                 isLoading={isLoading}
                 hasMore={canLoadMore}
                 onLoadMore={handleLoadMore}
+                // Mark types only when results actually blend movies + series.
+                showMediaType={state.type === 'all'}
                 emptyLabel={
                   isLoading
                     ? undefined

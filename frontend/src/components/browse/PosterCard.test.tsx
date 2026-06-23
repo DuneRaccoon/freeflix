@@ -91,6 +91,23 @@ describe('PosterCard', () => {
     expect(ratings.length).toBeGreaterThan(0);
   });
 
+  describe('media-type badge', () => {
+    it('is absent by default (single-type pages stay clean)', () => {
+      render(<PosterCard item={movieItem} />);
+      expect(screen.queryByTestId('media-type-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows "Film" for a movie when showMediaType is set', () => {
+      render(<PosterCard item={movieItem} showMediaType />);
+      expect(screen.getByTestId('media-type-badge')).toHaveTextContent('Film');
+    });
+
+    it('shows "Series" for a tv item when showMediaType is set', () => {
+      render(<PosterCard item={tvItem} showMediaType />);
+      expect(screen.getByTestId('media-type-badge')).toHaveTextContent('Series');
+    });
+  });
+
   describe('detail href by media_type', () => {
     it('links to /movies/{tmdb_id} for media_type=movie', () => {
       render(<PosterCard item={movieItem} />);

@@ -9,6 +9,7 @@
  *   hasMore     — when true and onLoadMore is provided, shows "Load more" button
  *   onLoadMore  — callback for Load more
  *   emptyLabel  — message to show when not loading and no items
+ *   showMediaType — mark each card with a movie/series pill (mixed results only)
  */
 
 import React from 'react';
@@ -23,6 +24,8 @@ export interface ResultsGridProps {
   hasMore?: boolean;
   onLoadMore?: () => void;
   emptyLabel?: string;
+  /** Mark each card with a movie/series pill — used when results are mixed. */
+  showMediaType?: boolean;
 }
 
 /** Number of skeleton tiles shown while loading */
@@ -47,6 +50,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
   hasMore = false,
   onLoadMore,
   emptyLabel = 'No results found.',
+  showMediaType = false,
 }) => {
   const showSkeleton = isLoading && items.length === 0;
   const showEmpty = !isLoading && items.length === 0;
@@ -82,6 +86,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
             <PosterCard
               key={`${item.media_type}:${item.tmdb_id}`}
               item={item}
+              showMediaType={showMediaType}
               // Override the fixed width from PosterCard so grid controls column sizing
               className="!w-auto"
             />

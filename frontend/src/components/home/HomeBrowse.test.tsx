@@ -27,6 +27,7 @@ vi.mock('@/components/browse/BrowseScreen', () => ({
 
 import { railsService } from '@/services/rails';
 import { moviesService } from '@/services/movies';
+import { tvService } from '@/services/tv';
 
 function item(id: number, title: string) {
   return { tmdb_id: id, media_type: 'movie' as const, title, year: 2024, overview: '',
@@ -46,6 +47,10 @@ beforeEach(() => {
     if (p.genres === '28') return Promise.resolve(page([item(301, 'Action Flick')]));
     return Promise.resolve(page([item(1, 'Popular Hero Movie'), item(2, 'Feat A')]));
   });
+  (tvService.browse as ReturnType<typeof vi.fn>).mockImplementation((p: { api?: string; genres?: string }) => {
+    if (p.genres === '10759') return Promise.resolve(page([item(302, 'Action Series')]));
+    return Promise.resolve(page([item(1, 'Popular Hero Show'), item(2, 'Feat B')]));
+  });
 });
 
 describe('HomeBrowse', () => {
@@ -54,10 +59,12 @@ describe('HomeBrowse', () => {
     await screen.findByTestId('mock-browse-screen');
   });
 
-  it('asks the planner for movie rails with the active profile + surface home', async () => {
+  it('uses buildMixedRailsScreen to fetch mixed movie and tv content', async () => {
     render(<HomeBrowse />);
     await screen.findByTestId('mock-browse-screen');
-    expect(railsService.getRails).toHaveBeenCalledWith('movie', 'u1', 'home');
+    // buildMixedRailsScreen fetches from BOTH services to blend movies + series
+    expect(moviesService.browse).toHaveBeenCalled();
+    expect(tvService.browse).toHaveBeenCalled();
   });
 
   it('passes the first popular item as the hero', async () => {
@@ -66,18 +73,18 @@ describe('HomeBrowse', () => {
     expect(hero).toHaveTextContent('Popular Hero Movie');
   });
 
-  it('renders planner-driven row titles', async () => {
+  it('renders mixed rails with both movies and tv content', async () => {
     render(<HomeBrowse />);
     const titles = (await screen.findAllByTestId('mock-row-title')).map((e) => e.textContent);
-    expect(titles).toContain('Trending Movies');
-    expect(titles).toContain('Action');
+    expect(titles).toContain('Trending This Week');
+    expect(titles).toContain('Action & Adventure');
   });
 
-  it('falls back to default rails when the planner fails', async () => {
-    (railsService.getRails as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('down'));
+  it('renders mixed rails even when a service call fails', async () => {
+    (tvService.browse as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('down'));
     render(<HomeBrowse />);
     const titles = (await screen.findAllByTestId('mock-row-title')).map((e) => e.textContent);
-    expect(titles).toContain('Trending Movies');
+    expect(titles).toContain('Trending This Week');
   });
 
   it('shows the home skeleton during loading', async () => {

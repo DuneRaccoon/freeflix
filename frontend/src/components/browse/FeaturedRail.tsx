@@ -19,9 +19,12 @@ import React from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
+import MediaTypeBadge from './MediaTypeBadge';
 
 export interface FeaturedRailProps {
   items: CatalogItem[];
+  /** Show a movie/series corner pill on each tile — mixed home page only. */
+  showMediaType?: boolean;
 }
 
 /** Fallback backdrop — near-black 16:9 SVG data URI */
@@ -41,7 +44,7 @@ function PlayIcon() {
   );
 }
 
-const FeaturedRail: React.FC<FeaturedRailProps> = ({ items }) => {
+const FeaturedRail: React.FC<FeaturedRailProps> = ({ items, showMediaType }) => {
   if (!items || items.length === 0) return null;
 
   return (
@@ -80,7 +83,7 @@ const FeaturedRail: React.FC<FeaturedRailProps> = ({ items }) => {
 
           return (
             <Link
-              key={item.tmdb_id}
+              key={`${item.media_type}-${item.tmdb_id}`}
               href={href}
               aria-label={item.title}
               className={cn(
@@ -143,6 +146,15 @@ const FeaturedRail: React.FC<FeaturedRailProps> = ({ items }) => {
               >
                 Featured
               </span>
+
+              {/* Media-type pill (home page only) — top-right, opposite "Featured" */}
+              {showMediaType && (
+                <MediaTypeBadge
+                  mediaType={item.media_type}
+                  revealOnHover
+                  className="absolute top-3.5 right-3.5 z-[2] pointer-events-none"
+                />
+              )}
 
               {/* Title overlay (bottom-left) */}
               <span

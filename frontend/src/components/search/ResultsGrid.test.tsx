@@ -55,6 +55,20 @@ const movieItem2 = makeItem('movie', 27205, 'Inception');
 // ---------------------------------------------------------------------------
 
 describe('ResultsGrid', () => {
+  describe('media-type badge', () => {
+    it('is absent by default (e.g. single-type filtered results)', () => {
+      render(<ResultsGrid items={[movieItem, tvItem]} />);
+      expect(screen.queryAllByTestId('media-type-badge')).toHaveLength(0);
+    });
+
+    it('marks each result with its type when showMediaType is set', () => {
+      render(<ResultsGrid items={[movieItem, tvItem]} showMediaType />);
+      const badges = screen.getAllByTestId('media-type-badge');
+      expect(badges).toHaveLength(2);
+      expect(badges.map((b) => b.textContent)).toEqual(['Film', 'Series']);
+    });
+  });
+
   describe('renders PosterCards for items', () => {
     it('renders one PosterCard per item (title visible)', () => {
       render(<ResultsGrid items={[movieItem, tvItem, movieItem2]} />);

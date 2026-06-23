@@ -18,10 +18,13 @@ import { CatalogItem } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { buildContentId } from '@/lib/contentId';
 import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
+import MediaTypeBadge from './MediaTypeBadge';
 
 export interface PosterCardProps {
   item: CatalogItem;
   className?: string;
+  /** Show a movie/series corner pill — used on the mixed home page only. */
+  showMediaType?: boolean;
 }
 
 function StarIcon({ className }: { className?: string }) {
@@ -99,7 +102,7 @@ function InfoIcon() {
 const POSTER_PLACEHOLDER =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"%3E%3Crect width="2" height="3" fill="%230d0d0f"/%3E%3C/svg%3E';
 
-const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
+const PosterCard: React.FC<PosterCardProps> = ({ item, className, showMediaType }) => {
   const href =
     item.media_type === 'tv' ? `/tv/${item.tmdb_id}` : `/movies/${item.tmdb_id}`;
 
@@ -291,6 +294,14 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
             )}
           </div>
         </div>
+        {/* Media-type pill (home page only) — top-left, sits above the overlay */}
+        {showMediaType && (
+          <MediaTypeBadge
+            mediaType={item.media_type}
+            revealOnHover
+            className="absolute top-2.5 left-2.5 z-20 pointer-events-none"
+          />
+        )}
       </div>
 
       {/* ── Resting caption — hidden while overlay is visible ── */}

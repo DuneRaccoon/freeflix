@@ -20,6 +20,7 @@ import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
 import { FeedTheme, railStyleVars } from '@/lib/feedThemes';
 import RailBackdrop from './RailBackdrop';
+import MediaTypeBadge from './MediaTypeBadge';
 
 export interface RankedRowProps {
   title: string;
@@ -28,6 +29,8 @@ export interface RankedRowProps {
   seeAllHref?: string;
   /** Per-feed theme; null/undefined renders the default gold look. */
   theme?: FeedTheme | null;
+  /** Show a movie/series corner pill on each poster — mixed home page only. */
+  showMediaType?: boolean;
 }
 
 function ChevronLeftIcon() {
@@ -68,7 +71,7 @@ function ChevronRightIcon() {
 const POSTER_PLACEHOLDER =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"%3E%3Crect width="2" height="3" fill="%230d0d0f"/%3E%3C/svg%3E';
 
-const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref, theme }) => {
+const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref, theme, showMediaType }) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const titleFontClass = theme?.title?.font === 'ui' ? 'font-ui' : 'font-display';
   const eyebrowText = theme?.eyebrowOverride ?? eyebrow;
@@ -209,7 +212,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
 
           return (
             <article
-              key={item.tmdb_id}
+              key={`${item.media_type}-${item.tmdb_id}`}
               role="listitem"
               className="relative flex-none [scroll-snap-align:start]"
               style={{ width: 'clamp(264px, 22vw, 348px)' }}
@@ -263,6 +266,15 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                       (e.target as HTMLImageElement).src = POSTER_PLACEHOLDER;
                     }}
                   />
+
+                  {/* Media-type pill (home page only) — top-left of the poster */}
+                  {showMediaType && (
+                    <MediaTypeBadge
+                      mediaType={item.media_type}
+                      revealOnHover
+                      className="absolute top-2 left-2 z-[3] pointer-events-none"
+                    />
+                  )}
                 </div>
               </Link>
             </article>

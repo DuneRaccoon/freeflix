@@ -5,8 +5,14 @@
 // brand is a one-entry edit in registry.ts.
 
 export interface FeedIdentity {
-  type: 'company' | 'collection' | 'provider';
-  id: string; // stable TMDB id as a string, e.g. '420'
+  type: 'company' | 'collection' | 'provider' | 'genre';
+  /**
+   * For company/collection/provider this is the stable TMDB id as a string
+   * (e.g. '420'). For `genre` it is a canonical slug (e.g. 'horror') — genres
+   * span two TMDB id-spaces (Action is movie 28 / TV 10759), so they're folded
+   * to one slug rather than keyed by a single numeric id.
+   */
+  id: string;
 }
 
 export type MotifKind =
@@ -15,7 +21,13 @@ export type MotifKind =
   | 'beams'
   | 'starfield'
   | 'arcs'
-  | 'halftone';
+  | 'halftone'
+  // genre-flavoured motifs
+  | 'grain'
+  | 'grid'
+  | 'bokeh'
+  | 'sparkle'
+  | 'slats';
 
 export interface MotifConfig {
   kind: MotifKind;

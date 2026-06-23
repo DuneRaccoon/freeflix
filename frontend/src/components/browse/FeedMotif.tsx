@@ -99,6 +99,89 @@ const FeedMotif: React.FC<FeedMotifProps> = ({ motif, color }) => {
         />
       );
 
+    case 'grain':
+      // Film grain — deterministic SVG turbulence, desaturated to monochrome.
+      // The constant filter id is safe to repeat: every grain filter is identical.
+      return (
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          preserveAspectRatio="none"
+          style={{ opacity }}
+        >
+          <filter id="ff-motif-grain">
+            <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves={2} stitchTiles="stitch" />
+            <feColorMatrix type="saturate" values="0" />
+          </filter>
+          <rect width="100%" height="100%" filter="url(#ff-motif-grain)" />
+        </svg>
+      );
+
+    case 'grid':
+      // Faint blueprint / HUD grid, fading in from the top edge.
+      return (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            opacity,
+            backgroundImage: `repeating-linear-gradient(0deg, ${color} 0, ${color} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${color} 0, ${color} 1px, transparent 1px, transparent 24px)`,
+            backgroundSize: '24px 24px',
+            WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, #000 130%)',
+            maskImage: 'linear-gradient(180deg, transparent 0%, #000 130%)',
+          }}
+        />
+      );
+
+    case 'bokeh':
+      // Soft out-of-focus light circles at fixed positions.
+      return (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            opacity,
+            background: `radial-gradient(circle at 12% 32%, ${color} 0, transparent 9%), radial-gradient(circle at 27% 72%, ${color} 0, transparent 6%), radial-gradient(circle at 51% 40%, ${color} 0, transparent 11%), radial-gradient(circle at 73% 66%, ${color} 0, transparent 7%), radial-gradient(circle at 89% 24%, ${color} 0, transparent 9%), radial-gradient(circle at 63% 12%, ${color} 0, transparent 5%)`,
+          }}
+        />
+      );
+
+    case 'sparkle':
+      // Scattered 4-point stars at the shared fixed coordinates.
+      return (
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          viewBox="0 0 100 40"
+          preserveAspectRatio="xMidYMid slice"
+          style={{ opacity }}
+        >
+          {STARS.map(([cx, cy, r], i) => (
+            <path
+              key={i}
+              fill={color}
+              transform={`translate(${cx} ${cy}) scale(${r})`}
+              d="M0 -3 C0.5 -0.5 0.5 -0.5 3 0 C0.5 0.5 0.5 0.5 0 3 C-0.5 0.5 -0.5 0.5 -3 0 C-0.5 -0.5 -0.5 -0.5 0 -3 Z"
+            />
+          ))}
+        </svg>
+      );
+
+    case 'slats':
+      // Diagonal noir blind-slats, fading out to the right.
+      return (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            opacity,
+            backgroundImage: `repeating-linear-gradient(105deg, ${color} 0, ${color} 2px, transparent 2px, transparent 17px)`,
+            WebkitMaskImage: 'linear-gradient(90deg, #000 0%, transparent 72%)',
+            maskImage: 'linear-gradient(90deg, #000 0%, transparent 72%)',
+          }}
+        />
+      );
+
     default:
       return null;
   }

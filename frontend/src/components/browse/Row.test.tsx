@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import Row from './Row';
+import { FEED_THEMES } from '@/lib/feedThemes';
 
 describe('Row', () => {
   it('renders the section title', () => {
@@ -111,5 +112,27 @@ describe('Row', () => {
     render(<Row title="Keyboard Test">child</Row>);
     const track = screen.getByRole('list', { name: 'Keyboard Test items' });
     expect(track).toHaveAttribute('tabindex', '0');
+  });
+});
+
+describe('Row theming', () => {
+  it('is neutral with no theme: no backdrop, no inline accent var', () => {
+    const { container, queryByTestId } = render(
+      <Row title="Trending"><div>card</div></Row>,
+    );
+    expect(queryByTestId('rail-backdrop')).toBeNull();
+    const section = container.querySelector('section')!;
+    expect(section.style.getPropertyValue('--rail-accent')).toBe('');
+  });
+
+  it('themed: renders backdrop, sets accent var, applies eyebrow override', () => {
+    const marvel = FEED_THEMES['company:420'];
+    const { container, getByTestId, getByText } = render(
+      <Row title="Marvel" theme={marvel}><div>card</div></Row>,
+    );
+    expect(getByTestId('rail-backdrop')).not.toBeNull();
+    const section = container.querySelector('section')!;
+    expect(section.style.getPropertyValue('--rail-accent')).toBe(marvel.accent);
+    expect(getByText('Cinematic Universe')).not.toBeNull();
   });
 });

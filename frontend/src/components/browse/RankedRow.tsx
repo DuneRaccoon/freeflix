@@ -18,12 +18,16 @@ import React, { useRef } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
+import { FeedTheme, railStyleVars } from '@/lib/feedThemes';
+import RailBackdrop from './RailBackdrop';
 
 export interface RankedRowProps {
   title: string;
   eyebrow?: string;
   items: CatalogItem[];
   seeAllHref?: string;
+  /** Per-feed theme; null/undefined renders the default gold look. */
+  theme?: FeedTheme | null;
 }
 
 function ChevronLeftIcon() {
@@ -64,8 +68,10 @@ function ChevronRightIcon() {
 const POSTER_PLACEHOLDER =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"%3E%3Crect width="2" height="3" fill="%230d0d0f"/%3E%3C/svg%3E';
 
-const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref }) => {
+const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref, theme }) => {
   const trackRef = useRef<HTMLDivElement>(null);
+  const titleFontClass = theme?.title?.font === 'ui' ? 'font-ui' : 'font-display';
+  const eyebrowText = theme?.eyebrowOverride ?? eyebrow;
 
   // Cap at 10 items
   const capped = items.slice(0, 10);
@@ -86,20 +92,27 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
   return (
     <section
       className="relative z-[2] px-14 max-sm:px-[18px]"
+      style={railStyleVars(theme ?? null)}
       aria-labelledby={headingId}
     >
+      {theme && <RailBackdrop theme={theme} />}
+
       {/* ── Row header ── */}
       <div className="flex items-end justify-between gap-6 pt-[54px] pb-1 max-sm:pt-10 max-sm:pb-1">
         {/* Left: eyebrow + title */}
         <div className="flex flex-col gap-1.5">
-          {eyebrow && (
-            <span className="text-[11px] tracking-[.32em] uppercase text-gold font-semibold">
-              {eyebrow}
+          {eyebrowText && (
+            <span className="text-[11px] tracking-[.32em] uppercase text-[var(--rail-accent)] font-semibold">
+              {eyebrowText}
             </span>
           )}
           <h2
             id={headingId}
-            className="font-display font-normal text-[30px] leading-none tracking-[-0.02em] text-text m-0 max-sm:text-[25px]"
+            className={cn(
+              'font-normal text-[30px] leading-none tracking-[-0.02em] text-text m-0 max-sm:text-[25px]',
+              titleFontClass,
+              theme?.title?.className,
+            )}
           >
             {title}
           </h2>
@@ -115,7 +128,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                 'inline-flex items-center gap-1.5 whitespace-nowrap',
                 'pb-[3px] border-b border-transparent',
                 'transition-[color,border-color] duration-[250ms]',
-                'hover:text-gold-lite hover:border-hairline',
+                'hover:text-[var(--rail-accent-soft)] hover:border-hairline',
                 'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)] focus-visible:rounded',
               )}
             >
@@ -149,7 +162,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                 'w-8 h-8 flex-none rounded-full grid place-items-center cursor-pointer',
                 'border border-hairline bg-surface-2/60 text-text',
                 'transition-[border-color,color,background] duration-200',
-                'hover:border-gold/55 hover:text-gold-lite hover:bg-surface-2/85',
+                'hover:border-[color:color-mix(in_srgb,var(--rail-accent)_55%,transparent)] hover:text-[var(--rail-accent-soft)] hover:bg-surface-2/85',
                 'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
               )}
             >
@@ -163,7 +176,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                 'w-8 h-8 flex-none rounded-full grid place-items-center cursor-pointer',
                 'border border-hairline bg-surface-2/60 text-text',
                 'transition-[border-color,color,background] duration-200',
-                'hover:border-gold/55 hover:text-gold-lite hover:bg-surface-2/85',
+                'hover:border-[color:color-mix(in_srgb,var(--rail-accent)_55%,transparent)] hover:text-[var(--rail-accent-soft)] hover:bg-surface-2/85',
                 'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
               )}
             >
@@ -222,8 +235,8 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                     'transition-[text-shadow] duration-300',
                     '[text-shadow:0_0_18px_rgba(201,168,106,.22),0_0_40px_rgba(201,168,106,.1)]',
                     'group-hover:[text-shadow:0_0_26px_rgba(201,168,106,.35)]',
-                    '[color:transparent] [-webkit-text-stroke:1.6px_rgba(201,168,106,.72)]',
-                    'group-hover:[-webkit-text-stroke-color:var(--color-gold)]',
+                    '[color:transparent] [-webkit-text-stroke:1.6px_color-mix(in_srgb,var(--rail-accent)_72%,transparent)]',
+                    'group-hover:[-webkit-text-stroke-color:var(--rail-accent)]',
                   )}
                   style={{ fontSize: 'clamp(150px, 13vw, 200px)' }}
                 >
@@ -236,7 +249,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                     'relative z-[2] aspect-[2/3] rounded-[10px] overflow-hidden border border-hairline',
                     'bg-surface transition-[transform,box-shadow,border-color] duration-[360ms] ease-card',
                     'group-hover:scale-[1.04] group-hover:-translate-y-1',
-                    'group-hover:shadow-[0_18px_44px_rgba(0,0,0,.6)] group-hover:border-gold/35',
+                    'group-hover:shadow-[0_18px_44px_rgba(0,0,0,.6)] group-hover:border-[color:color-mix(in_srgb,var(--rail-accent)_35%,transparent)]',
                   )}
                   style={{ width: 'clamp(152px, 13vw, 200px)', marginLeft: 'clamp(64px, 6.5vw, 96px)' }}
                 >

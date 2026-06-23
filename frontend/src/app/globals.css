@@ -31,6 +31,18 @@
 /* FRÈ base: dark canvas + UI font (the legacy `body` rule below still
    runs; this wins by source order for bg/color and adds color-scheme). */
 :root { color-scheme: dark; }
+
+/* Per-feed rail theming hooks. Default to the gold accent so any row that does
+   not resolve a feed theme is visually unchanged. A themed Row sets the first
+   three inline (see railStyleVars) and they cascade to the header, arrows,
+   numeral stroke, and every PosterCard inside the row. --rail-card-glow stays
+   transparent by default so neutral cards gain NO extra glow. */
+:root {
+  --rail-accent: var(--color-gold);
+  --rail-accent-soft: var(--color-gold-lite);
+  --rail-card-glow: transparent;
+}
+
 body {
   background-color: var(--color-ink);
   color: var(--color-text);

@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import RankedRow from './RankedRow';
+import { FEED_THEMES } from '@/lib/feedThemes';
 import type { CatalogItem } from '@/types';
 
 /** Build a minimal CatalogItem for test purposes */
@@ -171,5 +172,25 @@ describe('RankedRow', () => {
     render(<RankedRow title="Top 10" items={movieItems} />);
     expect(screen.queryByText('Most watched · this week')).not.toBeInTheDocument();
     expect(screen.queryByText('Critically acclaimed')).not.toBeInTheDocument();
+  });
+});
+
+const items: CatalogItem[] = [
+  { tmdb_id: 1, media_type: 'movie', title: 'One', year: 2024, overview: '', poster_url: null,
+    backdrop_url: null, genre_ids: [], genres: [], vote_average: 8, vote_count: 1, popularity: 1, original_language: 'en' },
+];
+
+describe('RankedRow theming', () => {
+  it('is neutral with no theme', () => {
+    const { container, queryByTestId } = render(<RankedRow title="Top Rated" items={items} />);
+    expect(queryByTestId('rail-backdrop')).toBeNull();
+    expect(container.querySelector('section')!.style.getPropertyValue('--rail-accent')).toBe('');
+  });
+
+  it('themed: backdrop + accent var present', () => {
+    const xmen = FEED_THEMES['collection:748'];
+    const { container, getByTestId } = render(<RankedRow title="X-Men" items={items} theme={xmen} />);
+    expect(getByTestId('rail-backdrop')).not.toBeNull();
+    expect(container.querySelector('section')!.style.getPropertyValue('--rail-accent')).toBe(xmen.accent);
   });
 });

@@ -34,6 +34,8 @@ import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 
 export interface HeroProps {
   item: CatalogItem;
+  /** Show a "Series"/"Film" label in the meta row — mixed home page only. */
+  showMediaType?: boolean;
 }
 
 /** Near-black 16:9 SVG placeholder when backdrop_url is null */
@@ -105,7 +107,7 @@ function StarIcon() {
   );
 }
 
-const Hero: React.FC<HeroProps> = ({ item }) => {
+const Hero: React.FC<HeroProps> = ({ item, showMediaType }) => {
   const href =
     item.media_type === 'tv' ? `/tv/${item.tmdb_id}` : `/movies/${item.tmdb_id}`;
 
@@ -226,6 +228,19 @@ const Hero: React.FC<HeroProps> = ({ item }) => {
 
         {/* Meta row: year · star rating · genres */}
         <div className="flex items-center flex-wrap gap-[11px] text-[13px] text-text mb-4">
+          {showMediaType && (
+            <span className="font-ui text-[11px] font-semibold uppercase tracking-[.18em]">
+              {item.media_type === 'tv' ? 'Series' : 'Film'}
+            </span>
+          )}
+
+          {showMediaType && (item.year || rating || metaGenres.length > 0) && (
+            <span
+              className="w-[3px] h-[3px] rounded-full bg-muted inline-block"
+              aria-hidden="true"
+            />
+          )}
+
           {item.year && <span>{item.year}</span>}
 
           {item.year && rating && (

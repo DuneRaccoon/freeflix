@@ -95,6 +95,6 @@ export default function HomeBrowse() {
   const displayRows = insertWatchlistRow(rows, buildWatchlistRow(watchlistItems, 'all'));
 
   return (
-    <BrowseScreen hero={hero} featured={featured} rows={displayRows} showContinueWatching />
+    <BrowseScreen hero={hero} featured={featured} rows={displayRows} showContinueWatching showMediaType />
   );
 }

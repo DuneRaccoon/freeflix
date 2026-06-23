@@ -14,6 +14,9 @@
  *      'ranked' (uses RankedRow). Rows with zero items are skipped silently.
  *  - showContinueWatching?: boolean
  *      When true, renders <ContinueWatchingRow/> below the FeaturedRail.
+ *  - showMediaType?: boolean
+ *      When true, marks each card (and the hero) with a movie/series cue.
+ *      Used by the mixed home page; off on the single-type Movies/Series hubs.
  *
  * Render order:
  *  1. Hero
@@ -61,6 +64,8 @@ export interface BrowseScreenProps {
   featured?: CatalogItem[];
   rows: RowConfig[];
   showContinueWatching?: boolean;
+  /** Mark each card + the hero with a movie/series cue (mixed home page only). */
+  showMediaType?: boolean;
   className?: string;
 }
 
@@ -73,6 +78,7 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
   featured,
   rows,
   showContinueWatching = false,
+  showMediaType = false,
   className,
 }) => {
   const hasFeatured = (featured ?? []).length > 0;
@@ -86,10 +92,10 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
       className={cn('relative bg-ink text-text', className)}
     >
       {/* ── 1. Hero billboard ── */}
-      {hero && <Hero item={hero} />}
+      {hero && <Hero item={hero} showMediaType={showMediaType} />}
 
       {/* ── 2. FeaturedRail (overlaps the hero's bottom edge) ── */}
-      {hasFeatured && <FeaturedRail items={featured!} />}
+      {hasFeatured && <FeaturedRail items={featured!} showMediaType={showMediaType} />}
 
       {/* ── 3. Continue Watching row ── */}
       {showContinueWatching && <ContinueWatchingRow />}
@@ -107,6 +113,7 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
               items={row.items}
               seeAllHref={row.seeAllHref}
               theme={theme}
+              showMediaType={showMediaType}
             />
           );
         }
@@ -121,7 +128,11 @@ const BrowseScreen: React.FC<BrowseScreenProps> = ({
             theme={theme}
           >
             {row.items.map((item) => (
-              <PosterCard key={`${item.media_type}-${item.tmdb_id}`} item={item} />
+              <PosterCard
+                key={`${item.media_type}-${item.tmdb_id}`}
+                item={item}
+                showMediaType={showMediaType}
+              />
             ))}
           </Row>
         );

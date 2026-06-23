@@ -10,7 +10,7 @@
  *  - the section has the accessible label "Featured collection"
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import FeaturedRail from './FeaturedRail';
 import type { CatalogItem } from '@/types';
@@ -134,5 +134,40 @@ describe('FeaturedRail', () => {
     render(<FeaturedRail items={movieItems} />);
     const list = screen.getByRole('list', { name: 'Featured' });
     expect(list).toBeInTheDocument();
+  });
+
+  it('keys a movie and a series sharing a tmdb_id without a duplicate-key collision', () => {
+    // The mixed home pool can place a movie and a show with the same numeric id
+    // in the featured strip; tiles must be keyed by media_type + tmdb_id.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <FeaturedRail
+        items={[makeItem(42, 'The Film', 'movie'), makeItem(42, 'The Show', 'tv')]}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'The Film' })).toHaveAttribute('href', '/movies/42');
+    expect(screen.getByRole('link', { name: 'The Show' })).toHaveAttribute('href', '/tv/42');
+
+    const dupKeyWarning = errSpy.mock.calls.find(
+      (args) => typeof args[0] === 'string' && args[0].includes('same key'),
+    );
+    expect(dupKeyWarning).toBeUndefined();
+
+    errSpy.mockRestore();
+  });
+
+  describe('media-type badge', () => {
+    it('is absent by default (single-type hubs stay clean)', () => {
+      render(<FeaturedRail items={movieItems} />);
+      expect(screen.queryAllByTestId('media-type-badge')).toHaveLength(0);
+    });
+
+    it('marks each tile with its type when showMediaType is set', () => {
+      render(<FeaturedRail items={[makeItem(1, 'A Film', 'movie'), makeItem(101, 'A Show', 'tv')]} showMediaType />);
+      const badges = screen.getAllByTestId('media-type-badge');
+      expect(badges).toHaveLength(2);
+      expect(badges.map((b) => b.textContent)).toEqual(['Film', 'Series']);
+    });
   });
 });

@@ -209,7 +209,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
 
           return (
             <article
-              key={item.tmdb_id}
+              key={`${item.media_type}-${item.tmdb_id}`}
               role="listitem"
               className="relative flex-none [scroll-snap-align:start]"
               style={{ width: 'clamp(264px, 22vw, 348px)' }}

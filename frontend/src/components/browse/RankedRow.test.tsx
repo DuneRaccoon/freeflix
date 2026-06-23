@@ -10,11 +10,20 @@
  *  - both scroll arrow buttons present
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import RankedRow from './RankedRow';
 import { FEED_THEMES } from '@/lib/feedThemes';
 import type { CatalogItem } from '@/types';
+
+/** Build a minimal CatalogItem for the duplicate-key regression test. */
+function mkItem(id: number, media_type: 'movie' | 'tv', title: string): CatalogItem {
+  return {
+    tmdb_id: id, media_type, title, year: 2024, overview: '', poster_url: null,
+    backdrop_url: null, genre_ids: [], genres: [], vote_average: 8, vote_count: 100,
+    popularity: 50, original_language: 'en',
+  };
+}
 
 /** Build a minimal CatalogItem for test purposes */
 function makeItem(id: number, title: string, mediaType: 'movie' | 'tv' = 'movie'): CatalogItem {
@@ -172,6 +181,34 @@ describe('RankedRow', () => {
     render(<RankedRow title="Top 10" items={movieItems} />);
     expect(screen.queryByText('Most watched · this week')).not.toBeInTheDocument();
     expect(screen.queryByText('Critically acclaimed')).not.toBeInTheDocument();
+  });
+
+  // ── Duplicate-key regression (mixed rails) ──────────────────────────────────
+  // A movie and a TV show can share the same numeric tmdb_id. After the fix,
+  // RankedRow keys by `${media_type}-${tmdb_id}` so both render without a
+  // React duplicate-key warning.
+  it('keys mixed movie/tv items with the same tmdb_id without a duplicate-key collision', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <RankedRow
+        title="Top Rated"
+        items={[
+          mkItem(42, 'movie', 'The Film'),
+          mkItem(42, 'tv', 'The Show'),
+        ]}
+      />,
+    );
+
+    // Both distinct items render (a movie and a show that share id 42).
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+
+    // React logs a console.error containing "same key" when sibling keys collide.
+    const dupKeyWarning = errSpy.mock.calls.find(
+      (args) => typeof args[0] === 'string' && args[0].includes('same key'),
+    );
+    expect(dupKeyWarning).toBeUndefined();
+
+    errSpy.mockRestore();
   });
 });
 

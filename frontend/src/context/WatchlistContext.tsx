@@ -158,6 +158,9 @@ export const WatchlistProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     if (!currentUser) return;
     const userId = currentUser.id;
+    // poster_url is the heal sentinel: a healed row always gets poster_url set
+    // (even to null if TMDB has none), and healedRef then blocks re-entry — so
+    // year/vote_average are intentionally NOT part of the trigger.
     const needsHeal = items.filter(
       (i) =>
         !i.poster_url &&

@@ -1,4 +1,9 @@
-import { BrowseParams } from '@/types';
+import { BrowseParams, CatalogPage } from '@/types';
+import { RowConfig } from '@/components/browse/BrowseScreen';
+import { RailsScreen } from '@/lib/buildRailsScreen';
+import { moviesService } from '@/services/movies';
+import { tvService } from '@/services/tv';
+import { feedIdentityFromParams, feedIdentityFromKey } from '@/lib/feedThemes';
 
 export interface MixedRailSpec {
   key: string;
@@ -86,4 +91,55 @@ export function interleave<T>(a: T[], b: T[], cap = 20): T[] {
     if (i < b.length && out.length < cap) out.push(b[i]);
   }
   return out;
+}
+
+const emptyPage: CatalogPage = { page: 1, results: [], total_pages: 0, total_results: 0 };
+
+/**
+ * Build the mixed (movies + series) home screen.
+ *
+ * For each rail in MIXED_RAILS we fetch the movie feed and the TV feed in
+ * parallel, then interleave them. The hero + featured strip come from a
+ * combined movie+series *popular* pool sorted by popularity, so the single
+ * lead slot is the genuinely biggest title (a hot show can headline). The
+ * popular feeds are fetched once and reused for the 'trending' rail.
+ */
+export async function buildMixedRailsScreen(): Promise<RailsScreen> {
+  const [moviePopular, tvPopular] = await Promise.all([
+    moviesService.browse({ api: 'popular' }).catch(() => emptyPage),
+    tvService.browse({ api: 'popular' }).catch(() => emptyPage),
+  ]);
+
+  const pool = [...moviePopular.results, ...tvPopular.results].sort(
+    (a, b) => (b.popularity ?? 0) - (a.popularity ?? 0),
+  );
+
+  // Every rail except 'trending', which reuses the popular feeds above.
+  const rest = MIXED_RAILS.filter((r) => r.key !== 'trending');
+  const restPages = await Promise.all(
+    rest.map((r) =>
+      Promise.all([
+        moviesService.browse(r.movieParams).catch(() => emptyPage),
+        tvService.browse(r.tvParams).catch(() => emptyPage),
+      ]),
+    ),
+  );
+
+  const pagesByKey = new Map<string, [CatalogPage, CatalogPage]>();
+  pagesByKey.set('trending', [moviePopular, tvPopular]);
+  rest.forEach((r, i) => pagesByKey.set(r.key, restPages[i]));
+
+  const rows: RowConfig[] = MIXED_RAILS.map((spec) => {
+    const [moviePage, tvPage] = pagesByKey.get(spec.key) ?? [emptyPage, emptyPage];
+    return {
+      key: spec.key,
+      title: spec.title,
+      eyebrow: spec.eyebrow,
+      variant: spec.variant,
+      items: interleave(moviePage.results, tvPage.results),
+      feed: feedIdentityFromParams(spec.movieParams) ?? feedIdentityFromKey(spec.key),
+    };
+  });
+
+  return { hero: pool[0], featured: pool.slice(1, 7), rows };
 }

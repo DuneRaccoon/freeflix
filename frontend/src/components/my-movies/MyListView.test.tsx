@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
 import type { WatchlistItem } from '@/services/watchlist';
 
@@ -167,5 +168,33 @@ describe('MyListView', () => {
     render(<MyListView />);
     expect(screen.getAllByText('1999').length).toBeGreaterThan(0);
     expect(screen.getAllByText('8.4').length).toBeGreaterThan(0);
+  });
+
+  it('renders All / Movies / Series tabs when items exist', () => {
+    mockItems.push(makeItem({ content_id: 'movie:1', tmdb_id: '1' }));
+    render(<MyListView />);
+    expect(screen.getByTestId('my-list-tab-all')).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-tab-movie')).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-tab-tv')).toBeInTheDocument();
+  });
+
+  it('filters to movies when the Movies tab is selected', async () => {
+    const user = userEvent.setup();
+    mockItems.push(
+      makeItem({ content_id: 'movie:1', tmdb_id: '1', title: 'A Movie', media_type: 'movie' }),
+      makeItem({ content_id: 'tv:2', id: 'w2', tmdb_id: '2', title: 'A Series', media_type: 'tv' }),
+    );
+    render(<MyListView />);
+    expect(screen.getAllByText('A Movie').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('A Series').length).toBeGreaterThan(0);
+    await user.click(screen.getByTestId('my-list-tab-movie'));
+    expect(screen.getAllByText('A Movie').length).toBeGreaterThan(0);
+    expect(screen.queryByText('A Series')).not.toBeInTheDocument();
+  });
+
+  it('does not render tabs while loading', () => {
+    mockIsLoading = true;
+    render(<MyListView />);
+    expect(screen.queryByTestId('my-list-tabs')).not.toBeInTheDocument();
   });
 });

@@ -41,6 +41,11 @@ vi.mock('next/link', () => ({
     React.createElement('a', { href, ...rest }, children),
 }));
 
+// PosterCard calls useRouter() for full-card click navigation.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 // ---------------------------------------------------------------------------
 // Import component after mocks
 // ---------------------------------------------------------------------------

@@ -20,6 +20,11 @@ vi.mock('@/context/WatchlistContext', () => ({
   useWatchlist: () => ({ isSaved: () => false, toggle: vi.fn() }),
 }));
 
+// PosterCard calls useRouter() for full-card click navigation.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@
  *  - missing poster_url → graceful placeholder (no broken img)
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PosterCard from './PosterCard';
@@ -22,6 +22,15 @@ const mockIsSaved = vi.fn(() => false);
 
 vi.mock('@/context/WatchlistContext', () => ({
   useWatchlist: () => ({ isSaved: mockIsSaved, toggle: mockToggle }),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock the App Router so full-card click navigation can be asserted.
+// ---------------------------------------------------------------------------
+const mockPush = vi.fn();
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
 }));
 
 const movieItem: CatalogItem = {
@@ -206,6 +215,53 @@ describe('PosterCard', () => {
       expect(mockToggle).toHaveBeenCalledWith(
         expect.objectContaining({ content_id: 'tv:84958', media_type: 'tv' }),
       );
+    });
+  });
+
+  describe('full-card click (whole card navigates like the info icon)', () => {
+    beforeEach(() => {
+      mockPush.mockClear();
+      mockToggle.mockClear();
+      mockIsSaved.mockReturnValue(false);
+    });
+
+    it('navigates to /movies/{id} when the resting caption is clicked', async () => {
+      const user = userEvent.setup();
+      const { container } = render(<PosterCard item={movieItem} />);
+      // The resting caption (title + year/rating) is the article's last child and
+      // is NOT wrapped in any link — clicking it must still navigate.
+      const restingCaption = container.querySelector('article')!
+        .lastElementChild as HTMLElement;
+      await user.click(restingCaption);
+      expect(mockPush).toHaveBeenCalledWith('/movies/693134');
+    });
+
+    it('navigates to /tv/{id} when the resting caption is clicked (tv item)', async () => {
+      const user = userEvent.setup();
+      const { container } = render(<PosterCard item={tvItem} />);
+      const restingCaption = container.querySelector('article')!
+        .lastElementChild as HTMLElement;
+      await user.click(restingCaption);
+      expect(mockPush).toHaveBeenCalledWith('/tv/84958');
+    });
+
+    it('does NOT navigate when the My List button is clicked (still toggles)', async () => {
+      const user = userEvent.setup();
+      render(<PosterCard item={movieItem} />);
+      await user.click(screen.getByTestId('postercard-mylist-button'));
+      expect(mockToggle).toHaveBeenCalledTimes(1);
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it('does NOT double-navigate via router when the poster link itself is clicked', async () => {
+      const user = userEvent.setup();
+      render(<PosterCard item={movieItem} />);
+      // The poster <Link> handles its own navigation; the article handler must
+      // bail so we don't fire a second (duplicate) navigation.
+      // (jsdom logs a benign "Not implemented: navigation" here — it can't
+      //  perform the real anchor navigation; the router-spy assertion is the point.)
+      await user.click(screen.getByRole('link', { name: 'Dune: Part Two (2024)' }));
+      expect(mockPush).not.toHaveBeenCalled();
     });
   });
 

@@ -13,6 +13,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
@@ -103,6 +104,7 @@ const POSTER_PLACEHOLDER =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"%3E%3Crect width="2" height="3" fill="%230d0d0f"/%3E%3C/svg%3E';
 
 const PosterCard: React.FC<PosterCardProps> = ({ item, className, showMediaType }) => {
+  const router = useRouter();
   const href =
     item.media_type === 'tv' ? `/tv/${item.tmdb_id}` : `/movies/${item.tmdb_id}`;
 
@@ -133,9 +135,21 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className, showMediaType 
     toggle(toWatchlistCreate(item));
   }
 
+  // Whole-card click → detail page (same destination as the poster/info/play
+  // links). Real interactive children (the poster Link, the Play/Info anchors,
+  // the My List button) own their own clicks, so bail when the click started on
+  // one of them to avoid a duplicate navigation. This makes the resting caption
+  // and any gaps tappable — notably on mobile, where the hover overlay (and its
+  // action buttons) never appears.
+  function handleCardClick(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest('a, button')) return;
+    router.push(href);
+  }
+
   return (
     <article
-      className={cn('relative group', className)}
+      onClick={handleCardClick}
+      className={cn('relative group cursor-pointer', className)}
       style={{ width: 'clamp(184px, 15.5vw, 272px)', flexShrink: 0 }}
     >
       {/* ── Card visual: poster art + hover overlay scale & lift TOGETHER ── */}

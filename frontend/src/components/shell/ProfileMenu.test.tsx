@@ -17,6 +17,7 @@ describe('ProfileMenu', () => {
     await userEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'My List' })).toHaveAttribute('href', '/my-list');
     expect(screen.getByRole('menuitem', { name: 'Schedules' })).toHaveAttribute('href', '/schedules');
     expect(screen.getByRole('menuitem', { name: 'Downloads' })).toHaveAttribute('href', '/downloads');
     expect(screen.getByRole('menuitem', { name: 'Settings' })).toHaveAttribute('href', '/settings');

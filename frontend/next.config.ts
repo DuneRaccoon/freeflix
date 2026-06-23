@@ -51,6 +51,11 @@ const nextConfig: NextConfig = {
       }
     ]
   },
+  async redirects() {
+    return [
+      { source: '/my-movies', destination: '/my-list', permanent: true },
+    ];
+  },
   async rewrites() {
     // In Docker the backend is reachable at http://backend:8000; locally it
     // defaults to http://localhost:8000. Set BACKEND_INTERNAL_URL to override.

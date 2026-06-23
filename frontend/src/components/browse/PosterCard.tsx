@@ -298,6 +298,7 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className, showMediaType 
         {showMediaType && (
           <MediaTypeBadge
             mediaType={item.media_type}
+            revealOnHover
             className="absolute top-2.5 left-2.5 z-20 pointer-events-none"
           />
         )}

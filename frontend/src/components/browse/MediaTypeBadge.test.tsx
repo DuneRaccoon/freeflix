@@ -33,4 +33,15 @@ describe('MediaTypeBadge', () => {
     render(<MediaTypeBadge mediaType="movie" className="absolute top-2 left-2" />);
     expect(screen.getByTestId('media-type-badge')).toHaveClass('absolute', 'top-2', 'left-2');
   });
+
+  it('is always visible by default (no hover-reveal classes)', () => {
+    render(<MediaTypeBadge mediaType="movie" />);
+    expect(screen.getByTestId('media-type-badge')).not.toHaveClass('opacity-0');
+  });
+
+  it('is hidden at rest and fades in on hover when revealOnHover is set', () => {
+    render(<MediaTypeBadge mediaType="movie" revealOnHover />);
+    const badge = screen.getByTestId('media-type-badge');
+    expect(badge).toHaveClass('opacity-0', 'transition-opacity', 'group-hover:opacity-100');
+  });
 });

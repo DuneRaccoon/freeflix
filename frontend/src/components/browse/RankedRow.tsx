@@ -271,6 +271,7 @@ const RankedRow: React.FC<RankedRowProps> = ({ title, eyebrow, items, seeAllHref
                   {showMediaType && (
                     <MediaTypeBadge
                       mediaType={item.media_type}
+                      revealOnHover
                       className="absolute top-2 left-2 z-[3] pointer-events-none"
                     />
                   )}

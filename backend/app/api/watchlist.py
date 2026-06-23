@@ -37,6 +37,9 @@ async def add_to_watchlist(
             tmdb_id=item.tmdb_id,
             media_type=item.media_type,
             title=item.title,
+            poster_url=item.poster_url,
+            year=item.year,
+            vote_average=item.vote_average,
         )
         session.add(entry)
         try:

@@ -17,6 +17,7 @@ import { cn } from '@/lib/cn';
 import { CatalogItem } from '@/types';
 import { useWatchlist } from '@/context/WatchlistContext';
 import { buildContentId } from '@/lib/contentId';
+import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 
 export interface PosterCardProps {
   item: CatalogItem;
@@ -126,12 +127,7 @@ const PosterCard: React.FC<PosterCardProps> = ({ item, className }) => {
     // Prevent the card link from firing when the button is clicked
     e.preventDefault();
     e.stopPropagation();
-    toggle({
-      content_id: contentId,
-      tmdb_id: String(item.tmdb_id),
-      media_type: item.media_type as 'movie' | 'tv',
-      title: item.title,
-    });
+    toggle(toWatchlistCreate(item));
   }
 
   return (

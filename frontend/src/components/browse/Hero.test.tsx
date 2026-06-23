@@ -161,7 +161,13 @@ describe('Hero', () => {
       render(<Hero item={movieItem} />);
       await user.click(screen.getByTestId('hero-mylist-button'));
       expect(mockToggle).toHaveBeenCalledWith(
-        expect.objectContaining({ content_id: 'movie:693134', media_type: 'movie' }),
+        expect.objectContaining({
+          content_id: 'movie:693134',
+          media_type: 'movie',
+          poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+          year: 2024,
+          vote_average: 8.4,
+        }),
       );
     });
 

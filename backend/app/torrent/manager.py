@@ -79,6 +79,48 @@ class TorrentManager:
         
         logger.info("TorrentManager initialized")
     
+    def _set_auto_managed(self, handle, value: bool) -> None:
+        """Toggle libtorrent's auto_managed flag (version-safe). When True the
+        torrent is subject to the active_downloads queue; when False it is
+        force-started/pinned by the caller."""
+        try:
+            flag = lt.torrent_flags.auto_managed
+        except Exception:
+            return  # build lacks the flag enum; nothing to toggle
+        try:
+            if value:
+                handle.set_flags(flag)
+            else:
+                handle.unset_flags(flag)
+        except Exception as e:
+            logger.debug(f"auto_managed toggle failed: {e}")
+
+    def force_start_for_stream(self, torrent_id: str) -> bool:
+        """Pin the actively-streamed torrent out of the auto-managed queue so it
+        is never paused while the user is watching (auto_managed=False + resume)."""
+        entry = self.active_torrents.get(torrent_id)
+        if not entry:
+            return False
+        handle, _ = entry
+        self._set_auto_managed(handle, False)
+        try:
+            handle.resume()
+        except Exception as e:
+            logger.debug(f"resume on force-start failed for {torrent_id}: {e}")
+        logger.info(f"Force-started {torrent_id} for streaming (out of queue)")
+        return True
+
+    def release_stream_force_start(self, torrent_id: str) -> bool:
+        """Revert a force-started torrent back to auto-managed (re-enters the
+        queue). Called on stream end / completion."""
+        entry = self.active_torrents.get(torrent_id)
+        if not entry:
+            return False
+        handle, _ = entry
+        self._set_auto_managed(handle, True)
+        logger.info(f"Released force-start for {torrent_id} (back to auto-managed)")
+        return True
+
     def _apply_session_tuning(self):
         """Apply the arch-profiled settings_pack to the live session. Errors are
         logged and swallowed so a single unsupported key never blocks startup."""
@@ -137,6 +179,15 @@ class TorrentManager:
 
             handle = self.session.add_torrent(atp)
             handle.set_sequential_download(True)
+            # Auto-managed so libtorrent's own queue enforces active_downloads
+            # (the effective cap). The actively-streamed torrent is force-started
+            # out of the queue separately (force_start_for_stream).
+            self._set_auto_managed(handle, True)
+            # Per-torrent connection cap (lt 2.x has no settings_pack key for this).
+            try:
+                handle.set_max_connections(settings.lt_per_torrent_connections())
+            except Exception as e:
+                logger.debug(f"set_max_connections skipped for {torrent_id}: {e}")
             self.active_torrents[torrent_id] = (handle, metadata)
             return handle
         except Exception as e:

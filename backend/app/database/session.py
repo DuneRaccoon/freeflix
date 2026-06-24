@@ -155,11 +155,80 @@ def sync_columns(engine_, tables=None):
             except Exception as e:
                 logger.warning(f"Could not add column {table.name}.{column.name}: {e}")
 
+def sync_indexes(engine_):
+    """Idempotent, additive index creation that sync_columns cannot perform.
+
+    ``sync_columns`` only ADDs columns; it can never create an index or a unique
+    constraint. With no migration framework, a unique index on an existing table must
+    be created defensively here. Before creating the UNIQUE index on
+    ``user_streaming_progress (user_id, movie_id)`` we DEDUPLICATE any pre-existing
+    duplicate rows (keeping the latest ``last_watched_at`` per pair, ties broken by id),
+    otherwise the CREATE UNIQUE INDEX would fail on a dirty table. Valid on both
+    PostgreSQL and SQLite; safe to run on every startup.
+    """
+    table = "user_streaming_progress"
+    inspector = sa_inspect(engine_)
+    if table not in set(inspector.get_table_names()):
+        return  # create_all will create it fresh (with the declarative UniqueConstraint)
+
+    try:
+        with engine_.begin() as conn:
+            # Delete every row that is NOT the surviving (latest) row for its
+            # (user_id, movie_id). Survivor = max last_watched_at, tie-break max id.
+            # Correlated NOT EXISTS works identically on Postgres and SQLite.
+            conn.execute(text(
+                f"""
+                DELETE FROM {table} AS p
+                WHERE EXISTS (
+                    SELECT 1 FROM {table} AS q
+                    WHERE q.user_id = p.user_id
+                      AND q.movie_id = p.movie_id
+                      AND (
+                          q.last_watched_at > p.last_watched_at
+                          OR (q.last_watched_at = p.last_watched_at AND q.id > p.id)
+                      )
+                )
+                """
+            ))
+    except Exception as e:
+        # SQLite older syntax does not accept the "AS p" table alias in DELETE.
+        # Retry without the alias (Postgres accepts both; this form is portable).
+        logger.warning(f"Aliased dedup DELETE failed ({e}); retrying unaliased")
+        with engine_.begin() as conn:
+            conn.execute(text(
+                f"""
+                DELETE FROM {table}
+                WHERE EXISTS (
+                    SELECT 1 FROM {table} AS q
+                    WHERE q.user_id = {table}.user_id
+                      AND q.movie_id = {table}.movie_id
+                      AND (
+                          q.last_watched_at > {table}.last_watched_at
+                          OR (q.last_watched_at = {table}.last_watched_at
+                              AND q.id > {table}.id)
+                      )
+                )
+                """
+            ))
+
+    try:
+        with engine_.begin() as conn:
+            conn.execute(text(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS uq_user_movie_progress "
+                f"ON {table} (user_id, movie_id)"
+            ))
+        logger.info("Ensured unique index uq_user_movie_progress(user_id, movie_id)")
+    except Exception as e:
+        logger.warning(f"Could not create unique index uq_user_movie_progress: {e}")
+
+
 def init_db():
     """Initialize the database tables."""
     Base.metadata.create_all(bind=engine)
     # Apply additive column migrations for tables that pre-date newer model columns.
     sync_columns(engine)
+    # Create indexes/unique constraints that sync_columns cannot (dedup-then-create).
+    sync_indexes(engine)
     logger.info("Database tables created")
 
 # Decorator for safely handling database operations in async functions

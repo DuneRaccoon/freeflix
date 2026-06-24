@@ -86,27 +86,11 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
     setCurrentDownloadProgress(downloadProgress);
   }, [downloadProgress]);
 
-  // Set up interval for checking streaming info updates
-  useEffect(() => {
-    // Don't need to run if we're already at 100%
-    if (downloadProgress >= 100) return;
-    
-    const infoInterval = setInterval(async () => {
-      try {
-        // Get updated streaming info
-        const info = await streamingService.getStreamingInfo(torrentId);
-        if (info) {
-          // Update download progress based on overall progress
-          setCurrentDownloadProgress(info.progress);
-        }
-      } catch (error) {
-        console.error('Error updating streaming info:', error);
-      }
-    }, 5000); // Check every 5 seconds
-    
-    return () => clearInterval(infoInterval);
-  }, [torrentId, downloadProgress]);
-  
+  // NOTE: the per-player 5s getStreamingInfo poll was removed (WS6). The streaming
+  // page is the single poll owner (§5.2) and feeds download progress down via the
+  // `downloadProgress` prop, which the effect above mirrors into local state.
+
+
   // Fetch saved progress on mount
   useEffect(() => {
     const fetchProgress = async () => {
@@ -341,16 +325,17 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   
   // Handle video player error
   const handleVideoError = (error: string) => {
-    // For minor errors during active downloads, don't show the error screen
-    if (torrentInfo && torrentInfo.progress < 100 && 
-        (error.includes('network error') || error.includes('buffering'))) {
-      // Just log the error but don't show the error screen
-      console.warn('Video playback issue during download:', error);
-    } else {
-      // For serious errors, show the error screen
-      if (onError) {
-        onError(error);
-      }
+    // During an active download, minor network/buffering errors are handled in-player
+    // by the backoff recovery — don't escalate to the error screen. A genuinely dead
+    // swarm (health === 'dead') still bubbles up so the user can switch sources.
+    const isRecoverable =
+      torrentInfo && torrentInfo.progress < 100 &&
+      streamHealth?.health !== 'dead' &&
+      (error.includes('network error') || error.includes('buffering'));
+    if (isRecoverable) {
+      console.warn('Video playback issue during download (recovering in-player):', error);
+    } else if (onError) {
+      onError(error);
     }
   };
   

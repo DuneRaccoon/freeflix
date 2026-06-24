@@ -57,7 +57,11 @@ class TorrentManager:
         self.session.add_dht_router("router.bittorrent.com", 6881)
         self.session.add_dht_router("router.utorrent.com", 6881)
         self.session.add_dht_router("dht.transmissionbt.com", 6881)
-        
+
+        # Apply arch-profiled libtorrent tuning (WS5). Unknown keys are already
+        # filtered by config.lt_settings(); this also swallows apply errors.
+        self._apply_session_tuning()
+
         # Try to load the resume data
         settings.resume_data_path.mkdir(parents=True, exist_ok=True)
         
@@ -75,6 +79,16 @@ class TorrentManager:
         
         logger.info("TorrentManager initialized")
     
+    def _apply_session_tuning(self):
+        """Apply the arch-profiled settings_pack to the live session. Errors are
+        logged and swallowed so a single unsupported key never blocks startup."""
+        try:
+            pack = settings.lt_settings()
+            self.session.apply_settings(pack)
+            logger.info(f"Applied libtorrent session tuning ({len(pack)} keys)")
+        except Exception as e:
+            logger.warning(f"Failed to apply session tuning (continuing): {e}")
+
     def _load_saved_torrents(self):
         """Load previously active torrents from the database"""
         try:

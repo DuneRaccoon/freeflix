@@ -67,6 +67,9 @@ class TorrentManager:
         
         # Dictionary to store active torrents: {torrent_id: (handle, metadata)}
         self.active_torrents: Dict[str, Tuple[lt.torrent_handle, Dict[str, Any]]] = {}
+
+        # Per-torrent tracker-recovery backoff: {torrent_id: {"attempts": int, "next_at": float}}
+        self._tracker_recovery: Dict[str, Dict[str, Any]] = {}
         
         # Initialize the database
         init_db()
@@ -120,6 +123,37 @@ class TorrentManager:
         self._set_auto_managed(handle, True)
         logger.info(f"Released force-start for {torrent_id} (back to auto-managed)")
         return True
+
+    def _schedule_tracker_recovery(self, torrent_id: str, handle) -> None:
+        """On a tracker error, force a re-announce (tracker + DHT) with exponential
+        backoff (15s base, x2, cap 300s, max 5 attempts). No-op until the next
+        scheduled time so a burst of tracker errors does not hammer announces."""
+        base, cap, max_attempts = 15.0, 300.0, 5
+        now = time.time()
+        rec = self._tracker_recovery.get(torrent_id, {"attempts": 0, "next_at": 0.0})
+
+        if rec["attempts"] >= max_attempts:
+            return
+        if now < rec["next_at"]:
+            return
+
+        try:
+            handle.force_reannounce()
+        except Exception as e:
+            logger.debug(f"force_reannounce failed for {torrent_id}: {e}")
+        try:
+            handle.force_dht_announce()
+        except Exception as e:
+            logger.debug(f"force_dht_announce failed for {torrent_id}: {e}")
+
+        rec["attempts"] += 1
+        backoff = min(base * (2 ** (rec["attempts"] - 1)), cap)
+        rec["next_at"] = now + backoff
+        self._tracker_recovery[torrent_id] = rec
+        logger.info(
+            f"Tracker recovery for {torrent_id}: re-announce attempt "
+            f"{rec['attempts']} (next in {backoff:.0f}s)"
+        )
 
     def _apply_session_tuning(self):
         """Apply the arch-profiled settings_pack to the live session. Errors are
@@ -533,10 +567,13 @@ class TorrentManager:
             elif isinstance(alert, lt.tracker_error_alert):
                 torrent_handle = alert.handle
                 error_message = f"Tracker error: {alert.error_message()}"
-                
+
                 for torrent_id, (handle, _) in self.active_torrents.items():
                     if handle == torrent_handle:
                         logger.warning(f"Tracker error for torrent {torrent_id}: {error_message}")
+                        # Schedule a backed-off re-announce (tracker + DHT) so a
+                        # transient tracker outage doesn't strand a low-seed swarm.
+                        self._schedule_tracker_recovery(torrent_id, handle)
                         # We don't update the torrent state just for tracker errors
                         # but we do log them for debugging purposes
                         with get_db() as db:

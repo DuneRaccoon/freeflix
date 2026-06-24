@@ -51,7 +51,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   registerMethods,
   downloadProgress = 100, // Default to 100% (fully downloaded) if not provided
   streamHealth,
-  onRecoveryExhausted
+  onRecoveryExhausted,
+  sources,
+  currentSourceId,
+  onSelectSource
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -88,6 +91,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSources, setShowSources] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isDraggingProgress, setIsDraggingProgress] = useState(false);
   const [videoIsReady, setVideoIsReady] = useState(false);
@@ -1316,6 +1320,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <b className="text-gold-lite font-semibold">{Math.round(downloadProgress)}% downloaded</b>
             </div>
           )}
+          {/* Live swarm health (seeds/peers/rate) */}
+          {streamHealth && downloadProgress < 100 && (
+            <div
+              data-testid="swarm-health-chip"
+              className="inline-flex items-center gap-2 self-start px-3 py-1.5 rounded-full border border-hairline text-text text-xs"
+              style={{ background: 'rgba(17,17,19,.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+            >
+              <span
+                className={cn(
+                  'flex-shrink-0 w-1.5 h-1.5 rounded-full',
+                  streamHealth.health === 'healthy' ? 'bg-[#4caf6a]'
+                    : streamHealth.health === 'low' ? 'bg-gold'
+                    : 'bg-muted'
+                )}
+                aria-hidden="true"
+              />
+              <span className="text-muted">{streamHealth.num_seeds} seeds · {streamHealth.num_peers} peers</span>
+              <span className="text-muted">·</span>
+              <b className="text-text/90 font-semibold tabular-nums">
+                {(streamHealth.download_rate / 1_000_000).toFixed(1)} MB/s
+              </b>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1604,19 +1631,77 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <span className="sr-only">Soon</span>
             </button>
 
-            {/* Quality pill — GATED (informational only) */}
-            <button
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold opacity-50 cursor-not-allowed"
-              style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
-              aria-label="Quality 1080p (informational)"
-              aria-disabled="true"
-              title="Informational — quality is fixed per torrent"
-              tabIndex={-1}
-              onClick={e => e.stopPropagation()}
-            >
-              <span className="text-[9px] text-muted uppercase tracking-widest mr-0.5">HD</span>
-              1080p
-            </button>
+            {/* Source / quality switcher — lists WS1 alternatives with health */}
+            {sources && sources.length > 0 ? (
+              <div className="relative" onClick={e => e.stopPropagation()}>
+                <button
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold transition-colors hover:border-gold/40 hover:text-gold-lite"
+                  style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
+                  onClick={() => setShowSources(s => !s)}
+                  aria-label="Switch source or quality"
+                  aria-expanded={showSources}
+                  data-testid="source-switcher-button"
+                >
+                  <span className="text-[9px] text-muted uppercase tracking-widest mr-0.5">Source</span>
+                  {sources.find(s => s.source_id === currentSourceId)?.quality || 'Auto'}
+                </button>
+
+                {showSources && (
+                  <div
+                    className="absolute bottom-full right-0 mb-2 min-w-[240px] max-h-[280px] overflow-y-auto rounded-xl border border-hairline py-1.5 z-50"
+                    style={{ background: 'rgba(22,22,26,.97)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}
+                    data-testid="source-switcher-menu"
+                  >
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-widest text-muted">Sources</div>
+                    {sources.map((s: TorrentCandidate) => (
+                      <button
+                        key={s.source_id}
+                        className={cn(
+                          'w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors hover:bg-surface-2 text-left',
+                          s.source_id === currentSourceId ? 'text-gold font-semibold' : 'text-text'
+                        )}
+                        onClick={() => {
+                          setShowSources(false);
+                          if (s.source_id !== currentSourceId) onSelectSource?.(s);
+                        }}
+                        data-testid="source-option"
+                      >
+                        {/* Health dot — same palette as SourcePicker's SeedDot */}
+                        <span
+                          className={cn(
+                            'flex-shrink-0 w-2 h-2 rounded-full',
+                            s.health === 'healthy' ? 'bg-[#4caf6a]'
+                              : s.health === 'low' ? 'bg-gold'
+                              : 'bg-muted'
+                          )}
+                          aria-hidden="true"
+                        />
+                        <span className="font-semibold">{s.quality || 'SD'}</span>
+                        {s.is_season_pack && (
+                          <span className="text-[9px] uppercase tracking-widest text-muted border border-hairline rounded px-1">Pack</span>
+                        )}
+                        <span className="flex-1" />
+                        <span className="text-muted tabular-nums">{s.seeds} sd</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // No alternatives available → keep the gated informational pill.
+              <button
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold opacity-50 cursor-not-allowed"
+                style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
+                aria-label="Quality (informational)"
+                aria-disabled="true"
+                title="Informational — quality is fixed per torrent"
+                tabIndex={-1}
+                onClick={e => e.stopPropagation()}
+              >
+                <span className="text-[9px] text-muted uppercase tracking-widest mr-0.5">HD</span>
+                {sources?.find(s => s.source_id === currentSourceId)?.quality || '1080p'}
+              </button>
+            )}
 
             {/* Picture-in-Picture */}
             {typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && (

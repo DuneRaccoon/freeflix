@@ -1,5 +1,6 @@
 import libtorrent as lt
 import asyncio
+import threading
 import time
 import json
 import uuid
@@ -67,6 +68,17 @@ class TorrentManager:
         
         # Dictionary to store active torrents: {torrent_id: (handle, metadata)}
         self.active_torrents: Dict[str, Tuple[lt.torrent_handle, Dict[str, Any]]] = {}
+
+        # W4: per-torrent event-driven piece waiters.
+        # {torrent_id: {piece_index: [asyncio.Future, ...]}}. The alert thread
+        # resolves these via _on_piece_finished; stream coroutines await them
+        # instead of busy-polling have_piece(). _waiter_lock guards mutation
+        # (the alert loop and request coroutines both touch the map).
+        self._piece_waiters: Dict[str, Dict[int, List[asyncio.Future]]] = {}
+        self._waiter_lock = threading.Lock()
+        # The running event loop, captured when the status task starts; used by
+        # _on_piece_finished for loop.call_soon_threadsafe cross-thread wakeups.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Per-torrent tracker-recovery backoff: {torrent_id: {"attempts": int, "next_at": float}}
         self._tracker_recovery: Dict[str, Dict[str, Any]] = {}
@@ -230,6 +242,9 @@ class TorrentManager:
     
     async def start_update_task(self):
         """Start the background task to update torrent status"""
+        # Capture the loop running this coroutine so the alert thread can wake
+        # stream coroutines across threads (loop.call_soon_threadsafe).
+        self._loop = asyncio.get_running_loop()
         if self.update_task is None or self.update_task.done():
             self.update_task = asyncio.create_task(self._update_torrents_status())
             logger.info("Started torrent status update task")

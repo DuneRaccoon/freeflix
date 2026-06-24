@@ -50,6 +50,7 @@ def classify_torrent_files(
         return "No playable video file found — likely a fake or archive-only release."
 
     # Rule 3 (opt-in): largest file is a non-video AND a fake-companion text file exists.
+    # Note: empty file list is already handled by rule 2 (returns no-video reason), so max(...) is safe.
     if fake_heuristics and files_list:
         largest_path, _ = max(files_list, key=lambda f: f[1])
         if file_ext(largest_path) not in videos:

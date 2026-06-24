@@ -46,12 +46,6 @@ def test_expanded_extensions_allowed():
 
 def test_structural_fake_blocked_only_when_enabled():
     files = [
-        ("Movie.mp4", 800_000),                 # tiny "video"
-        ("Movie_FULL.bin", 2_000_000_000),      # huge non-video (largest)
-        ("password.txt", 300),                  # fake companion
-    ]
-    # rule 1/2 don't catch it (.bin IS blocked here though) -> use a non-blocked big file
-    files = [
         ("Movie.mp4", 800_000),
         ("Movie_FULL.dat", 2_000_000_000),      # .dat not blocked, not video
         ("password.txt", 300),

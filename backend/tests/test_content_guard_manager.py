@@ -106,7 +106,6 @@ def test_block_torrent_removes_deletes_and_marks(tmp_path):
 
 
 def test_validate_fail_open_on_classifier_error(monkeypatch):
-    import app.torrent.manager as mgr
     monkeypatch.setattr(
         "app.torrent.content_guard.classify_torrent_files",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),

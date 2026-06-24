@@ -97,11 +97,23 @@ def rank_candidates(
 
 
 def select_best(hits: List[TorrentHit], quality: str) -> Optional[TorrentHit]:
-    """Highest-seeded hit whose parsed quality == `quality` (ties -> larger bytes)."""
+    """Highest-seeded EXACT-quality hit (ties -> larger bytes, 0-byte never wins).
+
+    Thin shim over rank_candidates so the bytes tiebreak is shared; returns the
+    original TorrentHit (unchanged return type) for existing callers (cron/jobs.py).
+    """
+    from app.config import settings
+
     matching = [h for h in hits if h.quality == quality]
     if not matching:
         return None
-    return max(matching, key=lambda h: (h.seeds, h.bytes))
+    ranked = rank_candidates(
+        matching, quality,
+        min_seeds=settings.min_seeds, healthy_seeds=settings.healthy_seeds,
+    )
+    top_id = ranked[0].source_id
+    by_id = {_source_id(h): h for h in matching}
+    return by_id.get(top_id, matching[0])
 
 
 def available_qualities(hits: List[TorrentHit]) -> List[str]:

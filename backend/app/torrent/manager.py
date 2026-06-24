@@ -544,6 +544,15 @@ class TorrentManager:
                                 )
                                 db.add(log)
                                 db.commit()
+                        # Content guard: vet the now-known file list BEFORE the bulk
+                        # download. Blocks executables / no-video / fake torrents,
+                        # otherwise skips non-video files. Gated by the kill switch.
+                        if settings.content_guard_enabled:
+                            reason = self.validate_torrent_content(handle)
+                            if reason:
+                                self._block_torrent(torrent_id, handle, reason)
+                                break
+                            self.skip_non_video_files(torrent_id, handle)
                         # Files are now known: cache per-file season/episode so content_id
                         # resolution never depends on a per-request filename parse.
                         try:
@@ -1093,6 +1102,60 @@ class TorrentManager:
                     return f
             return None
         return max(files, key=lambda f: f["size"])
+
+    def validate_torrent_content(self, handle) -> Optional[str]:
+        """Inspect a torrent's file list (metadata required) and return a content-
+        guard block reason if it should be rejected, else None. Best-effort — any
+        read error returns None (fail-open: never block on our own error)."""
+        from app.torrent.content_guard import classify_torrent_files
+        try:
+            if not handle.has_metadata():
+                return None
+            ti = handle.get_torrent_info()
+            files = [(ti.file_at(i).path, ti.file_at(i).size) for i in range(ti.num_files())]
+        except Exception as e:
+            logger.warning(f"content guard could not read file list: {e}")
+            return None
+        return classify_torrent_files(
+            files,
+            blocked_extensions=settings.blocked_extensions,
+            video_extensions=settings.video_extensions,
+            fake_heuristics=settings.fake_torrent_heuristics,
+        )
+
+    def _block_torrent(self, torrent_id: str, handle, reason: str) -> None:
+        """Enforce a content-guard block: remove from the session, delete partial
+        files, and persist state='blocked' + block_reason."""
+        logger.warning(f"Content guard BLOCKED torrent {torrent_id}: {reason}")
+        try:
+            self.session.remove_torrent(handle)
+        except Exception as e:
+            logger.warning(f"block: session.remove_torrent failed for {torrent_id}: {e}")
+        self.active_torrents.pop(torrent_id, None)
+
+        save_path = None
+        try:
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent:
+                    save_path = torrent.save_path
+                    torrent.state = 'blocked'
+                    torrent.block_reason = reason
+                    db.add(TorrentLog(
+                        torrent_id=torrent_id,
+                        message=f"Blocked by content guard: {reason}",
+                        level="WARNING",
+                        state='blocked',
+                    ))
+                    db.commit()
+        except Exception as e:
+            logger.error(f"block: DB update failed for {torrent_id}: {e}")
+
+        if save_path:
+            try:
+                safe_rmtree(save_path, settings.default_download_path)
+            except Exception as e:
+                logger.warning(f"block: safe_rmtree failed for {torrent_id}: {e}")
 
     def skip_non_video_files(self, torrent_id: str, handle) -> None:
         """Set non-video files to priority 0 (skip) and video files to 1, so a

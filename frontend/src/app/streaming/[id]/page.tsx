@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { torrentsService } from '@/services/torrents';
 import { streamingService } from '@/services/streaming';
-import { TorrentStatus, StreamingInfo, TorrentState, VideoFile } from '@/types';
+import { TorrentStatus, StreamingInfo, TorrentState, VideoFile, TorrentCandidate, StreamHealthState } from '@/types';
 import PatchedVideoPlayer from '@/components/player/PatchedVideoPlayer';
 import UpNextCard from '@/components/player/UpNextCard';
 import { Button, Pill } from '@/components/ui/fre';
@@ -17,6 +17,9 @@ import {
 } from '@heroicons/react/24/outline';
 import { formatBytes } from '@/utils/format';
 import { isStreamingReady } from '@/utils/streaming';
+import { deriveStreamHealth } from '@/utils/streamHealth';
+import StreamPhasePanel from '@/components/streaming/StreamPhasePanel';
+import { toast } from 'react-hot-toast';
 import { cn } from '@/lib/cn';
 
 export default function StreamingPage() {
@@ -42,9 +45,20 @@ export default function StreamingPage() {
   const [showStreamingStats, setShowStreamingStats] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [videoFileProgress, setVideoFileProgress] = useState<number>(0);
+  // Ranked alternative sources for the in-player switcher (W1 /torrents/sources).
+  const [sources, setSources] = useState<TorrentCandidate[]>([]);
+  // Revealed when in-player recovery is exhausted — the page surfaces the
+  // source-switch affordance (W6 calls onRecoveryExhausted → setShowSources).
+  const [showSources, setShowSources] = useState(false);
 
   // Up-Next card — shown when near the end of a multi-file episode
   const [showUpNext, setShowUpNext] = useState(false);
+
+  // Single derived stream-health snapshot (§5.2). The page is the ONLY poller;
+  // this is passed to the player so it never runs its own status poll.
+  const streamHealth: StreamHealthState | null = torrentStatus
+    ? deriveStreamHealth(torrentStatus)
+    : null;
 
   // Fetch the file list for this torrent
   useEffect(() => {
@@ -58,6 +72,36 @@ export default function StreamingPage() {
       })
       .finally(() => setFilesLoading(false));
   }, [torrentId]);
+
+  // Fetch ranked alternative sources for the in-player switcher. Best-effort:
+  // a failure just leaves the switcher empty (no alternatives offered).
+  useEffect(() => {
+    if (!torrentStatus) return;
+    let cancelled = false;
+    // Derive tmdb_id from the streaming info when available; the sources call is
+    // keyed by the catalog id, which the streaming page does not always hold, so
+    // we only fetch when streamingInfo carries content_id we can parse.
+    const cid = streamingInfo?.content_id;
+    if (!cid) return;
+    // content_id: "movie:{tmdb}" | "tv:{tmdb}:s{n}:e{n}"
+    const parts = cid.split(':');
+    const tmdb = Number(parts[1]);
+    if (!Number.isInteger(tmdb)) return;
+    const isTv = parts[0] === 'tv';
+    const season = isTv ? Number(parts[2]?.replace(/^s/, '')) : undefined;
+    const episode = isTv ? Number(parts[3]?.replace(/^e/, '')) : undefined;
+    torrentsService
+      .getSources({
+        tmdb_id: tmdb,
+        quality: torrentStatus.quality,
+        media_type: isTv ? 'tv' : 'movie',
+        season: Number.isInteger(season) ? season : undefined,
+        episode: Number.isInteger(episode) ? episode : undefined,
+      })
+      .then((list) => { if (!cancelled) setSources(list); })
+      .catch(() => { if (!cancelled) setSources([]); });
+    return () => { cancelled = true; };
+  }, [streamingInfo?.content_id, torrentStatus?.quality]);
 
   // Determine effective file index:
   // - Use fileIndex from URL if provided
@@ -178,7 +222,7 @@ export default function StreamingPage() {
       } catch (err) {
         console.error('Error updating torrent status:', err);
       }
-    }, 5000);
+    }, isStreamReady ? 5000 : 1500);
 
     return () => clearInterval(interval);
   }, [torrentId, isStreamReady, forceStreaming, retryCount, effectiveFileIndex]);
@@ -284,6 +328,69 @@ export default function StreamingPage() {
   // Handle selecting a different episode from the picker
   const handleFileSelect = (selectedIndex: number) => {
     router.replace(`/streaming/${torrentId}?file=${selectedIndex}`);
+  };
+
+  // Parse the watch-identity content_id into download params for a source switch.
+  const _cidParts = (streamingInfo?.content_id ?? '').split(':');
+  const streamingTmdbId: number | undefined = Number.isInteger(Number(_cidParts[1]))
+    ? Number(_cidParts[1])
+    : undefined;
+  const streamingMediaType: 'movie' | 'tv' = _cidParts[0] === 'tv' ? 'tv' : 'movie';
+  const streamingSeason: number | undefined =
+    streamingMediaType === 'tv' && Number.isInteger(Number(_cidParts[2]?.replace(/^s/, '')))
+      ? Number(_cidParts[2].replace(/^s/, ''))
+      : undefined;
+  const streamingEpisode: number | undefined =
+    streamingMediaType === 'tv' && Number.isInteger(Number(_cidParts[3]?.replace(/^e/, '')))
+      ? Number(_cidParts[3].replace(/^e/, ''))
+      : undefined;
+
+  const normalizeSwitchQuality = (q: string): '720p' | '1080p' | '2160p' =>
+    q === '720p' || q === '1080p' || q === '2160p' ? q : '1080p';
+
+  // Switch the active source from the in-player switcher (W6 renders the UI; the
+  // page owns the swap). A season-pack alternative on the SAME torrent is handled
+  // as a file_index swap via router.replace(?file=N); any other candidate starts a
+  // NEW download (magnet/source_id) and navigates to it. No silent auto-switch —
+  // this only runs on an explicit user pick.
+  const handleSelectSource = async (c: TorrentCandidate) => {
+    // Same-torrent season pack → file_index swap (no new download).
+    if (c.is_season_pack && torrentStatus && c.quality === torrentStatus.quality) {
+      const target = videoFiles.find((f) => f.name === c.release_title);
+      if (target) {
+        router.replace(`/streaming/${torrentId}?file=${target.index}`);
+        return;
+      }
+    }
+    // Different torrent → start a new download and navigate to it.
+    try {
+      toast.loading('Switching source…', { id: 'switch-source' });
+      const status = await torrentsService.downloadCatalogMovie({
+        tmdb_id: streamingTmdbId ?? 0,
+        quality: normalizeSwitchQuality(c.quality),
+        media_type: streamingMediaType,
+        season: streamingSeason,
+        episode: streamingEpisode,
+        magnet: c.magnet,
+        source_id: c.source_id,
+      });
+      toast.success('Source switched', { id: 'switch-source' });
+      if (status?.id && status.id !== torrentId) {
+        router.replace(`/streaming/${status.id}`);
+      }
+    } catch {
+      toast.error('Could not switch source. Please try again.', { id: 'switch-source' });
+    }
+  };
+
+  // Called by the player (W6) when in-player recovery (backoff re-seek) is
+  // exhausted: reveal the source-switch affordance so the user can pick another
+  // release instead of staring at a stalled stream.
+  const handleRecoveryExhausted = () => {
+    setShowSources(true);
+    if (sources.length > 0) {
+      toast('Playback is struggling — try another source.', { id: 'recovery-exhausted' });
+    }
   };
 
   // Get the streaming URL — pass effective file index so switching episodes changes playback
@@ -460,28 +567,14 @@ export default function StreamingPage() {
             )}
           </>
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-ink px-6 text-center">
-            <div
-              className="w-12 h-12 rounded-full border-2 border-hairline border-t-gold animate-spin"
-              aria-label="Buffering"
+          streamHealth && (
+            <StreamPhasePanel
+              health={streamHealth}
+              progress={torrentStatus.progress}
+              onForceStart={handleForceStreaming}
+              showForceStart={!forceStreaming}
             />
-            <div>
-              <p className="font-display text-xl text-text tracking-tight">Buffering your stream…</p>
-              <p className="mt-1.5 text-sm text-muted">
-                {Math.round(torrentStatus.progress)}% downloaded
-                {torrentStatus.num_peers > 0 &&
-                  ` · ${torrentStatus.num_peers} peer${torrentStatus.num_peers === 1 ? '' : 's'}`}
-              </p>
-            </div>
-            {!forceStreaming && (
-              <button
-                onClick={handleForceStreaming}
-                className="text-xs text-muted underline-offset-4 transition-colors hover:text-gold hover:underline"
-              >
-                Start anyway
-              </button>
-            )}
-          </div>
+          )
         )}
       </div>
 

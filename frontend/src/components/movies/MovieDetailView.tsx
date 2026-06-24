@@ -21,7 +21,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 
-import { MovieDetail, TorrentHit, CatalogItem } from '@/types';
+import { MovieDetail, TorrentHit, CatalogItem, TorrentCandidate, SwarmHealth } from '@/types';
 import { moviesService } from '@/services/movies';
 import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
@@ -32,7 +32,7 @@ import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 import DetailHero from '@/components/detail/DetailHero';
 import SourcePicker from '@/components/detail/SourcePicker';
 import CastRow from '@/components/detail/CastRow';
-import { Button } from '@/components/ui/fre';
+import { Button, Modal } from '@/components/ui/fre';
 import Row from '@/components/browse/Row';
 import PosterCard from '@/components/browse/PosterCard';
 import { cn } from '@/lib/cn';
@@ -169,10 +169,14 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
 
   // ── state ──────────────────────────────────────────────────────────────────
   const [hits, setHits] = useState<TorrentHit[]>([]);
+  const [candidates, setCandidates] = useState<TorrentCandidate[]>([]);
   const [quality, setQuality] = useState<string>('auto');
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<CatalogItem[]>([]);
+  // Pre-stream validation: when the resolved pick is weak we surface ranked
+  // alternatives in a modal instead of silently auto-switching.
+  const [altModalOpen, setAltModalOpen] = useState(false);
 
   // ── watchlist ──────────────────────────────────────────────────────────────
   const { isSaved, toggle } = useWatchlist();
@@ -196,6 +200,19 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
       }
     }
 
+    async function loadCandidates() {
+      try {
+        const list = await torrentsService.getSources({
+          tmdb_id: movie.tmdb_id,
+          quality: '1080p',
+          media_type: 'movie',
+        });
+        if (!cancelled) setCandidates(list ?? []);
+      } catch {
+        if (!cancelled) setCandidates([]);
+      }
+    }
+
     async function loadMoreLikeThis() {
       try {
         const genreId = movie.genre_ids?.[0];
@@ -213,6 +230,7 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
     }
 
     loadTorrents();
+    loadCandidates();
     loadMoreLikeThis();
 
     return () => {
@@ -222,14 +240,51 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
 
   // ── action handlers ────────────────────────────────────────────────────────
 
-  async function handlePlay() {
+  // Best candidate health for a given quality bucket (most-seeded wins).
+  function healthForQuality(q: string): SwarmHealth | null {
+    const inBucket = candidates.filter((c) => c.quality === q);
+    if (inBucket.length === 0) return null;
+    const best = inBucket.reduce((a, b) => (a.seeds >= b.seeds ? a : b));
+    return best.health;
+  }
+
+  // Start streaming a specific candidate (explicit user pick from the modal).
+  async function streamCandidate(c: TorrentCandidate) {
+    setAltModalOpen(false);
     setIsPlaying(true);
     try {
-      const resolved = resolveQuality(
-        quality,
-        hits,
-        movie.available_qualities,
-      );
+      const status = await handleCatalogStreamingStart({
+        tmdb_id: movie.tmdb_id,
+        quality:
+          c.quality === '720p' || c.quality === '1080p' || c.quality === '2160p'
+            ? c.quality
+            : '1080p',
+        magnet: c.magnet,
+        source_id: c.source_id,
+      });
+      if (status?.id) router.push(`/streaming/${status.id}`);
+    } catch {
+      toast.error('Failed to start streaming. Please try again.');
+    } finally {
+      setIsPlaying(false);
+    }
+  }
+
+  async function handlePlay() {
+    const resolved = resolveQuality(quality, hits, movie.available_qualities);
+    // Pre-stream seeder validation: if the resolved pick is dead/low AND a
+    // healthier alternative exists, let the user choose (no silent auto-switch).
+    const pickHealth = healthForQuality(resolved);
+    const hasHealthierAlt = candidates.some(
+      (c) => c.health === 'healthy' && c.quality !== resolved,
+    );
+    if ((pickHealth === 'dead' || pickHealth === 'low') && candidates.length > 0 && hasHealthierAlt) {
+      setAltModalOpen(true);
+      return;
+    }
+
+    setIsPlaying(true);
+    try {
       const status = await handleCatalogStreamingStart({
         tmdb_id: movie.tmdb_id,
         quality: resolved,
@@ -293,6 +348,7 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
           value={quality}
           onChange={setQuality}
           fallbackQualities={movie.available_qualities}
+          candidates={candidates}
         />
 
         {/* ── Actions row ── */}
@@ -424,6 +480,61 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
           ))}
         </Row>
       )}
+
+      {/* Pre-stream alternatives — shown when the resolved pick is dead/low. */}
+      <Modal
+        open={altModalOpen}
+        onClose={() => setAltModalOpen(false)}
+        label="Choose a healthier source"
+        className="max-w-lg"
+      >
+        <h2 className="font-display text-xl text-text tracking-tight mb-1">
+          Low seeders on your pick
+        </h2>
+        <p className="text-sm text-muted mb-5">
+          The selected quality has few or no seeders. Pick a healthier source to start streaming.
+        </p>
+        <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto" data-testid="alt-source-list">
+          {candidates.slice(0, 8).map((c) => (
+            <button
+              key={c.source_id}
+              onClick={() => streamCandidate(c)}
+              data-testid={`alt-source-${c.source_id}`}
+              className={cn(
+                'flex items-center justify-between gap-3 rounded-xl border border-hairline',
+                'bg-surface-2/50 px-4 py-3 text-left transition-colors',
+                'hover:border-gold/50 hover:bg-surface-2',
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block text-sm text-text font-medium truncate" title={c.release_title}>
+                  {c.quality || 'Unknown'} · {c.release_title}
+                </span>
+                <span className="block text-xs text-muted">
+                  {c.seeds} seeds · {c.peers} peers
+                </span>
+              </span>
+              <span
+                className={cn(
+                  'inline-block w-[8px] h-[8px] rounded-full shrink-0',
+                  c.health === 'healthy'
+                    ? 'bg-[#4caf6a] shadow-[0_0_6px_rgba(76,175,106,.7)]'
+                    : c.health === 'low'
+                    ? 'bg-gold shadow-[0_0_6px_rgba(201,168,106,.6)]'
+                    : 'bg-muted',
+                )}
+                aria-hidden="true"
+                title={`Swarm health: ${c.health}`}
+              />
+            </button>
+          ))}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <Button variant="glass" size="sm" onClick={() => setAltModalOpen(false)}>
+            Cancel
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 };

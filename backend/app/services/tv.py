@@ -2,8 +2,10 @@
 from typing import Optional
 from loguru import logger
 
-from app.models import CatalogPage, ShowDetail, SeasonDetail
+from app.models import CatalogPage, ShowDetail, SeasonDetail, TorrentCandidate
 from app.providers import catalog
+from app.services.torrents_select import rank_candidates
+from app.config import settings
 from app.database.session import get_db
 from app.database.models.catalog import CatalogItemCache
 
@@ -89,3 +91,21 @@ async def season_torrents(tmdb_id: int, season: int):
     if not show:
         return []
     return await catalog.torrents(f"{show} S{season:02d}")
+
+
+async def episode_candidates(tmdb_id: int, season: int, episode: int, quality: str):
+    """Ranked TorrentCandidates for a single episode at the requested quality."""
+    hits = await episode_torrents(tmdb_id, season, episode)
+    return rank_candidates(
+        hits, quality,
+        min_seeds=settings.min_seeds, healthy_seeds=settings.healthy_seeds,
+    )
+
+
+async def season_candidates(tmdb_id: int, season: int, quality: str):
+    """Ranked TorrentCandidates for a whole-season pack at the requested quality."""
+    hits = await season_torrents(tmdb_id, season)
+    return rank_candidates(
+        hits, quality,
+        min_seeds=settings.min_seeds, healthy_seeds=settings.healthy_seeds,
+    )

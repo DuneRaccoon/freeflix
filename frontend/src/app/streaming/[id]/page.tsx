@@ -549,6 +549,11 @@ export default function StreamingPage() {
               onProgress={handleVideoProgress}
               downloadProgress={videoFileProgress} // Pass the video-specific progress
               streamingInfo={streamingInfo} // Pass the full streaming info
+              sources={sources}
+              currentSourceId={undefined}
+              onSelectSource={handleSelectSource}
+              streamHealth={streamHealth ?? undefined}
+              onRecoveryExhausted={handleRecoveryExhausted}
             />
 
             {/* Up-Next card — floats above player, bottom-right, above controls */}

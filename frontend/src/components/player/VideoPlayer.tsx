@@ -12,7 +12,7 @@ import {
   Cog6ToothIcon
 } from '@heroicons/react/24/solid';
 import { formatTime } from '@/utils/format';
-import { PlayerState } from '@/types';
+import { PlayerState, StreamHealthState, TorrentCandidate } from '@/types';
 import BufferingAnimation from '@/components/streaming/BufferingAnimation';
 import { cn } from '@/lib/cn';
 
@@ -28,6 +28,14 @@ interface VideoPlayerProps {
   onProgress?: (state: PlayerState) => void;
   registerMethods?: (methods: { seekTo: (time: number) => void }) => void;
   downloadProgress?: number; // Optional prop to indicate download progress
+  // --- W2-declared stream-health / source-switch seam (W6 implements behavior) ---
+  // Canonical contract; snake_case StreamHealthState. Declared here so the page
+  // can pass them through; left UNCONSUMED until W6 (unused optional = not an error).
+  streamHealth?: StreamHealthState;
+  sources?: TorrentCandidate[];
+  currentSourceId?: string;
+  onSelectSource?: (candidate: TorrentCandidate) => void;
+  onRecoveryExhausted?: () => void;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({

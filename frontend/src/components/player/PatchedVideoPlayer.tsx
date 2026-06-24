@@ -4,7 +4,7 @@ import VideoPlayer from '@/components/player/VideoPlayer';
 import { streamingService } from '@/services/streaming';
 import { useUser } from '@/context/UserContext';
 import { useProgress } from '@/context/ProgressContext';
-import { StreamingProgress, StreamingInfo, TorrentStatus } from '@/types';
+import { StreamingProgress, StreamingInfo, TorrentStatus, StreamHealthState, TorrentCandidate } from '@/types';
 import { Button as FreButton, Modal } from '@/components/ui/fre';
 import { toast } from 'react-hot-toast';
 
@@ -24,6 +24,13 @@ interface PatchedVideoPlayerProps {
   onProgress?: (state: { currentTime: number; duration: number }) => void;
   downloadProgress?: number;
   streamingInfo?: StreamingInfo;
+  // --- W2-declared stream-health / source-switch seam (W6 implements behavior) ---
+  // Pure pass-through to <VideoPlayer/>; PatchedVideoPlayer does NOT act on them here.
+  streamHealth?: StreamHealthState;
+  sources?: TorrentCandidate[];
+  currentSourceId?: string;
+  onSelectSource?: (candidate: TorrentCandidate) => void;
+  onRecoveryExhausted?: () => void;
 }
 
 const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
@@ -40,7 +47,12 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   onError,
   onProgress: externalOnProgress,
   downloadProgress = 0,
-  streamingInfo
+  streamingInfo,
+  streamHealth,
+  sources,
+  currentSourceId,
+  onSelectSource,
+  onRecoveryExhausted
 }) => {
   // Prefer the stable content_id; fall back to the legacy title-based movieId
   const effectiveMovieId = contentId ?? movieId;
@@ -360,7 +372,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
       {/* Player Area */}
       <div className="flex-grow relative overflow-hidden z-[100]">
         {streamingUrl ? (
-          <VideoPlayer 
+          <VideoPlayer
             src={streamingUrl}
             poster={poster}
             movieTitle={movieTitle}
@@ -372,6 +384,11 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             onError={handleVideoError}
             registerMethods={registerPlayerMethods}
             downloadProgress={currentDownloadProgress}
+            streamHealth={streamHealth}
+            sources={sources}
+            currentSourceId={currentSourceId}
+            onSelectSource={onSelectSource}
+            onRecoveryExhausted={onRecoveryExhausted}
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-ink">

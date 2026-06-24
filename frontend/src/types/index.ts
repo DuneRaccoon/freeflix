@@ -106,6 +106,44 @@ export interface TorrentStatus {
   updated_at: string;
   eta?: number;
   error_message?: string;
+  // §5.2 stream-health fields. Optional + forward-compatible: emitted by the
+  // backend status payload in a later workstream; derived client-side via
+  // deriveStreamHealth() until then. `download_rate`/`num_peers` already exist
+  // above as required fields — these duplicates are the explicit health-channel
+  // names the backend may add; keep them optional to avoid a breaking rename.
+  stream_phase?: StreamPhase;
+  num_seeds?: number;
+  health?: SwarmHealth;
+  // chosen quality after any server-side downgrade (W1 TorrentStatus.chosen_quality)
+  chosen_quality?: string;
+}
+
+// --- Stream-health / phase model (§5.2 — single source of truth) ---
+// W2 OWNS these. W6 imports them; it must NOT redefine StreamPhase / SwarmHealth
+// / TorrentCandidate / StreamHealthState anywhere.
+export type StreamPhase = 'searching' | 'connecting' | 'metadata' | 'buffering' | 'ready';
+export type SwarmHealth = 'healthy' | 'low' | 'dead';
+
+// Ranked, health-classified torrent option (mirrors backend app.models.TorrentCandidate).
+export interface TorrentCandidate {
+  source_id: string;
+  magnet: string;
+  quality: string;
+  seeds: number;
+  peers: number;
+  bytes: number;
+  health: SwarmHealth;
+  is_season_pack: boolean;
+  release_title: string;
+}
+
+// Derived/polled stream-health snapshot passed from the streaming page to the player.
+export interface StreamHealthState {
+  stream_phase: StreamPhase;
+  num_seeds: number;
+  num_peers: number;
+  download_rate: number;
+  health: SwarmHealth;
 }
 
 export interface TorrentRequest {

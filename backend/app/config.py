@@ -1,4 +1,5 @@
 import os
+import libtorrent as lt
 from typing import Optional, Union
 from pathlib import Path
 from pydantic import (
@@ -89,12 +90,70 @@ class Settings(BaseSettings):
     min_seeds: int = 1
     healthy_seeds: int = 5
 
+    # libtorrent session tuning (WS5). Profiles are arch-selected at runtime by
+    # lt_settings(); unknown keys are filtered against the running build so a
+    # version drift never raises. ARM (Raspberry Pi) gets conservative limits.
+    lt_connections_limit_arm: int = 80
+    lt_connections_limit_x86: int = 300
+    lt_per_torrent_connections_arm: int = 40
+    lt_per_torrent_connections_x86: int = 120
+    lt_peer_connect_timeout: int = 8     # seconds to wait for a peer handshake
+    lt_request_timeout: int = 10         # seconds before re-requesting a block
+    lt_piece_timeout: int = 20           # seconds before timing out a piece request
+    lt_aio_threads_arm: int = 2
+    lt_aio_threads_x86: int = 8
+    lt_send_buffer_watermark: int = 1048576   # 1 MiB
+    lt_recv_buffer_watermark: int = 1048576   # 1 MiB
+
     def effective_max_active_downloads(self) -> int:
         """Configured concurrent-download ceiling, capped to 2 on ARM (Raspberry Pi)."""
         import platform
         if "arm" in platform.machine().lower():
             return min(self.max_active_downloads, 2)
         return self.max_active_downloads
+
+    def _is_arm(self) -> bool:
+        import platform
+        return "arm" in platform.machine().lower() or "aarch" in platform.machine().lower()
+
+    def lt_per_torrent_connections(self) -> int:
+        """Per-torrent connection cap for the current arch. Applied via
+        handle.set_max_connections() in the manager — NOT a settings_pack key
+        (libtorrent 2.x has no per-torrent connections key in settings_pack)."""
+        return (self.lt_per_torrent_connections_arm if self._is_arm()
+                else self.lt_per_torrent_connections_x86)
+
+    def _profile_settings(self, *, is_arm: bool) -> dict:
+        """The full INTENDED settings dict for a profile, before unknown-key
+        filtering. Pure/deterministic so it is unit-testable per arch."""
+        cap = self.effective_max_active_downloads()
+        return {
+            "connections_limit": (self.lt_connections_limit_arm if is_arm
+                                  else self.lt_connections_limit_x86),
+            "active_downloads": cap,
+            "active_limit": max(cap * 2, cap + 4),
+            "peer_connect_timeout": self.lt_peer_connect_timeout,
+            "request_timeout": self.lt_request_timeout,
+            "piece_timeout": self.lt_piece_timeout,
+            "prioritize_partial_pieces": True,
+            "strict_end_game_mode": True,
+            "suggest_mode": getattr(getattr(lt, "suggest_mode_t", None),
+                                    "suggest_read_cache", 1),
+            "send_buffer_watermark": self.lt_send_buffer_watermark,
+            "recv_buffer_watermark": self.lt_recv_buffer_watermark,
+            "aio_threads": (self.lt_aio_threads_arm if is_arm
+                            else self.lt_aio_threads_x86),
+        }
+
+    def _assemble_lt_settings(self, intended: dict) -> dict:
+        """Drop any key not present in the running libtorrent build (version-safe)."""
+        valid = set(lt.default_settings().keys())
+        return {k: v for k, v in intended.items() if k in valid}
+
+    def lt_settings(self) -> dict:
+        """Arch-profiled libtorrent settings_pack, filtered to keys valid in the
+        running build. Safe to pass straight to session.apply_settings()."""
+        return self._assemble_lt_settings(self._profile_settings(is_arm=self._is_arm()))
 
     # Create necessary directories on startup
     def initialize(self):

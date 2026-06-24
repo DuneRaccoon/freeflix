@@ -1050,7 +1050,7 @@ class TorrentManager:
 
     def stream_file_range(self, torrent_id: str, file_index: int, file_path: str,
                           start: int, end: int, chunk_size: int = 1024 * 1024,
-                          piece_timeout: float = 45.0):
+                          piece_timeout: Optional[float] = None):
         """
         Yield bytes [start, end] (inclusive) of a torrent's file for HTTP streaming,
         WAITING for each underlying piece to actually be downloaded before serving it.
@@ -1098,10 +1098,23 @@ class TorrentManager:
                 n = min(chunk_size, remaining)
                 first_piece = (file_offset + pos) // piece_length
                 last_piece = (file_offset + pos + n - 1) // piece_length
-                self._await_pieces(handle, first_piece, last_piece, num_pieces, piece_timeout)
+
+                # Wait (with deadlining) for this chunk's pieces. On failure we
+                # END the generator rather than read sparse/undownloaded bytes —
+                # the browser re-requests the Range; WS6/WS2 explain the gap.
+                budget = (
+                    piece_timeout if piece_timeout is not None
+                    else self._adaptive_piece_timeout(handle)
+                )
+                if not self._await_pieces(
+                    handle, first_piece, last_piece, num_pieces, budget
+                ):
+                    return
+
+                # Pieces confirmed present — only NOW read from disk.
                 chunk = f.read(n)
                 if not chunk:
-                    break
+                    return
                 remaining -= len(chunk)
                 pos += len(chunk)
                 yield chunk
@@ -1160,15 +1173,13 @@ class TorrentManager:
 
         deadline = time.time() + timeout
         while time.time() < deadline:
-            try:
-                if all(handle.have_piece(p) for p in range(first_piece, last_piece + 1)):
-                    return True
-            except Exception:
-                return False
+            if self._pieces_ready(handle, first_piece, last_piece):
+                return True
             time.sleep(0.05)
 
         logger.warning(
-            f"Streaming: timed out waiting for pieces {first_piece}-{last_piece}; serving partial data"
+            f"Streaming: timed out after {timeout:.1f}s waiting for pieces "
+            f"{first_piece}-{last_piece}; ending stream (no garbage served)"
         )
         return False
 

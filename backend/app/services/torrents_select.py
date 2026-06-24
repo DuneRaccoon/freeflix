@@ -38,6 +38,64 @@ def classify_health(seeds: int, *, min_seeds: int, healthy_seeds: int) -> str:
     return "healthy"
 
 
+def _effective_bytes(byts: int) -> int:
+    """Sort key for the bytes tiebreak: a 0-byte release must not outrank a real one."""
+    return byts if byts > 0 else -1
+
+
+def _to_candidate(hit: TorrentHit, health: str) -> TorrentCandidate:
+    return TorrentCandidate(
+        source_id=_source_id(hit),
+        magnet=hit.magnet,
+        quality=hit.quality or "",
+        seeds=hit.seeds,
+        peers=hit.peers,
+        bytes=hit.bytes,
+        health=health,
+        is_season_pack=_is_season_pack(hit.title),
+        release_title=hit.title,
+    )
+
+
+def rank_candidates(
+    hits: List[TorrentHit], quality: str, *, min_seeds: int, healthy_seeds: int
+) -> List[TorrentCandidate]:
+    """Ordered candidate list: exact-quality healthy first (seeds desc, bytes desc),
+    then a downgrade walk down _ORDER appending healthy lower-quality releases, then
+    low-health (same order), then dead last (kept only so a caller always has options).
+    bytes==0 never outranks a real release at equal seeds."""
+    # Quality buckets, exact-first then the downgrade walk (2160p->480p excluding exact).
+    bucket_order: List[str] = []
+    if quality:
+        bucket_order.append(quality)
+    bucket_order += [q for q in _ORDER if q != quality]
+    bucket_order.append("")  # releases whose quality didn't parse
+
+    def _bucket_index(q: str) -> int:
+        try:
+            return bucket_order.index(q)
+        except ValueError:
+            return len(bucket_order)
+
+    health_rank = {"healthy": 0, "low": 1, "dead": 2}
+
+    scored = []
+    for h in hits:
+        health = classify_health(h.seeds, min_seeds=min_seeds, healthy_seeds=healthy_seeds)
+        scored.append((h, health))
+
+    # Sort key: health tier, then bucket position, then seeds desc, then effective bytes desc.
+    scored.sort(
+        key=lambda hh: (
+            health_rank[hh[1]],
+            _bucket_index(hh[0].quality or ""),
+            -hh[0].seeds,
+            -_effective_bytes(hh[0].bytes),
+        )
+    )
+    return [_to_candidate(h, health) for (h, health) in scored]
+
+
 def select_best(hits: List[TorrentHit], quality: str) -> Optional[TorrentHit]:
     """Highest-seeded hit whose parsed quality == `quality` (ties -> larger bytes)."""
     matching = [h for h in hits if h.quality == quality]

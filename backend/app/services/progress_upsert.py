@@ -86,6 +86,11 @@ def upsert_progress(
         # semantic outcome; retry as update on conflict.
         session.rollback()
         _fallback_upsert(session, values, update_cols, user_id, movie_id)
+        # Flush the staged insert/update NOW so it is persisted and visible to the
+        # re-query below. The re-query runs under no_autoflush, which would otherwise
+        # suppress this flush — leaving a freshly-added row invisible to the SELECT and
+        # returning None (→ session.refresh(None) → AttributeError in the caller).
+        session.flush()
 
     with session.no_autoflush:
         return (

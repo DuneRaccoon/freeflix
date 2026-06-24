@@ -640,6 +640,18 @@ class TorrentManager:
                             db.commit()
                         break
 
+            elif isinstance(alert, lt.piece_finished_alert):
+                # W4: wake any stream coroutine awaiting this piece. Dispatched
+                # to the loop thread inside _on_piece_finished via
+                # call_soon_threadsafe, so this is safe even if alerts are popped
+                # off-loop.
+                torrent_handle = alert.handle
+                piece_index = int(alert.piece_index)
+                for torrent_id, (handle, _) in self.active_torrents.items():
+                    if handle == torrent_handle:
+                        self._on_piece_finished(torrent_id, piece_index)
+                        break
+
         except Exception as e:
             logger.error(f"Error handling alert: {e}")
             logger.exception("Alert handling exception details:")
@@ -1284,6 +1296,55 @@ class TorrentManager:
         # Scale: +1s of patience per ~64 kB/s of measured throughput.
         extended = base + (rate / 65536.0)
         return min(max_timeout, extended)
+
+    def _register_piece_waiter(self, torrent_id: str, piece_index: int):
+        """Create + register a Future resolved when piece `piece_index` of
+        `torrent_id` finishes. Must be called from the event-loop thread."""
+        fut = self._loop.create_future()
+        with self._waiter_lock:
+            self._piece_waiters.setdefault(torrent_id, {}).setdefault(
+                piece_index, []
+            ).append(fut)
+        return fut
+
+    def _unregister_piece_waiter(self, torrent_id: str, piece_index: int, fut) -> None:
+        """Drop `fut` from the registry (after it resolved, timed out, or the
+        stream ended). Idempotent."""
+        with self._waiter_lock:
+            per_torrent = self._piece_waiters.get(torrent_id)
+            if not per_torrent:
+                return
+            waiters = per_torrent.get(piece_index)
+            if not waiters:
+                return
+            if fut in waiters:
+                waiters.remove(fut)
+            if not waiters:
+                per_torrent.pop(piece_index, None)
+            if not per_torrent:
+                self._piece_waiters.pop(torrent_id, None)
+
+    def _on_piece_finished(self, torrent_id: str, piece_index: int) -> None:
+        """Resolve every Future waiting on (torrent_id, piece_index). Safe to
+        call from the alert thread: each Future is completed on its own loop via
+        call_soon_threadsafe. Drops the resolved waiters from the registry."""
+        with self._waiter_lock:
+            per_torrent = self._piece_waiters.get(torrent_id)
+            if not per_torrent:
+                return
+            waiters = per_torrent.pop(piece_index, None)
+            if not per_torrent:
+                self._piece_waiters.pop(torrent_id, None)
+        if not waiters:
+            return
+
+        def _resolve(f):
+            if not f.done():
+                f.set_result(True)
+
+        for fut in waiters:
+            loop = fut.get_loop()
+            loop.call_soon_threadsafe(_resolve, fut)
 
     def _await_pieces(self, handle, first_piece: int, last_piece: int,
                       num_pieces: int, timeout: float, read_ahead: int = 4) -> bool:

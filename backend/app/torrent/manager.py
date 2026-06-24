@@ -1346,14 +1346,10 @@ class TorrentManager:
             loop = fut.get_loop()
             loop.call_soon_threadsafe(_resolve, fut)
 
-    def _await_pieces(self, handle, first_piece: int, last_piece: int,
-                      num_pieces: int, timeout: float, read_ahead: int = 4) -> bool:
-        """
-        Block until pieces [first_piece, last_piece] are downloaded (or `timeout`
-        seconds elapse), deadlining them — plus a little read-ahead — so libtorrent
-        fetches them ASAP. Returns True if every required piece arrived, else False
-        (caller then serves what's there rather than hanging forever).
-        """
+    def _deadline_pieces(self, handle, first_piece: int, last_piece: int,
+                         num_pieces: int, read_ahead: int = 4) -> None:
+        """Top-priority + zero-deadline pieces [first_piece, last_piece] plus a
+        little read-ahead so libtorrent fetches them next. No waiting."""
         for p in range(first_piece, min(last_piece + 1 + read_ahead, num_pieces)):
             try:
                 if not handle.have_piece(p):
@@ -1362,17 +1358,60 @@ class TorrentManager:
             except Exception:
                 pass
 
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self._pieces_ready(handle, first_piece, last_piece):
-                return True
-            time.sleep(0.05)
+    async def await_pieces_async(self, handle, pieces: list, timeout: float) -> bool:
+        """Event-driven wait for every piece in `pieces` to be downloaded.
 
-        logger.warning(
-            f"Streaming: timed out after {timeout:.1f}s waiting for pieces "
-            f"{first_piece}-{last_piece}; ending stream (no garbage served)"
-        )
-        return False
+        Returns True once all are have_piece(); False if `timeout` seconds pass
+        first. Replaces the old time.sleep(0.05) busy-poll: registers a Future per
+        not-yet-have piece (resolved from the alert loop by _on_piece_finished) and
+        awaits them under one asyncio.wait_for. Always cleans up its Futures.
+        """
+        # Find the torrent_id for this handle (registry is keyed by it).
+        torrent_id = None
+        for tid, (h, _) in self.active_torrents.items():
+            if h == handle:
+                torrent_id = tid
+                break
+        if torrent_id is None:
+            # Not in the session anymore — fall back to a direct check.
+            return all(self._safe_have(handle, p) for p in pieces)
+
+        missing = [p for p in pieces if not self._safe_have(handle, p)]
+        if not missing:
+            return True
+
+        futures = [self._register_piece_waiter(torrent_id, p) for p in missing]
+
+        # Lost-wakeup guard: piece may have arrived between the _safe_have check
+        # above and _register_piece_waiter. Re-check now that we're registered;
+        # if it's already here, resolve the future ourselves so we don't hang.
+        for p, fut in zip(missing, futures):
+            if not fut.done() and self._safe_have(handle, p):
+                fut.set_result(True)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*futures), timeout=timeout
+            )
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Streaming: timed out after {timeout:.1f}s waiting for pieces "
+                f"{missing[0]}-{missing[-1]}; ending stream (no garbage served)"
+            )
+            return False
+        finally:
+            for p, fut in zip(missing, futures):
+                self._unregister_piece_waiter(torrent_id, p, fut)
+                if not fut.done():
+                    fut.cancel()
+
+    def _safe_have(self, handle, piece: int) -> bool:
+        """have_piece() that never raises (handle may be invalidated)."""
+        try:
+            return bool(handle.have_piece(piece))
+        except Exception:
+            return False
 
 # Create a singleton instance
 torrent_manager = TorrentManager()

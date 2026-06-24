@@ -1093,7 +1093,24 @@ class TorrentManager:
                     return f
             return None
         return max(files, key=lambda f: f["size"])
-        
+
+    def skip_non_video_files(self, torrent_id: str, handle) -> None:
+        """Set non-video files to priority 0 (skip) and video files to 1, so a
+        guarded torrent never spends Pi bandwidth/disk on non-video extras.
+        No-op without metadata. Best-effort — never raises into the caller."""
+        try:
+            if not handle.has_metadata():
+                return
+            ti = handle.get_torrent_info()
+            priorities = [
+                1 if self._is_video_file(ti.file_at(i).path) else 0
+                for i in range(ti.num_files())
+            ]
+            if priorities:
+                handle.prioritize_files(priorities)
+        except Exception as e:
+            logger.warning(f"skip_non_video_files failed for {torrent_id}: {e}")
+
     def prioritize_video_files(self, torrent_id: str, piece_prioritization: bool = True,
                                file_index: Optional[int] = None) -> bool:
         """
@@ -1143,8 +1160,9 @@ class TorrentManager:
                     video_file_indices.append(i)
                     logger.info(f"Setting high priority for video file: {file_path}")
                 else:
-                    # Set normal priority (1) for other files
-                    file_priorities.append(1)
+                    # Skip non-video files entirely (priority 0) — don't waste
+                    # Pi bandwidth/disk on extras.
+                    file_priorities.append(0)
             
             # Apply file priorities if any files found
             if file_priorities:

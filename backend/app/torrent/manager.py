@@ -1293,19 +1293,34 @@ class TorrentManager:
                 )
                 playhead_piece = first_piece
 
-                # Deadline this chunk's pieces, then event-wait for them. On
-                # failure END the generator rather than read undownloaded bytes —
-                # the browser re-requests the Range; WS6/WS2 explain the gap.
+                # WAIT (poll have_piece) until this chunk's pieces are on disk,
+                # keeping the HTTP response OPEN so the player streams as the
+                # sequential download advances. Two hard rules for streaming a
+                # still-downloading torrent:
+                #   - NEVER truncate below Content-Length. Ending the generator
+                #     early closes the 206 short -> the browser sees an incomplete
+                #     response and stalls ("buffering" forever) instead of playing.
+                #   - NEVER read undownloaded (sparse/zero) bytes -> decode errors.
+                # So we hold the response open, re-deadlining the needed pieces,
+                # until they arrive. Only give up if the torrent left the session
+                # (removed/deleted) or a generous dead-stall cap elapses (then the
+                # client simply re-requests the range).
                 self._deadline_pieces(handle, first_piece, last_piece, num_pieces)
-                budget = (
-                    piece_timeout if piece_timeout is not None
-                    else self._adaptive_piece_timeout(handle)
-                )
-                ok = await self.await_pieces_async(
-                    handle, list(range(first_piece, last_piece + 1)), budget
-                )
-                if not ok:
-                    return
+                cap = piece_timeout if piece_timeout is not None else 300.0
+                waited = 0.0
+                while not self._pieces_ready(handle, first_piece, last_piece):
+                    if torrent_id not in self.active_torrents:
+                        return  # torrent removed/deleted mid-stream
+                    await asyncio.sleep(0.25)
+                    waited += 0.25
+                    if waited >= cap:
+                        logger.warning(
+                            f"Streaming {torrent_id}: pieces {first_piece}-{last_piece} "
+                            f"unavailable after {cap:.0f}s (dead swarm?); ending stream"
+                        )
+                        return
+                    # priorities/deadlines can be reset by the session; re-assert.
+                    self._deadline_pieces(handle, first_piece, last_piece, num_pieces)
 
                 # Pieces confirmed present — only NOW read from disk (off-loop).
                 chunk = await asyncio.to_thread(f.read, n)

@@ -1,6 +1,9 @@
-"""Core WS3 guarantee: stream_file_range must NEVER yield bytes for a piece that
-is not have_piece(), and on timeout it must END the generator (stop yielding)
-rather than serve sparse/zero bytes."""
+"""Core serving guarantee: stream_file_range must NEVER yield bytes for a piece
+that is not have_piece() (no sparse/zero bytes -> no decode errors). It keeps the
+HTTP response OPEN, waiting for each chunk's pieces to download, so a still-
+downloading torrent streams as bytes arrive. It only ENDS the generator if the
+torrent leaves the session or a dead-stall cap (`piece_timeout`) elapses without
+the pieces arriving — it never serves sparse bytes to fill the gap."""
 import asyncio
 import types
 from app.torrent.manager import torrent_manager
@@ -87,7 +90,7 @@ def test_never_yields_when_pieces_unavailable_and_ends(tmp_path):
     torrent_manager.active_torrents["t-never"] = (handle, {})
     try:
         gen = torrent_manager.stream_file_range(
-            "t-never", 0, str(f), 0, 511, chunk_size=128
+            "t-never", 0, str(f), 0, 511, chunk_size=128, piece_timeout=0.5
         )
         out = _collect(gen)
     finally:
@@ -135,7 +138,7 @@ def test_partial_then_unavailable_ends_after_good_chunks(tmp_path):
     try:
         out = _collect(
             torrent_manager.stream_file_range(
-                "t-partial", 0, str(f), 0, 511, chunk_size=128
+                "t-partial", 0, str(f), 0, 511, chunk_size=128, piece_timeout=0.5
             )
         )
     finally:

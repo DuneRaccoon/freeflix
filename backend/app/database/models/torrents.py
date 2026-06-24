@@ -29,6 +29,9 @@ class Torrent(Model):
     media_type = Column(String, nullable=True)   # 'movie' | 'tv'
     season = Column(Integer, nullable=True)
     episode = Column(Integer, nullable=True)
+    # Per-file episode map cached once metadata is known: {"<file_index>": {"season": int,
+    # "episode": int}}. Nullable + additive -> applied by sync_columns on existing DBs.
+    precomputed_episodes = Column(JSON, nullable=True)
 
     # Status information
     state = Column(String, nullable=False, default="queued")

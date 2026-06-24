@@ -49,7 +49,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onError,
   onProgress,
   registerMethods,
-  downloadProgress = 100 // Default to 100% (fully downloaded) if not provided
+  downloadProgress = 100, // Default to 100% (fully downloaded) if not provided
+  streamHealth,
+  onRecoveryExhausted
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -64,6 +66,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const lastPlayheadPositionRef = useRef<number>(0);
   const stallTimeRef = useRef<number | null>(null);
   const maxStallTime = 10000; // Maximum time (ms) to wait before showing stall warning
+  // Bounded exponential backoff recovery (1·2·4·8s, capped). Each attempt re-seeks
+  // currentTime to force the browser to re-issue the Range request to the backend.
+  const recoveryAttemptRef = useRef<number>(0);
+  const recoveryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const RECOVERY_BACKOFF_MS = [1000, 2000, 4000, 8000];
+  const MAX_RECOVERY_ATTEMPTS = RECOVERY_BACKOFF_MS.length;
 
   const [playerState, setPlayerState] = useState<PlayerState>({
     isPlaying: false,
@@ -495,6 +503,43 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [playerState.isPlaying]);
 
+  // Bounded exponential-backoff recovery: re-seek to currentTime so the browser
+  // re-requests the active Range from the backend. After MAX_RECOVERY_ATTEMPTS we
+  // give up and let the page surface a source switch via onRecoveryExhausted.
+  const attemptRecovery = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (recoveryAttemptRef.current >= MAX_RECOVERY_ATTEMPTS) {
+      if (debug) console.log('Recovery exhausted after', MAX_RECOVERY_ATTEMPTS, 'attempts');
+      onRecoveryExhausted?.();
+      return;
+    }
+
+    const delay = RECOVERY_BACKOFF_MS[recoveryAttemptRef.current];
+    recoveryAttemptRef.current += 1;
+    if (debug) console.log(`Recovery attempt ${recoveryAttemptRef.current} in ${delay}ms`);
+
+    setIsBuffering(true);
+    setShowBufferingMessage(true);
+
+    if (recoveryTimeoutRef.current) clearTimeout(recoveryTimeoutRef.current);
+    recoveryTimeoutRef.current = setTimeout(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      try {
+        // Re-seek to the current position (nudge) to force a fresh Range request.
+        const t = v.currentTime;
+        v.currentTime = Math.max(0, t);
+        v.play().catch(err => {
+          if (debug) console.error('Recovery play failed:', err);
+        });
+      } catch (e) {
+        if (debug) console.error('Recovery seek failed:', e);
+      }
+    }, delay);
+  }, [debug, onRecoveryExhausted]);
+
   // Set up stall detection interval
   useEffect(() => {
     const checkInterval = setInterval(checkForStall, 1000);
@@ -518,6 +563,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsBuffering(false);
     setShowBufferingMessage(false);
     setIsStalled(false);
+    recoveryAttemptRef.current = 0;
 
     // Ensure it starts muted for autoplay
     video.muted = true;
@@ -546,6 +592,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Clear any buffering retry timeouts
       if (bufferingRetryTimeoutRef.current) {
         clearTimeout(bufferingRetryTimeoutRef.current);
+      }
+      if (recoveryTimeoutRef.current) {
+        clearTimeout(recoveryTimeoutRef.current);
       }
     };
   }, [src, debug, updateVolumeFromMouseMove, stopVolumeDrag]);
@@ -806,23 +855,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       try {
         // Don't treat network errors during active downloads as fatal
         if (downloadProgress < 100 && (video.error?.code === 2 || video.error?.code === 4)) {
-          if (debug) console.log("Network error during download, treating as buffering");
-          setIsBuffering(true);
-          setShowBufferingMessage(true);
-
-          // Retry playback after a delay if the video was playing
-          if (playerState.isPlaying) {
-            if (bufferingRetryTimeoutRef.current) {
-              clearTimeout(bufferingRetryTimeoutRef.current);
-            }
-
-            bufferingRetryTimeoutRef.current = setTimeout(() => {
-              if (debug) console.log("Retrying playback after network error");
-              video.play().catch(e => {
-                if (debug) console.error("Retry playback failed:", e);
-              });
-            }, 2000);
-          }
+          if (debug) console.log("Network error during download, recovering via backoff");
+          // Bounded exponential backoff with re-seek instead of a single 2s retry.
+          attemptRecovery();
         } else {
           // Handle other errors normally
           const errorCode = video.error ? video.error.code : "unknown";
@@ -878,6 +913,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setShowBufferingMessage(false);
         setIsStalled(false);
         stallTimeRef.current = null;
+        // Healthy playback resumed → reset the backoff ladder.
+        recoveryAttemptRef.current = 0;
+        if (recoveryTimeoutRef.current) {
+          clearTimeout(recoveryTimeoutRef.current);
+          recoveryTimeoutRef.current = null;
+        }
       } catch (e) {
         console.error("Error in playing event:", e);
       }

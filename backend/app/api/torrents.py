@@ -199,6 +199,27 @@ async def torrent_action(
     return {"success": True, "action": action.action, "torrent_id": torrent_id}
 
 
+@router.post("/{torrent_id}/prioritize", response_model=Dict[str, Any],
+             summary="Prioritize a torrent's video for streaming")
+async def prioritize_for_streaming(
+    torrent_id: str = Path(..., description="ID of the torrent"),
+    payload: Dict[str, Any] = Body(default={}),
+):
+    """Deadline the streamed file's initial pieces and force-start the torrent out
+    of the download queue, so playback can begin as soon as possible. The streaming
+    page calls this on open. Idempotent and best-effort — it never fails the stream
+    (returns success even if the torrent isn't streamable yet)."""
+    status = torrent_manager.get_torrent_status(torrent_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Torrent not found")
+    try:
+        torrent_manager.prioritize_video_files(torrent_id)
+        torrent_manager.force_start_for_stream(torrent_id)
+    except Exception:
+        pass  # best-effort: prioritization must never block/fail the stream start
+    return {"success": True, "torrent_id": torrent_id}
+
+
 @router.post("/batch", response_model=TorrentBatchResponse, summary="Batch torrent action")
 async def batch_action(payload: TorrentBatchAction):
     """Apply an action to every torrent matching the action's target set."""

@@ -1190,38 +1190,43 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Error prioritizing pieces for streaming: {e}")
 
-    def stream_file_range(self, torrent_id: str, file_index: int, file_path: str,
-                          start: int, end: int, chunk_size: int = 1024 * 1024,
-                          piece_timeout: Optional[float] = None):
+    async def stream_file_range(self, torrent_id: str, file_index: int, file_path: str,
+                                start: int, end: int, chunk_size: int = 1024 * 1024,
+                                piece_timeout: Optional[float] = None):
         """
-        Yield bytes [start, end] (inclusive) of a torrent's file for HTTP streaming,
-        WAITING for each underlying piece to actually be downloaded before serving it.
+        Async generator yielding bytes [start, end] (inclusive) of a torrent's
+        file for HTTP streaming, event-driven-WAITING for each underlying piece to
+        actually be downloaded before serving it.
 
-        Serving a torrent file straight off disk while it is still downloading hands
-        the player not-yet-downloaded (sparse / zero) bytes — including the MP4 `moov`
-        atom when it lives at the END of the file (sequential download fetches that
-        last). The browser decoder rejects those bytes as bad data
-        (PIPELINE_ERROR_DECODE / VideoToolbox -12909). This generator gates every chunk
-        on piece availability — deadlining the needed pieces so libtorrent fetches them
-        next — so the player only ever receives real, decodable bytes (it buffers /
-        waits instead of decoding garbage).
+        Serving a torrent file straight off disk while it is still downloading
+        hands the player not-yet-downloaded (sparse / zero) bytes — including the
+        MP4 `moov` atom when it lives at the END of the file. The browser decoder
+        rejects those (PIPELINE_ERROR_DECODE / VideoToolbox -12909). This gates
+        every chunk on piece availability (await_pieces_async) — deadlining the
+        needed pieces so libtorrent fetches them next — and NEVER yields a chunk
+        whose pieces are not confirmed present (it ends the generator on timeout
+        instead of serving garbage). Disk reads run off the event loop via
+        asyncio.to_thread. StreamingResponse consumes async generators directly.
         """
         entry = self.active_torrents.get(torrent_id)
         handle = entry[0] if entry else None
         ti = handle.get_torrent_info() if (handle and handle.has_metadata()) else None
 
-        # No live torrent (e.g. completed and removed from the session) → every byte
-        # is already on disk; serve straight through.
+        # No live torrent (e.g. completed and removed from the session) → every
+        # byte is already on disk; serve straight through (reads off-loop).
         if ti is None:
-            with open(file_path, "rb") as f:
-                f.seek(start)
+            f = await asyncio.to_thread(open, file_path, "rb")
+            try:
+                await asyncio.to_thread(f.seek, start)
                 remaining = end - start + 1
                 while remaining > 0:
-                    chunk = f.read(min(chunk_size, remaining))
+                    chunk = await asyncio.to_thread(f.read, min(chunk_size, remaining))
                     if not chunk:
                         break
                     remaining -= len(chunk)
                     yield chunk
+            finally:
+                await asyncio.to_thread(f.close)
             return
 
         file_offset = ti.file_at(file_index).offset
@@ -1232,8 +1237,12 @@ class TorrentManager:
         except Exception:
             pass
 
-        with open(file_path, "rb") as f:
-            f.seek(start)
+        # Seek-aware playhead: where this stream currently reads from, in pieces.
+        playhead_piece = (file_offset + start) // piece_length
+
+        f = await asyncio.to_thread(open, file_path, "rb")
+        try:
+            await asyncio.to_thread(f.seek, start)
             remaining = end - start + 1
             pos = start
             while remaining > 0:
@@ -1241,25 +1250,36 @@ class TorrentManager:
                 first_piece = (file_offset + pos) // piece_length
                 last_piece = (file_offset + pos + n - 1) // piece_length
 
-                # Wait (with deadlining) for this chunk's pieces. On failure we
-                # END the generator rather than read sparse/undownloaded bytes —
+                # Seek-aware graduated read-ahead: focus libtorrent on the window
+                # at/after the playhead, relax anything far behind it.
+                self._prioritize_window(
+                    handle, first_piece, num_pieces, playhead_piece
+                )
+                playhead_piece = first_piece
+
+                # Deadline this chunk's pieces, then event-wait for them. On
+                # failure END the generator rather than read undownloaded bytes —
                 # the browser re-requests the Range; WS6/WS2 explain the gap.
+                self._deadline_pieces(handle, first_piece, last_piece, num_pieces)
                 budget = (
                     piece_timeout if piece_timeout is not None
                     else self._adaptive_piece_timeout(handle)
                 )
-                if not self._await_pieces(
-                    handle, first_piece, last_piece, num_pieces, budget
-                ):
+                ok = await self.await_pieces_async(
+                    handle, list(range(first_piece, last_piece + 1)), budget
+                )
+                if not ok:
                     return
 
-                # Pieces confirmed present — only NOW read from disk.
-                chunk = f.read(n)
+                # Pieces confirmed present — only NOW read from disk (off-loop).
+                chunk = await asyncio.to_thread(f.read, n)
                 if not chunk:
                     return
                 remaining -= len(chunk)
                 pos += len(chunk)
                 yield chunk
+        finally:
+            await asyncio.to_thread(f.close)
 
     def _pieces_ready(self, handle, first_piece: int, last_piece: int) -> bool:
         """Non-blocking: True iff every piece in [first_piece, last_piece] is
@@ -1357,6 +1377,33 @@ class TorrentManager:
                     handle.set_piece_deadline(p, 0)
             except Exception:
                 pass
+
+    def _prioritize_window(self, handle, first_piece: int, num_pieces: int,
+                           prev_playhead: int, window: int = 32,
+                           step_ms: int = 800) -> None:
+        """Seek-aware prioritization. Around the current read position set
+        GRADUATED set_piece_deadline(p, k*step) across a forward read-ahead
+        window (nearest piece tightest), and RELAX pieces far behind the playhead
+        on a backward seek so libtorrent stops fetching where the user no longer
+        is. Best-effort: every libtorrent call is guarded."""
+        last = min(first_piece + window, num_pieces)
+        for k, p in enumerate(range(first_piece, last)):
+            try:
+                if not handle.have_piece(p):
+                    handle.piece_priority(p, 7)
+                    handle.set_piece_deadline(p, k * step_ms)
+            except Exception:
+                pass
+
+        # Backward seek: relax the abandoned window behind the new playhead.
+        if first_piece < prev_playhead:
+            for p in range(first_piece + window, min(prev_playhead + window, num_pieces)):
+                try:
+                    if not handle.have_piece(p):
+                        handle.piece_priority(p, 1)  # low, not zero (still wanted)
+                        handle.reset_piece_deadline(p)
+                except Exception:
+                    pass
 
     async def await_pieces_async(self, handle, pieces: list, timeout: float) -> bool:
         """Event-driven wait for every piece in `pieces` to be downloaded.

@@ -6,6 +6,7 @@ disk allocation while downloading, handing the player undownloaded (zero) bytes
 -> PIPELINE_ERROR_DECODE / VideoToolbox -12909. stream_file_range now gates each
 chunk on piece availability.
 """
+import asyncio
 from app.torrent.manager import torrent_manager
 
 
@@ -57,9 +58,21 @@ class _FakeHandle:
     def set_piece_deadline(self, p, _d):
         self.deadlined.append(p)
 
+    def status(self):
+        import types
+        return types.SimpleNamespace(num_peers=3, download_rate=0)
 
-def _collect(gen):
-    return b"".join(gen)
+
+async def _drain(agen):
+    torrent_manager._loop = asyncio.get_running_loop()
+    out = []
+    async for chunk in agen:
+        out.append(chunk)
+    return b"".join(out)
+
+
+def _collect(agen):
+    return asyncio.run(_drain(agen))
 
 
 def test_serves_exact_byte_range_when_pieces_available(tmp_path):
@@ -86,8 +99,11 @@ def test_deadlines_pieces_until_available(tmp_path):
     f.write_bytes(data)
 
     ti = _FakeTI(offset=0, piece_length=64, num_pieces=8)
-    # First two availability checks report "not yet"; then pieces arrive.
-    handle = _FakeHandle(ti, available_after=2)
+    # available_after=1: first have_piece call returns False so _prioritize_window
+    # / _deadline_pieces deadline at least one piece; subsequent calls return True
+    # so await_pieces_async sees all pieces present immediately. Verifies the
+    # deadlining pass ran. (Event-driven waiting is covered by test_await_pieces_async.)
+    handle = _FakeHandle(ti, available_after=1)
     torrent_manager.active_torrents["t-wait"] = (handle, {})
     try:
         out = _collect(
@@ -99,8 +115,8 @@ def test_deadlines_pieces_until_available(tmp_path):
         del torrent_manager.active_torrents["t-wait"]
 
     assert out == data[0:128]
-    # It deadlined the pieces it was waiting on.
-    assert handle.deadlined, "expected pieces to be deadlined while waiting"
+    # The deadlining pass ran for this chunk's pieces.
+    assert handle.deadlined, "expected pieces to be deadlined for the served chunk"
 
 
 def test_disk_fallback_when_torrent_not_in_session(tmp_path):

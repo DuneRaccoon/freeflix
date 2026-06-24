@@ -1,6 +1,7 @@
 """Core WS3 guarantee: stream_file_range must NEVER yield bytes for a piece that
 is not have_piece(), and on timeout it must END the generator (stop yielding)
 rather than serve sparse/zero bytes."""
+import asyncio
 import types
 from app.torrent.manager import torrent_manager
 
@@ -63,8 +64,16 @@ class _ReadyHandle(_NeverReadyHandle):
         return True
 
 
-def _collect(gen):
-    return b"".join(gen)
+async def _drain(agen):
+    torrent_manager._loop = asyncio.get_running_loop()
+    out = []
+    async for chunk in agen:
+        out.append(chunk)
+    return b"".join(out)
+
+
+def _collect(agen):
+    return asyncio.run(_drain(agen))
 
 
 def test_never_yields_when_pieces_unavailable_and_ends(tmp_path):

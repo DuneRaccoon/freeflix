@@ -16,7 +16,7 @@
 import React from 'react';
 import Pill from '@/components/ui/fre/Pill';
 import { cn } from '@/lib/cn';
-import type { TorrentHit } from '@/types';
+import type { TorrentHit, TorrentCandidate, SwarmHealth } from '@/types';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,6 +76,8 @@ export interface SourcePickerProps {
   onChange: (quality: string) => void;
   /** Used when hits is empty — render plain pills with no seed/size info. */
   fallbackQualities?: string[];
+  /** Ranked, health-classified candidates (W1). When present, drives health badges. */
+  candidates?: TorrentCandidate[];
 }
 
 /**
@@ -95,13 +97,52 @@ function SeedDot({ seeds }: { seeds: number }) {
   );
 }
 
+/** Best (most-seeded) candidate health per quality bucket. */
+function bestHealthByQuality(candidates: TorrentCandidate[]): Map<string, SwarmHealth> {
+  const map = new Map<string, { seeds: number; health: SwarmHealth }>();
+  for (const c of candidates) {
+    const existing = map.get(c.quality);
+    if (!existing || c.seeds > existing.seeds) {
+      map.set(c.quality, { seeds: c.seeds, health: c.health });
+    }
+  }
+  const out = new Map<string, SwarmHealth>();
+  map.forEach((v, k) => out.set(k, v.health));
+  return out;
+}
+
+const HEALTH_STYLE: Record<SwarmHealth, { dot: string; label: string }> = {
+  healthy: { dot: 'bg-[#4caf6a] shadow-[0_0_6px_rgba(76,175,106,.7)]', label: 'Healthy' },
+  low: { dot: 'bg-gold shadow-[0_0_6px_rgba(201,168,106,.6)]', label: 'Low' },
+  dead: { dot: 'bg-muted', label: 'No seeders' },
+};
+
+/** Small swarm-health badge for a quality pill. */
+function HealthBadge({ health }: { health: SwarmHealth }) {
+  const s = HEALTH_STYLE[health];
+  return (
+    <span
+      className="inline-flex items-center gap-[5px] text-[11px] text-muted"
+      data-testid={`source-health-${health}`}
+      title={`Swarm health: ${s.label}`}
+    >
+      <span aria-hidden="true" className={cn('inline-block w-[6px] h-[6px] rounded-full shrink-0', s.dot)} />
+      <span>{s.label}</span>
+    </span>
+  );
+}
+
 const SourcePicker: React.FC<SourcePickerProps> = ({
   hits,
   value,
   onChange,
   fallbackQualities = [],
+  candidates,
 }) => {
   const groups = groupByQuality(hits);
+  const healthByQuality = candidates && candidates.length > 0
+    ? bestHealthByQuality(candidates)
+    : null;
   const hasHits = groups.length > 0;
 
   // Auto pill: sub-label shows info about the best overall hit (most seeds)
@@ -173,6 +214,12 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
                 <>
                   <SeedDot seeds={best.seeds} />
                   <span>{formatSeeds(best.seeds)} seeds</span>
+                </>
+              )}
+              {healthByQuality?.get(quality) && (
+                <>
+                  {' · '}
+                  <HealthBadge health={healthByQuality.get(quality)!} />
                 </>
               )}
             </span>

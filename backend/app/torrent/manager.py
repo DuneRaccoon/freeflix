@@ -405,6 +405,9 @@ class TorrentManager:
                 for torrent_id, (handle, _) in self.active_torrents.items():
                     if handle == torrent_handle:
                         logger.info(f"Torrent {torrent_id} finished downloading")
+                        # Completed torrent no longer needs the streaming pin —
+                        # return it to the auto-managed queue (WS5).
+                        self.release_stream_force_start(torrent_id)
                         # Use a new session for database operations
                         with get_db() as db:
                             torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()

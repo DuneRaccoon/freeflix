@@ -90,6 +90,25 @@ class Settings(BaseSettings):
     min_seeds: int = 1
     healthy_seeds: int = 5
 
+    # --- Content guard (heuristic malware / fake-torrent block) ---
+    # Master kill switch. When False, NO validation, blocking, or non-video skip
+    # happens — behavior is identical to before the guard existed.
+    content_guard_enabled: bool = True
+    # Extensions (lowercased, leading dot) that hard-block a torrent if any file matches.
+    blocked_extensions: set[str] = {
+        ".exe", ".scr", ".com", ".bat", ".cmd", ".msi", ".apk", ".jar", ".vbs",
+        ".vbe", ".js", ".wsf", ".ps1", ".lnk", ".dll", ".sys", ".reg", ".hta",
+        ".cpl", ".gadget", ".sh", ".run", ".deb", ".rpm", ".pkg", ".dmg", ".iso", ".bin",
+    }
+    # Extensions counted as playable video (a torrent with none of these is blocked).
+    video_extensions: set[str] = {
+        ".mp4", ".mkv", ".avi", ".mov", ".webm", ".ogv", ".wmv", ".flv", ".m4v",
+        ".mpg", ".mpeg", ".ts", ".m2ts", ".vob", ".3gp", ".mts",
+    }
+    # Enables the optional structural fake-torrent heuristic (rule 3). Default off
+    # to minimize false positives.
+    fake_torrent_heuristics: bool = False
+
     # When False (default), torrents are always active — never queue-paused by
     # libtorrent's auto-manager — so streaming readiness is never broken by a
     # background pause. The active-download cap is then not enforced as a queue,

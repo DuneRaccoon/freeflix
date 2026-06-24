@@ -1017,7 +1017,14 @@ class TorrentManager:
         try:
             # Enable sequential download
             handle.set_sequential_download(True)
-            
+
+            # Re-apply the per-torrent connection cap. Torrents resumed from disk
+            # bypass _add_torrent's cap, so set it here when streaming begins.
+            try:
+                handle.set_max_connections(settings.lt_per_torrent_connections())
+            except Exception as e:
+                logger.debug(f"set_max_connections skipped for {torrent_id}: {e}")
+
             # Find video files and set their priorities
             torrent_info = handle.get_torrent_info()
             file_priorities = []

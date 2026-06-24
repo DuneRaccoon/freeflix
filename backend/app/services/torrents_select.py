@@ -1,8 +1,17 @@
-"""Choose the best torrent hit for a requested quality bucket."""
+"""Rank torrent hits for a requested quality bucket, with swarm-health classification."""
 from typing import List, Optional
 from app.models import TorrentHit
 
 _ORDER = ["2160p", "1080p", "720p", "480p"]
+
+
+def classify_health(seeds: int, *, min_seeds: int, healthy_seeds: int) -> str:
+    """Map a seeder count to "dead" | "low" | "healthy" against config thresholds."""
+    if seeds < min_seeds:
+        return "dead"
+    if seeds < healthy_seeds:
+        return "low"
+    return "healthy"
 
 
 def select_best(hits: List[TorrentHit], quality: str) -> Optional[TorrentHit]:

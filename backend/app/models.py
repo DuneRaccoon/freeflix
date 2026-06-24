@@ -181,6 +181,19 @@ class TorrentHit(BaseModel):
     quality: Optional[str] = None
 
 
+class TorrentCandidate(BaseModel):
+    """A ranked, health-classified torrent option surfaced to the UI / picker."""
+    source_id: str          # stable id, prefer infohash; fallback to a hash of the magnet
+    magnet: str
+    quality: str            # "2160p"|"1080p"|"720p"|"480p"|""
+    seeds: int
+    peers: int
+    bytes: int
+    health: str             # "healthy"|"low"|"dead"
+    is_season_pack: bool
+    release_title: str
+
+
 class CatalogPage(BaseModel):
     page: int = 1
     results: List[CatalogItem] = []

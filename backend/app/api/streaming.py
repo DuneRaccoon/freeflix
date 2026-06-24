@@ -18,7 +18,7 @@ from app.models import StreamingProgressCreate, StreamingProgressUpdate, Streami
 
 from app.torrent.manager import torrent_manager
 from app.providers.episodes import parse_episode
-from app.services.content_id import build_content_id
+from app.services.content_id import build_content_id, resolve_content_id
 from app.services.progress_upsert import upsert_progress
 from app.models import VideoFile
 
@@ -190,18 +190,33 @@ async def get_video_info(
     mime_type = get_mime_type(video_info["path"])
 
     # Resolve the watch identity (content_id) for progress / continue-watching.
+    # Full fallback chain (stored S/E -> precomputed map -> filename parse ->
+    # deterministic file_index) so progress is never orphaned under None.
     content_id = None
     season = episode = None
+    file_idx = file_index if file_index is not None else video_info.get("index")
     with get_db() as db:
         row = db.query(Torrent).filter(Torrent.id == torrent_id).first()
         if row:
             season, episode = row.season, row.episode
-            # Season pack (no per-episode on the torrent): derive from the streamed file.
+            # Surface the precomputed/parsed S/E in the response for season packs.
             if row.media_type == "tv" and episode is None:
-                ep = parse_episode(video_info["name"])
-                if ep:
-                    season, episode = ep
-            content_id = build_content_id(row.media_type, row.tmdb_id, season, episode)
+                pre = (row.precomputed_episodes or {}).get(str(file_idx))
+                if pre:
+                    season, episode = pre.get("season"), pre.get("episode")
+                else:
+                    ep = parse_episode(video_info["name"])
+                    if ep:
+                        season, episode = ep
+            content_id = resolve_content_id(
+                media_type=row.media_type,
+                tmdb_id=row.tmdb_id,
+                season=row.season,
+                episode=row.episode,
+                file_name=video_info["name"],
+                file_index=file_idx,
+                precomputed=row.precomputed_episodes,
+            )
 
     # Return combined information
     return {

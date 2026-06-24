@@ -18,6 +18,7 @@ from app.models import TorrentState, TorrentStatus, Movie, Torrent as TorrentMod
 from app.config import settings
 from app.torrent.storage import encode_resume_data, decode_resume_data, safe_rmtree
 from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
+from app.providers.episodes import parse_episode
 
 # Ordered list of torrent states
 TORRENT_STATES = [
@@ -522,7 +523,7 @@ class TorrentManager:
             
             elif isinstance(alert, lt.metadata_received_alert):
                 torrent_handle = alert.handle
-                
+
                 for torrent_id, (handle, _) in self.active_torrents.items():
                     if handle == torrent_handle:
                         logger.info(f"Received metadata for torrent {torrent_id}")
@@ -539,6 +540,12 @@ class TorrentManager:
                                 )
                                 db.add(log)
                                 db.commit()
+                        # Files are now known: cache per-file season/episode so content_id
+                        # resolution never depends on a per-request filename parse.
+                        try:
+                            self.precompute_episode_map(torrent_id)
+                        except Exception as e:
+                            logger.warning(f"Episode precompute failed for {torrent_id}: {e}")
                         break
             
             elif isinstance(alert, lt.state_changed_alert):
@@ -1037,6 +1044,29 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Error listing video files for torrent {torrent_id}: {e}")
             return []
+
+    def precompute_episode_map(self, torrent_id: str) -> dict:
+        """Build {str(file_index): {season, episode}} from parseable video file names
+        and persist it on the Torrent row. Returns the mapping ({} if nothing parses)."""
+        mapping: dict = {}
+        for f in self.get_video_files(torrent_id):
+            ep = parse_episode(f["name"])
+            if ep:
+                mapping[str(f["index"])] = {"season": ep[0], "episode": ep[1]}
+        if mapping:
+            self._persist_episode_map(torrent_id, mapping)
+        return mapping
+
+    def _persist_episode_map(self, torrent_id: str, mapping: dict) -> None:
+        """Persist the precomputed episode map onto the Torrent row (own session)."""
+        try:
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent is not None:
+                    torrent.precomputed_episodes = mapping
+                    db.commit()
+        except Exception as e:
+            logger.warning(f"Could not persist episode map for {torrent_id}: {e}")
 
     def get_video_file_info(self, torrent_id: str, file_index: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """

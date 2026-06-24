@@ -19,6 +19,7 @@ from app.models import StreamingProgressCreate, StreamingProgressUpdate, Streami
 from app.torrent.manager import torrent_manager
 from app.providers.episodes import parse_episode
 from app.services.content_id import build_content_id
+from app.services.progress_upsert import upsert_progress
 from app.models import VideoFile
 
 router = APIRouter()
@@ -273,40 +274,25 @@ async def create_streaming_progress(
         if not torrent:
             raise HTTPException(status_code=404, detail="Torrent not found")
         
-        # Upsert by (content_id, user): one row per movie/episode, even for a
-        # season pack whose many episodes share a single torrent_id.
-        existing_progress = UserStreamingProgress.get_by_movie_and_user(
-            session, progress.movie_id, user_id
+        # Atomic upsert keyed by (user_id, movie_id): one row per movie/episode, even
+        # for a season pack whose many episodes share a single torrent_id. Relies on
+        # the unique index uq_user_movie_progress created by sync_indexes().
+        row = upsert_progress(
+            session,
+            user_id=user_id,
+            movie_id=progress.movie_id,
+            torrent_id=progress.torrent_id,
+            current_time=progress.current_time,
+            duration=progress.duration,
+            percentage=progress.percentage,
+            completed=progress.completed,
+            file_index=progress.file_index,
+            title=progress.title,
+            content_id=progress.movie_id,
         )
-
-        if existing_progress:
-            existing_progress.torrent_id = progress.torrent_id
-            existing_progress.current_time = progress.current_time
-            existing_progress.duration = progress.duration
-            existing_progress.percentage = progress.percentage
-            existing_progress.completed = progress.completed
-            existing_progress.file_index = progress.file_index
-            existing_progress.title = progress.title
-            existing_progress.last_watched_at = datetime.datetime.now()
-            session.commit()
-            session.refresh(existing_progress)
-            return StreamingProgressResponse(**existing_progress.to_dict())
-        else:
-            new_progress = UserStreamingProgress(
-                user_id=user_id,
-                torrent_id=progress.torrent_id,
-                movie_id=progress.movie_id,
-                current_time=progress.current_time,
-                duration=progress.duration,
-                percentage=progress.percentage,
-                completed=progress.completed,
-                file_index=progress.file_index,
-                title=progress.title,
-            )
-            session.add(new_progress)
-            session.commit()
-            session.refresh(new_progress)
-            return StreamingProgressResponse(**new_progress.to_dict())
+        session.commit()
+        session.refresh(row)
+        return StreamingProgressResponse(**row.to_dict())
 
 @router.put("/progress/{user_id}/{progress_id}", response_model=StreamingProgressResponse)
 async def update_streaming_progress(

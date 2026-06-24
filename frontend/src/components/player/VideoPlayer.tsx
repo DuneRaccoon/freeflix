@@ -460,49 +460,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     resetCursorTimeout();
   }, [isTimeBuffered, downloadProgress]);
 
-  // Helper to detect stalled playback
-  const checkForStall = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !playerState.isPlaying) return;
-
-    // Compare current position with last known position
-    const currentPosition = video.currentTime;
-    const hasMoved = Math.abs(currentPosition - lastPlayheadPositionRef.current) > 0.01;
-
-    if (!hasMoved && !video.paused && !video.ended) {
-      // Video is stalled
-      if (stallTimeRef.current === null) {
-        // Start tracking stall time
-        stallTimeRef.current = Date.now();
-        setIsBuffering(true);
-      } else {
-        // Check if stall has lasted too long
-        const stallDuration = Date.now() - stallTimeRef.current;
-
-        if (stallDuration > 2000 && !showBufferingMessage) {
-          // After 2 seconds, show buffering message
-          setShowBufferingMessage(true);
-        }
-
-        if (stallDuration > maxStallTime && !isStalled) {
-          // After max stall time (10 seconds by default), show stall warning
-          setIsStalled(true);
-        }
-      }
-    } else {
-      // Reset stall tracking if playhead moved
-      lastPlayheadPositionRef.current = currentPosition;
-
-      if (stallTimeRef.current !== null) {
-        // Clear stall state
-        stallTimeRef.current = null;
-        setIsBuffering(false);
-        setShowBufferingMessage(false);
-        setIsStalled(false);
-      }
-    }
-  }, [playerState.isPlaying]);
-
   // Bounded exponential-backoff recovery: re-seek to currentTime so the browser
   // re-requests the active Range from the backend. After MAX_RECOVERY_ATTEMPTS we
   // give up and let the page surface a source switch via onRecoveryExhausted.
@@ -539,6 +496,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     }, delay);
   }, [debug, onRecoveryExhausted]);
+
+  // Helper to detect stalled playback
+  const checkForStall = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !playerState.isPlaying) return;
+
+    // Compare current position with last known position
+    const currentPosition = video.currentTime;
+    const hasMoved = Math.abs(currentPosition - lastPlayheadPositionRef.current) > 0.01;
+
+    if (!hasMoved && !video.paused && !video.ended) {
+      // Video is stalled
+      if (stallTimeRef.current === null) {
+        // Start tracking stall time
+        stallTimeRef.current = Date.now();
+        setIsBuffering(true);
+      } else {
+        // Check if stall has lasted too long
+        const stallDuration = Date.now() - stallTimeRef.current;
+
+        if (stallDuration > 2000 && !showBufferingMessage) {
+          // After 2 seconds, show buffering message
+          setShowBufferingMessage(true);
+        }
+
+        if (stallDuration > maxStallTime && !isStalled) {
+          // After max stall time (10 seconds by default): surface the warning AND
+          // kick off the bounded backoff recovery (re-seek), not just an overlay.
+          setIsStalled(true);
+          attemptRecovery();
+        }
+      }
+    } else {
+      // Reset stall tracking if playhead moved
+      lastPlayheadPositionRef.current = currentPosition;
+
+      if (stallTimeRef.current !== null) {
+        // Clear stall state
+        stallTimeRef.current = null;
+        setIsBuffering(false);
+        setShowBufferingMessage(false);
+        setIsStalled(false);
+      }
+    }
+  }, [playerState.isPlaying, isStalled, attemptRecovery]);
 
   // Set up stall detection interval
   useEffect(() => {

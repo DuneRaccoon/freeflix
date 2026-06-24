@@ -1106,6 +1106,42 @@ class TorrentManager:
                 pos += len(chunk)
                 yield chunk
 
+    def _pieces_ready(self, handle, first_piece: int, last_piece: int) -> bool:
+        """Non-blocking: True iff every piece in [first_piece, last_piece] is
+        already downloaded. Never sleeps, never deadlines. False on any error
+        (e.g. the handle was invalidated mid-stream)."""
+        try:
+            return all(
+                handle.have_piece(p) for p in range(first_piece, last_piece + 1)
+            )
+        except Exception:
+            return False
+
+    def _adaptive_piece_timeout(self, handle, *, base: float = 8.0,
+                                max_timeout: float = 60.0) -> float:
+        """Per-chunk wait budget derived from live swarm status.
+
+        - No peers connected  -> short 2s abort (a dead/connecting torrent should
+          not block the response for 45s).
+        - Peers but idle       -> `base` seconds.
+        - Peers and downloading -> extend with throughput (more bandwidth => we
+          can afford to wait for sequential pieces), capped at `max_timeout`.
+        """
+        try:
+            st = handle.status()
+            num_peers = int(getattr(st, "num_peers", 0) or 0)
+            rate = int(getattr(st, "download_rate", 0) or 0)
+        except Exception:
+            return base
+
+        if num_peers <= 0:
+            return 2.0
+        if rate <= 0:
+            return base
+        # Scale: +1s of patience per ~64 kB/s of measured throughput.
+        extended = base + (rate / 65536.0)
+        return min(max_timeout, extended)
+
     def _await_pieces(self, handle, first_piece: int, last_piece: int,
                       num_pieces: int, timeout: float, read_ahead: int = 4) -> bool:
         """

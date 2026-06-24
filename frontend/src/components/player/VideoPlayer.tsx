@@ -16,6 +16,17 @@ import { PlayerState, StreamHealthState, TorrentCandidate } from '@/types';
 import BufferingAnimation from '@/components/streaming/BufferingAnimation';
 import { cn } from '@/lib/cn';
 
+/**
+ * Format a download rate (bytes/second) adaptively: KB/s below 1 MB/s, MB/s
+ * at/above 1 MB/s. Kept module-level so it's testable and reusable.
+ */
+export function formatRate(bytesPerSec: number): string {
+  if (bytesPerSec < 1_000_000) {
+    return `${(bytesPerSec / 1_000).toFixed(0)} KB/s`;
+  }
+  return `${(bytesPerSec / 1_000_000).toFixed(1)} MB/s`;
+}
+
 interface VideoPlayerProps {
   src: string;
   poster?: string;
@@ -1339,7 +1350,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <span className="text-muted">{streamHealth.num_seeds} seeds · {streamHealth.num_peers} peers</span>
               <span className="text-muted">·</span>
               <b className="text-text/90 font-semibold tabular-nums">
-                {(streamHealth.download_rate / 1_000_000).toFixed(1)} MB/s
+                {formatRate(streamHealth.download_rate)}
               </b>
             </div>
           )}
@@ -1681,7 +1692,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                           <span className="text-[9px] uppercase tracking-widest text-muted border border-hairline rounded px-1">Pack</span>
                         )}
                         <span className="flex-1" />
-                        <span className="text-muted tabular-nums">{s.seeds} sd</span>
+                        <span className="text-muted tabular-nums">{s.seeds} seeds</span>
                       </button>
                     ))}
                   </div>

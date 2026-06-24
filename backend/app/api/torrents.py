@@ -10,6 +10,7 @@ from typing import Optional as _Optional, Tuple as _Tuple
 from app.models import (
     TorrentRequest, TorrentStatus, TorrentAction,
     TorrentBatchAction, TorrentBatchResponse, TorrentBatchResult,
+    TorrentCandidate,
 )
 from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
 from app.services import movies as movie_service
@@ -101,6 +102,29 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
         if not status:
             raise HTTPException(status_code=500, detail="Failed to get torrent status")
         return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sources", response_model=List[TorrentCandidate], summary="Ranked torrent sources")
+async def get_sources(
+    tmdb_id: int = Query(..., description="TMDB id of the title"),
+    quality: str = Query("1080p", description="Preferred quality bucket"),
+    media_type: str = Query("movie", description="'movie' or 'tv'"),
+    season: Optional[int] = Query(None, ge=0),
+    episode: Optional[int] = Query(None, ge=1),
+):
+    """Ranked, health-classified candidate sources for a title (consumed by the picker)."""
+    try:
+        if media_type == "tv":
+            if season is None:
+                raise HTTPException(status_code=422, detail="season is required for TV sources")
+            if episode is not None:
+                return await tv_service.episode_candidates(tmdb_id, season, episode, quality)
+            return await tv_service.season_candidates(tmdb_id, season, quality)
+        return await movie_service.get_candidates(tmdb_id, quality)
     except HTTPException:
         raise
     except Exception as e:

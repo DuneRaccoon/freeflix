@@ -1131,6 +1131,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const controlsVisible = playerState.showControls || !playerState.isPlaying;
 
+  // Health-aware buffering copy: a dead/0-peer swarm reads differently from a slow one.
+  const healthMessage: string | null = (() => {
+    if (!streamHealth) return null;
+    if (streamHealth.health === 'dead' || streamHealth.num_peers === 0) {
+      return 'Waiting for peers (0 connected)';
+    }
+    if (isBuffering || isStalled) {
+      return `Buffering — slow connection (${streamHealth.num_peers} ${
+        streamHealth.num_peers === 1 ? 'peer' : 'peers'
+      })`;
+    }
+    return null;
+  })();
+
   return (
     <div
       ref={playerRef}
@@ -1201,6 +1215,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {(playerState.isLoading || isBuffering) && (
         <div className="absolute inset-0 z-30 pointer-events-none">
           <BufferingAnimation downloadProgress={downloadProgress} />
+          {healthMessage && (
+            <div className="absolute inset-x-0 bottom-[18%] flex justify-center px-6">
+              <span
+                data-testid="player-health-message"
+                className={cn(
+                  'rounded-full border px-4 py-1.5 text-xs font-medium backdrop-blur-md',
+                  streamHealth?.health === 'dead' || streamHealth?.num_peers === 0
+                    ? 'border-danger/50 text-danger'
+                    : 'border-hairline text-text/90'
+                )}
+                style={{ background: 'rgba(17,17,19,.6)' }}
+              >
+                {healthMessage}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -1229,7 +1259,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="absolute top-0 left-0 bg-ink/80 text-text text-xs p-2 z-20 font-mono">
           Volume: {playerState.volume.toFixed(2)} | Muted: {playerState.isMuted.toString()} |
           Ready: {videoIsReady.toString()} | Buffering: {isBuffering.toString()} |
-          Download: {downloadProgress.toFixed(1)}% | Stalled: {isStalled.toString()}
+          Download: {downloadProgress.toFixed(1)}% | Stalled: {isStalled.toString()} |
+          Retry: {recoveryAttemptRef.current}/{MAX_RECOVERY_ATTEMPTS}
+          {streamHealth && ` | Seeds: ${streamHealth.num_seeds} | Peers: ${streamHealth.num_peers} | Health: ${streamHealth.health}`}
         </div>
       )}
 

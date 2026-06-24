@@ -40,19 +40,32 @@ def get_mime_type(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
     return VIDEO_MIME_TYPES.get(ext, mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
 
-def parse_range_header(range_header: str, file_size: int) -> tuple:
-    """Parse Range header and return start and end positions."""
+# Sentinel returned by parse_range_header for an unsatisfiable range
+# (start >= file_size). The endpoint maps this to HTTP 416.
+RANGE_NOT_SATISFIABLE = (-1, -1)
+
+
+def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
+    """Parse a Range header into (start, end) inclusive byte positions.
+
+    Returns RANGE_NOT_SATISFIABLE when the requested start is at or beyond
+    file_size (HTTP 416). end past EOF is clamped; start is NOT clamped — an
+    out-of-bounds start is a client error, not something to silently rewrite.
+    """
     if not range_header or not range_header.startswith('bytes='):
+        if file_size <= 0:
+            return RANGE_NOT_SATISFIABLE
         return 0, file_size - 1
-    
+
     ranges = range_header.replace('bytes=', '').split('-')
     start = int(ranges[0]) if ranges[0] else 0
     end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
-    
-    # Ensure values are within bounds
-    start = max(0, min(start, file_size - 1))
+
+    if file_size <= 0 or start >= file_size or start < 0:
+        return RANGE_NOT_SATISFIABLE
+
+    # Clamp the end to the last byte; start stays as requested (already in bounds).
     end = max(start, min(end, file_size - 1))
-    
     return start, end
 
 @router.get("/{torrent_id}/video", summary="Stream video from a torrent")

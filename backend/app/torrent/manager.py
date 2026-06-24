@@ -1113,15 +1113,15 @@ class TorrentManager:
                 return None
             ti = handle.get_torrent_info()
             files = [(ti.file_at(i).path, ti.file_at(i).size) for i in range(ti.num_files())]
+            return classify_torrent_files(
+                files,
+                blocked_extensions=settings.blocked_extensions,
+                video_extensions=settings.video_extensions,
+                fake_heuristics=settings.fake_torrent_heuristics,
+            )
         except Exception as e:
-            logger.warning(f"content guard could not read file list: {e}")
+            logger.warning(f"content guard could not classify file list: {e}")
             return None
-        return classify_torrent_files(
-            files,
-            blocked_extensions=settings.blocked_extensions,
-            video_extensions=settings.video_extensions,
-            fake_heuristics=settings.fake_torrent_heuristics,
-        )
 
     def _block_torrent(self, torrent_id: str, handle, reason: str) -> None:
         """Enforce a content-guard block: remove from the session, delete partial

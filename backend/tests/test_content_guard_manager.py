@@ -99,3 +99,17 @@ def test_block_torrent_removes_deletes_and_marks(tmp_path):
         row = db.query(DbTorrent).filter(DbTorrent.id == tid).first()
         assert row.state == "blocked"
         assert "executable" in (row.block_reason or "").lower()
+    from app.database.models.torrents import TorrentLog
+    with get_db() as db:
+        log = db.query(TorrentLog).filter(TorrentLog.torrent_id == tid).order_by(TorrentLog.timestamp.desc()).first()
+        assert log is not None and log.state == "blocked"
+
+
+def test_validate_fail_open_on_classifier_error(monkeypatch):
+    import app.torrent.manager as mgr
+    monkeypatch.setattr(
+        "app.torrent.content_guard.classify_torrent_files",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    h = _Handle([("movie.mkv", 2_000_000_000)])
+    assert torrent_manager.validate_torrent_content(h) is None

@@ -71,6 +71,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   // Reference to the original VideoPlayer component
   const playerRef = useRef<{
     seekTo: (time: number) => void;
+    playWithSound: () => void;
   } | null>(null);
   
   // Interval for saving progress periodically
@@ -306,20 +307,27 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
   const handleResume = () => {
     if (playerRef.current && resumeTime > 0) {
       playerRef.current.seekTo(resumeTime);
+      // Start at full volume — this runs inside the click gesture, so the
+      // browser permits unmuted playback (a deferred autoplay gets blocked).
+      playerRef.current.playWithSound();
       setShowResumePrompt(false);
       toast.success('Resuming from where you left off');
     }
   };
-  
+
   // Handle start from beginning
   const handleStartFromBeginning = () => {
     setShowResumePrompt(false);
+    if (playerRef.current) {
+      playerRef.current.seekTo(0);
+      playerRef.current.playWithSound();  // full volume, within the gesture
+    }
     // Player will start from the beginning by default
     toast.success('Starting from the beginning');
   };
-  
+
   // Register seek method from VideoPlayer
-  const registerPlayerMethods = (methods: { seekTo: (time: number) => void }) => {
+  const registerPlayerMethods = (methods: { seekTo: (time: number) => void; playWithSound: () => void }) => {
     playerRef.current = methods;
   };
   

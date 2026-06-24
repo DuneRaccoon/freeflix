@@ -39,7 +39,7 @@ interface VideoPlayerProps {
   onEnded?: () => void;
   onError?: (error: string) => void;
   onProgress?: (state: PlayerState) => void;
-  registerMethods?: (methods: { seekTo: (time: number) => void }) => void;
+  registerMethods?: (methods: { seekTo: (time: number) => void; playWithSound: () => void }) => void;
   downloadProgress?: number; // Optional prop to indicate download progress
   // --- W2-declared stream-health / source-switch seam (W6 implements behavior) ---
   // Canonical contract; snake_case StreamHealthState. Declared here so the page
@@ -94,7 +94,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     currentTime: 0,
     duration: 0,
     buffered: 0,
-    volume: 0.8,
+    volume: 1.0,
     isMuted: false,
     isFullscreen: false,
     showControls: true,
@@ -849,6 +849,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               video.play().then(() => {
                 setShowUnmuteButton(true);
                 setPlayerState(prev => ({ ...prev, isPlaying: true, isMuted: true }));
+                // Backstop: the browser forced muted autoplay. Unmute to full
+                // volume on the FIRST user interaction anywhere (a gesture is
+                // required to unmute — it can't be done programmatically before).
+                const unmuteOnFirstGesture = () => {
+                  safeVideoOperation(v => { v.muted = false; v.volume = 1.0; });
+                  setShowUnmuteButton(false);
+                  setPlayerState(prev => ({ ...prev, isMuted: false, volume: 1.0 }));
+                  document.removeEventListener('pointerdown', unmuteOnFirstGesture);
+                  document.removeEventListener('keydown', unmuteOnFirstGesture);
+                };
+                document.addEventListener('pointerdown', unmuteOnFirstGesture);
+                document.addEventListener('keydown', unmuteOnFirstGesture);
               }).catch(err => {
                 if (debug) console.error('Muted autoplay also failed:', err);
               });
@@ -1030,7 +1042,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               video.currentTime = time;
             }
           });
-        }
+        },
+        // Start playback at full volume FROM A USER GESTURE (Resume / Start).
+        // Calling play() inside the click grants the element sound-on activation,
+        // so the browser allows unmuted playback (a deferred autoplay would be
+        // blocked and fall back to muted).
+        playWithSound: () => {
+          safeVideoOperation(video => {
+            video.muted = false;
+            video.volume = 1.0;
+            const p = video.play();
+            if (p) p.catch(() => { /* not ready yet; gesture already granted sound */ });
+          });
+          setShowUnmuteButton(false);
+          setPlayerState(prev => ({ ...prev, isMuted: false, volume: 1.0, isPlaying: true }));
+        },
       });
     }
   }, [registerMethods, safeVideoOperation, isTimeBuffered, downloadProgress]);

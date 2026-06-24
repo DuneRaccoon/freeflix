@@ -23,6 +23,7 @@ class TorrentState(str, Enum):
     PAUSED = "paused"
     ERROR = "error"
     STOPPED = "stopped"
+    BLOCKED = "blocked"
 
 OrderByLiteral = Literal[
     'latest',
@@ -332,7 +333,7 @@ class TorrentStatus(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
     )
-    
+
     id: str
     movie_title: str
     quality: str
@@ -349,6 +350,7 @@ class TorrentStatus(BaseModel):
     updated_at: datetime
     eta: Optional[int] = None   # Estimated seconds remaining
     error_message: Optional[str] = None
+    block_reason: Optional[str] = None   # set when state == 'blocked' (content guard)
     chosen_quality: Optional[str] = None  # quality actually selected (after any downgrade)
 
 

@@ -37,6 +37,7 @@ class Torrent(Model):
     state = Column(String, nullable=False, default="queued")
     progress = Column(Float, nullable=False, default=0.0)
     error_message = Column(String, nullable=True)
+    block_reason = Column(String, nullable=True)  # content-guard reason when state == 'blocked'
     
     # Resume data for restarting torrents
     resume_data = Column(Text, nullable=True)
@@ -74,7 +75,8 @@ class Torrent(Model):
             created_at=self.created_at,
             updated_at=self.updated_at,
             eta=meta_data.get('eta'),
-            error_message=self.error_message
+            error_message=self.error_message,
+            block_reason=self.block_reason,
         )
     
     def update_from_status(self, status: TorrentStatus, db: Session = None) -> None:

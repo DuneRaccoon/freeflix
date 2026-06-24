@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     min_seeds: int = 1
     healthy_seeds: int = 5
 
+    # When False (default), torrents are always active — never queue-paused by
+    # libtorrent's auto-manager — so streaming readiness is never broken by a
+    # background pause. The active-download cap is then not enforced as a queue,
+    # matching pre-W5 behavior. Set True to re-enable the auto-managed download
+    # queue (requires streaming to handle the paused→downloading transition first).
+    lt_auto_managed_queue: bool = False
+
     # libtorrent session tuning (WS5). Profiles are arch-selected at runtime by
     # lt_settings(); unknown keys are filtered against the running build so a
     # version drift never raises. ARM (Raspberry Pi) gets conservative limits.

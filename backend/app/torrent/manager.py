@@ -128,13 +128,18 @@ class TorrentManager:
 
     def release_stream_force_start(self, torrent_id: str) -> bool:
         """Revert a force-started torrent back to auto-managed (re-enters the
-        queue). Called on stream end / completion."""
+        queue). Called on stream end / completion. Only re-enables auto_managed
+        when the queue is active (lt_auto_managed_queue=True); otherwise a
+        no-op so the torrent stays live."""
         entry = self.active_torrents.get(torrent_id)
         if not entry:
             return False
         handle, _ = entry
-        self._set_auto_managed(handle, True)
-        logger.info(f"Released force-start for {torrent_id} (back to auto-managed)")
+        if settings.lt_auto_managed_queue:
+            self._set_auto_managed(handle, True)
+            logger.info(f"Released force-start for {torrent_id} (back to auto-managed)")
+        else:
+            logger.info(f"Released force-start for {torrent_id} (queue disabled — torrent stays active)")
         return True
 
     def _schedule_tracker_recovery(self, torrent_id: str, handle) -> None:
@@ -226,10 +231,11 @@ class TorrentManager:
 
             handle = self.session.add_torrent(atp)
             handle.set_sequential_download(True)
-            # Auto-managed so libtorrent's own queue enforces active_downloads
-            # (the effective cap). The actively-streamed torrent is force-started
-            # out of the queue separately (force_start_for_stream).
-            self._set_auto_managed(handle, True)
+            # Only opt-in to the auto-managed queue when explicitly enabled.
+            # By default (lt_auto_managed_queue=False) torrents are always active
+            # so a background queue-pause can never block streaming readiness.
+            if settings.lt_auto_managed_queue:
+                self._set_auto_managed(handle, True)
             # Per-torrent connection cap (lt 2.x has no settings_pack key for this).
             try:
                 handle.set_max_connections(settings.lt_per_torrent_connections())

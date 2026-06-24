@@ -108,10 +108,12 @@ async def stream_video(
         # Get file size
         file_size = os.path.getsize(file_path)
         
-        # Prioritize the file for streaming if it's still downloading
+        # Prioritize the file for streaming if it's still downloading, and pin it
+        # out of the auto-managed queue so the active stream is never paused (WS5).
         torrent_status = torrent_manager.get_torrent_status(torrent_id)
         if torrent_status and torrent_status.progress < 100:
             torrent_manager.prioritize_video_files(torrent_id, file_index=video_info["index"])
+            torrent_manager.force_start_for_stream(torrent_id)
             
         # Parse range header if present.
         range_header = request.headers.get("Range")

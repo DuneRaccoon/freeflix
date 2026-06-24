@@ -1,6 +1,6 @@
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, 
-    Integer, String, Text, JSON, func
+    Boolean, Column, DateTime, Float, ForeignKey,
+    Integer, String, Text, JSON, func, UniqueConstraint
 )
 from sqlalchemy.orm import relationship, Session
 import datetime
@@ -11,11 +11,18 @@ from app.database.mixins import Model, generate_uuid
 class UserStreamingProgress(Model):
     """SQLAlchemy model for tracking user streaming progress."""
     __tablename__ = "user_streaming_progress"
-    
+    __table_args__ = (
+        UniqueConstraint("user_id", "movie_id", name="uq_user_movie_progress"),
+    )
+
     id = Column(String, primary_key=True, default=generate_uuid)
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     torrent_id = Column(String, ForeignKey("torrents.id", ondelete="SET NULL"), nullable=True, index=True)
     movie_id = Column(String, nullable=False, index=True)  # To track progress even if torrent changes
+    # Precomputed/derived watch-identity (movie:{id} | tv:{id}:s{n}:e{m}); nullable so
+    # sync_columns can add it to pre-existing tables. Mirrors movie_id, kept for clarity
+    # and future de-coupling.
+    content_id = Column(String, nullable=True, index=True)
     
     # Progress information
     current_time = Column(Float, nullable=False, default=0.0)  # Seconds into the video

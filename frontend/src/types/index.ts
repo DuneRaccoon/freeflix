@@ -87,7 +87,8 @@ export enum TorrentState {
   CHECKING_FASTRESUME = "checking_fastresume",
   PAUSED = "paused",
   ERROR = "error",
-  STOPPED = "stopped"
+  STOPPED = "stopped",
+  BLOCKED = "blocked",
 }
 
 export interface TorrentStatus {
@@ -106,6 +107,7 @@ export interface TorrentStatus {
   updated_at: string;
   eta?: number;
   error_message?: string;
+  block_reason?: string;
   // §5.2 stream-health fields. Optional + forward-compatible: emitted by the
   // backend status payload in a later workstream; derived client-side via
   // deriveStreamHealth() until then. `download_rate`/`num_peers` already exist

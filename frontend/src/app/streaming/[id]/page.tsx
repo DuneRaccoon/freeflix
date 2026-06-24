@@ -428,6 +428,28 @@ export default function StreamingPage() {
     );
   }
 
+  // Blocked-for-safety state — the content guard rejected this torrent.
+  if (torrentStatus?.state === TorrentState.BLOCKED) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-ink p-8">
+        <div className="w-16 h-16 rounded-full border border-hairline bg-surface flex items-center justify-center mb-6">
+          <ExclamationTriangleIcon className="w-8 h-8 text-gold" />
+        </div>
+        <h2 className="font-display text-2xl text-text mb-3 tracking-tight">Blocked for Safety</h2>
+        <p className="text-muted text-center mb-8 max-w-md text-sm leading-relaxed">
+          {torrentStatus.block_reason ||
+            'This torrent was blocked because it has no playable video or contains an executable.'}
+        </p>
+        <div className="flex gap-3 flex-wrap justify-center">
+          <Button variant="primary" size="sm" onClick={handleBackClick}>
+            <ArrowLeftIcon className="w-4 h-4" />
+            Choose another source
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // Error state — FRÈ styled
   if (error || !torrentStatus) {
     return (

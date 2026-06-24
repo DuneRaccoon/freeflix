@@ -103,9 +103,16 @@ async def stream_video(
         if torrent_status and torrent_status.progress < 100:
             torrent_manager.prioritize_video_files(torrent_id, file_index=video_info["index"])
             
-        # Parse range header if present
+        # Parse range header if present.
         range_header = request.headers.get("Range")
-        start, end = parse_range_header(range_header, file_size)
+        parsed = parse_range_header(range_header, file_size)
+        if parsed is RANGE_NOT_SATISFIABLE:
+            # RFC 7233 §4.4 — unsatisfiable range: 416 + the resource size.
+            return Response(
+                status_code=416,
+                headers={"Content-Range": f"bytes */{file_size}"},
+            )
+        start, end = parsed
         
         # Chunk size for streaming (1MB)
         chunk_size = 1024 * 1024

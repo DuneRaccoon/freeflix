@@ -79,9 +79,16 @@ class Settings(BaseSettings):
     
     # Cron settings
     cron_enabled: bool = True
-    
+
     cache_movies_for: int = 365  # 365 days
-    
+
+    # Torrent selection: swarm-health thresholds (seeders).
+    # dead   = seeds < min_seeds
+    # low    = seeds < healthy_seeds
+    # healthy = seeds >= healthy_seeds
+    min_seeds: int = 1
+    healthy_seeds: int = 5
+
     def effective_max_active_downloads(self) -> int:
         """Configured concurrent-download ceiling, capped to 2 on ARM (Raspberry Pi)."""
         import platform

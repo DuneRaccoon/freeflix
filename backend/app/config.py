@@ -107,8 +107,7 @@ class Settings(BaseSettings):
 
     def effective_max_active_downloads(self) -> int:
         """Configured concurrent-download ceiling, capped to 2 on ARM (Raspberry Pi)."""
-        import platform
-        if "arm" in platform.machine().lower():
+        if self._is_arm():
             return min(self.max_active_downloads, 2)
         return self.max_active_downloads
 

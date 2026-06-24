@@ -37,7 +37,8 @@ logger.add(
 )
 
 # Check if running on Raspberry Pi
-is_raspberry_pi = "arm" in platform.machine().lower()
+m = platform.machine().lower()
+is_raspberry_pi = ("arm" in m) or ("aarch" in m)
 if is_raspberry_pi:
     logger.info("Running on Raspberry Pi platform")
     # Optimize for Raspberry Pi

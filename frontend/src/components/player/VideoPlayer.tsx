@@ -17,14 +17,16 @@ import BufferingAnimation from '@/components/streaming/BufferingAnimation';
 import { cn } from '@/lib/cn';
 
 /**
- * Format a download rate (bytes/second) adaptively: KB/s below 1 MB/s, MB/s
- * at/above 1 MB/s. Kept module-level so it's testable and reusable.
+ * Format a download rate (kB/s) adaptively: KB/s below 1000 kB/s, MB/s
+ * at/above 1000 kB/s. Input is kB/s (as reported by TorrentStatus.download_rate).
+ * Kept module-level so it's testable and reusable.
  */
-export function formatRate(bytesPerSec: number): string {
-  if (bytesPerSec < 1_000_000) {
-    return `${(bytesPerSec / 1_000).toFixed(0)} KB/s`;
+export function formatRate(kbps: number): string {
+  if (!kbps) return '0 KB/s';
+  if (kbps < 1_000) {
+    return `${Math.round(kbps)} KB/s`;
   }
-  return `${(bytesPerSec / 1_000_000).toFixed(1)} MB/s`;
+  return `${(kbps / 1_000).toFixed(1)} MB/s`;
 }
 
 interface VideoPlayerProps {

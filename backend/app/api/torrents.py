@@ -15,7 +15,7 @@ from app.models import (
 from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
 from app.services import movies as movie_service
 from app.services import tv as tv_service
-from app.services.torrents_select import select_best, available_qualities
+from app.services.torrents_select import select_best, available_qualities, rank_candidates
 from app.providers import catalog
 from app.torrent.manager import torrent_manager
 from app.config import settings
@@ -74,14 +74,34 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
             name = f"{title} {year}".strip() if year else title
             label = title
 
-        hits = await catalog.torrents(name)
-        best = select_best(hits, request.quality)
-        if best is None:
-            avail = available_qualities(hits)
-            raise HTTPException(
-                status_code=422,
-                detail=f"No {request.quality} release found. Available: {avail or 'none'}",
+        chosen_magnet: str
+        chosen_quality: str
+        chosen_bytes: int = 0
+
+        if request.magnet:
+            # Explicit magnet from the picker: use verbatim, trust the requested bucket.
+            chosen_magnet = request.magnet
+            chosen_quality = request.quality
+        else:
+            hits = await catalog.torrents(name)
+            candidates = rank_candidates(
+                hits, request.quality,
+                min_seeds=settings.min_seeds, healthy_seeds=settings.healthy_seeds,
             )
+            if not candidates:
+                raise HTTPException(status_code=404, detail="No torrents found")
+            chosen = None
+            if request.source_id:
+                chosen = next(
+                    (c for c in candidates if c.source_id == request.source_id), None
+                )
+            if chosen is None:
+                # No explicit pick (or it was stale) -> ranked top pick (best healthy
+                # downgrade). No hard 422: the user always gets the best available.
+                chosen = candidates[0]
+            chosen_magnet = chosen.magnet
+            chosen_quality = chosen.quality or request.quality
+            chosen_bytes = chosen.bytes
 
         dl_movie = _DlMovie(
             title=label, year=year, genre="",
@@ -90,10 +110,10 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
         )
         dl_torrent = _DlTorrent(
             id=str(_uuid.uuid4()),
-            quality=request.quality,
-            magnet=best.magnet,
-            url=best.magnet,
-            sizes=(_human_size(best.bytes), ""),
+            quality=chosen_quality,
+            magnet=chosen_magnet,
+            url=chosen_magnet,
+            sizes=(_human_size(chosen_bytes), ""),
         )
         save_path = PathLib(request.save_path) if request.save_path else None
         torrent_id = await torrent_manager.add_torrent(dl_movie, dl_torrent, save_path)
@@ -101,6 +121,7 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
         status = torrent_manager.get_torrent_status(torrent_id)
         if not status:
             raise HTTPException(status_code=500, detail="Failed to get torrent status")
+        status.chosen_quality = chosen_quality
         return status
     except HTTPException:
         raise

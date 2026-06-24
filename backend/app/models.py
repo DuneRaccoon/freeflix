@@ -349,6 +349,7 @@ class TorrentStatus(BaseModel):
     updated_at: datetime
     eta: Optional[int] = None   # Estimated seconds remaining
     error_message: Optional[str] = None
+    chosen_quality: Optional[str] = None  # quality actually selected (after any downgrade)
 
 
 class TorrentRequest(BaseModel):
@@ -358,6 +359,10 @@ class TorrentRequest(BaseModel):
     media_type: Literal['movie', 'tv'] = 'movie'
     season: Optional[int] = Field(None, ge=0)
     episode: Optional[int] = Field(None, ge=1)
+    # Explicit user choice from the source picker (WS1/WS2). When set, it overrides
+    # the server's ranked top pick. `magnet` wins over `source_id` if both are given.
+    magnet: Optional[str] = None
+    source_id: Optional[str] = None
 
 class TorrentAction(BaseModel):
     # 'stop' is accepted as a legacy alias of 'pause'. Use DELETE to remove.

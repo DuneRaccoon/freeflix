@@ -27,12 +27,10 @@ TORRENT_STATES = [
     "downloading_metadata", 
     "downloading", 
     "finished", 
-    "seeding", 
-    "allocating", 
+    "seeding",
+    "allocating",
     "checking_fastresume"
 ]
-
-VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.ogv', '.wmv', '.flv']
 
 class TorrentManager:
     """
@@ -980,8 +978,9 @@ class TorrentManager:
             self._handle_alert(alert)
 
     def _is_video_file(self, file_path: str) -> bool:
-        """Check if a file is a video based on its extension"""
-        return any(file_path.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
+        """Check if a file is a video based on its extension (settings-driven)."""
+        from app.torrent.content_guard import is_video_file
+        return is_video_file(file_path, settings.video_extensions)
 
     def get_file_progress(self, torrent_id: str) -> Dict[int, float]:
         """

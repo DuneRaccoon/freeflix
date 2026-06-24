@@ -911,8 +911,11 @@ class TorrentManager:
         Get info about one video file in a torrent.
 
         file_index None -> the largest video file (movie / single-episode default).
-        file_index set  -> that specific file (season-pack episode), or None if it
-                           isn't a video file in this torrent.
+        file_index set  -> that EXACT file (season-pack episode), or None if it
+                           isn't a video file in this torrent. The caller MUST NOT
+                           re-query with None on a None result for an explicit
+                           index — an explicit index that does not resolve is a
+                           404, not a reason to stream the largest file.
         """
         files = self.get_video_files(torrent_id)
         if not files:

@@ -83,11 +83,21 @@ async def stream_video(
     - **torrent_id**: ID of the torrent
     - **quality**: Optional quality selector if multiple versions exist
     """
-    # Get video file info from torrent manager
+    # Resolve the video file. An EXPLICIT file_index must resolve to that exact
+    # file — never silently fall back to the largest. Distinguish an invalid
+    # index from "metadata not ready yet".
     video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
     if not video_info:
-        raise HTTPException(status_code=404, detail="Video file not found or not ready for streaming")
-    
+        if file_index is not None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Video file index {file_index} not found in this torrent",
+            )
+        raise HTTPException(
+            status_code=404,
+            detail="Video file not found or not ready for streaming",
+        )
+
     # Ensure the file exists
     file_path = video_info["path"]
     if not os.path.exists(file_path):

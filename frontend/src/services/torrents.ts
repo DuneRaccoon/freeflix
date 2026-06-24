@@ -1,5 +1,13 @@
 import apiClient from './api-client';
-import { TorrentStatus, TorrentRequest, TorrentAction, TorrentBatchActionType, TorrentBatchResponse, CatalogTorrentRequest } from '@/types';
+import { TorrentStatus, TorrentRequest, TorrentAction, TorrentBatchActionType, TorrentBatchResponse, CatalogTorrentRequest, TorrentCandidate } from '@/types';
+
+export interface SourcesParams {
+  tmdb_id: number;
+  quality?: string;
+  media_type?: 'movie' | 'tv';
+  season?: number;
+  episode?: number;
+}
 
 export const torrentsService = {
   // Download a movie (legacy YTS-shaped request)
@@ -11,6 +19,12 @@ export const torrentsService = {
   // Download a movie using the new TMDB catalog API
   downloadCatalogMovie: async (request: CatalogTorrentRequest): Promise<TorrentStatus> => {
     const response = await apiClient.post(`/torrents/download`, request);
+    return response.data;
+  },
+
+  // Ranked, health-classified torrent sources for a title (W1 GET /torrents/sources)
+  getSources: async (params: SourcesParams): Promise<TorrentCandidate[]> => {
+    const response = await apiClient.get(`/torrents/sources`, { params });
     return response.data;
   },
 

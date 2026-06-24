@@ -283,6 +283,10 @@ export interface CatalogTorrentRequest {
   media_type?: 'movie' | 'tv';
   season?: number;
   episode?: number;
+  // Explicit user pick from the source picker (W1/W2). `magnet` wins over
+  // `source_id` server-side; both optional so existing callers are unaffected.
+  magnet?: string;
+  source_id?: string;
 }
 
 // Browse controls for the new API. Genre ids are the canonical unified TMDB set

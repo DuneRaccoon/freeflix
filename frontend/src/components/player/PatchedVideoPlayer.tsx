@@ -371,7 +371,7 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             movieTitle={movieTitle}
             subtitle={subtitle}
             autoPlay={!showResumePrompt}
-            debug
+            debug={false}
             onProgress={handleProgress}
             onEnded={handleEnded}
             onError={handleVideoError}

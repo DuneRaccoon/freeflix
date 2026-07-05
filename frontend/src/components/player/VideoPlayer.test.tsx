@@ -42,7 +42,7 @@ describe('VideoPlayer FRÈ re-skin', () => {
 
   it('renders gated Quality pill with aria-disabled', () => {
     render(<VideoPlayer src="/test.mp4" />);
-    const qualityBtn = document.querySelector('[aria-label="Quality 1080p (informational)"]');
+    const qualityBtn = document.querySelector('[aria-label="Quality (informational)"]');
     expect(qualityBtn?.getAttribute('aria-disabled')).toBe('true');
   });
 

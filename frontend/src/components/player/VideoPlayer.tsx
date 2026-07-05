@@ -79,9 +79,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const volumeChangeInProgressRef = useRef<boolean>(false);
   const isDraggingVolumeRef = useRef<boolean>(false);
   const bufferingRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastPlayheadPositionRef = useRef<number>(0);
+  // Owned exclusively by checkForStall: the playhead position sampled on the
+  // PREVIOUS 1s tick. Nothing else may write it (see the note in checkForStall).
+  const stallSamplePositionRef = useRef<number>(0);
   const stallTimeRef = useRef<number | null>(null);
-  const maxStallTime = 10000; // Maximum time (ms) to wait before showing stall warning
+  const maxStallTime = 10000; // Maximum time (ms) frozen before we escalate to recovery
+  // Stall-detector tuning. Because the playhead is sampled once per ~1s tick,
+  // healthy playback advances ~1s (>=0.5s even at the slowest 0.5x speed) between
+  // ticks — far above STALL_EPSILON_S — while a genuinely frozen playhead advances
+  // ~0. STALL_SPINNER_MS is the sustained-freeze grace before WE surface the
+  // spinner; the browser's native 'waiting' event still shows it instantly on a
+  // real buffer underrun, so this only covers wedges 'waiting' never reported.
+  const STALL_EPSILON_S = 0.25;
+  const STALL_SPINNER_MS = 2000;
   // Bounded exponential backoff recovery (1·2·4·8s, capped). Each attempt re-seeks
   // currentTime to force the browser to re-issue the Range request to the backend.
   const recoveryAttemptRef = useRef<number>(0);
@@ -514,48 +524,58 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, delay);
   }, [debug, onRecoveryExhausted]);
 
-  // Helper to detect stalled playback
+  // Detect a wedged playhead the browser did NOT surface via a native 'waiting'
+  // event, and drive recovery. Runs once per second.
+  //
+  // CRITICAL: this samples currentTime ONCE per tick and compares it to the
+  // sample from the PREVIOUS tick — a true ~1s window. Do NOT update
+  // stallSamplePositionRef anywhere else (e.g. from the high-frequency
+  // 'timeupdate' handler): doing so collapses the window to a few ms, so a
+  // normally-advancing playhead reads as "not moved" and the buffering overlay
+  // flashes on constantly during healthy playback.
   const checkForStall = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !playerState.isPlaying) return;
+    if (!video) return;
 
-    // Compare current position with last known position
     const currentPosition = video.currentTime;
-    const hasMoved = Math.abs(currentPosition - lastPlayheadPositionRef.current) > 0.01;
+    const advanced =
+      Math.abs(currentPosition - stallSamplePositionRef.current) > STALL_EPSILON_S;
+    stallSamplePositionRef.current = currentPosition;
 
-    if (!hasMoved && !video.paused && !video.ended) {
-      // Video is stalled
-      if (stallTimeRef.current === null) {
-        // Start tracking stall time
-        stallTimeRef.current = Date.now();
-        setIsBuffering(true);
-      } else {
-        // Check if stall has lasted too long
-        const stallDuration = Date.now() - stallTimeRef.current;
+    // Only treat a frozen playhead as a stall when we actually expect to play.
+    const expectingPlayback = playerState.isPlaying && !video.paused && !video.ended;
 
-        if (stallDuration > 2000 && !showBufferingMessage) {
-          // After 2 seconds, show buffering message
-          setShowBufferingMessage(true);
-        }
-
-        if (stallDuration > maxStallTime && !isStalled) {
-          // After max stall time (10 seconds by default): surface the warning AND
-          // kick off the bounded backoff recovery (re-seek), not just an overlay.
-          setIsStalled(true);
-          attemptRecovery();
-        }
-      }
-    } else {
-      // Reset stall tracking if playhead moved
-      lastPlayheadPositionRef.current = currentPosition;
-
+    if (advanced || !expectingPlayback) {
+      // Healthy, or intentionally paused/ended — tear down any stall bookkeeping.
       if (stallTimeRef.current !== null) {
-        // Clear stall state
         stallTimeRef.current = null;
+        setIsStalled(false);
         setIsBuffering(false);
         setShowBufferingMessage(false);
-        setIsStalled(false);
       }
+      return;
+    }
+
+    // We believe we're playing but the playhead hasn't advanced across the window.
+    if (stallTimeRef.current === null) {
+      stallTimeRef.current = Date.now();
+      return;
+    }
+
+    const stallDuration = Date.now() - stallTimeRef.current;
+
+    // Only surface the spinner after a sustained freeze — a single slow or
+    // frame-quantized tick shouldn't flash it (and a real underrun already shows
+    // it instantly via the native 'waiting' handler).
+    if (stallDuration > STALL_SPINNER_MS) {
+      setIsBuffering(true);
+      setShowBufferingMessage(true);
+    }
+
+    if (stallDuration > maxStallTime && !isStalled) {
+      // After max stall time (10s): kick off the bounded backoff recovery (re-seek).
+      setIsStalled(true);
+      attemptRecovery();
     }
   }, [playerState.isPlaying, isStalled, attemptRecovery]);
 
@@ -578,7 +598,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     volumeChangeInProgressRef.current = false;
     isDraggingVolumeRef.current = false;
     stallTimeRef.current = null;
-    lastPlayheadPositionRef.current = 0;
+    stallSamplePositionRef.current = 0;
     setIsBuffering(false);
     setShowBufferingMessage(false);
     setIsStalled(false);
@@ -737,8 +757,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           duration: video.duration || 0
         }));
 
-        // Update last known position for stall detection
-        lastPlayheadPositionRef.current = video.currentTime;
+        // NOTE: the stall detector samples the playhead on its own 1s cadence
+        // (see checkForStall). Writing its ref here would collapse the stall
+        // window and cause constant false "buffering" — intentionally omitted.
 
         if (onProgress) {
           onProgress({
@@ -1256,7 +1277,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Loading/Buffering Overlay */}
       {(playerState.isLoading || isBuffering) && (
-        <div className="absolute inset-0 z-30 pointer-events-none">
+        <div data-testid="buffering-overlay" className="absolute inset-0 z-30 pointer-events-none">
           <BufferingAnimation downloadProgress={downloadProgress} />
           {healthMessage && (
             <div className="absolute inset-x-0 bottom-[18%] flex justify-center px-6">

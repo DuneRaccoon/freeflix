@@ -62,6 +62,18 @@ export function parseContentId(movieId: string): ParsedContentId {
 }
 
 /**
+ * Extract the TMDB id from a content_id, for either kind:
+ *   `movie:{id}`            → id
+ *   `tv:{id}` / `tv:{id}:…` → id (the show id)
+ * Returns undefined for legacy title-based ids or a non-numeric id segment.
+ * (Kept separate from parseContentId, whose exact return shape is pinned by tests.)
+ */
+export function tmdbIdFromContentId(movieId: string): number | undefined {
+  const match = movieId.match(/^(?:movie|tv):(\d+)/);
+  return match ? parseInt(match[1], 10) : undefined;
+}
+
+/**
  * Build the resume URL for a streaming progress entry.
  * Appends `?file={file_index}` when file_index is set (season packs).
  */

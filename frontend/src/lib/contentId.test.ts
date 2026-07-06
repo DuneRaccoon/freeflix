@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseContentId, buildContentId, resumeUrlFor, showNameFromTitle } from './contentId';
+import {
+  parseContentId,
+  buildContentId,
+  resumeUrlFor,
+  showNameFromTitle,
+  tmdbIdFromContentId,
+} from './contentId';
 
 // ---------------------------------------------------------------------------
 // parseContentId
@@ -125,5 +131,30 @@ describe('showNameFromTitle', () => {
   it('falls back to Unknown Show when title is an empty string', () => {
     // empty string is falsy in JS — treated same as null/undefined
     expect(showNameFromTitle('')).toBe('Unknown Show');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tmdbIdFromContentId
+// ---------------------------------------------------------------------------
+describe('tmdbIdFromContentId', () => {
+  it('extracts the tmdb id from a movie content_id', () => {
+    expect(tmdbIdFromContentId('movie:12345')).toBe(12345);
+  });
+
+  it('extracts the show tmdb id from a tv episode content_id', () => {
+    expect(tmdbIdFromContentId('tv:67890:s2:e5')).toBe(67890);
+  });
+
+  it('extracts the show tmdb id from a bare tv content_id', () => {
+    expect(tmdbIdFromContentId('tv:99')).toBe(99);
+  });
+
+  it('returns undefined for a legacy title-based movie_id', () => {
+    expect(tmdbIdFromContentId('Interstellar')).toBeUndefined();
+  });
+
+  it('returns undefined when the id segment is non-numeric', () => {
+    expect(tmdbIdFromContentId('tv:abc')).toBeUndefined();
   });
 });

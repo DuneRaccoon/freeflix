@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import ContinueWatchingRow from './ContinueWatchingRow';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,14 @@ vi.mock('@/services/streaming', () => ({
   },
 }));
 
+vi.mock('@/services/movies', () => ({
+  moviesService: { getDetail: vi.fn() },
+}));
+
+vi.mock('@/services/tv', () => ({
+  tvService: { getShow: vi.fn() },
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -39,6 +47,9 @@ vi.mock('@/services/streaming', () => ({
 import { useProgress } from '@/context/ProgressContext';
 import { useUser } from '@/context/UserContext';
 import { streamingService } from '@/services/streaming';
+import { moviesService } from '@/services/movies';
+import { tvService } from '@/services/tv';
+import { __resetTitleImageCache } from '@/lib/useTitleImages';
 
 const movieProgress = {
   id: 'prog-movie-1',
@@ -92,6 +103,17 @@ function setupMocks(progressData: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Shared module cache in useTitleImages must not leak resolved artwork between cases.
+  __resetTitleImageCache();
+  // Default: artwork lookups stay pending (never resolve), so cases that don't
+  // care about images render in the loading/placeholder state and never fire a
+  // late, un-acted state update. Image cases override these per-test.
+  (moviesService.getDetail as ReturnType<typeof vi.fn>).mockImplementation(
+    () => new Promise(() => {}),
+  );
+  (tvService.getShow as ReturnType<typeof vi.fn>).mockImplementation(
+    () => new Promise(() => {}),
+  );
 });
 
 describe('ContinueWatchingRow', () => {
@@ -230,21 +252,65 @@ describe('ContinueWatchingRow', () => {
     expect(screen.getByRole('button', { name: 'Scroll right' })).toBeInTheDocument();
   });
 
-  // ── Title-card art placeholder regression ──────────────────────────────────
+  // ── Card artwork ────────────────────────────────────────────────────────────
 
-  it('card art placeholder renders the item title text (not an empty void)', () => {
+  it('renders the movie backdrop image once resolved', async () => {
+    (moviesService.getDetail as ReturnType<typeof vi.fn>).mockResolvedValue({
+      backdrop_url: 'https://img/movie-backdrop.jpg',
+      poster_url: 'https://img/movie-poster.jpg',
+    });
     setupMocks({ 'movie:12345': movieProgress });
     render(<ContinueWatchingRow />);
-    // The title-card span is aria-hidden but its text node is still in the DOM.
-    // getAllByText returns all matches; at least one should be the placeholder.
-    const titleNodes = screen.getAllByText('Interstellar');
-    expect(titleNodes.length).toBeGreaterThanOrEqual(1);
+    const img = await screen.findByTestId('cw-card-image');
+    expect(img).toHaveAttribute('src', 'https://img/movie-backdrop.jpg');
+    expect(moviesService.getDetail).toHaveBeenCalledWith(12345);
   });
 
-  it('TV card art placeholder renders the show name (not an empty void)', () => {
+  it('renders the TV show backdrop image (by show id) once resolved', async () => {
+    (tvService.getShow as ReturnType<typeof vi.fn>).mockResolvedValue({
+      backdrop_url: 'https://img/tv-backdrop.jpg',
+      poster_url: 'https://img/tv-poster.jpg',
+    });
     setupMocks({ 'tv:54321:s1:e3': tvProgress });
     render(<ContinueWatchingRow />);
-    const titleNodes = screen.getAllByText('Foundation');
-    expect(titleNodes.length).toBeGreaterThanOrEqual(1);
+    const img = await screen.findByTestId('cw-card-image');
+    expect(img).toHaveAttribute('src', 'https://img/tv-backdrop.jpg');
+    expect(tvService.getShow).toHaveBeenCalledWith(54321);
+  });
+
+  it('falls back to the poster when the title has no backdrop', async () => {
+    (moviesService.getDetail as ReturnType<typeof vi.fn>).mockResolvedValue({
+      backdrop_url: null,
+      poster_url: 'https://img/movie-poster.jpg',
+    });
+    setupMocks({ 'movie:12345': movieProgress });
+    render(<ContinueWatchingRow />);
+    const img = await screen.findByTestId('cw-card-image');
+    expect(img).toHaveAttribute('src', 'https://img/movie-poster.jpg');
+  });
+
+  // ── Title-card art placeholder fallback ─────────────────────────────────────
+
+  it('keeps the title-card placeholder (no image) when the title has no artwork', async () => {
+    (moviesService.getDetail as ReturnType<typeof vi.fn>).mockResolvedValue({
+      backdrop_url: null,
+      poster_url: null,
+    });
+    setupMocks({ 'movie:12345': movieProgress });
+    render(<ContinueWatchingRow />);
+    // Let the (empty-artwork) lookup settle inside act, then assert no <img>.
+    await act(async () => {});
+    expect(screen.queryByTestId('cw-card-image')).toBeNull();
+    // Placeholder title text (aria-hidden span) is present alongside the meta <h3>.
+    expect(screen.getAllByText('Interstellar').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps the title-card placeholder when the artwork lookup fails', async () => {
+    (moviesService.getDetail as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network'));
+    setupMocks({ 'movie:12345': movieProgress });
+    render(<ContinueWatchingRow />);
+    await act(async () => {});
+    expect(screen.queryByTestId('cw-card-image')).toBeNull();
+    expect(screen.getAllByText('Interstellar').length).toBeGreaterThanOrEqual(1);
   });
 });

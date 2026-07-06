@@ -19,7 +19,8 @@ import { cn } from '@/lib/cn';
 import { useProgress } from '@/context/ProgressContext';
 import { useUser } from '@/context/UserContext';
 import { streamingService } from '@/services/streaming';
-import { parseContentId, resumeUrlFor, showNameFromTitle } from '@/lib/contentId';
+import { parseContentId, resumeUrlFor, showNameFromTitle, tmdbIdFromContentId } from '@/lib/contentId';
+import { useTitleImages, type TitleImageRequest } from '@/lib/useTitleImages';
 import { StreamingProgress } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -30,6 +31,7 @@ interface MovieCard {
   kind: 'movie';
   item: StreamingProgress;
   displayTitle: string;
+  tmdbId?: number;
   resumeUrl: string;
 }
 
@@ -173,6 +175,7 @@ const ContinueWatchingRow: React.FC = () => {
           kind: 'movie',
           item,
           displayTitle,
+          tmdbId: tmdbIdFromContentId(item.movie_id),
           resumeUrl: resumeUrlFor({ torrent_id: item.torrent_id, file_index: item.file_index }),
         });
       }
@@ -180,6 +183,32 @@ const ContinueWatchingRow: React.FC = () => {
 
     return cards;
   }, [progressData]);
+
+  // Stable artwork cache key per card (grouped by title — TV by show).
+  const imageKeyFor = (card: DisplayCard): string | null =>
+    card.kind === 'tv'
+      ? `tv:${card.showId}`
+      : card.tmdbId != null
+        ? `movie:${card.tmdbId}`
+        : null;
+
+  // Progress rows carry no artwork, so resolve a landscape image per visible
+  // title by tmdb id (deduped + cached across browse screens).
+  const imageRequests = useMemo<TitleImageRequest[]>(() => {
+    const reqs: TitleImageRequest[] = [];
+    for (const card of displayCards) {
+      const key = imageKeyFor(card);
+      if (!key) continue;
+      reqs.push({
+        key,
+        kind: card.kind,
+        tmdbId: card.kind === 'tv' ? card.showId : (card.tmdbId as number),
+      });
+    }
+    return reqs;
+  }, [displayCards]);
+
+  const images = useTitleImages(imageRequests);
 
   const handleRemove = async (e: React.MouseEvent, item: StreamingProgress) => {
     e.preventDefault();
@@ -318,6 +347,9 @@ const ContinueWatchingRow: React.FC = () => {
 
           const progressPct = isUpNext ? 0 : item.percentage;
 
+          const imageKey = imageKeyFor(card);
+          const imageUrl = imageKey ? images[imageKey] : undefined;
+
           return (
             <article
               key={cardKey}
@@ -349,36 +381,52 @@ const ContinueWatchingRow: React.FC = () => {
                     'border border-hairline bg-surface-2',
                   )}
                 >
-                  {/* Title-card branded placeholder — intentional art, not a void */}
-                  <div
-                    className="absolute inset-0 bg-gradient-to-br from-surface-2 to-ink"
-                    aria-hidden="true"
-                  />
-                  {/* Faint gold radial bloom */}
-                  <div
-                    className="absolute inset-0 pointer-events-none"
-                    aria-hidden="true"
-                    style={{
-                      background:
-                        'radial-gradient(ellipse 90% 70% at 50% 60%, rgba(201,168,106,.11), transparent 70%)',
-                    }}
-                  />
-                  {/* Large display title at low opacity — the "title-card" look */}
-                  <div
-                    className="absolute inset-0 flex items-center justify-center px-5 z-[1]"
-                    aria-hidden="true"
-                  >
-                    <span
-                      className={cn(
-                        'font-display font-light text-center leading-[1.05] tracking-[-0.025em]',
-                        'text-text/[0.18] select-none',
-                        '[word-break:break-word] hyphens-auto',
-                      )}
-                      style={{ fontSize: 'clamp(22px, 4.5vw, 36px)' }}
-                    >
-                      {name}
-                    </span>
-                  </div>
+                  {/* Resolved landscape artwork, once fetched. Falls back to the
+                      branded title-card while loading or when none is available. */}
+                  {imageUrl ? (
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      aria-hidden="true"
+                      loading="lazy"
+                      decoding="async"
+                      data-testid="cw-card-image"
+                      className="absolute inset-0 h-full w-full object-cover z-[1]"
+                    />
+                  ) : (
+                    <>
+                      {/* Title-card branded placeholder — intentional art, not a void */}
+                      <div
+                        className="absolute inset-0 bg-gradient-to-br from-surface-2 to-ink"
+                        aria-hidden="true"
+                      />
+                      {/* Faint gold radial bloom */}
+                      <div
+                        className="absolute inset-0 pointer-events-none"
+                        aria-hidden="true"
+                        style={{
+                          background:
+                            'radial-gradient(ellipse 90% 70% at 50% 60%, rgba(201,168,106,.11), transparent 70%)',
+                        }}
+                      />
+                      {/* Large display title at low opacity — the "title-card" look */}
+                      <div
+                        className="absolute inset-0 flex items-center justify-center px-5 z-[1]"
+                        aria-hidden="true"
+                      >
+                        <span
+                          className={cn(
+                            'font-display font-light text-center leading-[1.05] tracking-[-0.025em]',
+                            'text-text/[0.18] select-none',
+                            '[word-break:break-word] hyphens-auto',
+                          )}
+                          style={{ fontSize: 'clamp(22px, 4.5vw, 36px)' }}
+                        >
+                          {name}
+                        </span>
+                      </div>
+                    </>
+                  )}
 
                   {/* Bottom gradient for legibility */}
                   <div

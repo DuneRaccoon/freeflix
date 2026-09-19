@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.dependencies.auth import require_profile, require_session_silent
 from app.database.models import UserStreamingProgress, Torrent, MovieCache, User
 from app.models import StreamingProgressCreate, StreamingProgressUpdate, StreamingProgressResponse
 
@@ -69,7 +70,16 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
     end = max(start, min(end, file_size - 1))
     return start, end
 
-@router.get("/{torrent_id}/video", summary="Stream video from a torrent")
+@router.get(
+    "/{torrent_id}/video",
+    summary="Stream video from a torrent",
+    # A raw <video src> cannot carry a header, so the session cookie is the only gate
+    # available here — and the 401 must have an EMPTY body. Any JSON or HTML reaches
+    # the decoder as corrupt media, and PatchedVideoPlayer classifies a network error
+    # during an active download as recoverable, so an expired session would present as
+    # a mysterious playback failure that never prompts anyone to sign in.
+    dependencies=[Depends(require_session_silent)],
+)
 async def stream_video(
     request: Request,
     torrent_id: str = Path(..., description="ID of the torrent"),
@@ -161,7 +171,11 @@ async def stream_video(
         logger.error(f"Error streaming video for torrent {torrent_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error streaming video: {str(e)}")
 
-@router.get("/{torrent_id}/info", summary="Get video streaming information")
+@router.get(
+    "/{torrent_id}/info",
+    summary="Get video streaming information",
+    dependencies=[Depends(require_session_silent)],
+)
 async def get_video_info(
     torrent_id: str = Path(..., description="ID of the torrent"),
     file_index: Optional[int] = Query(None, description="Index of the file (season packs)"),
@@ -243,7 +257,12 @@ async def get_video_info(
         "state": torrent_status.state
     }
 
-@router.get("/{torrent_id}/files", response_model=List[VideoFile], summary="List streamable video files")
+@router.get(
+    "/{torrent_id}/files",
+    response_model=List[VideoFile],
+    summary="List streamable video files",
+    dependencies=[Depends(require_session_silent)],
+)
 async def list_video_files(torrent_id: str = Path(..., description="ID of the torrent")):
     """List the video files in a torrent, labeled with parsed season/episode (season packs)."""
     if not torrent_manager.get_torrent_status(torrent_id):
@@ -266,7 +285,11 @@ async def list_video_files(torrent_id: str = Path(..., description="ID of the to
     ))
     return result
 
-@router.post("/progress/{user_id}", response_model=StreamingProgressResponse)
+@router.post(
+    "/progress/{user_id}",
+    response_model=StreamingProgressResponse,
+    dependencies=[Depends(require_profile)],
+)
 async def create_streaming_progress(
     user_id: str,
     progress: StreamingProgressCreate,
@@ -309,7 +332,11 @@ async def create_streaming_progress(
         session.refresh(row)
         return StreamingProgressResponse(**row.to_dict())
 
-@router.put("/progress/{user_id}/{progress_id}", response_model=StreamingProgressResponse)
+@router.put(
+    "/progress/{user_id}/{progress_id}",
+    response_model=StreamingProgressResponse,
+    dependencies=[Depends(require_profile)],
+)
 async def update_streaming_progress(
     user_id: str,
     progress_id: str,
@@ -349,7 +376,11 @@ async def update_streaming_progress(
         session.refresh(progress_entry)
         return StreamingProgressResponse(**progress_entry.to_dict())
 
-@router.get("/progress/{user_id}/{torrent_id}", response_model=Optional[StreamingProgressResponse])
+@router.get(
+    "/progress/{user_id}/{torrent_id}",
+    response_model=Optional[StreamingProgressResponse],
+    dependencies=[Depends(require_profile)],
+)
 async def get_streaming_progress(
     user_id: str,
     torrent_id: str,
@@ -374,7 +405,11 @@ async def get_streaming_progress(
         
         return StreamingProgressResponse(**progress.to_dict())
 
-@router.get("/progress/{user_id}/movie/{movie_id}", response_model=Optional[StreamingProgressResponse])
+@router.get(
+    "/progress/{user_id}/movie/{movie_id}",
+    response_model=Optional[StreamingProgressResponse],
+    dependencies=[Depends(require_profile)],
+)
 async def get_streaming_progress_by_movie(
     user_id: str,
     movie_id: str,
@@ -399,7 +434,11 @@ async def get_streaming_progress_by_movie(
         
         return StreamingProgressResponse(**progress.to_dict())
 
-@router.get("/progress/{user_id}", response_model=List[StreamingProgressResponse])
+@router.get(
+    "/progress/{user_id}",
+    response_model=List[StreamingProgressResponse],
+    dependencies=[Depends(require_profile)],
+)
 async def get_recent_streaming_progress(
     user_id: str,
     limit: int = 10,
@@ -422,7 +461,10 @@ async def get_recent_streaming_progress(
         # Fix: Handle the list of entries correctly
         return [StreamingProgressResponse(**entry.to_dict()) for entry in progress_entries]
 
-@router.delete("/progress/{user_id}/{progress_id}")
+@router.delete(
+    "/progress/{user_id}/{progress_id}",
+    dependencies=[Depends(require_profile)],
+)
 async def delete_streaming_progress(
     user_id: str,
     progress_id: str,

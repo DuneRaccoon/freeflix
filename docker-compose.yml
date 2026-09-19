@@ -34,11 +34,29 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-freeflix}
       DOWNLOAD_PATH: /opt/freeflix/downloads
+      # --- Instance claim / auth -------------------------------------------
+      # Origin the emailed links point at. Compose maps host 3001 -> container
+      # 3000, so a link built from the container's own port would 404 in a browser.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3001}
+      # Server-to-server hop for the mail route, over freeflix-network.
+      FRONTEND_INTERNAL_URL: http://frontend:3000
+      # Must be byte-identical to the frontend's copy or /api/internal/mail 401s.
+      # Unset => no email at all; magic links are logged instead (still usable).
+      INTERNAL_MAIL_SECRET: ${INTERNAL_MAIL_SECRET:-}
+      # Only the Next mail route calls Resend, but both are declared on Settings
+      # so a shared .env cannot crash the backend at import (extra='forbid').
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: "${MAIL_FROM:-FRÈ <onboarding@resend.dev>}"
+      # true only behind HTTPS. A Secure cookie is silently dropped on plain
+      # http://localhost:3001, which makes sign-in look broken with no error.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     ports:
       - "8000:8000"
     volumes:
       - ./downloads:/opt/freeflix/downloads
       - resume-data:/opt/freeflix/resume_data
+      # Also holds claim_code.txt while the instance is unclaimed — it must
+      # outlive `make build`, and this is the only persisted writable path.
       - logs:/opt/freeflix/logs
     depends_on:
       db:
@@ -50,10 +68,25 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Baked into .next/routes-manifest.json by `next build` — a runtime-only value
+        # arrives too late for the rewrites.
+        BACKEND_INTERNAL_URL: http://backend:8000
     restart: unless-stopped
+    # The mail route runs server-side in this container, so it needs the same
+    # secrets the backend has. Without env_file the four keys below would never
+    # reach it and every send would fail the shared-secret check.
+    env_file: .env
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
       BACKEND_INTERNAL_URL: http://backend:8000
+      # Consumed by src/app/api/internal/mail/route.ts (Node runtime, never sent
+      # to the browser). Restated here so the dependency is visible in
+      # `docker compose config` rather than buried in .env.
+      INTERNAL_MAIL_SECRET: ${INTERNAL_MAIL_SECRET:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: "${MAIL_FROM:-FRÈ <onboarding@resend.dev>}"
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3001}
     ports:
       - "3001:3000"
     depends_on:

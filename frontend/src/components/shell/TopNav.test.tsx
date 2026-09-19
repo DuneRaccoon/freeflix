@@ -6,6 +6,17 @@ vi.mock('@/lib/useScrolled', () => ({ useScrolled: () => false }));
 vi.mock('@/context/UserContext', () => ({
   useUser: () => ({ currentUser: { id: '1', display_name: 'Ben', avatar: null }, logout: vi.fn() }),
 }));
+// ProfileMenu (rendered by TopNav) reads the account for its Members link and Sign out.
+vi.mock('@/context/SessionContext', () => ({
+  useSession: () => ({
+    account: null,
+    instance: null,
+    isLoading: false,
+    error: null,
+    refresh: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
 vi.mock('@/services/activity', () => ({
   activityService: { getCount: vi.fn().mockResolvedValue({ active_downloads: 0, aggregate_progress: 0, max_active_downloads: 2 }) },
 }));

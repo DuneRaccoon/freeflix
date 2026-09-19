@@ -455,41 +455,209 @@ class AppSetting(BaseModel):
     updated_at: datetime
     
     
-# User models
+# ─── Profile models ──────────────────────────────────────────────────────────
+# The storage layer still calls these "users" (the table cannot be renamed — five FK
+# constraints point at users.id and there is no migration framework), but since the
+# instance-claim work a row means a PROFILE owned by an Account.
+
 class UserCreate(BaseModel):
-    username: str
+    # `username` is generated server-side now. The old client-side generator
+    # (`slug-${Date.now()...}`) could collide against the instance-global UNIQUE
+    # constraint and surfaced only as a generic "could not create profile" toast.
     display_name: str
-    avatar: str = None
+    avatar: Optional[str] = None
 
 class UserUpdate(BaseModel):
-    display_name: str = None
-    avatar: str = None
+    display_name: Optional[str] = None
+    avatar: Optional[str] = None
 
-class UserSettingsModel(BaseModel):
+class UserSettingsUpdate(BaseModel):
+    """Request body for PUT /users/{id}/settings.
+
+    `passcode` is WRITE-ONLY: it is hashed on arrival and never appears in any
+    response. Send an empty string to clear it.
+    """
+    maturity_restriction: Optional[str] = None
+    require_passcode: Optional[bool] = None
+    passcode: Optional[str] = None
+    theme: Optional[str] = None
+    default_quality: Optional[Literal['720p', '1080p', '2160p']] = None
+    download_path: Optional[str] = None
+
+class UserSettingsResponse(BaseModel):
+    """Never carries the passcode.
+
+    The previous shape leaked every profile's PLAINTEXT passcode through
+    `UserResponse.settings` on `GET /users` and `GET /users/{id}`. `has_passcode` and
+    `passcode_len` are all the keypad needs (it draws that many dots and auto-submits
+    on the last digit); the code itself is verified server-side by POST
+    /users/{id}/unlock.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
     maturity_restriction: str = "none"
     require_passcode: bool = False
-    passcode: Optional[str] = None
+    has_passcode: bool = False
+    passcode_len: Optional[int] = None
     theme: str = "dark"
     default_quality: Literal['720p', '1080p', '2160p'] = "1080p"
     download_path: Optional[str] = None
 
 class UserResponse(BaseModel):
-    id: UUID
+    # `id` is a plain str, not UUID: the column is `Column(String, primary_key=True)`
+    # and a seeded or non-uuid id would 500 at serialization time under UUID.
+    id: str
     username: str
     display_name: str
     avatar: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    settings: UserSettingsModel
+    account_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    settings: UserSettingsResponse
 
-class UserSettingsResponse(BaseModel):
+class PasscodeUnlockRequest(BaseModel):
+    passcode: str
+
+class PasscodeUnlockResponse(BaseModel):
+    ok: bool
+
+
+# ─── Instance claim / auth models ────────────────────────────────────────────
+
+class InstanceStatusResponse(BaseModel):
+    """Public. Drives the frontend's boot decision; never leaks the claim code."""
+    claimed: bool
+    needs_claim: bool
+    instance_name: Optional[str] = None
+    claimed_at: Optional[datetime] = None
+
+class ClaimRequest(BaseModel):
+    claim_code: str
+    email: str
+    # The owner signs in with a password; members are magic-link only. It is chosen here,
+    # at claim time, but only takes effect once the emailed link proves the address.
+    password: str
+
+class ClaimResponse(BaseModel):
+    sent: bool
+    delivered: bool = False
+    # Populated only when no mail provider is configured, so a self-hosted operator
+    # can still finish the claim. Never populated once Resend is wired up.
+    action_url: Optional[str] = None
+
+class MagicLinkRequest(BaseModel):
+    email: str
+
+class PasswordSignInRequest(BaseModel):
+    email: str
+    password: str
+
+class PasswordResetRequest(BaseModel):
+    """Asks for a set-a-new-password link. Owner accounts only; the response is a
+    constant either way so it cannot be used to find out who owns the instance."""
+    email: str
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    password: str
+
+class AuthCapabilityResponse(BaseModel):
+    """What /signin/owner needs to render, without naming anyone.
+
+    ``password_min_length`` is a published rule, not a secret. Nothing here varies by
+    address — the page never asks the server about a specific account.
+    """
+    password_min_length: int
+
+class MagicLinkResponse(BaseModel):
+    """Byte-identical for known, unknown, revoked and rate-limited addresses, so the
+    sign-in form is not an email-enumeration oracle."""
+    sent: bool = True
+    delivered: bool = False
+    action_url: Optional[str] = None
+
+class VerifyTokenRequest(BaseModel):
+    token: str
+
+class VerifyTokenResponse(BaseModel):
+    ok: bool
+    redirect: str = "/"
+    claimed: bool = False
+
+class AccountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
-    user_id: str
-    maturity_restriction: str
-    require_passcode: bool
-    theme: str
-    default_quality: Literal['720p', '1080p', '2160p']
-    download_path: Optional[str] = None
+    email: Optional[str] = None
+    role: Literal['owner', 'member']
+    status: Literal['pending_email', 'invited', 'active', 'revoked']
+    display_name: Optional[str] = None
+    last_login_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+class SessionResponse(BaseModel):
+    """GET /auth/me — the single frontend bootstrap call."""
+    account: AccountResponse
+    profiles: List[UserResponse] = []
+
+class InviteCreateRequest(BaseModel):
+    email: str
+    # Attach the invite to an existing `pending_email` account created by the upgrade
+    # migration, so that household member keeps their profiles, watch progress and
+    # watchlist instead of starting over.
+    account_id: Optional[str] = None
+
+class InviteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    role: str = "member"
+    expires_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+class InviteSendResponse(BaseModel):
+    invite: InviteResponse
+    sent: bool
+    delivered: bool = False
+    action_url: Optional[str] = None
+
+class InvitePreviewRequest(BaseModel):
+    token: str
+
+class InvitePreviewResponse(BaseModel):
+    email: str
+    invited_by: Optional[str] = None
+    instance_name: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+class InviteAcceptRequest(BaseModel):
+    token: str
+    display_name: str
+    avatar: Optional[str] = None
+
+class MemberResponse(BaseModel):
+    account: AccountResponse
+    profile_count: int = 0
+    profile_names: List[str] = []
+    is_you: bool = False
+
+class MembersResponse(BaseModel):
+    members: List[MemberResponse] = []
+    invites: List[InviteResponse] = []
+
+class TransferOwnershipRequest(BaseModel):
+    account_id: str
+
+class InstanceSettingsUpdate(BaseModel):
+    instance_name: Optional[str] = None
+
+class OkResponse(BaseModel):
+    ok: bool = True
 
 
 # Streaming models

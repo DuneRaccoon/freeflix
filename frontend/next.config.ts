@@ -64,6 +64,12 @@ const nextConfig: NextConfig = {
       // Keep internal Next API routes (like /api/palette) on the frontend
       { source: '/api/palette', destination: '/api/palette' },
       { source: '/api/palette/:path*', destination: '/api/palette/:path*' },
+      // /api/internal/* is ours (the mail render+send route FastAPI posts to with a
+      // shared-secret header). Returning a plain array makes these `afterFiles`
+      // rewrites, so the static /api/internal/mail file already beats the catch-all
+      // below — this keeps that true if the path ever gains a dynamic segment, which
+      // would otherwise be proxied to the backend with the secret still attached.
+      { source: '/api/internal/:path*', destination: '/api/internal/:path*' },
       // Proxy other API routes to backend
       {
         source: '/api/:path*',

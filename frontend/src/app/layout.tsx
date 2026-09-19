@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Fraunces, Inter_Tight } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
+import { SessionProvider } from '@/context/SessionContext';
 import { UserProvider } from '@/context/UserContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ProgressProvider } from '@/context/ProgressContext';
@@ -33,6 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${fraunces.variable} ${interTight.variable}`}>
       <body className="min-h-screen font-ui">
+        <SessionProvider>
         <UserProvider>
           <ThemeProvider>
             <ProgressProvider>
@@ -66,6 +68,7 @@ export default function RootLayout({
             </ProgressProvider>
           </ThemeProvider>
         </UserProvider>
+        </SessionProvider>
       </body>
     </html>
   );

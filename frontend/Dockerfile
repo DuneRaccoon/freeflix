@@ -10,6 +10,13 @@ RUN npm ci
 # Copy the rest of the code
 COPY . .
 
+# next build resolves next.config.ts's rewrites() and BAKES the destinations into
+# .next/routes-manifest.json, so this has to be set at BUILD time, not just at runtime.
+# Without it the /api/* proxy is frozen at the localhost fallback and every API call
+# from the browser fails with ECONNREFUSED inside the container.
+ARG BACKEND_INTERNAL_URL=http://backend:8000
+ENV BACKEND_INTERNAL_URL=$BACKEND_INTERNAL_URL
+
 # Build the application
 RUN npm run build
 

@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useUser } from '@/context/UserContext';
+import { useSession } from '@/context/SessionContext';
 import { getInitials, handleAvatarError } from '@/utils/avatarHelper';
 import { cn } from '@/lib/cn';
 
@@ -12,8 +13,13 @@ const ITEMS = [
   { href: '/settings', label: 'Settings' },
 ];
 
+const ITEM_CLASS =
+  'block w-full rounded-lg px-3 py-2 text-left font-ui text-sm text-text ' +
+  'hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2';
+
 const ProfileMenu: React.FC = () => {
   const { currentUser, logout } = useUser();
+  const { account, signOut } = useSession();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -27,6 +33,7 @@ const ProfileMenu: React.FC = () => {
   }, [open]);
 
   const name = currentUser?.display_name ?? 'Profile';
+  const isOwner = account?.role === 'owner';
 
   return (
     <div ref={ref} className="relative">
@@ -48,17 +55,34 @@ const ProfileMenu: React.FC = () => {
       </button>
 
       {open && (
-        <div role="menu" className="absolute right-0 mt-2 w-52 rounded-xl border border-hairline bg-surface/95 p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur">
-          <p className="px-3 pt-1.5 pb-2 font-ui text-xs uppercase tracking-[0.22em] text-muted">{name}</p>
+        <div role="menu" className="absolute right-0 mt-2 w-56 rounded-xl border border-hairline bg-surface/95 p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur">
+          <div className="px-3 pt-1.5 pb-2">
+            <p className="font-ui text-xs uppercase tracking-[0.22em] text-muted">{name}</p>
+            {account?.email && (
+              <p className="mt-0.5 truncate font-ui text-xs text-muted/70" title={account.email}>{account.email}</p>
+            )}
+          </div>
+
           {ITEMS.map(item => (
-            <Link key={item.href} role="menuitem" href={item.href} onClick={() => setOpen(false)}
-              className="block rounded-lg px-3 py-2 font-ui text-sm text-text hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2">
+            <Link key={item.href} role="menuitem" href={item.href} onClick={() => setOpen(false)} className={ITEM_CLASS}>
               {item.label}
             </Link>
           ))}
-          <button role="menuitem" type="button" onClick={() => { setOpen(false); logout(); }}
-            className="mt-1 block w-full rounded-lg px-3 py-2 text-left font-ui text-sm text-text hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2">
+          {isOwner && (
+            <Link role="menuitem" href="/members" onClick={() => setOpen(false)} className={ITEM_CLASS}>
+              Members
+            </Link>
+          )}
+
+          {/* Switch profile clears the active profile only; the session cookie survives. */}
+          <button role="menuitem" type="button" onClick={() => { setOpen(false); logout(); }} className={cn(ITEM_CLASS, 'mt-1')}>
             Switch profile
+          </button>
+
+          <div role="none" className="my-1.5 h-px bg-hairline" />
+
+          <button role="menuitem" type="button" onClick={() => { setOpen(false); void signOut(); }} className={ITEM_CLASS}>
+            Sign out
           </button>
         </div>
       )}

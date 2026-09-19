@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '@/context/UserContext';
-import { usersService, UserSettings } from '@/services/users';
+import { usersService, UserSettings, UserSettingsUpdate } from '@/services/users';
 import { baseService } from '@/services/api-client';
 import { Badge, Button, Field, Input, Select, Toggle } from '@/components/ui/fre';
 import UserAvatar from '@/components/users/UserAvatar';
@@ -379,13 +379,15 @@ const RestrictionsSection: React.FC<{
       setError('Passcodes do not match');
       return;
     }
-    if (requirePasscode && !settings?.passcode && !passcode.trim()) {
+    // The code itself never comes back from the API — `has_passcode` is how we know
+    // one is already stored and this save does not have to set a new one.
+    if (requirePasscode && !settings?.has_passcode && !passcode.trim()) {
       setError('A passcode is required when restriction is enabled');
       return;
     }
     setSaving(true);
     try {
-      const patch: Partial<UserSettings> = {
+      const patch: UserSettingsUpdate = {
         maturity_restriction: maturity,
         require_passcode: requirePasscode,
       };
@@ -438,8 +440,14 @@ const RestrictionsSection: React.FC<{
               <Input
                 id="passcode"
                 type="password"
+                // Digits only, 4-8: the unlock screen is a numeric keypad, so anything
+                // it cannot reproduce would lock the profile for good. The backend
+                // enforces the same rule; this just stops it being typeable.
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
                 value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
+                onChange={(e) => setPasscode(e.target.value.replace(/\D/g, ''))}
                 placeholder="••••"
                 disabled={!canEdit}
               />
@@ -448,8 +456,11 @@ const RestrictionsSection: React.FC<{
               <Input
                 id="confirm-passcode"
                 type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
                 value={confirmPasscode}
-                onChange={(e) => setConfirmPasscode(e.target.value)}
+                onChange={(e) => setConfirmPasscode(e.target.value.replace(/\D/g, ''))}
                 placeholder="••••"
                 disabled={!canEdit}
               />

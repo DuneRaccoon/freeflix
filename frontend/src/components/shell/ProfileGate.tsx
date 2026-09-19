@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useUser } from '@/context/UserContext';
 import { usersService } from '@/services/users';
 import { Wordmark } from '@/components/ui/Wordmark';
@@ -10,16 +10,14 @@ import { cn } from '@/lib/cn';
 import { LockClosedIcon } from '@heroicons/react/24/solid';
 import { Modal, Field, Input, Button } from '@/components/ui/fre';
 
-interface Gate { required: boolean; code?: string; }
-
 const ProfileGate: React.FC = () => {
   const { users, selectUser, loadUsers } = useUser();
-  const [gates, setGates] = useState<Record<string, Gate>>({});
-  const [prompt, setPrompt] = useState<{ id: string; name: string; code: string } | null>(null);
+  const [prompt, setPrompt] = useState<{ id: string; name: string; length: number } | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [entryError, setEntryError] = useState<string | null>(null);
 
   const closeCreate = () => {
     if (submitting) return;
@@ -35,15 +33,13 @@ const ProfileGate: React.FC = () => {
     setSubmitting(true);
     setCreateError(null);
     try {
-      const slug = display.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 24) || 'profile';
-      const user = await usersService.createUser({
-        username: `${slug}-${Date.now().toString(36).slice(-4)}`,
-        display_name: display,
-      });
+      // The username is minted server-side; a client-side slug could collide on the
+      // instance-global UNIQUE constraint.
+      const user = await usersService.createUser({ display_name: display });
       await loadUsers();
-      const ok = await selectUser(user.id);
+      const result = await selectUser(user.id);
       // On success, selectUser sets currentUser → AuthenticatedLayout swaps away from this gate.
-      if (!ok) {
+      if (result !== 'ok') {
         setCreateError('Profile created, but it could not be opened — pick it from the list.');
         setSubmitting(false);
         setCreating(false);
@@ -54,23 +50,14 @@ const ProfileGate: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all(users.map(async u => {
-      try {
-        const s = await usersService.getUserSettings(u.id);
-        return [u.id, { required: !!s.require_passcode, code: s.passcode }] as const;
-      } catch {
-        return [u.id, { required: false }] as const;
-      }
-    })).then(entries => { if (!cancelled) setGates(Object.fromEntries(entries)); });
-    return () => { cancelled = true; };
-  }, [users]);
-
-  const enter = (id: string, name: string) => {
-    const gate = gates[id];
-    if (gate?.required && gate.code) { setPrompt({ id, name, code: gate.code }); return; }
-    void selectUser(id);
+  // The server decides whether a profile is locked; `require_passcode` only drives the badge.
+  const enter = async (id: string, name: string, length: number) => {
+    setEntryError(null);
+    const result = await selectUser(id);
+    if (result === 'locked') setPrompt({ id, name, length });
+    // Without this the gate is the only thing on screen and a failed click looks like
+    // a dead button.
+    else if (result === 'error') setEntryError('Could not open that profile. Please try again.');
   };
 
   return (
@@ -83,29 +70,32 @@ const ProfileGate: React.FC = () => {
         </h1>
 
         <div className="flex flex-wrap items-start justify-center gap-8">
-          {users.map(u => (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() => enter(u.id, u.display_name)}
-              className="group flex flex-col items-center gap-3 focus:outline-none"
-            >
-              <span className={cn(
-                'relative grid h-[clamp(110px,13vw,150px)] w-[clamp(110px,13vw,150px)] place-items-center overflow-hidden rounded-[22px]',
-                'border border-hairline bg-surface-2 font-display text-3xl text-muted transition-transform duration-300',
-                'group-hover:-translate-y-2 group-hover:border-gold group-focus-visible:border-gold',
-                'group-focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
-              )}>
-                {u.avatar
-                  ? <img src={u.avatar} alt="" onError={handleAvatarError} className="h-full w-full object-cover" />
-                  : <span aria-hidden="true">{getInitials(u.display_name)}</span>}
-                {gates[u.id]?.required && (
-                  <span aria-hidden="true" className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full border border-gold/55 bg-ink/70 text-gold"><LockClosedIcon className="h-4 w-4" /></span>
-                )}
-              </span>
-              <span className="font-ui text-sm tracking-wide text-muted transition-colors group-hover:text-text">{u.display_name}</span>
-            </button>
-          ))}
+          {users.map(u => {
+            const locked = !!u.settings?.require_passcode;
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => { void enter(u.id, u.display_name, u.settings?.passcode_len ?? 4); }}
+                className="group flex flex-col items-center gap-3 focus:outline-none"
+              >
+                <span className={cn(
+                  'relative grid h-[clamp(110px,13vw,150px)] w-[clamp(110px,13vw,150px)] place-items-center overflow-hidden rounded-[22px]',
+                  'border border-hairline bg-surface-2 font-display text-3xl text-muted transition-transform duration-300',
+                  'group-hover:-translate-y-2 group-hover:border-gold group-focus-visible:border-gold',
+                  'group-focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+                )}>
+                  {u.avatar
+                    ? <img src={u.avatar} alt="" onError={handleAvatarError} className="h-full w-full object-cover" />
+                    : <span aria-hidden="true">{getInitials(u.display_name)}</span>}
+                  {locked && (
+                    <span aria-hidden="true" className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full border border-gold/55 bg-ink/70 text-gold"><LockClosedIcon className="h-4 w-4" /></span>
+                  )}
+                </span>
+                <span className="font-ui text-sm tracking-wide text-muted transition-colors group-hover:text-text">{u.display_name}</span>
+              </button>
+            );
+          })}
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -118,6 +108,8 @@ const ProfileGate: React.FC = () => {
             <span className="font-ui text-sm tracking-wide text-muted transition-colors group-hover:text-text">Add Profile</span>
           </button>
         </div>
+
+        {entryError && <p role="alert" className="font-ui text-sm text-danger">{entryError}</p>}
       </div>
 
       <Modal open={creating} onClose={closeCreate} label="Add a profile">
@@ -147,9 +139,17 @@ const ProfileGate: React.FC = () => {
         <PasscodePrompt
           open
           profileName={prompt.name}
-          expected={prompt.code}
+          length={prompt.length}
           onClose={() => setPrompt(null)}
-          onSuccess={() => { const id = prompt.id; setPrompt(null); void selectUser(id); }}
+          onSubmit={async (code) => {
+            const result = await selectUser(prompt.id, code);
+            if (result === 'ok') { setPrompt(null); return true; }
+            // A throttled attempt is not a wrong code — saying so would convince
+            // someone they had forgotten their own passcode.
+            return result === 'throttled'
+              ? 'Too many attempts. Try again in a few minutes.'
+              : false;
+          }}
         />
       )}
     </div>

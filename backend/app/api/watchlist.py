@@ -7,9 +7,15 @@ from sqlalchemy.exc import IntegrityError
 from app.database.session import get_db
 from app.database.models import User
 from app.database.models.watchlist import UserWatchlist
+from app.dependencies.auth import require_profile
 from app.models import WatchlistItemCreate, WatchlistItemResponse, WatchlistItemUpdate
 
-router = APIRouter()
+# Every route here is keyed by a {user_id} path segment the CALLER supplies, so the
+# router-level session gate is not enough on its own — without require_profile any
+# signed-in member could read, add to, patch or delete another household member's list
+# just by guessing a profile id. require_profile resolves the same path param and
+# 403s unless the profile belongs to the caller's account (404 unknown, 423 locked).
+router = APIRouter(dependencies=[Depends(require_profile)])
 
 
 @router.post("/{user_id}/add", response_model=WatchlistItemResponse, status_code=201)

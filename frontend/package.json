@@ -8,12 +8,15 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "email": "email dev --dir src/emails --port 3030"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
     "@heroicons/react": "^2.0.18",
     "@hookform/resolvers": "^3.3.2",
+    "@react-email/components": "^1.0.12",
+    "@react-email/render": "^2.1.0",
     "axios": "^1.6.0",
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",
@@ -26,6 +29,7 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.48.2",
     "react-hot-toast": "^2.4.1",
+    "resend": "^6.28.1",
     "swiper": "^11.2.5",
     "tailwind-merge": "^3.6.0",
     "zod": "^3.22.4"
@@ -40,6 +44,7 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.7.0",
     "jsdom": "^25.0.1",
+    "react-email": "^6.9.5",
     "tailwindcss": "^4",
     "typescript": "5.9.3",
     "vitest": "^2.1.9"

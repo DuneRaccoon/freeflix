@@ -222,6 +222,78 @@ def sync_indexes(engine_):
         logger.warning(f"Could not create unique index uq_user_movie_progress: {e}")
 
 
+def sync_auth_schema(engine_):
+    """Idempotent DDL for the instance-claim tables that create_all/sync_columns miss.
+
+    ``create_all`` builds the five brand-new auth tables complete (indexes, FKs, NOT
+    NULL), so nothing here touches them on a fresh install. What it CANNOT do is
+    retro-fit an index or a FK onto ``users.account_id``, because that column arrives
+    on an existing table via ``sync_columns``' bare ``ALTER TABLE ... ADD COLUMN``.
+    Without this function, deleting an account cascades to its profiles on a fresh
+    database and silently orphans them on an upgraded one.
+
+    Every statement is existence-guarded and wrapped, because ``tests/test_sync_indexes``
+    style callers run this against a near-empty database, and because a raising
+    migration would abort ``init_db`` for everyone.
+    """
+    inspector = sa_inspect(engine_)
+    tables = set(inspector.get_table_names())
+    is_postgres = engine_.dialect.name == "postgresql"
+
+    if "users" not in tables:
+        return  # fresh database: create_all already built everything correctly
+
+    user_cols = {c["name"] for c in inspector.get_columns("users")}
+    if "account_id" not in user_cols:
+        # sync_columns runs before us and should have added it; if it failed it only
+        # logged a warning, so say so loudly rather than compounding the failure.
+        logger.error(
+            "users.account_id is missing after sync_columns — the instance-claim "
+            "migration cannot run. Check earlier 'Could not add column' warnings."
+        )
+        return
+
+    # 1. Index on the new column. `index=True` on the model is a no-op for upgraded DBs.
+    try:
+        with engine_.begin() as conn:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_users_account_id ON users (account_id)"
+            ))
+    except Exception as e:
+        logger.warning(f"Could not create index ix_users_account_id: {e}")
+
+    # 2. FK constraint on the new column. Postgres only — SQLite cannot add a FK to an
+    #    existing table at all, and its fallback engine does not enforce FKs anyway
+    #    (no `PRAGMA foreign_keys` is set outside one test).
+    if is_postgres and "accounts" in tables:
+        try:
+            with engine_.begin() as conn:
+                exists = conn.execute(text(
+                    "SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_account_id'"
+                )).first()
+                if not exists:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD CONSTRAINT fk_users_account_id "
+                        "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+                    ))
+                    logger.info("Added FK constraint fk_users_account_id")
+        except Exception as e:
+            logger.warning(f"Could not add constraint fk_users_account_id: {e}")
+
+    # 3. Case-insensitive uniqueness on account email. The declarative unique=True is
+    #    case-SENSITIVE; emails are normalized to lowercase on write, and this index is
+    #    the database-level backstop against a mixed-case duplicate slipping through.
+    if is_postgres and "accounts" in tables:
+        try:
+            with engine_.begin() as conn:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_accounts_email_lower "
+                    "ON accounts (lower(email))"
+                ))
+        except Exception as e:
+            logger.warning(f"Could not create index uq_accounts_email_lower: {e}")
+
+
 def init_db():
     """Initialize the database tables."""
     Base.metadata.create_all(bind=engine)
@@ -229,6 +301,8 @@ def init_db():
     sync_columns(engine)
     # Create indexes/unique constraints that sync_columns cannot (dedup-then-create).
     sync_indexes(engine)
+    # Retro-fit the index/FK that sync_columns cannot put on users.account_id.
+    sync_auth_schema(engine)
     logger.info("Database tables created")
 
 # Decorator for safely handling database operations in async functions

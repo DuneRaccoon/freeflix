@@ -1,6 +1,8 @@
 # Auto-loaded by `docker compose` in development.
 # Adds source bind-mounts + hot reload on top of the base stack.
-# `make prod` bypasses this file (docker compose -f docker-compose.yml ...).
+# `make prod` bypasses this file (docker compose -f docker-compose.yml ...),
+# so anything production needs — including every auth/mail env var — belongs in
+# docker-compose.yml, not here.
 services:
   backend:
     environment:
@@ -15,5 +17,8 @@ services:
       NODE_ENV: development
     volumes:
       - ./frontend:/app
+      # Anonymous volumes: they survive `docker compose up` recreation, so a new
+      # npm dependency (resend, @react-email/*) stays invisible and the mail route
+      # fails with MODULE_NOT_FOUND until you `docker compose up -V` or rebuild.
       - /app/node_modules
       - /app/.next

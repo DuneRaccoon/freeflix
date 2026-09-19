@@ -54,9 +54,38 @@ class Settings(BaseSettings):
     postgres_port: Optional[Union[str, int]] = None
     postgres_db: Optional[str] = None
     postgres_dsn: Optional[PostgresDsn] = None
-    
-    # mail_connection_config: ConnectionConfig
-    
+
+    # --- Instance claim / auth ---------------------------------------------
+    # Master kill switch. When False, require_session() returns a synthetic owner
+    # context and every endpoint behaves exactly as it did before auth existed.
+    # DEVELOPMENT ONLY — never ship an internet-reachable instance with this off.
+    auth_enabled: bool = True
+    # Session cookie. Path is always "/" because next.config.ts also exposes the
+    # whole backend under /_backend/*; a Path=/api cookie would not be sent there.
+    # No Domain is ever set — any Domain makes the browser reject the cookie that
+    # FastAPI hands back through the Next proxy.
+    cookie_name: str = "ff_session"
+    cookie_secure: bool = False  # set True behind HTTPS; dev serves plain http://localhost:3001
+    session_ttl_days: int = 30
+    magic_link_ttl_minutes: int = 20
+    invite_ttl_hours: int = 72
+
+    # Public origin used to build the links that go INTO emails.
+    app_public_url: str = "http://localhost:3001"
+    # Where the backend reaches Next.js server-to-server for the mail route.
+    # All three compose services share the freeflix-network bridge; the frontend
+    # container listens on 3000 even though the host maps 3001.
+    frontend_internal_url: str = "http://frontend:3000"
+    # Shared secret for POST {frontend_internal_url}/api/internal/mail. When unset,
+    # the mail route rejects every request, so email is effectively disabled.
+    internal_mail_secret: Optional[str] = None
+    resend_api_key: Optional[str] = None
+    mail_from: str = "FRÈ <onboarding@resend.dev>"
+
+    # Explicit CORS origins. "*" together with allow_credentials=True is rejected
+    # by browsers once a session cookie exists, so the wildcard cannot stay.
+    cors_origins: list[str] = ["http://localhost:3001", "http://localhost:3000"]
+
     sentry_dsn: Optional[HttpUrl] = None
     
     @field_validator('postgres_dsn', mode='after')
@@ -179,6 +208,18 @@ class Settings(BaseSettings):
         """Arch-profiled libtorrent settings_pack, filtered to keys valid in the
         running build. Safe to pass straight to session.apply_settings()."""
         return self._assemble_lt_settings(self._profile_settings(is_arm=self._is_arm()))
+
+    @property
+    def claim_code_file(self) -> Path:
+        """Where the first-run claim code is written in plaintext.
+
+        It has to survive `make build`, and the only persisted, writable paths the
+        backend container has are the `logs` and `resume-data` named volumes plus
+        the ./downloads bind mount. `base_app_path` itself is the image's writable
+        layer, so a code written there vanishes on every rebuild while the Postgres
+        volume survives — leaving the instance unclaimed with an unrecoverable code.
+        """
+        return self.log_path / "claim_code.txt"
 
     # Create necessary directories on startup
     def initialize(self):

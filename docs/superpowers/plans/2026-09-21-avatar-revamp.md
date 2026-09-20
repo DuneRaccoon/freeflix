@@ -2102,9 +2102,198 @@ git commit -m "feat(avatars): pick an avatar from a title in your library"
 
 ---
 
+### Task 16: Wire the library tab to real data
+
+**Files:**
+- Modify: `frontend/src/types/index.ts:190-194` (`CastMember`)
+- Modify: `frontend/src/services/avatars.ts`
+- Modify: `frontend/src/components/settings/SettingsView.tsx`
+- Test: `frontend/src/services/avatars.test.ts`
+
+**Interfaces:**
+- Consumes: `watchlistService.list(userId)`, `moviesService.getDetail(tmdbId)`, `CastMember.profile_path` (Task 14)
+- Produces: `avatarsService.loadLibraryStills(userId: string): Promise<LibraryStill[]>`
+
+Task 15 builds the tab but nothing passes `libraryStills`, so it can never render. This task supplies the data.
+
+**Scope note — movies only.** `ShowDetail` (`types/index.ts:243-259`) has no `cast` field, and the backend show endpoint does not fetch credits. Sourcing TV stills would mean a new provider call and response-model change, which the spec does not ask for. Watchlist entries with `media_type === 'tv'` are skipped.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// frontend/src/services/avatars.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const list = vi.fn();
+const getDetail = vi.fn();
+
+vi.mock('./watchlist', () => ({ watchlistService: { list: (...a: unknown[]) => list(...a) } }));
+vi.mock('./movies', () => ({ moviesService: { getDetail: (...a: unknown[]) => getDetail(...a) } }));
+vi.mock('./api-client', () => ({ default: { post: vi.fn() } }));
+
+import { avatarsService } from './avatars';
+
+const item = (tmdb_id: string, media_type = 'movie', added_at = '2026-01-01') => ({
+  id: tmdb_id, user_id: 'u1', content_id: `movie:${tmdb_id}`, tmdb_id, media_type,
+  added_at, created_at: added_at,
+});
+
+beforeEach(() => {
+  list.mockReset();
+  getDetail.mockReset();
+});
+
+describe('loadLibraryStills', () => {
+  it('flattens cast with a profile_path into stills', async () => {
+    list.mockResolvedValue([item('1')]);
+    getDetail.mockResolvedValue({
+      cast: [
+        { name: 'Sigourney Weaver', character: 'Ripley', image: 'https://img/w185/a.jpg', profile_path: '/a.jpg' },
+        { name: 'No Photo', character: null, image: null, profile_path: null },
+      ],
+    });
+
+    const stills = await avatarsService.loadLibraryStills('u1');
+
+    expect(stills).toEqual([
+      { label: 'Ripley', profilePath: '/a.jpg', previewUrl: 'https://img/w185/a.jpg' },
+    ]);
+  });
+
+  it('skips tv entries, which carry no cast', async () => {
+    list.mockResolvedValue([item('9', 'tv')]);
+    const stills = await avatarsService.loadLibraryStills('u1');
+    expect(getDetail).not.toHaveBeenCalled();
+    expect(stills).toEqual([]);
+  });
+
+  it('survives a detail fetch that rejects', async () => {
+    list.mockResolvedValue([item('1'), item('2', 'movie', '2026-02-01')]);
+    getDetail
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ cast: [{ name: 'A', character: 'B', image: 'u', profile_path: '/p.jpg' }] });
+
+    const stills = await avatarsService.loadLibraryStills('u1');
+    expect(stills).toHaveLength(1);
+  });
+
+  it('returns an empty list rather than throwing when the watchlist fails', async () => {
+    list.mockRejectedValue(new Error('offline'));
+    await expect(avatarsService.loadLibraryStills('u1')).resolves.toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd frontend && npx vitest run src/services/avatars.test.ts`
+Expected: FAIL — `avatarsService.loadLibraryStills is not a function`
+
+- [ ] **Step 3: Mirror `profile_path` on the frontend type**
+
+`frontend/src/types/index.ts:190-194`:
+
+```ts
+export interface CastMember {
+  name: string;
+  character: string | null;
+  image: string | null;
+  /** Raw TMDB path, added in Task 14 so the picker can mint a cached avatar. */
+  profile_path: string | null;
+}
+```
+
+- [ ] **Step 4: Add the loader**
+
+Append to `frontend/src/services/avatars.ts`:
+
+```ts
+import { watchlistService } from './watchlist';
+import { moviesService } from './movies';
+
+/** Detail fetches are one request each, so cap how many titles we open. */
+const MAX_TITLES = 6;
+const MAX_STILLS = 30;
+
+// inside the avatarsService object:
+  async loadLibraryStills(userId: string): Promise<LibraryStill[]> {
+    let items;
+    try {
+      items = await watchlistService.list(userId);
+    } catch {
+      // A picker that throws because the watchlist is unreachable is worse than
+      // a picker with no library tab.
+      return [];
+    }
+
+    const recent = items
+      .filter((i) => i.media_type !== 'tv')
+      .sort((a, b) => b.added_at.localeCompare(a.added_at))
+      .slice(0, MAX_TITLES);
+
+    const details = await Promise.allSettled(
+      recent.map((i) => moviesService.getDetail(Number(i.tmdb_id))),
+    );
+
+    const stills: LibraryStill[] = [];
+    for (const d of details) {
+      if (d.status !== 'fulfilled') continue;
+      for (const c of d.value.cast ?? []) {
+        if (!c.profile_path || !c.image) continue;
+        stills.push({
+          label: c.character || c.name,
+          profilePath: c.profile_path,
+          previewUrl: c.image,
+        });
+      }
+    }
+    return stills.slice(0, MAX_STILLS);
+  },
+```
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `cd frontend && npx vitest run src/services/avatars.test.ts`
+Expected: PASS (4 tests)
+
+- [ ] **Step 6: Pass the stills into the picker from Settings**
+
+In `SettingsView.tsx`, load lazily — the watchlist and up to six detail requests should not fire on every Settings render:
+
+```tsx
+const [libraryStills, setLibraryStills] = useState<LibraryStill[]>([]);
+
+useEffect(() => {
+  if (!user?.id) return;
+  let cancelled = false;
+  void avatarsService.loadLibraryStills(user.id).then((s) => {
+    if (!cancelled) setLibraryStills(s);
+  });
+  return () => { cancelled = true; };
+}, [user?.id]);
+```
+
+and pass `libraryStills={libraryStills}` to `<AvatarPicker>`.
+
+The existing `SettingsView.test.tsx` mocks `@/components/users/AvatarPicker` wholesale, so this prop needs no test change there — but add `vi.mock('@/services/avatars', …)` to that file so the effect does not hit the real service.
+
+- [ ] **Step 7: Run the suites and typecheck**
+
+Run: `cd frontend && npx vitest run src/services src/components/settings src/components/users && npx tsc --noEmit`
+Expected: PASS, no type errors
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add -A frontend/src
+git commit -m "feat(avatars): source library stills from watchlist movies"
+```
+
+---
+
 ## Verification
 
-After Task 15, confirm end-to-end rather than trusting the suites:
+After Task 16, confirm end-to-end rather than trusting the suites:
 
 - [ ] `make up` and load `http://localhost:3001`
 - [ ] Profile gate renders 45-piece artwork, and a locked profile's gold badge does not collide with its avatar

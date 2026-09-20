@@ -4,16 +4,16 @@ import { AVATAR_IDS } from './catalog';
  * The eight retired files, mapped onto House Set pieces by index. This is a
  * READ-TIME coercion: rows are never rewritten, so the change stays reversible.
  */
-const LEGACY_AVATAR_MAP: Record<string, string> = {
-  '/avatars/avatar1.svg': 'house:reel',
-  '/avatars/avatar2.svg': 'house:clapper',
-  '/avatars/avatar3.svg': 'house:filmstrip',
-  '/avatars/avatar4.svg': 'house:projector',
-  '/avatars/avatar5.svg': 'house:ticket',
-  '/avatars/avatar6.svg': 'house:boom-mic',
-  '/avatars/avatar7.svg': 'house:marquee',
-  '/avatars/avatar8.svg': 'house:directors-chair',
-};
+const LEGACY_AVATAR_MAP = new Map<string, string>([
+  ['/avatars/avatar1.svg', 'house:reel'],
+  ['/avatars/avatar2.svg', 'house:clapper'],
+  ['/avatars/avatar3.svg', 'house:filmstrip'],
+  ['/avatars/avatar4.svg', 'house:projector'],
+  ['/avatars/avatar5.svg', 'house:ticket'],
+  ['/avatars/avatar6.svg', 'house:boom-mic'],
+  ['/avatars/avatar7.svg', 'house:marquee'],
+  ['/avatars/avatar8.svg', 'house:directors-chair'],
+]);
 
 const CACHED_RE = /^cached:[a-f0-9]{8,64}$/;
 
@@ -25,7 +25,7 @@ const CACHED_RE = /^cached:[a-f0-9]{8,64}$/;
 export function resolveAvatarSrc(value: string | null | undefined): string | null {
   if (!value) return null;
 
-  const id = LEGACY_AVATAR_MAP[value] ?? value;
+  const id = LEGACY_AVATAR_MAP.get(value) ?? value;
 
   if (id.startsWith('house:')) {
     return AVATAR_IDS.has(id) ? `/avatars/house/${id.slice('house:'.length)}.svg` : null;

@@ -28,6 +28,10 @@ describe('resolveAvatarSrc', () => {
     expect(resolveAvatarSrc('')).toBeNull();
     expect(resolveAvatarSrc(null)).toBeNull();
     expect(resolveAvatarSrc(undefined)).toBeNull();
+    expect(resolveAvatarSrc('constructor')).toBeNull();
+    expect(resolveAvatarSrc('__proto__')).toBeNull();
+    expect(resolveAvatarSrc('toString')).toBeNull();
+    expect(resolveAvatarSrc('valueOf')).toBeNull();
   });
 });
 

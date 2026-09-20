@@ -211,15 +211,22 @@ type AvatarCollection = { key: string; title: string; accent: string; pieces: Av
 | Realms of Wonder | `#8E7BD6` | castle turret, sword, crescent and star, owl |
 | Matters of the Heart | `#C77B92` | rose, paired glasses, sealed letter, moon on water |
 | The Big Laugh | `#E8B62F` | bowler and cane, comedy mask, seltzer bottle, pie tin |
+| The Green World | `#6FA287` | leaf, bird in flight, rain umbrella, paper boat |
 | Silent Era | see below | iris shot, upright piano, title card, carbon-arc lamp |
 
-**Palette collision to resolve during implementation.** Silent Era's natural colour-way is a bone/silver
-that is nearly identical to the House Set field, and the obvious alternatives sit on top of Shadows & Smoke
-(`#9AA7B4`) or The Frontier (`#BB6B3A`). Resolution: Silent Era **inverts the Plate treatment** — a bone
-subject on a dark nitrate-silver field — making it distinct by treatment rather than by hue. It is the one
-deliberate inversion in the set, and it reads as a projected negative, which suits the name. If that
-inversion looks wrong in practice, the fallback is to drop Silent Era for **The Green World** (`#6FA287`,
-Ghibli's registry accent): leaf, bird in flight, rain umbrella, paper boat.
+**Count:** 9 baseline + 9 collections × 4 = **45 pieces**, matching decision #3.
+
+**Palette collision.** Silent Era's natural colour-way is a bone/silver nearly identical to the House Set
+field, and the obvious alternatives sit on top of Shadows & Smoke (`#9AA7B4`) or The Frontier (`#BB6B3A`).
+Resolution: Silent Era **inverts the Plate treatment** — a bone subject on a dark nitrate-silver field
+(`#2A2C30` → `#101114`), distinct by treatment rather than by hue. It is the one deliberate inversion in
+the set, and it reads as a projected negative, which suits the name. Because it inverts, §4.1's rim-light
+rule flips with it: the rim light becomes a `#101114` shadow on the *lower-right* edge, keeping the single
+light source consistent across all nine collections.
+
+**Hue coverage check.** red `#8E2C2C` · cyan `#3FB7C4` · orange `#BB6B3A` · slate `#9AA7B4` · violet
+`#8E7BD6` · rose `#C77B92` · yellow `#E8B62F` · green `#6FA287` · silver — nine distinguishable fields,
+none within `#C9A86A`'s neighbourhood (§2.3).
 
 ---
 

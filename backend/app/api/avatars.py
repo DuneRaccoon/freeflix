@@ -4,6 +4,7 @@ The client sends a TMDB PATH FRAGMENT, never a URL. This module builds the
 image.tmdb.org URL itself, which is what keeps AssetManager's fetcher from
 being aimed at an arbitrary host.
 """
+import hashlib
 import re
 
 from fastapi import APIRouter, HTTPException
@@ -15,8 +16,13 @@ from app.providers.catalog import image_url
 
 router = APIRouter()
 
-# TMDB image paths are a 20-40 char base-62 stem plus an extension.
-_TMDB_PATH_RE = re.compile(r"/[A-Za-z0-9]{20,40}\.(jpg|png)")
+# TMDB image paths are a 20-40 char base-62 stem plus an extension. Restricted to
+# .jpg: that's what TMDB actually serves for the stills this feature draws on, and
+# resolve.ts hardcodes the .jpg extension when it rebuilds the asset URL from a
+# `cached:` id -- a .png source would cache fine and then 404 on render. Narrowing
+# the input here is the honest fix, rather than teaching three layers about a
+# second extension.
+_TMDB_PATH_RE = re.compile(r"/[A-Za-z0-9]{20,40}\.jpg")
 _ASSET_NAME_RE = re.compile(r"[a-zA-Z0-9_]{1,80}\.(jpg|png)")
 
 
@@ -37,17 +43,27 @@ class FromTmdbResponse(BaseModel):
 
 @router.post("/from-tmdb", response_model=FromTmdbResponse)
 async def cache_tmdb_still(payload: FromTmdbRequest) -> FromTmdbResponse:
-    """Download a TMDB still once and mint the `cached:` id that names it."""
+    """Download a TMDB still once and mint the `cached:` id that names it.
+
+    The id is a validated public identifier (checked against `_AVATAR_RE` on save,
+    `CACHED_RE` on render), not a filename -- so it is minted here, not borrowed
+    from AssetManager's human-readable `_url_to_filename` slug, which embeds the
+    TMDB path's base-62 characters and an underscore and so is NOT hex. The URL
+    (not the bare path) is hashed: it carries the `w342` size, so changing the
+    size later mints a new id instead of silently reusing a file cached at the
+    old dimensions.
+    """
     url = image_url(payload.path, "w342")
     if not url:
         raise HTTPException(status_code=422, detail="Could not build an image URL")
 
+    stem = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+
     manager = get_asset_manager()
-    ok, result = await manager.download_asset(url, asset_type="avatar")
+    ok, result = await manager.download_asset(url, asset_type="avatar", filename=f"{stem}.jpg")
     if not ok:
         raise HTTPException(status_code=502, detail="Could not fetch that image")
 
-    stem = manager.get_local_path(url, "avatar").stem
     return FromTmdbResponse(id=f"cached:{stem}")
 
 

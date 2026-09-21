@@ -116,21 +116,32 @@ class AssetManager:
         else:
             return f"{url_hash}{ext}"
     
-    def get_local_path(self, url: str, asset_type: Optional[AssetType] = None) -> Path:
+    def get_local_path(
+        self,
+        url: str,
+        asset_type: Optional[AssetType] = None,
+        filename: Optional[str] = None,
+    ) -> Path:
         """
         Get the local path for an asset.
-        
+
         Args:
             url: The URL of the asset
             asset_type: Optional asset type override
-            
+            filename: Optional exact filename to use instead of deriving one from
+                the URL. Callers that mint a validated public identifier (e.g. the
+                avatars endpoint's `cached:<hex>` id) need the on-disk name to BE
+                that identifier, not `_url_to_filename`'s human-readable slug —
+                passing this verbatim is how they keep the two in sync.
+
         Returns:
             The local path where the asset should be stored
         """
         if not asset_type:
             asset_type = self._get_asset_type(url)
-        
-        filename = self._url_to_filename(url)
+
+        if filename is None:
+            filename = self._url_to_filename(url)
         return self.asset_paths[asset_type] / filename
     
     def is_cached(self, url: str) -> bool:
@@ -146,14 +157,20 @@ class AssetManager:
         local_path = self.get_local_path(url)
         return local_path.exists() and local_path.stat().st_size > 0
     
-    async def download_asset(self, url: str, asset_type: Optional[AssetType] = None) -> Tuple[bool, str]:
+    async def download_asset(
+        self,
+        url: str,
+        asset_type: Optional[AssetType] = None,
+        filename: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """
         Download an asset and cache it locally.
-        
+
         Args:
             url: The URL of the asset to download
             asset_type: Optional asset type override
-            
+            filename: Optional exact filename to store under (see `get_local_path`)
+
         Returns:
             Tuple of (success, local_path_or_error_message)
         """
@@ -162,15 +179,15 @@ class AssetManager:
         time_since_last_request = current_time - self._last_request_time
         if time_since_last_request < self._min_request_interval:
             await asyncio.sleep(self._min_request_interval - time_since_last_request)
-        
+
         self._last_request_time = time.time()
-        
+
         # Determine asset type if not provided
         if not asset_type:
             asset_type = self._get_asset_type(url)
-        
+
         # Get local path
-        local_path = self.get_local_path(url, asset_type)
+        local_path = self.get_local_path(url, asset_type, filename=filename)
         
         # If already cached, return success
         if local_path.exists() and local_path.stat().st_size > 0:

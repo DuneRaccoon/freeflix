@@ -23,6 +23,16 @@ Every task's requirements implicitly include this section.
 - Field colours must be clearly brighter than `#16161A` or they vanish into the tile
 - No `<style>`, no CSS classes, no `currentColor` — these render through `<img>` and inherit nothing
 - No `Math.random`, no `Date.now` (SSR determinism — `FeedMotif.tsx:8-19` documents the precedent)
+- **Interior detail is field-coloured, never a third hue, and comes in two kinds:**
+  - **Punch-through** — a true hole in the silhouette (a sprocket hole, an eye, a nail hole, an
+    arrow-slit, the void that forms a crescent). Field colour at **full opacity**. These are
+    negative space, not shading; dimming them makes a hole read as a smudge.
+  - **Tonal cut** — shading on the subject's surface (a hat band, a blade's fuller, an envelope's
+    fold line). Field colour at **50–85% opacity**.
+  Never pre-blend a literal hex to fake either. `visor.svg` does (`#17454E`), inherited from this
+  document's own worked example before this rule existed — do not copy it.
+- Round `stroke-linecap` extends a stroke **half its width past the path endpoint**. Include that
+  when computing a piece's maximum radius; two review rounds caught self-checks that didn't.
 
 **Palette (`globals.css:8-29`):** ink `#0A0A0B` · surface `#111113` · surface-2 `#16161A` · text `#F4F1EA` · muted `#8C8884` · hairline `#26242A` · gold `#C9A86A` · gold-lite `#E7D6AE`
 

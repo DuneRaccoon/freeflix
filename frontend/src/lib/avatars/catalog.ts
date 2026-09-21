@@ -49,7 +49,7 @@ export const FRONTIER: AvatarCollection = {
     { id: 'brim-hat', label: 'Wide-brim hat' },
     { id: 'horseshoe', label: 'Horseshoe' },
     { id: 'saguaro', label: 'Saguaro' },
-    { id: 'spurs', label: 'Spurs' },
+    { id: 'spurs', label: 'Boot and spur' },
   ],
 };
 

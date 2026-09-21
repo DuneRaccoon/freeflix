@@ -9,7 +9,7 @@ import AuthPanel from '@/components/auth/AuthPanel';
 import AuthNotice from '@/components/auth/AuthNotice';
 import AuthSpinner from '@/components/auth/AuthSpinner';
 import AuthLinkButton from '@/components/auth/AuthLinkButton';
-import AvatarPicker from '@/components/auth/AvatarPicker';
+import AvatarPicker from '@/components/users/AvatarPicker';
 import { statusOf } from '@/components/auth/helpers';
 import { getInitials } from '@/utils/avatarHelper';
 import { parseUtc } from '@/lib/parseUtc';

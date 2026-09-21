@@ -11,7 +11,7 @@ import CinematicAtmosphere from '@/components/fx/CinematicAtmosphere';
 import AuthShell from '@/components/auth/AuthShell';
 import AuthPanel from '@/components/auth/AuthPanel';
 import AuthNotice from '@/components/auth/AuthNotice';
-import AvatarPicker from '@/components/auth/AvatarPicker';
+import AvatarPicker from '@/components/users/AvatarPicker';
 import { Button, Field, Input } from '@/components/ui/fre';
 import { getInitials } from '@/utils/avatarHelper';
 

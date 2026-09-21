@@ -58,11 +58,11 @@ describe('InvitePage', () => {
     expect(screen.getByText('ava@example.com')).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('Profile name'), 'Ava');
-    await userEvent.click(screen.getByRole('radio', { name: 'Avatar 2' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Clapperboard' }));
     await userEvent.click(screen.getByRole('button', { name: /join the house/i }));
 
     await waitFor(() =>
-      expect(inviteAccept).toHaveBeenCalledWith('invite-token', 'Ava', '/avatars/avatar2.svg'));
+      expect(inviteAccept).toHaveBeenCalledWith('invite-token', 'Ava', 'house:clapper'));
     // The cookie arrived on that response, so the shell can bootstrap normally.
     expect(hardNavigate).toHaveBeenCalledWith('/');
   });

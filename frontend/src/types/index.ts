@@ -191,6 +191,8 @@ export interface CastMember {
   name: string;
   character: string | null;
   image: string | null;
+  /** Raw TMDB path, added in Task 14 so the picker can mint a cached avatar. */
+  profile_path: string | null;
 }
 
 export interface MovieDetail extends CatalogItem {

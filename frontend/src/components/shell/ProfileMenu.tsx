@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useUser } from '@/context/UserContext';
 import { useSession } from '@/context/SessionContext';
-import { getInitials, handleAvatarError } from '@/utils/avatarHelper';
+import Avatar from '@/components/users/Avatar';
 import { cn } from '@/lib/cn';
 
 const ITEMS = [
@@ -43,14 +43,15 @@ const ProfileMenu: React.FC = () => {
         aria-expanded={open}
         onClick={() => setOpen(v => !v)}
         className={cn(
-          'grid h-9 w-9 place-items-center rounded-full border border-hairline bg-surface-2',
-          'font-ui text-sm font-semibold text-text overflow-hidden',
+          'rounded-full',
           'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
         )}
       >
-        {currentUser?.avatar
-          ? <img src={currentUser.avatar} alt={name} onError={handleAvatarError} className="h-full w-full object-cover" />
-          : <span aria-hidden="true">{getInitials(name)}</span>}
+        {/* aria-hidden: Avatar's <img alt> would otherwise duplicate the name the
+            sr-only span below already supplies for this button. */}
+        <span aria-hidden="true">
+          <Avatar value={currentUser?.avatar ?? null} name={name} size="sm" />
+        </span>
         <span className="sr-only">{name}</span>
       </button>
 

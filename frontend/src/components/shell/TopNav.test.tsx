@@ -44,7 +44,7 @@ describe('TopNav', () => {
   it('renders the FRÈ wordmark and a profile trigger', async () => {
     await act(async () => { render(<TopNav />); });
     expect(screen.getByText('FRÈ')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ben/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^ben$/i })).toBeInTheDocument();
   });
 
   it('hides the activity pill when there are no active downloads', async () => {

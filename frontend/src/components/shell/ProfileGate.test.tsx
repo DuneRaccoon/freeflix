@@ -62,14 +62,14 @@ describe('ProfileGate', () => {
 
   it('badges a profile as locked from require_passcode', () => {
     render(<ProfileGate />);
-    expect(screen.getByRole('button', { name: /ben/i }).querySelector('svg')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /^ben$/i }).querySelector('svg')).not.toBeNull();
     expect(screen.getByRole('button', { name: /ava/i }).querySelector('svg')).toBeNull();
   });
 
   it('prompts for the passcode only when the server says the profile is locked', async () => {
     h.selectUser.mockResolvedValueOnce('locked');
     render(<ProfileGate />);
-    await userEvent.click(screen.getByRole('button', { name: /ben/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^ben$/i }));
 
     // The first call carries no code — the server, not the browser, decides.
     await waitFor(() => expect(h.selectUser).toHaveBeenCalledWith('1'));
@@ -87,7 +87,7 @@ describe('ProfileGate', () => {
   it('keeps the prompt open when the passcode is rejected', async () => {
     h.selectUser.mockResolvedValueOnce('locked');
     render(<ProfileGate />);
-    await userEvent.click(screen.getByRole('button', { name: /ben/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^ben$/i }));
     await screen.findByText(/enter your passcode/i);
 
     // A wrong code comes back as 'locked' (403/423/429) — the keypad stays up.
@@ -117,5 +117,38 @@ describe('ProfileGate', () => {
     await waitFor(() => expect(h.createUser).toHaveBeenCalledWith({ display_name: 'Zed' }));
     await waitFor(() => expect(h.selectUser).toHaveBeenCalledWith('3'));
     expect(h.loadUsers).toHaveBeenCalled();
+  });
+
+  it('creates a profile with the chosen avatar', async () => {
+    h.createUser.mockResolvedValue({ id: '3' });
+    render(<ProfileGate />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add profile' }));
+    await userEvent.type(screen.getByLabelText('Profile name'), 'Cleo');
+    await userEvent.click(screen.getByRole('radio', { name: 'Film reel' }));
+    await userEvent.click(screen.getByRole('button', { name: /create profile/i }));
+
+    await waitFor(() =>
+      expect(h.createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ display_name: 'Cleo', avatar: 'house:reel' })));
+  });
+
+  it('surfaces "created but could not be opened" outside the modal, not inside it', async () => {
+    h.selectUser.mockResolvedValueOnce('error');
+    render(<ProfileGate />);
+    await userEvent.click(screen.getByRole('button', { name: /add profile/i }));
+    await userEvent.type(await screen.findByLabelText(/profile name/i), 'Zed');
+    await userEvent.click(screen.getByRole('button', { name: /create profile/i }));
+
+    // The modal has closed (createError's role="alert" lived only inside it) —
+    // the message must appear in entryError's slot instead, or it is lost.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not be opened/i);
+
+    // Re-opening the create form must not leak the stale name/avatar/error —
+    // that state belongs to the (now-closed) modal, not to entryError above.
+    await userEvent.click(screen.getByRole('button', { name: /add profile/i }));
+    expect(screen.getByLabelText(/profile name/i)).toHaveValue('');
+    expect(screen.getAllByRole('alert')).toHaveLength(1); // only entryError, no createError inside the modal
   });
 });

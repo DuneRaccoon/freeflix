@@ -1,0 +1,26 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="f" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#CFC8B8"/>
+      <stop offset="1" stop-color="#8A8479"/>
+    </linearGradient>
+    <clipPath id="bar">
+      <rect x="46" y="82" width="108" height="20"/>
+    </clipPath>
+  </defs>
+  <rect width="200" height="200" fill="url(#f)"/>
+  <rect x="46" y="102" width="108" height="66" fill="#0A0A0B"/>
+  <g transform="rotate(-24 46 102)">
+    <rect x="46" y="82" width="108" height="20" fill="#0A0A0B"/>
+    <g clip-path="url(#bar)" fill="url(#f)" opacity=".7">
+      <rect x="52" y="70" width="9" height="44" transform="rotate(35 56 92)"/>
+      <rect x="72" y="70" width="9" height="44" transform="rotate(35 76 92)"/>
+      <rect x="92" y="70" width="9" height="44" transform="rotate(35 96 92)"/>
+      <rect x="112" y="70" width="9" height="44" transform="rotate(35 116 92)"/>
+      <rect x="132" y="70" width="9" height="44" transform="rotate(35 136 92)"/>
+    </g>
+    <path d="M50 84 L96 84" fill="none" stroke="#F4F1EA" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
+  </g>
+  <circle cx="46" cy="102" r="5" fill="url(#f)" opacity=".8"/>
+  <path d="M46 106 L46 140" fill="none" stroke="#F4F1EA" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
+</svg>

@@ -17,16 +17,19 @@ const cast: CastMember[] = [
     name: 'Timothée Chalamet',
     character: 'Paul Atreides',
     image: 'https://image.tmdb.org/t/p/w200/timothee.jpg',
+    profile_path: '/timothee.jpg',
   },
   {
     name: 'Zendaya',
     character: 'Chani',
     image: 'https://image.tmdb.org/t/p/w200/zendaya.jpg',
+    profile_path: '/zendaya.jpg',
   },
   {
     name: 'Rebecca Ferguson',
     character: 'Lady Jessica',
     image: null,
+    profile_path: null,
   },
 ];
 
@@ -74,7 +77,7 @@ describe('CastRow', () => {
 
   describe('null image → initial placeholder', () => {
     it('shows an initial placeholder when image is null (no broken img)', () => {
-      render(<CastRow cast={[{ name: 'Rebecca Ferguson', character: 'Lady Jessica', image: null }]} />);
+      render(<CastRow cast={[{ name: 'Rebecca Ferguson', character: 'Lady Jessica', image: null, profile_path: null }]} />);
       // Should render the initial "R" not an <img>
       const portrait = screen.getByTestId('cast-portrait-Rebecca Ferguson');
       expect(portrait.tagName).not.toBe('IMG');
@@ -89,6 +92,7 @@ describe('CastRow', () => {
               name: 'Austin Butler',
               character: 'Feyd-Rautha',
               image: 'https://image.tmdb.org/broken.jpg',
+              profile_path: '/austin.jpg',
             },
           ]}
         />,
@@ -106,7 +110,7 @@ describe('CastRow', () => {
     it('uses the first character of the name as the initial', () => {
       render(
         <CastRow
-          cast={[{ name: 'Florence Pugh', character: 'Princess Irulan', image: null }]}
+          cast={[{ name: 'Florence Pugh', character: 'Princess Irulan', image: null, profile_path: null }]}
         />,
       );
       const portrait = screen.getByTestId('cast-portrait-Florence Pugh');
@@ -132,7 +136,7 @@ describe('CastRow', () => {
     it('omits the character element when character is null', () => {
       render(
         <CastRow
-          cast={[{ name: 'Javier Bardem', character: null, image: null }]}
+          cast={[{ name: 'Javier Bardem', character: null, image: null, profile_path: null }]}
         />,
       );
       expect(

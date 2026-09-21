@@ -5,7 +5,6 @@ import { User, UserSettings, UserSettingsUpdate, usersService } from '@/services
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { useSession } from '@/context/SessionContext';
-import { preloadAvatars } from '@/utils/avatarHelper';
 
 /** What `selectUser` resolves to. `locked` means the profile exists and belongs to
  *  this account, but the server wants its passcode before handing anything over. */
@@ -138,10 +137,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     },
     [],
   );
-
-  useEffect(() => {
-    preloadAvatars();
-  }, []);
 
   useEffect(() => {
     if (sessionLoading) return;

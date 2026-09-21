@@ -3,9 +3,11 @@ import React, { useEffect, useState } from 'react';
 import { useUser } from '@/context/UserContext';
 import { usersService, UserSettings, UserSettingsUpdate } from '@/services/users';
 import { baseService } from '@/services/api-client';
+import { avatarsService, LibraryStill } from '@/services/avatars';
 import { Badge, Button, Field, Input, Select, Toggle } from '@/components/ui/fre';
-import UserAvatar from '@/components/users/UserAvatar';
-import AvatarSelector from '@/components/users/AvatarSelector';
+import Avatar from '@/components/users/Avatar';
+import AvatarPicker from '@/components/users/AvatarPicker';
+import { getInitials } from '@/lib/avatars/resolve';
 import { cn } from '@/lib/cn';
 import { toast } from 'react-hot-toast';
 
@@ -181,6 +183,7 @@ const ProfileSection: React.FC<{
   );
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [libraryStills, setLibraryStills] = useState<LibraryStill[]>([]);
 
   // keep in sync if context reloads
   useEffect(() => {
@@ -188,6 +191,17 @@ const ProfileSection: React.FC<{
       setDisplayName(user.display_name);
       setSelectedAvatar(user.avatar ?? null);
     }
+  }, [user?.id]);
+
+  // Lazy: the watchlist fetch plus up to six movie-detail fetches should not
+  // fire on every Settings render, only once per profile being edited.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void avatarsService.loadLibraryStills(user.id).then((s) => {
+      if (!cancelled) setLibraryStills(s);
+    });
+    return () => { cancelled = true; };
   }, [user?.id]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -201,7 +215,7 @@ const ProfileSection: React.FC<{
     try {
       await updateUser(userId, {
         display_name: displayName.trim(),
-        avatar: selectedAvatar ?? undefined,
+        avatar: selectedAvatar ?? '',
       });
     } finally {
       setSaving(false);
@@ -215,7 +229,7 @@ const ProfileSection: React.FC<{
       <SectionHeading>Profile</SectionHeading>
       <form onSubmit={handleSave} className="space-y-5">
         <div className="flex flex-col sm:flex-row gap-5 items-start">
-          <UserAvatar user={user} size="lg" />
+          <Avatar value={selectedAvatar} name={user.display_name} size="lg" />
           <div className="flex-1 space-y-1">
             <Field label="Display name" error={nameError ?? undefined} htmlFor="display-name">
               <Input
@@ -231,9 +245,11 @@ const ProfileSection: React.FC<{
         </div>
 
         {canEdit && (
-          <AvatarSelector
-            selectedAvatar={selectedAvatar}
+          <AvatarPicker
+            value={selectedAvatar}
             onChange={setSelectedAvatar}
+            initials={getInitials(user.display_name)}
+            libraryStills={libraryStills}
           />
         )}
 

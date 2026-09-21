@@ -116,21 +116,32 @@ class AssetManager:
         else:
             return f"{url_hash}{ext}"
     
-    def get_local_path(self, url: str, asset_type: Optional[AssetType] = None) -> Path:
+    def get_local_path(
+        self,
+        url: str,
+        asset_type: Optional[AssetType] = None,
+        filename: Optional[str] = None,
+    ) -> Path:
         """
         Get the local path for an asset.
-        
+
         Args:
             url: The URL of the asset
             asset_type: Optional asset type override
-            
+            filename: Optional exact filename to use instead of deriving one from
+                the URL. Callers that mint a validated public identifier (e.g. the
+                avatars endpoint's `cached:<hex>` id) need the on-disk name to BE
+                that identifier, not `_url_to_filename`'s human-readable slug —
+                passing this verbatim is how they keep the two in sync.
+
         Returns:
             The local path where the asset should be stored
         """
         if not asset_type:
             asset_type = self._get_asset_type(url)
-        
-        filename = self._url_to_filename(url)
+
+        if filename is None:
+            filename = self._url_to_filename(url)
         return self.asset_paths[asset_type] / filename
     
     def is_cached(self, url: str) -> bool:
@@ -146,14 +157,20 @@ class AssetManager:
         local_path = self.get_local_path(url)
         return local_path.exists() and local_path.stat().st_size > 0
     
-    async def download_asset(self, url: str, asset_type: Optional[AssetType] = None) -> Tuple[bool, str]:
+    async def download_asset(
+        self,
+        url: str,
+        asset_type: Optional[AssetType] = None,
+        filename: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """
         Download an asset and cache it locally.
-        
+
         Args:
             url: The URL of the asset to download
             asset_type: Optional asset type override
-            
+            filename: Optional exact filename to store under (see `get_local_path`)
+
         Returns:
             Tuple of (success, local_path_or_error_message)
         """
@@ -162,30 +179,55 @@ class AssetManager:
         time_since_last_request = current_time - self._last_request_time
         if time_since_last_request < self._min_request_interval:
             await asyncio.sleep(self._min_request_interval - time_since_last_request)
-        
+
         self._last_request_time = time.time()
-        
+
         # Determine asset type if not provided
         if not asset_type:
             asset_type = self._get_asset_type(url)
-        
+
         # Get local path
-        local_path = self.get_local_path(url, asset_type)
+        local_path = self.get_local_path(url, asset_type, filename=filename)
         
         # If already cached, return success
         if local_path.exists() and local_path.stat().st_size > 0:
             return True, str(local_path)
         
         # Download the asset
+        MAX_BYTES = 2 * 1024 * 1024
+        ALLOWED_TYPES = {"image/jpeg", "image/png"}
+
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0, follow_redirects=True)
-                response.raise_for_status()
-                
-                # Write to file
-                with open(local_path, 'wb') as f:
-                    f.write(response.content)
-                
+                # follow_redirects=False: callers pass a URL this process built.
+                # Following a redirect would hand control of the final host back
+                # to the remote server.
+                async with client.stream(
+                    "GET", url, timeout=10.0, follow_redirects=False
+                ) as response:
+                    response.raise_for_status()
+
+                    content_type = (response.headers.get("content-type") or "").split(";")[0].strip()
+                    if content_type not in ALLOWED_TYPES:
+                        return False, f"unsupported content-type: {content_type!r}"
+
+                    # Trust the declared length as a fast reject, but never as the
+                    # actual bound — a lying or absent Content-Length is why the
+                    # running total below is the real check.
+                    declared = response.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > MAX_BYTES:
+                        return False, "asset too large"
+
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > MAX_BYTES:
+                            return False, "asset too large"
+                        chunks.append(chunk)
+
+                    local_path.write_bytes(b"".join(chunks))
+
                 logger.info(f"Downloaded asset from {url} to {local_path}")
                 return True, str(local_path)
         except Exception as e:
@@ -274,31 +316,30 @@ class AssetManager:
         return content_type
 
     def serve_asset(self, path: str) -> Tuple[bytes, str]:
+        """Read a cached asset. `path` is relative to the cache root.
+
+        The resolve-and-compare is load-bearing: without it, `cache_path / path`
+        happily escapes the cache directory on any `../` and serves arbitrary
+        files off the container filesystem.
         """
-        Read asset content and determine its MIME type.
-        
-        Args:
-            path: The path to the asset relative to cache directory
-            
-        Returns:
-            Tuple of (content_bytes, content_type)
-        """
-        # Construct absolute path
-        abs_path = self.cache_path / path
-        
-        # Read file content
-        try:
-            with open(abs_path, 'rb') as f:
-                content = f.read()
-            
-            # Determine content type
-            content_type = self.get_content_type(str(abs_path))
-            
-            return content, content_type
-        except Exception as e:
-            logger.error(f"Error serving asset {abs_path}: {e}")
-            raise
+        root = self.cache_path.resolve()
+        candidate = (root / path).resolve()
+
+        if not candidate.is_relative_to(root) or not candidate.is_file():
+            raise FileNotFoundError(path)
+
+        content = candidate.read_bytes()
+        return content, self.get_content_type(str(candidate))
 
 
-# Create singleton instance
-asset_manager = AssetManager()
+# Lazy singleton. Constructing AssetManager creates directories, so doing it
+# at import time would run before settings.initialize() — the same trap
+# ScheduleManager falls into with init_db() (see CLAUDE.md).
+_asset_manager: Optional[AssetManager] = None
+
+
+def get_asset_manager() -> AssetManager:
+    global _asset_manager
+    if _asset_manager is None:
+        _asset_manager = AssetManager()
+    return _asset_manager

@@ -13,7 +13,7 @@ const mockUser = {
   id: 'user-1',
   username: 'testuser',
   display_name: 'Test User',
-  avatar: null,
+  avatar: null as string | null,
   created_at: '2024-01-01T00:00:00Z',
 };
 
@@ -49,21 +49,28 @@ vi.mock('@/services/api-client', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
-// AvatarSelector is a pure presentational list of images — stub it to keep
-// tests free of image-loading concerns
-vi.mock('@/components/users/AvatarSelector', () => ({
-  default: ({ onChange }: { onChange: (v: string) => void }) => (
-    <button type="button" onClick={() => onChange('/avatars/test.png')}>
-      Pick avatar
-    </button>
+// AvatarPicker is stubbed below, but SettingsView still calls
+// avatarsService.loadLibraryStills on mount — mock it so the effect never
+// hits the real service (which would hit watchlist + movies in turn).
+vi.mock('@/services/avatars', () => ({
+  avatarsService: { loadLibraryStills: vi.fn().mockResolvedValue([]) },
+}));
+
+// AvatarPicker is a pure presentational picker — stub it to keep tests free
+// of image-loading concerns while still exercising both `onChange` shapes
+// (a `house:` id, and `null` for the "no avatar" clear tile).
+vi.mock('@/components/users/AvatarPicker', () => ({
+  default: ({ onChange }: { onChange: (v: string | null) => void }) => (
+    <>
+      <button type="button" onClick={() => onChange('house:reel')}>Pick avatar</button>
+      <button type="button" onClick={() => onChange(null)}>Clear avatar</button>
+    </>
   ),
 }));
 
-// UserAvatar — just render a stub
-vi.mock('@/components/users/UserAvatar', () => ({
-  default: ({ user }: { user: { display_name: string } }) => (
-    <img src="/placeholder.png" alt={user.display_name} />
-  ),
+// Avatar — just render a stub
+vi.mock('@/components/users/Avatar', () => ({
+  default: ({ name }: { name: string }) => <img src="/placeholder.png" alt={name} />,
 }));
 
 // ---------------------------------------------------------------------------
@@ -180,5 +187,34 @@ describe('SettingsView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('system-info')).toBeInTheDocument();
     });
+  });
+
+  it('clears the avatar by sending an empty string', async () => {
+    // Start from a non-null persisted avatar. mockUser.avatar is normally
+    // null, which means selectedAvatar's initial state is already null —
+    // clicking "Clear avatar" from there would send `avatar: ''` even if the
+    // picker's onChange were completely disconnected from state (null ?? ''
+    // is still ''). Seeding a real value here means a disconnected picker
+    // would leave `avatar: 'house:existing'` on save, which the assertion
+    // below would catch.
+    const originalAvatar = mockUser.avatar;
+    mockUser.avatar = 'house:existing';
+    try {
+      render(<SettingsView userId="user-1" />);
+
+      // Pick a (different) avatar first, proving onChange lands in state,
+      // then clear it — a genuine set-then-clear round trip, not a no-op.
+      await userEvent.click(screen.getByRole('button', { name: 'Pick avatar' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Clear avatar' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+      await waitFor(() =>
+        expect(mockUpdateUser).toHaveBeenCalledWith(
+          'user-1',
+          expect.objectContaining({ avatar: '' }),
+        ));
+    } finally {
+      mockUser.avatar = originalAvatar;
+    }
   });
 });

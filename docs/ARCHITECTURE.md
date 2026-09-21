@@ -175,6 +175,7 @@ mail-less self-hosted instance usable. A send failure never fails the request.
 - `postgres-data` — database storage.
 - `resume-data`, `logs` — backend torrent resume data and logs. `logs` also
   holds `claim_code.txt` while the instance is unclaimed.
+- `assets` — cached TMDB stills used as tier-2 avatars.
 - `./downloads` (bind mount) — downloaded media on the host.
 
 ## Known follow-ups

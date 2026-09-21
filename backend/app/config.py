@@ -227,6 +227,7 @@ class Settings(BaseSettings):
         self.resume_data_path.mkdir(parents=True, exist_ok=True)
         self.log_path.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        (self.base_app_path / "assets" / "cache").mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

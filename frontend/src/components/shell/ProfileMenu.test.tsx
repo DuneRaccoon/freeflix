@@ -36,7 +36,7 @@ vi.mock('@/context/SessionContext', () => ({
 import ProfileMenu from './ProfileMenu';
 
 const openMenu = async () => {
-  await userEvent.click(screen.getByRole('button', { name: /ben/i }));
+  await userEvent.click(screen.getByRole('button', { name: /^ben$/i }));
 };
 
 beforeEach(() => {
@@ -48,7 +48,7 @@ beforeEach(() => {
 describe('ProfileMenu', () => {
   it('toggles the menu and shows the power-tool links', async () => {
     render(<ProfileMenu />);
-    const trigger = screen.getByRole('button', { name: /ben/i });
+    const trigger = screen.getByRole('button', { name: /^ben$/i });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
@@ -96,7 +96,7 @@ describe('ProfileMenu', () => {
 
   it('closes the menu on Escape', async () => {
     render(<ProfileMenu />);
-    const trigger = screen.getByRole('button', { name: /ben/i });
+    const trigger = screen.getByRole('button', { name: /^ben$/i });
     await userEvent.click(trigger);
     expect(screen.getByRole('menu')).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');

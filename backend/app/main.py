@@ -12,8 +12,8 @@ import time
 
 from app.config import settings
 from app.api import (
-    activity, auth, instance, movies, rails, schedules, streaming, torrents, tv,
-    users, watchlist,
+    activity, auth, avatars, instance, movies, rails, schedules, streaming, torrents,
+    tv, users, watchlist,
 )
 from app.dependencies.auth import (
     SilentUnauthorized, require_session, require_session_silent,
@@ -140,6 +140,18 @@ app.include_router(
     rails.router,
     prefix=f"{settings.api_v1_str}/rails",
     tags=["Rails"],
+    dependencies=GATED,
+)
+app.include_router(
+    avatars.router,
+    prefix=f"{settings.api_v1_str}/avatars",
+    tags=["Avatars"],
+    dependencies=GATED,
+)
+app.include_router(
+    avatars.assets_router,
+    prefix=f"{settings.api_v1_str}/assets",
+    tags=["Avatars"],
     dependencies=GATED,
 )
 

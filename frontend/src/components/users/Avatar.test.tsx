@@ -34,4 +34,14 @@ describe('Avatar', () => {
     );
     expect(container.firstChild).toHaveClass('rounded-[22px]');
   });
+
+  it('recovers when the value changes after a load error', () => {
+    const { rerender } = render(<Avatar value="house:reel" name="Ben Herro" size="md" />);
+    fireEvent.error(screen.getByRole('img', { name: 'Ben Herro' }));
+    expect(screen.getByText('BH')).toBeInTheDocument();
+
+    rerender(<Avatar value="house:clapper" name="Ben Herro" size="md" />);
+    expect(screen.getByRole('img', { name: 'Ben Herro' }))
+      .toHaveAttribute('src', '/avatars/house/clapper.svg');
+  });
 });

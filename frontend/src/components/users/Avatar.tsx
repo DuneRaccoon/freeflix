@@ -25,9 +25,9 @@ const SIZES: Record<AvatarProps['size'], string> = {
  * stored value can never reach `<img src>` unvalidated.
  */
 const Avatar: React.FC<AvatarProps> = ({ value, name, size, shape = 'circle', className }) => {
-  const [broken, setBroken] = useState(false);
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const src = resolveAvatarSrc(value);
-  const showImage = src !== null && !broken;
+  const showImage = src !== null && brokenSrc !== src;
 
   return (
     <span
@@ -44,7 +44,7 @@ const Avatar: React.FC<AvatarProps> = ({ value, name, size, shape = 'circle', cl
           src={src}
           alt={name}
           className="h-full w-full object-cover"
-          onError={() => setBroken(true)}
+          onError={() => setBrokenSrc(src)}
         />
       ) : (
         <span aria-hidden="true">{getInitials(name)}</span>

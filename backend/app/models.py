@@ -1,5 +1,6 @@
-from pydantic import BaseModel, HttpUrl, Field, validator, ConfigDict
-from typing import Optional, List, Tuple, Literal, Dict, Union, Any
+import re
+from pydantic import BaseModel, HttpUrl, Field, validator, ConfigDict, AfterValidator
+from typing import Optional, List, Tuple, Literal, Dict, Union, Any, Annotated
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
@@ -460,16 +461,41 @@ class AppSetting(BaseModel):
 # constraints point at users.id and there is no migration framework), but since the
 # instance-claim work a row means a PROFILE owned by an Account.
 
+# Mirrors frontend/src/lib/avatars/resolve.ts. Shape only — membership is not
+# checked here, because the catalog is a frontend concern and an unknown but
+# well-formed id already degrades to a monogram at render time.
+_AVATAR_RE = re.compile(
+    r"house:[a-z0-9][a-z0-9-]{0,63}"
+    r"|cached:[a-f0-9]{8,64}"
+    r"|/avatars/avatar[1-8]\.svg"
+)
+
+
+def _check_avatar(v: str) -> str:
+    # "" is a legitimate value: it CLEARS the avatar (see api/users.py:221-223).
+    if v == "":
+        return v
+    if len(v) > 128 or not _AVATAR_RE.fullmatch(v):
+        raise ValueError("invalid avatar reference")
+    return v
+
+
+# The legacy /avatars/avatarN.svg spelling is accepted on WRITE so that a client
+# running stale JS through a deploy cannot 422 its own profile save. New code
+# never mints it; the frontend resolver maps it on read.
+AvatarValue = Annotated[str, AfterValidator(_check_avatar)]
+
+
 class UserCreate(BaseModel):
     # `username` is generated server-side now. The old client-side generator
     # (`slug-${Date.now()...}`) could collide against the instance-global UNIQUE
     # constraint and surfaced only as a generic "could not create profile" toast.
     display_name: str
-    avatar: Optional[str] = None
+    avatar: Optional[AvatarValue] = None
 
 class UserUpdate(BaseModel):
     display_name: Optional[str] = None
-    avatar: Optional[str] = None
+    avatar: Optional[AvatarValue] = None
 
 class UserSettingsUpdate(BaseModel):
     """Request body for PUT /users/{id}/settings.
@@ -638,7 +664,7 @@ class InvitePreviewResponse(BaseModel):
 class InviteAcceptRequest(BaseModel):
     token: str
     display_name: str
-    avatar: Optional[str] = None
+    avatar: Optional[AvatarValue] = None
 
 class MemberResponse(BaseModel):
     account: AccountResponse

@@ -49,13 +49,15 @@ vi.mock('@/services/api-client', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
-// AvatarSelector is a pure presentational list of images — stub it to keep
-// tests free of image-loading concerns
-vi.mock('@/components/users/AvatarSelector', () => ({
-  default: ({ onChange }: { onChange: (v: string) => void }) => (
-    <button type="button" onClick={() => onChange('/avatars/test.png')}>
-      Pick avatar
-    </button>
+// AvatarPicker is a pure presentational picker — stub it to keep tests free
+// of image-loading concerns while still exercising both `onChange` shapes
+// (a `house:` id, and `null` for the "no avatar" clear tile).
+vi.mock('@/components/users/AvatarPicker', () => ({
+  default: ({ onChange }: { onChange: (v: string | null) => void }) => (
+    <>
+      <button type="button" onClick={() => onChange('house:reel')}>Pick avatar</button>
+      <button type="button" onClick={() => onChange(null)}>Clear avatar</button>
+    </>
   ),
 }));
 
@@ -178,5 +180,18 @@ describe('SettingsView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('system-info')).toBeInTheDocument();
     });
+  });
+
+  it('clears the avatar by sending an empty string', async () => {
+    render(<SettingsView userId="user-1" />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear avatar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    await waitFor(() =>
+      expect(mockUpdateUser).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ avatar: '' }),
+      ));
   });
 });

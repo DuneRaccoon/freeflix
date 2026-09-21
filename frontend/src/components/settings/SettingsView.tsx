@@ -5,7 +5,8 @@ import { usersService, UserSettings, UserSettingsUpdate } from '@/services/users
 import { baseService } from '@/services/api-client';
 import { Badge, Button, Field, Input, Select, Toggle } from '@/components/ui/fre';
 import Avatar from '@/components/users/Avatar';
-import AvatarSelector from '@/components/users/AvatarSelector';
+import AvatarPicker from '@/components/users/AvatarPicker';
+import { getInitials } from '@/lib/avatars/resolve';
 import { cn } from '@/lib/cn';
 import { toast } from 'react-hot-toast';
 
@@ -201,7 +202,7 @@ const ProfileSection: React.FC<{
     try {
       await updateUser(userId, {
         display_name: displayName.trim(),
-        avatar: selectedAvatar ?? undefined,
+        avatar: selectedAvatar ?? '',
       });
     } finally {
       setSaving(false);
@@ -231,9 +232,10 @@ const ProfileSection: React.FC<{
         </div>
 
         {canEdit && (
-          <AvatarSelector
-            selectedAvatar={selectedAvatar}
+          <AvatarPicker
+            value={selectedAvatar}
             onChange={setSelectedAvatar}
+            initials={getInitials(user.display_name)}
           />
         )}
 

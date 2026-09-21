@@ -6,13 +6,10 @@
     </linearGradient>
   </defs>
   <rect width="200" height="200" fill="url(#f)"/>
-  <ellipse cx="100" cy="154" rx="26" ry="8" fill="#0A0A0B"/>
-  <rect x="93" y="70" width="14" height="84" fill="#0A0A0B"/>
-  <path d="M76 42 C76 29 124 29 124 42 L120 68 C110 72 90 72 80 68 Z" fill="#0A0A0B"/>
-  <path d="M93 95 Q78 95 76 107" fill="none" stroke="#0A0A0B" stroke-width="6" stroke-linecap="round"/>
-  <path d="M80 103 Q45 113 58 148" fill="none" stroke="#0A0A0B" stroke-width="11" stroke-linecap="round"/>
-  <circle cx="80" cy="103" r="9" fill="#0A0A0B"/>
-  <circle cx="58" cy="148" r="9" fill="#0A0A0B"/>
-  <path d="M124 42 C118 32 110 29 100 29" fill="none" stroke="url(#f)" stroke-width="2.5" opacity=".55"/>
-  <path d="M76 42 C76 55 78 62 82 68" fill="none" stroke="#EDF1F4" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
+  <path d="M56 158 C56 148 70 140 88 135 C96 128 94 110 96 100 C94 90 92 78 76 68 C68 62 68 56 76 50 C86 42 114 42 124 50 C132 56 132 62 124 68 C108 78 106 90 104 100 C106 110 104 128 112 135 C130 140 144 148 144 158 Z" fill="#0A0A0B"/>
+  <path d="M94 98 Q55 108 48 138" fill="none" stroke="#0A0A0B" stroke-width="20" stroke-linecap="round"/>
+  <circle cx="94" cy="98" r="13" fill="#0A0A0B"/>
+  <circle cx="48" cy="138" r="13" fill="#0A0A0B"/>
+  <path d="M124 50 C118 40 110 37 100 37" fill="none" stroke="url(#f)" stroke-width="3" opacity=".55"/>
+  <path d="M76 50 C68 56 68 62 76 68" fill="none" stroke="#EDF1F4" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
 </svg>

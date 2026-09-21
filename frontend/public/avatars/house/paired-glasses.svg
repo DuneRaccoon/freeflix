@@ -1,0 +1,22 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="f" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D892A6"/>
+      <stop offset="1" stop-color="#633A47"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#f)"/>
+  <g transform="translate(62 150) rotate(9)">
+    <ellipse cx="0" cy="0" rx="22" ry="6" fill="#0A0A0B"/>
+    <rect x="-4" y="-26" width="8" height="26" fill="#0A0A0B"/>
+    <path d="M-34 -56 A34 24 0 0 0 34 -56" fill="none" stroke="#0A0A0B" stroke-width="12" stroke-linecap="round"/>
+    <path d="M-28 -50 A28 18 0 0 0 28 -50" fill="none" stroke="url(#f)" stroke-width="2.5" opacity=".55"/>
+    <path d="M-34 -56 A34 24 0 0 0 -10 -32" fill="none" stroke="#F7E2E8" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+  </g>
+  <g transform="translate(138 150) rotate(-9)">
+    <ellipse cx="0" cy="0" rx="22" ry="6" fill="#0A0A0B"/>
+    <rect x="-4" y="-26" width="8" height="26" fill="#0A0A0B"/>
+    <path d="M-34 -56 A34 24 0 0 0 34 -56" fill="none" stroke="#0A0A0B" stroke-width="12" stroke-linecap="round"/>
+    <path d="M-28 -50 A28 18 0 0 0 28 -50" fill="none" stroke="url(#f)" stroke-width="2.5" opacity=".55"/>
+  </g>
+</svg>

@@ -1,0 +1,24 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="f" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A2C30"/>
+      <stop offset="1" stop-color="#101114"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#f)"/>
+  <g stroke="#E8E6E1" stroke-width="3" stroke-linecap="round">
+    <line x1="100" y1="115" x2="130" y2="115"/>
+    <line x1="100" y1="115" x2="121.2" y2="136.2"/>
+    <line x1="100" y1="115" x2="100" y2="145"/>
+    <line x1="100" y1="115" x2="78.8" y2="136.2"/>
+    <line x1="100" y1="115" x2="70" y2="115"/>
+    <line x1="100" y1="115" x2="78.8" y2="93.8"/>
+    <line x1="100" y1="115" x2="121.2" y2="93.8"/>
+  </g>
+  <path d="M65 88 L92 113" fill="none" stroke="#E8E6E1" stroke-width="8" stroke-linecap="round"/>
+  <path d="M135 88 L108 113" fill="none" stroke="#E8E6E1" stroke-width="8" stroke-linecap="round"/>
+  <rect x="50" y="45" width="100" height="45" rx="8" fill="#E8E6E1"/>
+  <rect x="66" y="58" width="68" height="8" rx="3" fill="url(#f)" opacity=".55"/>
+  <path d="M150 50 L150 85" fill="none" stroke="#101114" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M144 90 L70 90" fill="none" stroke="#101114" stroke-width="3.5" stroke-linecap="round"/>
+</svg>

@@ -89,8 +89,44 @@ export const HEART: AvatarCollection = {
   ],
 };
 
+export const LAUGH: AvatarCollection = {
+  key: 'laugh',
+  title: 'The Big Laugh',
+  accent: '#E8B62F',
+  pieces: [
+    { id: 'bowler-cane', label: 'Bowler and cane' },
+    { id: 'comedy-mask', label: 'Comedy mask' },
+    { id: 'seltzer', label: 'Seltzer bottle' },
+    { id: 'pie-tin', label: 'Pie tin' },
+  ],
+};
+
+export const GREEN: AvatarCollection = {
+  key: 'green',
+  title: 'The Green World',
+  accent: '#6FA287',
+  pieces: [
+    { id: 'leaf', label: 'Leaf' },
+    { id: 'bird-in-flight', label: 'Bird in flight' },
+    { id: 'rain-umbrella', label: 'Rain umbrella' },
+    { id: 'paper-boat', label: 'Paper boat' },
+  ],
+};
+
+export const SILENT: AvatarCollection = {
+  key: 'silent',
+  title: 'Silent Era',
+  accent: '#2A2C30',
+  pieces: [
+    { id: 'iris-shot', label: 'Iris shot' },
+    { id: 'upright-piano', label: 'Upright piano' },
+    { id: 'title-card', label: 'Title card' },
+    { id: 'arc-lamp', label: 'Carbon-arc lamp' },
+  ],
+};
+
 export const AVATAR_COLLECTIONS: AvatarCollection[] = [
-  HOUSE_SET, AFTER_DARK, FUTURE, FRONTIER, SHADOWS, WONDER, HEART,
+  HOUSE_SET, AFTER_DARK, FUTURE, FRONTIER, SHADOWS, WONDER, HEART, LAUGH, GREEN, SILENT,
 ];
 
 export const AVATAR_IDS: ReadonlySet<string> = new Set(

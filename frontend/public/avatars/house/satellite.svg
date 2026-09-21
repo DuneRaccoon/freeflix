@@ -6,21 +6,10 @@
     </linearGradient>
   </defs>
   <rect width="200" height="200" fill="url(#f)"/>
-  <rect x="20" y="95" width="65" height="20" rx="2" fill="#0A0A0B"/>
-  <rect x="115" y="95" width="65" height="20" rx="2" fill="#0A0A0B"/>
-  <rect x="85" y="90" width="30" height="30" rx="4" fill="#0A0A0B"/>
-  <path d="M88 90 L70 66" fill="none" stroke="#0A0A0B" stroke-width="8" stroke-linecap="round"/>
-  <ellipse cx="55" cy="55" rx="22" ry="16" transform="rotate(-25 55 55)" fill="#0A0A0B"/>
-  <g stroke="url(#f)" stroke-width="2" opacity=".55">
-    <line x1="32" y1="97" x2="32" y2="113"/>
-    <line x1="44" y1="97" x2="44" y2="113"/>
-    <line x1="56" y1="97" x2="56" y2="113"/>
-    <line x1="68" y1="97" x2="68" y2="113"/>
-    <line x1="127" y1="97" x2="127" y2="113"/>
-    <line x1="139" y1="97" x2="139" y2="113"/>
-    <line x1="151" y1="97" x2="151" y2="113"/>
-    <line x1="163" y1="97" x2="163" y2="113"/>
-  </g>
-  <path d="M100 90 L87 90 L87 104" fill="none" stroke="#DFF6F9" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/>
-  <path d="M46 40 L36 54" fill="none" stroke="#DFF6F9" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+  <rect x="100" y="118" width="35" height="26" rx="4" fill="#0A0A0B"/>
+  <rect x="78" y="126" width="20" height="10" rx="2" fill="#0A0A0B"/>
+  <rect x="137" y="126" width="20" height="10" rx="2" fill="#0A0A0B"/>
+  <ellipse cx="88" cy="88" rx="48" ry="38" transform="rotate(-18 88 88)" fill="#0A0A0B"/>
+  <ellipse cx="88" cy="88" rx="34" ry="26" transform="rotate(-18 88 88)" fill="url(#f)" opacity=".3"/>
+  <path d="M41 93 Q40 72 65 57" fill="none" stroke="#DFF6F9" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
 </svg>

@@ -6,9 +6,10 @@
     </linearGradient>
   </defs>
   <rect width="200" height="200" fill="url(#f)"/>
-  <ellipse cx="100" cy="100" rx="52" ry="68" fill="#0A0A0B"/>
-  <path d="M67 85 Q75 76 83 85 Q75 94 67 85 Z" fill="url(#f)"/>
-  <path d="M117 85 Q125 76 133 85 Q125 94 117 85 Z" fill="url(#f)"/>
-  <path d="M92 42 L88 65 L95 88 L86 110 L92 135 L84 158" fill="none" stroke="url(#f)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M100 32 A52 68 0 0 0 55 65" fill="none" stroke="#F3D9D4" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
+  <path d="M100 34 C124 34 138 50 142 78 C146 100 138 118 118 138 C108 152 104 162 100 172 C96 162 92 152 82 138 C62 118 54 100 58 78 C62 50 76 34 100 34 Z" fill="#0A0A0B"/>
+  <path d="M56 88 Q68 74 80 88 Q68 102 56 88 Z" fill="url(#f)"/>
+  <path d="M120 88 Q132 74 144 88 Q132 102 120 88 Z" fill="url(#f)"/>
+  <path d="M90 138 Q100 132 110 138 Q100 144 90 138 Z" fill="url(#f)"/>
+  <path d="M94 40 L90 62 L96 84 L88 108 L94 128 L86 155" fill="none" stroke="url(#f)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M100 34 C76 34 62 50 58 78" fill="none" stroke="#F3D9D4" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
 </svg>

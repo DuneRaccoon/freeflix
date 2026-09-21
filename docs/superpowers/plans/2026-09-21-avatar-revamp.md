@@ -1830,6 +1830,10 @@ Additive and optional, so no existing consumer breaks.
 
 - [ ] **Step 4: Write the router**
 
+`AssetManager.get_local_path` and `download_asset` gain an optional `filename` parameter
+(additive — poster and backdrop behaviour is untouched) so this endpoint can name its own
+cache files.
+
 ```python
 # backend/app/api/avatars.py
 """Tier-2 avatars: cache a TMDB still and serve it back.
@@ -1838,6 +1842,7 @@ The client sends a TMDB PATH FRAGMENT, never a URL. This module builds the
 image.tmdb.org URL itself, which is what keeps AssetManager's fetcher from
 being aimed at an arbitrary host.
 """
+import hashlib
 import re
 
 from fastapi import APIRouter, HTTPException
@@ -1850,7 +1855,10 @@ from app.providers.catalog import image_url
 router = APIRouter()
 
 # TMDB image paths are a 20-40 char base-62 stem plus an extension.
-_TMDB_PATH_RE = re.compile(r"/[A-Za-z0-9]{20,40}\.(jpg|png)")
+# .jpg ONLY: resolve.ts hardcodes .jpg when building the asset URL from a
+# cached: id, so a .png source would cache as <hex>.png and then 404 on render.
+# TMDB serves .jpg for the profile/still images this feature draws on.
+_TMDB_PATH_RE = re.compile(r"/[A-Za-z0-9]{20,40}\.jpg")
 _ASSET_NAME_RE = re.compile(r"[a-zA-Z0-9_]{1,80}\.(jpg|png)")
 
 
@@ -1876,12 +1884,19 @@ async def cache_tmdb_still(payload: FromTmdbRequest) -> FromTmdbResponse:
     if not url:
         raise HTTPException(status_code=422, detail="Could not build an image URL")
 
+    # The endpoint owns the cache filename. AssetManager's own _url_to_filename
+    # builds "<alnum-slug>_<md5[:10]>.<ext>", which is fine for posters but fails
+    # the cached:[a-f0-9]{8,64} grammar in BOTH models.py and resolve.ts — an
+    # avatar id is a validated public identifier, not a filename.
+    # Hash the URL, not the bare path: the URL carries w342, so changing the size
+    # later mints a new id instead of reusing a file cached at old dimensions.
+    stem = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+
     manager = get_asset_manager()
-    ok, result = await manager.download_asset(url, asset_type="avatar")
+    ok, _ = await manager.download_asset(url, asset_type="avatar", filename=f"{stem}.jpg")
     if not ok:
         raise HTTPException(status_code=502, detail="Could not fetch that image")
 
-    stem = manager.get_local_path(url, "avatar").stem
     return FromTmdbResponse(id=f"cached:{stem}")
 ```
 

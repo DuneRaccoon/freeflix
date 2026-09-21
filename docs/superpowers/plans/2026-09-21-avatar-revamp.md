@@ -609,7 +609,7 @@ Expected: FAIL — 12 new `has a file on disk` cases fail
 | `rose.svg` | Bloom in spiral profile, two leaves, short stem |
 | `paired-glasses.svg` | Two coupe glasses tilted into a toast, rims touching |
 | `sealed-letter.svg` | Envelope flap down, round wax seal at the join |
-| `moon-on-water.svg` | Low crescent above three horizontal water bands |
+| `moon-on-water.svg` | Thin crescent set **high**, above three horizontal water bands in the lower half. Set high deliberately: it separates this piece from `crescent-star`, which is a tight emblem — this one must read as a scene. |
 
 - [ ] **Step 4: Run test to verify it passes**
 

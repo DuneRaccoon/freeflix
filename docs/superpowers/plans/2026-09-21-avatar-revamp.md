@@ -1472,8 +1472,24 @@ def test_response_stays_permissive():
     taking down the whole household's profile list instead of degrading that
     one profile to a monogram.
     """
-    from app.models import UserResponse
-    assert UserResponse.model_fields["avatar"].annotation is not None
+    from app.models import UserResponse, UserSettingsResponse
+
+    weird = "https://legacy.example/old-avatar.png"
+
+    # The request models refuse it...
+    with pytest.raises(ValidationError):
+        UserCreate(display_name="Ben", avatar=weird)
+
+    # ...but the response model must carry it through untouched. Asserting only
+    # that the field HAS an annotation would pass either way and guard nothing.
+    resp = UserResponse(
+        id="1",
+        username="ben",
+        display_name="Ben",
+        avatar=weird,
+        settings=UserSettingsResponse(id="s1", user_id="1"),
+    )
+    assert resp.avatar == weird
 ```
 
 - [ ] **Step 2: Run test to verify it fails**

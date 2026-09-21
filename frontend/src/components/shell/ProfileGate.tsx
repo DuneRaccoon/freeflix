@@ -6,6 +6,8 @@ import { Wordmark } from '@/components/ui/Wordmark';
 import CinematicAtmosphere from '@/components/fx/CinematicAtmosphere';
 import PasscodePrompt from './PasscodePrompt';
 import Avatar from '@/components/users/Avatar';
+import AvatarPicker from '@/components/users/AvatarPicker';
+import { getInitials } from '@/lib/avatars/resolve';
 import { cn } from '@/lib/cn';
 import { LockClosedIcon } from '@heroicons/react/24/solid';
 import { Modal, Field, Input, Button } from '@/components/ui/fre';
@@ -15,6 +17,7 @@ const ProfileGate: React.FC = () => {
   const [prompt, setPrompt] = useState<{ id: string; name: string; length: number } | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newAvatar, setNewAvatar] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [entryError, setEntryError] = useState<string | null>(null);
@@ -23,6 +26,7 @@ const ProfileGate: React.FC = () => {
     if (submitting) return;
     setCreating(false);
     setNewName('');
+    setNewAvatar(null);
     setCreateError(null);
   };
 
@@ -35,7 +39,7 @@ const ProfileGate: React.FC = () => {
     try {
       // The username is minted server-side; a client-side slug could collide on the
       // instance-global UNIQUE constraint.
-      const user = await usersService.createUser({ display_name: display });
+      const user = await usersService.createUser({ display_name: display, avatar: newAvatar ?? undefined });
       await loadUsers();
       const result = await selectUser(user.id);
       // On success, selectUser sets currentUser → AuthenticatedLayout swaps away from this gate.
@@ -121,7 +125,7 @@ const ProfileGate: React.FC = () => {
         <form onSubmit={submitCreate} className="flex flex-col gap-6">
           <div className="flex flex-col gap-1.5">
             <h2 className="font-display text-2xl leading-tight text-text">Add a profile</h2>
-            <p className="font-ui text-sm text-muted">Create a new viewing profile. You can choose an avatar later in Settings.</p>
+            <p className="font-ui text-sm text-muted">Create a new viewing profile.</p>
           </div>
           <Field label="Profile name" htmlFor="new-profile-name" error={createError ?? undefined}>
             <Input
@@ -133,6 +137,13 @@ const ProfileGate: React.FC = () => {
               disabled={submitting}
             />
           </Field>
+          <AvatarPicker
+            value={newAvatar}
+            onChange={setNewAvatar}
+            initials={getInitials(newName)}
+            disabled={submitting}
+            name="new-profile-avatar"
+          />
           <div className="flex justify-end gap-3">
             <Button type="button" variant="ghost" onClick={closeCreate} disabled={submitting}>Cancel</Button>
             <Button type="submit" variant="primary" isLoading={submitting} disabled={!newName.trim()}>Create profile</Button>

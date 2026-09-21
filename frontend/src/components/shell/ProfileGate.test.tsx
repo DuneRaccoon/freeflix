@@ -118,4 +118,18 @@ describe('ProfileGate', () => {
     await waitFor(() => expect(h.selectUser).toHaveBeenCalledWith('3'));
     expect(h.loadUsers).toHaveBeenCalled();
   });
+
+  it('creates a profile with the chosen avatar', async () => {
+    h.createUser.mockResolvedValue({ id: '3' });
+    render(<ProfileGate />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add profile' }));
+    await userEvent.type(screen.getByLabelText('Profile name'), 'Cleo');
+    await userEvent.click(screen.getByRole('radio', { name: 'Film reel' }));
+    await userEvent.click(screen.getByRole('button', { name: /create profile/i }));
+
+    await waitFor(() =>
+      expect(h.createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ display_name: 'Cleo', avatar: 'house:reel' })));
+  });
 });

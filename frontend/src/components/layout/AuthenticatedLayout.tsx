@@ -13,7 +13,7 @@ import AuthPanel from '@/components/auth/AuthPanel';
 import AuthNotice from '@/components/auth/AuthNotice';
 import AvatarPicker from '@/components/users/AvatarPicker';
 import { Button, Field, Input } from '@/components/ui/fre';
-import { getInitials } from '@/utils/avatarHelper';
+import { getInitials } from '@/lib/avatars/resolve';
 
 interface AuthenticatedLayoutProps { children: React.ReactNode; }
 

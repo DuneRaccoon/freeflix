@@ -11,7 +11,7 @@ import AuthSpinner from '@/components/auth/AuthSpinner';
 import AuthLinkButton from '@/components/auth/AuthLinkButton';
 import AvatarPicker from '@/components/users/AvatarPicker';
 import { statusOf } from '@/components/auth/helpers';
-import { getInitials } from '@/utils/avatarHelper';
+import { getInitials } from '@/lib/avatars/resolve';
 import { parseUtc } from '@/lib/parseUtc';
 
 type Phase = 'loading' | 'ready' | 'expired' | 'error';

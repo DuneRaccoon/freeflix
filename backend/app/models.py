@@ -143,6 +143,10 @@ class CastMember(BaseModel):
     name: str
     character: Optional[str] = None
     image: Optional[str] = None
+    # The raw TMDB path (e.g. "/abc123.jpg"). The avatar picker sends THIS, not
+    # `image`, so the backend builds the URL it fetches and the client never
+    # chooses a host.
+    profile_path: Optional[str] = None
 
 
 class CatalogItem(BaseModel):

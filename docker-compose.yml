@@ -58,6 +58,9 @@ services:
       # Also holds claim_code.txt while the instance is unclaimed — it must
       # outlive `make build`, and this is the only persisted writable path.
       - logs:/opt/freeflix/logs
+      # Cached tier-2 avatars. Without this they die on every `make build`, and
+      # every profile using one silently falls back to a monogram.
+      - assets:/opt/freeflix/assets
     depends_on:
       db:
         condition: service_healthy
@@ -102,3 +105,4 @@ volumes:
   postgres-data:
   resume-data:
   logs:
+  assets:

@@ -22,6 +22,7 @@ def normalize_movie_detail(raw: Dict[str, Any]) -> MovieDetail:
             name=c.get("name", ""),
             character=c.get("character"),
             image=image_url(c.get("profile_path"), "w185"),
+            profile_path=c.get("profile_path"),
         )
         for c in credits.get("cast", [])[:_CAST_LIMIT]
     ]

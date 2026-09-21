@@ -5,7 +5,7 @@ import { usersService } from '@/services/users';
 import { Wordmark } from '@/components/ui/Wordmark';
 import CinematicAtmosphere from '@/components/fx/CinematicAtmosphere';
 import PasscodePrompt from './PasscodePrompt';
-import { getInitials, handleAvatarError } from '@/utils/avatarHelper';
+import Avatar from '@/components/users/Avatar';
 import { cn } from '@/lib/cn';
 import { LockClosedIcon } from '@heroicons/react/24/solid';
 import { Modal, Field, Input, Button } from '@/components/ui/fre';
@@ -79,15 +79,20 @@ const ProfileGate: React.FC = () => {
                 onClick={() => { void enter(u.id, u.display_name, u.settings?.passcode_len ?? 4); }}
                 className="group flex flex-col items-center gap-3 focus:outline-none"
               >
-                <span className={cn(
-                  'relative grid h-[clamp(110px,13vw,150px)] w-[clamp(110px,13vw,150px)] place-items-center overflow-hidden rounded-[22px]',
-                  'border border-hairline bg-surface-2 font-display text-3xl text-muted transition-transform duration-300',
-                  'group-hover:-translate-y-2 group-hover:border-gold group-focus-visible:border-gold',
-                  'group-focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
-                )}>
-                  {u.avatar
-                    ? <img src={u.avatar} alt="" onError={handleAvatarError} className="h-full w-full object-cover" />
-                    : <span aria-hidden="true">{getInitials(u.display_name)}</span>}
+                {/* aria-hidden: the visible name label below already supplies this button's
+                    accessible name — Avatar's own <img alt> would otherwise double it. */}
+                <span className="relative" aria-hidden="true">
+                  <Avatar
+                    value={u.avatar}
+                    name={u.display_name}
+                    size="xl"
+                    shape="squircle"
+                    className={cn(
+                      'h-[clamp(110px,13vw,150px)] w-[clamp(110px,13vw,150px)] text-3xl transition-transform duration-300',
+                      'group-hover:-translate-y-2 group-hover:border-gold group-focus-visible:border-gold',
+                      'group-focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
+                    )}
+                  />
                   {locked && (
                     <span aria-hidden="true" className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full border border-gold/55 bg-ink/70 text-gold"><LockClosedIcon className="h-4 w-4" /></span>
                   )}

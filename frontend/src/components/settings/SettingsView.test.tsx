@@ -59,11 +59,9 @@ vi.mock('@/components/users/AvatarSelector', () => ({
   ),
 }));
 
-// UserAvatar — just render a stub
-vi.mock('@/components/users/UserAvatar', () => ({
-  default: ({ user }: { user: { display_name: string } }) => (
-    <img src="/placeholder.png" alt={user.display_name} />
-  ),
+// Avatar — just render a stub
+vi.mock('@/components/users/Avatar', () => ({
+  default: ({ name }: { name: string }) => <img src="/placeholder.png" alt={name} />,
 }));
 
 // ---------------------------------------------------------------------------

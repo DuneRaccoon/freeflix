@@ -185,16 +185,32 @@ class AssetManager:
                 # follow_redirects=False: callers pass a URL this process built.
                 # Following a redirect would hand control of the final host back
                 # to the remote server.
-                response = await client.get(url, timeout=10.0, follow_redirects=False)
-                response.raise_for_status()
+                async with client.stream(
+                    "GET", url, timeout=10.0, follow_redirects=False
+                ) as response:
+                    response.raise_for_status()
 
-                content_type = (response.headers.get("content-type") or "").split(";")[0].strip()
-                if content_type not in ALLOWED_TYPES:
-                    return False, f"unsupported content-type: {content_type!r}"
-                if len(response.content) > MAX_BYTES:
-                    return False, "asset too large"
+                    content_type = (response.headers.get("content-type") or "").split(";")[0].strip()
+                    if content_type not in ALLOWED_TYPES:
+                        return False, f"unsupported content-type: {content_type!r}"
 
-                local_path.write_bytes(response.content)
+                    # Trust the declared length as a fast reject, but never as the
+                    # actual bound — a lying or absent Content-Length is why the
+                    # running total below is the real check.
+                    declared = response.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > MAX_BYTES:
+                        return False, "asset too large"
+
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > MAX_BYTES:
+                            return False, "asset too large"
+                        chunks.append(chunk)
+
+                    local_path.write_bytes(b"".join(chunks))
+
                 logger.info(f"Downloaded asset from {url} to {local_path}")
                 return True, str(local_path)
         except Exception as e:

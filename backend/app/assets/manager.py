@@ -177,15 +177,24 @@ class AssetManager:
             return True, str(local_path)
         
         # Download the asset
+        MAX_BYTES = 2 * 1024 * 1024
+        ALLOWED_TYPES = {"image/jpeg", "image/png"}
+
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0, follow_redirects=True)
+                # follow_redirects=False: callers pass a URL this process built.
+                # Following a redirect would hand control of the final host back
+                # to the remote server.
+                response = await client.get(url, timeout=10.0, follow_redirects=False)
                 response.raise_for_status()
-                
-                # Write to file
-                with open(local_path, 'wb') as f:
-                    f.write(response.content)
-                
+
+                content_type = (response.headers.get("content-type") or "").split(";")[0].strip()
+                if content_type not in ALLOWED_TYPES:
+                    return False, f"unsupported content-type: {content_type!r}"
+                if len(response.content) > MAX_BYTES:
+                    return False, "asset too large"
+
+                local_path.write_bytes(response.content)
                 logger.info(f"Downloaded asset from {url} to {local_path}")
                 return True, str(local_path)
         except Exception as e:
@@ -274,31 +283,30 @@ class AssetManager:
         return content_type
 
     def serve_asset(self, path: str) -> Tuple[bytes, str]:
+        """Read a cached asset. `path` is relative to the cache root.
+
+        The resolve-and-compare is load-bearing: without it, `cache_path / path`
+        happily escapes the cache directory on any `../` and serves arbitrary
+        files off the container filesystem.
         """
-        Read asset content and determine its MIME type.
-        
-        Args:
-            path: The path to the asset relative to cache directory
-            
-        Returns:
-            Tuple of (content_bytes, content_type)
-        """
-        # Construct absolute path
-        abs_path = self.cache_path / path
-        
-        # Read file content
-        try:
-            with open(abs_path, 'rb') as f:
-                content = f.read()
-            
-            # Determine content type
-            content_type = self.get_content_type(str(abs_path))
-            
-            return content, content_type
-        except Exception as e:
-            logger.error(f"Error serving asset {abs_path}: {e}")
-            raise
+        root = self.cache_path.resolve()
+        candidate = (root / path).resolve()
+
+        if not candidate.is_relative_to(root) or not candidate.is_file():
+            raise FileNotFoundError(path)
+
+        content = candidate.read_bytes()
+        return content, self.get_content_type(str(candidate))
 
 
-# Create singleton instance
-asset_manager = AssetManager()
+# Lazy singleton. Constructing AssetManager creates directories, so doing it
+# at import time would run before settings.initialize() — the same trap
+# ScheduleManager falls into with init_db() (see CLAUDE.md).
+_asset_manager: Optional[AssetManager] = None
+
+
+def get_asset_manager() -> AssetManager:
+    global _asset_manager
+    if _asset_manager is None:
+        _asset_manager = AssetManager()
+    return _asset_manager

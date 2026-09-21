@@ -911,7 +911,10 @@ Expected: PASS — note the counts so a regression is visible at Step 6
 In `ProfileGate.tsx`, the current tile (lines 82–94) hand-rolls the avatar. Replace the `<span className={cn(...)}>…</span>` block with:
 
 ```tsx
-<span className="relative">
+{/* aria-hidden: the gate button already has a visible profile-name label beneath
+    the tile. Avatar renders <img alt={name}> and has no way to express alt="",
+    so without this the button's accessible name computes as "Ben Ben". */}
+<span className="relative" aria-hidden="true">
   <Avatar
     value={u.avatar}
     name={u.display_name}

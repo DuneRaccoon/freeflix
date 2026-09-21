@@ -53,7 +53,45 @@ export const FRONTIER: AvatarCollection = {
   ],
 };
 
-export const AVATAR_COLLECTIONS: AvatarCollection[] = [HOUSE_SET, AFTER_DARK, FUTURE, FRONTIER];
+export const SHADOWS: AvatarCollection = {
+  key: 'shadows',
+  title: 'Shadows & Smoke',
+  accent: '#9AA7B4',
+  pieces: [
+    { id: 'fedora', label: 'Fedora' },
+    { id: 'blinds', label: 'Venetian blinds' },
+    { id: 'martini', label: 'Martini' },
+    { id: 'candlestick-phone', label: 'Candlestick telephone' },
+  ],
+};
+
+export const WONDER: AvatarCollection = {
+  key: 'wonder',
+  title: 'Realms of Wonder',
+  accent: '#8E7BD6',
+  pieces: [
+    { id: 'turret', label: 'Castle turret' },
+    { id: 'sword', label: 'Sword' },
+    { id: 'crescent-star', label: 'Crescent and star' },
+    { id: 'owl', label: 'Owl' },
+  ],
+};
+
+export const HEART: AvatarCollection = {
+  key: 'heart',
+  title: 'Matters of the Heart',
+  accent: '#C77B92',
+  pieces: [
+    { id: 'rose', label: 'Rose' },
+    { id: 'paired-glasses', label: 'Paired glasses' },
+    { id: 'sealed-letter', label: 'Sealed letter' },
+    { id: 'moon-on-water', label: 'Moon on water' },
+  ],
+};
+
+export const AVATAR_COLLECTIONS: AvatarCollection[] = [
+  HOUSE_SET, AFTER_DARK, FUTURE, FRONTIER, SHADOWS, WONDER, HEART,
+];
 
 export const AVATAR_IDS: ReadonlySet<string> = new Set(
   AVATAR_COLLECTIONS.flatMap((c) => c.pieces.map((p) => `house:${p.id}`)),

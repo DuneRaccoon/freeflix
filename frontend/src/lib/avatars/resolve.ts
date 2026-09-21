@@ -17,6 +17,12 @@ const LEGACY_AVATAR_MAP = new Map<string, string>([
 
 const CACHED_RE = /^cached:[a-f0-9]{8,64}$/;
 
+/** Maps a legacy `/avatars/avatarN.svg` value onto its `house:` id; passes anything else through. */
+export function normaliseAvatarId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return LEGACY_AVATAR_MAP.get(value) ?? value;
+}
+
 /**
  * The ONLY place an avatar value becomes a URL. Anything unrecognised returns
  * null and the caller renders a monogram — which is what keeps an arbitrary
@@ -25,7 +31,7 @@ const CACHED_RE = /^cached:[a-f0-9]{8,64}$/;
 export function resolveAvatarSrc(value: string | null | undefined): string | null {
   if (!value) return null;
 
-  const id = LEGACY_AVATAR_MAP.get(value) ?? value;
+  const id = normaliseAvatarId(value) ?? value;
 
   if (id.startsWith('house:')) {
     return AVATAR_IDS.has(id) ? `/avatars/house/${id.slice('house:'.length)}.svg` : null;

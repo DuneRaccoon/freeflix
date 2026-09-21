@@ -183,6 +183,11 @@ node_modules
 .next/*/**/*.js
 
 assets/*
+# `assets/*` above is anchored to the repo root (it contains a slash) and does
+# NOT cover backend/assets/, which settings.initialize() creates for cached
+# TMDB avatar stills on a local non-docker run (`make install`), where
+# base_app_path resolves to <repo>/backend.
+backend/assets/
 resume_data/
 torrents.db
 freeflix.db

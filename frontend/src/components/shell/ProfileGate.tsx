@@ -44,9 +44,17 @@ const ProfileGate: React.FC = () => {
       const result = await selectUser(user.id);
       // On success, selectUser sets currentUser → AuthenticatedLayout swaps away from this gate.
       if (result !== 'ok') {
-        setCreateError('Profile created, but it could not be opened — pick it from the list.');
+        // The modal is about to close, and createError renders only inside it — so
+        // that message would never be seen. Route it to entryError's role="alert"
+        // slot outside the modal instead, and reset the create form's state by
+        // hand (NOT via closeCreate, which also clears createError and would
+        // preserve the silence).
+        setEntryError('Profile created, but it could not be opened — pick it from the list.');
         setSubmitting(false);
         setCreating(false);
+        setNewName('');
+        setNewAvatar(null);
+        setCreateError(null);
       }
     } catch {
       setCreateError('Could not create the profile. Please try again.');

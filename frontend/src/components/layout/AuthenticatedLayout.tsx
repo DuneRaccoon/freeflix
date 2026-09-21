@@ -89,14 +89,15 @@ const FirstProfile: React.FC = () => {
             />
           </Field>
 
-          <Field label="Avatar" htmlFor="first-profile-avatar">
+          <div className="flex flex-col gap-3">
+            <p className="font-ui text-sm font-medium text-text/80">Avatar</p>
             <AvatarPicker
               value={avatar}
               onChange={setAvatar}
               initials={getInitials(name || 'You')}
               disabled={submitting}
             />
-          </Field>
+          </div>
 
           {error && <AuthNotice tone="danger">{error}</AuthNotice>}
 

@@ -52,10 +52,16 @@ export const avatarsService = {
     );
 
     const stills: LibraryStill[] = [];
+    // An actor who appears in two watchlist movies would otherwise yield two
+    // byte-identical `profilePath`s, which AvatarPicker uses as a React key and
+    // DOM id — dedupe here, keeping the first occurrence, before the slice.
+    const seen = new Set<string>();
     for (const d of details) {
       if (d.status !== 'fulfilled') continue;
       for (const c of d.value.cast ?? []) {
         if (!c.profile_path || !c.image) continue;
+        if (seen.has(c.profile_path)) continue;
+        seen.add(c.profile_path);
         stills.push({
           label: c.character || c.name,
           profilePath: c.profile_path,

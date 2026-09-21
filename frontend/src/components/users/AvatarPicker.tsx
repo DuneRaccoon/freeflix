@@ -3,8 +3,11 @@ import React, { useState } from 'react';
 import { cn } from '@/lib/cn';
 import { Pill } from '@/components/ui/fre';
 import { AVATAR_COLLECTIONS } from '@/lib/avatars/catalog';
-import { resolveAvatarSrc } from '@/lib/avatars/resolve';
+import { normaliseAvatarId, resolveAvatarSrc } from '@/lib/avatars/resolve';
 import { avatarsService, type LibraryStill } from '@/services/avatars';
+
+/** Radio ids must be legal, stable DOM ids — a raw `profilePath` contains `/`. */
+const slugify = (raw: string): string => raw.replace(/[^A-Za-z0-9]/g, '');
 
 export interface AvatarPickerProps {
   value: string | null;
@@ -39,6 +42,12 @@ const AvatarPicker: React.FC<AvatarPickerProps> = ({
   const isLibrary = active === LIBRARY_KEY;
   const collection =
     AVATAR_COLLECTIONS.find((c) => c.key === active) ?? AVATAR_COLLECTIONS[0];
+  const normalisedValue = normaliseAvatarId(value);
+
+  const changeTab = (key: string) => {
+    setMintError(null);
+    setActive(key);
+  };
 
   const chooseStill = async (still: LibraryStill) => {
     setMintError(null);
@@ -69,7 +78,7 @@ const AvatarPicker: React.FC<AvatarPickerProps> = ({
             key={c.key}
             selected={c.key === active}
             disabled={disabled}
-            onClick={() => setActive(c.key)}
+            onClick={() => changeTab(c.key)}
           >
             {c.title}
           </Pill>
@@ -78,7 +87,7 @@ const AvatarPicker: React.FC<AvatarPickerProps> = ({
           <Pill
             selected={active === LIBRARY_KEY}
             disabled={disabled}
-            onClick={() => setActive(LIBRARY_KEY)}
+            onClick={() => changeTab(LIBRARY_KEY)}
           >
             From your library
           </Pill>
@@ -89,7 +98,7 @@ const AvatarPicker: React.FC<AvatarPickerProps> = ({
         <>
           <div role="radiogroup" aria-label="Avatar" className="grid grid-cols-3 gap-3 sm:grid-cols-5">
             {(libraryStills ?? []).map((still) => {
-              const id = `${name}-still-${still.profilePath}`;
+              const id = `${name}-still-${slugify(still.profilePath)}`;
               const busy = minting === still.profilePath;
               return (
                 <label key={still.profilePath} htmlFor={id} className={cn('cursor-pointer', (disabled || busy) && 'pointer-events-none')}>
@@ -118,7 +127,7 @@ const AvatarPicker: React.FC<AvatarPickerProps> = ({
       ) : (
         <div role="radiogroup" aria-label="Avatar" className="grid grid-cols-3 gap-3 sm:grid-cols-5">
           {options.map((opt) => {
-            const selected = opt.id === value;
+            const selected = opt.id === normalisedValue;
             const id = `${name}-${opt.key}`;
             const src = opt.id ? resolveAvatarSrc(opt.id) : null;
             return (

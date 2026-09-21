@@ -43,6 +43,24 @@ describe('loadLibraryStills', () => {
     expect(stills).toEqual([]);
   });
 
+  it('dedupes stills that share a profilePath, keeping the first occurrence', async () => {
+    list.mockResolvedValue([item('1'), item('2', 'movie', '2026-02-01')]);
+    getDetail
+      .mockResolvedValueOnce({
+        cast: [{ name: 'Sigourney Weaver', character: 'Ripley', image: 'https://img/w185/a.jpg', profile_path: '/a.jpg' }],
+      })
+      .mockResolvedValueOnce({
+        // Same actor turns up in a second watchlist movie with the same still.
+        cast: [{ name: 'Sigourney Weaver', character: 'Ellen Ripley', image: 'https://img/w185/a.jpg', profile_path: '/a.jpg' }],
+      });
+
+    const stills = await avatarsService.loadLibraryStills('u1');
+
+    expect(stills).toEqual([
+      { label: 'Ripley', profilePath: '/a.jpg', previewUrl: 'https://img/w185/a.jpg' },
+    ]);
+  });
+
   it('survives a detail fetch that rejects', async () => {
     list.mockResolvedValue([item('1'), item('2', 'movie', '2026-02-01')]);
     getDetail

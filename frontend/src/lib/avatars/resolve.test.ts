@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAvatarSrc, getInitials } from './resolve';
+import { resolveAvatarSrc, getInitials, normaliseAvatarId } from './resolve';
 
 describe('resolveAvatarSrc', () => {
   it('resolves a known house id to its file', () => {
@@ -32,6 +32,24 @@ describe('resolveAvatarSrc', () => {
     expect(resolveAvatarSrc('__proto__')).toBeNull();
     expect(resolveAvatarSrc('toString')).toBeNull();
     expect(resolveAvatarSrc('valueOf')).toBeNull();
+  });
+});
+
+describe('normaliseAvatarId', () => {
+  it('maps a legacy avatar path onto its house id', () => {
+    expect(normaliseAvatarId('/avatars/avatar1.svg')).toBe('house:reel');
+    expect(normaliseAvatarId('/avatars/avatar8.svg')).toBe('house:directors-chair');
+  });
+
+  it('passes anything else through unchanged', () => {
+    expect(normaliseAvatarId('house:reel')).toBe('house:reel');
+    expect(normaliseAvatarId('cached:8f3a91c2')).toBe('cached:8f3a91c2');
+  });
+
+  it('returns null for a nullish value', () => {
+    expect(normaliseAvatarId(null)).toBeNull();
+    expect(normaliseAvatarId(undefined)).toBeNull();
+    expect(normaliseAvatarId('')).toBeNull();
   });
 });
 

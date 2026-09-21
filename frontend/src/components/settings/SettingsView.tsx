@@ -229,7 +229,7 @@ const ProfileSection: React.FC<{
       <SectionHeading>Profile</SectionHeading>
       <form onSubmit={handleSave} className="space-y-5">
         <div className="flex flex-col sm:flex-row gap-5 items-start">
-          <Avatar value={user.avatar} name={user.display_name} size="lg" />
+          <Avatar value={selectedAvatar} name={user.display_name} size="lg" />
           <div className="flex-1 space-y-1">
             <Field label="Display name" error={nameError ?? undefined} htmlFor="display-name">
               <Input

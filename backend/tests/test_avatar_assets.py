@@ -68,3 +68,42 @@ def test_minted_id_satisfies_the_avatar_grammar(monkeypatch):
     minted_id = r.json()["id"]
 
     assert UserUpdate(avatar=minted_id).avatar == minted_id
+
+
+def test_mint_then_serve_round_trips_the_exact_bytes(monkeypatch):
+    """End-to-end: POST /from-tmdb -> on-disk filename -> GET the serve route.
+
+    No shipped test previously joined mint, on-disk filename and the serve
+    route -- that seam is where this project's most expensive avatar defect
+    lived (a `cached:` id that failed its own grammar), and it was closed
+    only by inspection. This fakes the download (no network touched) but
+    writes real bytes to the real on-disk path `download_asset` would use,
+    so the GET below exercises the actual `AssetManager.serve_asset` path
+    resolution and content-type lookup, not a mock of them.
+    """
+    from app.assets import manager as manager_module
+
+    fake_jpeg_bytes = b"\xff\xd8\xff\xe0not-a-real-jpeg-but-bytes-are-bytes"
+
+    async def _fake_download(self, url, asset_type=None, filename=None):
+        local_path = self.get_local_path(url, asset_type, filename=filename)
+        local_path.write_bytes(fake_jpeg_bytes)
+        return True, str(local_path)
+
+    monkeypatch.setattr(manager_module.AssetManager, "download_asset", _fake_download)
+
+    r = client.post(
+        "/api/v1/avatars/from-tmdb",
+        json={"path": "/e2eRoundTripFakeStillABCDEFG12.jpg"},
+    )
+    assert r.status_code == 200, r.text
+    cached_id = r.json()["id"]
+    assert cached_id.startswith("cached:")
+    hex_id = cached_id.split(":", 1)[1]
+
+    # Rebuild the URL exactly as frontend/src/lib/avatars/resolve.ts does from
+    # a `cached:<hex>` id: `/api/v1/assets/avatars/<hex>.jpg`.
+    r2 = client.get(f"/api/v1/assets/avatars/{hex_id}.jpg")
+    assert r2.status_code == 200
+    assert r2.content == fake_jpeg_bytes
+    assert r2.headers["content-type"] == "image/jpeg"

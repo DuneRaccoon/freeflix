@@ -62,4 +62,34 @@ describe('AvatarPicker', () => {
     await waitFor(() => expect(cacheTmdbStill).toHaveBeenCalledWith('/abc123def456ghi789jkl.jpg'));
     await waitFor(() => expect(onChange).toHaveBeenCalledWith('cached:8f3a91c2'));
   });
+
+  it('highlights the mapped house tile for a legacy avatar value', () => {
+    render(<AvatarPicker value="/avatars/avatar1.svg" onChange={vi.fn()} />);
+    expect(screen.getByRole('radio', { name: 'Film reel' })).toBeChecked();
+  });
+
+  it('clears a stale mint error when the active tab changes', async () => {
+    cacheTmdbStill.mockRejectedValue(new Error('boom'));
+    render(
+      <AvatarPicker
+        value={null}
+        onChange={vi.fn()}
+        libraryStills={[{
+          label: 'Ripley',
+          profilePath: '/abc123def456ghi789jkl.jpg',
+          previewUrl: 'https://image.tmdb.org/t/p/w185/abc123def456ghi789jkl.jpg',
+        }]}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'From your library' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Ripley' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not use that image/i);
+
+    await userEvent.click(screen.getByRole('button', { name: 'After Dark' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'From your library' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

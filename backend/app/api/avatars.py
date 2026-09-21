@@ -23,7 +23,10 @@ router = APIRouter()
 # the input here is the honest fix, rather than teaching three layers about a
 # second extension.
 _TMDB_PATH_RE = re.compile(r"/[A-Za-z0-9]{20,40}\.jpg")
-_ASSET_NAME_RE = re.compile(r"[a-zA-Z0-9_]{1,80}\.(jpg|png)")
+# Mirrors what `from-tmdb` actually mints: a lowercase 8-64 char hex stem plus
+# `.jpg`. `_TMDB_PATH_RE` only ever produces `.jpg`, so allowing `.png` or `_`
+# here would advertise a capability nothing can produce -- narrowed to match.
+_ASSET_NAME_RE = re.compile(r"[a-f0-9]{8,64}\.jpg")
 
 
 class FromTmdbRequest(BaseModel):

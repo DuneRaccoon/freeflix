@@ -13,7 +13,7 @@ const mockUser = {
   id: 'user-1',
   username: 'testuser',
   display_name: 'Test User',
-  avatar: null,
+  avatar: null as string | null,
   created_at: '2024-01-01T00:00:00Z',
 };
 
@@ -183,15 +183,31 @@ describe('SettingsView', () => {
   });
 
   it('clears the avatar by sending an empty string', async () => {
-    render(<SettingsView userId="user-1" />);
+    // Start from a non-null persisted avatar. mockUser.avatar is normally
+    // null, which means selectedAvatar's initial state is already null —
+    // clicking "Clear avatar" from there would send `avatar: ''` even if the
+    // picker's onChange were completely disconnected from state (null ?? ''
+    // is still ''). Seeding a real value here means a disconnected picker
+    // would leave `avatar: 'house:existing'` on save, which the assertion
+    // below would catch.
+    const originalAvatar = mockUser.avatar;
+    mockUser.avatar = 'house:existing';
+    try {
+      render(<SettingsView userId="user-1" />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Clear avatar' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+      // Pick a (different) avatar first, proving onChange lands in state,
+      // then clear it — a genuine set-then-clear round trip, not a no-op.
+      await userEvent.click(screen.getByRole('button', { name: 'Pick avatar' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Clear avatar' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
-    await waitFor(() =>
-      expect(mockUpdateUser).toHaveBeenCalledWith(
-        'user-1',
-        expect.objectContaining({ avatar: '' }),
-      ));
+      await waitFor(() =>
+        expect(mockUpdateUser).toHaveBeenCalledWith(
+          'user-1',
+          expect.objectContaining({ avatar: '' }),
+        ));
+    } finally {
+      mockUser.avatar = originalAvatar;
+    }
   });
 });

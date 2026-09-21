@@ -49,6 +49,13 @@ vi.mock('@/services/api-client', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
+// AvatarPicker is stubbed below, but SettingsView still calls
+// avatarsService.loadLibraryStills on mount — mock it so the effect never
+// hits the real service (which would hit watchlist + movies in turn).
+vi.mock('@/services/avatars', () => ({
+  avatarsService: { loadLibraryStills: vi.fn().mockResolvedValue([]) },
+}));
+
 // AvatarPicker is a pure presentational picker — stub it to keep tests free
 // of image-loading concerns while still exercising both `onChange` shapes
 // (a `house:` id, and `null` for the "no avatar" clear tile).

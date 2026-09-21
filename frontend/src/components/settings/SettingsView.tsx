@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useUser } from '@/context/UserContext';
 import { usersService, UserSettings, UserSettingsUpdate } from '@/services/users';
 import { baseService } from '@/services/api-client';
+import { avatarsService, LibraryStill } from '@/services/avatars';
 import { Badge, Button, Field, Input, Select, Toggle } from '@/components/ui/fre';
 import Avatar from '@/components/users/Avatar';
 import AvatarPicker from '@/components/users/AvatarPicker';
@@ -182,6 +183,7 @@ const ProfileSection: React.FC<{
   );
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [libraryStills, setLibraryStills] = useState<LibraryStill[]>([]);
 
   // keep in sync if context reloads
   useEffect(() => {
@@ -189,6 +191,17 @@ const ProfileSection: React.FC<{
       setDisplayName(user.display_name);
       setSelectedAvatar(user.avatar ?? null);
     }
+  }, [user?.id]);
+
+  // Lazy: the watchlist fetch plus up to six movie-detail fetches should not
+  // fire on every Settings render, only once per profile being edited.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void avatarsService.loadLibraryStills(user.id).then((s) => {
+      if (!cancelled) setLibraryStills(s);
+    });
+    return () => { cancelled = true; };
   }, [user?.id]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -236,6 +249,7 @@ const ProfileSection: React.FC<{
             value={selectedAvatar}
             onChange={setSelectedAvatar}
             initials={getInitials(user.display_name)}
+            libraryStills={libraryStills}
           />
         )}
 

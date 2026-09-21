@@ -94,11 +94,13 @@ const mockMovie: MovieDetail = {
       name: 'Timothée Chalamet',
       character: 'Paul Atreides',
       image: 'https://image.tmdb.org/t/p/w200/tc.jpg',
+      profile_path: '/tc.jpg',
     },
     {
       name: 'Zendaya',
       character: 'Chani',
       image: null,
+      profile_path: null,
     },
   ],
   director: 'Denis Villeneuve',

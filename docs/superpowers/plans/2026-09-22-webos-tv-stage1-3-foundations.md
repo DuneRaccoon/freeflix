@@ -161,10 +161,16 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
     except ValueError:
         return RANGE_MALFORMED
 
-    if start < 0 or end < start:
+    if start < 0:
         return RANGE_MALFORMED
     if start >= file_size:
         return RANGE_NOT_SATISFIABLE
+    # Checked after the out-of-bounds start: an open-ended range ("bytes=5000-")
+    # defaults end to file_size - 1, which is < start whenever start is past EOF.
+    # Checking end < start first would misreport that as malformed instead of
+    # unsatisfiable and break test_start_beyond_filesize_is_unsatisfiable.
+    if end < start:
+        return RANGE_MALFORMED
 
     return start, min(end, file_size - 1)
 ```

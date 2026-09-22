@@ -277,6 +277,18 @@ async def stream_video(
         # Return streaming response with appropriate status code
         status_code = 206 if range_header else 200
 
+        # Wait for the FIRST chunk here, not inside the generator: after
+        # StreamingResponse starts, the status code is spent and a failure can only
+        # truncate below the Content-Length above. A seek into a not-yet-downloaded
+        # region is then a retryable 503 rather than a silent stall.
+        if not await torrent_manager.wait_for_first_chunk(
+            torrent_id, video_info["index"], start, min(chunk_size, content_length)
+        ):
+            return Response(
+                status_code=503,
+                headers={"Retry-After": "2", "Accept-Ranges": "bytes"},
+            )
+
         # Piece-aware generator: waits for each chunk's pieces to be downloaded
         # before serving, so the player never receives undownloaded (zero) bytes
         # that would trigger a decode error.

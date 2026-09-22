@@ -1423,6 +1423,60 @@ class TorrentManager:
         except Exception:
             return False
 
+    async def wait_for_first_chunk(self, torrent_id: str, file_index: int,
+                                   start: int, length: int,
+                                   budget: float = 10.0) -> bool:
+        """True once the pieces backing [start, start+length-1] are on disk.
+
+        Called by the streaming endpoint BEFORE it starts the response body. Once
+        StreamingResponse begins emitting, the status code is already sent, so a
+        later failure can only truncate below the promised Content-Length — which a
+        browser retries and a TV media pipeline reports as a generic playback
+        failure. Answering the first chunk up front is the only point at which a
+        seek into a not-yet-downloaded region can still become a retryable 503.
+
+        Returns True immediately when the torrent is not in the session (completed
+        and removed: every byte is already on disk). Returns False if `budget`
+        seconds elapse with the pieces still missing; the mid-stream wait inside
+        stream_file_range is unchanged.
+        """
+        entry = self.active_torrents.get(torrent_id)
+        handle = entry[0] if entry else None
+        if handle is None or not handle.has_metadata():
+            return True
+
+        try:
+            ti = handle.get_torrent_info()
+            file_offset = ti.file_at(file_index).offset
+            piece_length = ti.piece_length()
+            num_pieces = ti.num_pieces()
+        except Exception:
+            # No usable metadata: let the generator deal with it rather than
+            # refusing a request that might well succeed.
+            return True
+
+        first_piece = (file_offset + start) // piece_length
+        last_piece = (file_offset + start + max(length, 1) - 1) // piece_length
+
+        self._prioritize_window(handle, first_piece, num_pieces, first_piece)
+        self._deadline_pieces(handle, first_piece, last_piece, num_pieces)
+
+        waited = 0.0
+        while not self._pieces_ready(handle, first_piece, last_piece):
+            if torrent_id not in self.active_torrents:
+                return False
+            if waited >= budget:
+                logger.info(
+                    f"First chunk for {torrent_id} pieces {first_piece}-{last_piece} "
+                    f"not available within {budget:.0f}s; answering 503"
+                )
+                return False
+            await asyncio.sleep(0.25)
+            waited += 0.25
+            self._deadline_pieces(handle, first_piece, last_piece, num_pieces)
+
+        return True
+
     def _adaptive_piece_timeout(self, handle, *, base: float = 8.0,
                                 max_timeout: float = 60.0) -> float:
         """Per-chunk wait budget derived from live swarm status.

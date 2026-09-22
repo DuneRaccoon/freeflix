@@ -200,7 +200,7 @@ nothing until something is focused by accident.
    first 501 bytes with a 206 claiming `bytes 0-500/size`**. Wrong data handed to a decoder, no error.
 2. **Multipart ranges 500.** `bytes=0-99,200-299` → `int('99,200')` raises inside the `try` at `:118`,
    caught at `:170-172`, returned as a **JSON 500** which `<video>` feeds to the decoder as corrupt
-   media. Any non-numeric range does the same. Both must be 416.
+   media. Any non-numeric range does the same. Both must be **ignored** (200, full body) — see §7.1.
 3. **HEAD enters the piece-gated generator.** Starlette 0.27 auto-adds HEAD to GET routes and
    `stream_video` has no method check, so a HEAD probe runs
    `prioritize_video_files` + `force_start_for_stream` (`streaming.py:124-127`) and can block on
@@ -463,7 +463,10 @@ independently is a liability.
 ### 7.1 Backend fixes (prerequisites)
 
 1. `parse_range_header` handles suffix ranges (`bytes=-N`) correctly.
-2. Multipart and malformed ranges return **416**, never 500.
+2. Multipart and malformed ranges are **ignored** — 200 with the full body, never 500 and not
+   416. RFC 7233 §3.1 requires an invalid `Range` to be ignored, and §4.4 reserves 416 for a range
+   that is *unsatisfiable*; a 416 here invites a client to give up rather than retry with a single
+   range. (Corrected during planning — an earlier draft of this spec said 416.)
 3. `HEAD` on the video route returns headers only — no generator, no `prioritize_video_files`, no
    `force_start_for_stream`.
 4. The dead-swarm path returns a definite error rather than truncating below a promised
@@ -587,7 +590,7 @@ targets ≥60px tall.
 
 | Area | Change |
 | --- | --- |
-| `api/streaming.py` | suffix/multipart/malformed range handling; 416 not 500; HEAD short-circuit; MIME table additions; available-bytes in `/info`; subtitle list + WebVTT endpoints |
+| `api/streaming.py` | suffix ranges; malformed/multipart ranges ignored rather than 500; 416 for unsatisfiable only; HEAD short-circuit; MIME table additions; available-bytes in `/info`; subtitle list + WebVTT endpoints |
 | `torrent/manager.py` | wire `await_pieces_async` / `_adaptive_piece_timeout` into `stream_file_range`; stop zeroing subtitle sidecars; expose contiguous-available bytes |
 | `services/torrents_select.py` | read `codec`; apply a named client capability profile |
 | `providers/quality.py` | expose parsed codec/audio to the selector (already parsed, currently display-only) |
@@ -602,7 +605,8 @@ targets ≥60px tall.
 ## 11. Testing & verification
 
 1. **Backend, pytest, TDD.** Every §7.1 fix gets a failing test first: `bytes=-500` returns the real
-   last bytes; `bytes=0-99,200-299` returns 416; a malformed range returns 416; HEAD returns headers
+   last bytes; `bytes=0-99,200-299` and a malformed range both return 200 with the full body; a
+   range starting past EOF returns 416; HEAD returns headers
    without entering the generator; a dead swarm returns an error rather than a short body. Note
    `backend/tests` is **not** bind-mounted — new files need `make build` or
    `-v "$(pwd)/backend/tests:/opt/freeflix/tests"`.

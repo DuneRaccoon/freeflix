@@ -25,16 +25,27 @@ from app.models import VideoFile
 
 router = APIRouter()
 
-# Mapping of common video file extensions to MIME types
+# Mapping of video file extensions to MIME types. This must cover every extension
+# in settings.video_extensions: anything left to mimetypes.guess_type() depends on
+# the container's Python 3.10 table and can degrade to application/octet-stream,
+# which most media stacks refuse. test_video_mime_types.py enforces the coverage.
 VIDEO_MIME_TYPES = {
     '.mp4': 'video/mp4',
+    '.m4v': 'video/x-m4v',
     '.mkv': 'video/x-matroska',
+    '.webm': 'video/webm',
     '.avi': 'video/x-msvideo',
     '.mov': 'video/quicktime',
-    '.webm': 'video/webm',
     '.ogv': 'video/ogg',
     '.wmv': 'video/x-ms-wmv',
-    '.flv': 'video/x-flv'
+    '.flv': 'video/x-flv',
+    '.ts': 'video/mp2t',
+    '.m2ts': 'video/mp2t',
+    '.mts': 'video/mp2t',
+    '.vob': 'video/mpeg',
+    '.mpg': 'video/mpeg',
+    '.mpeg': 'video/mpeg',
+    '.3gp': 'video/3gpp',
 }
 
 def get_mime_type(file_path: str) -> str:

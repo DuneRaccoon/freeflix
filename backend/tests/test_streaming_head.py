@@ -67,3 +67,32 @@ def test_head_404s_for_unknown_file_index(stub_video, monkeypatch):
     )
     r = client.head("/api/v1/streaming/tid-head/video?file_index=7")
     assert r.status_code == 404
+
+
+def test_head_404s_when_video_not_ready(monkeypatch):
+    # No file_index given, and get_video_file_info returns falsy: this is the
+    # "metadata not ready yet" branch, distinct from an explicit bad file_index.
+    # HEAD responses (including error ones) carry no body, so only the status
+    # code is checkable here -- the detail string is exercised by the GET-path
+    # equivalent and by _resolve_video_file's shared branch logic.
+    monkeypatch.setattr(
+        streaming_api.torrent_manager, "get_video_file_info",
+        lambda tid, fi=None: None,
+    )
+    r = client.head("/api/v1/streaming/tid-head/video")
+    assert r.status_code == 404
+    assert r.content == b""
+
+
+def test_head_404s_when_file_missing_on_disk(monkeypatch):
+    # Metadata resolves fine, but the file itself isn't on disk (e.g. moved or
+    # deleted out from under the torrent).
+    info = {"index": 0, "path": "/nonexistent/path/movie.mkv", "size": 4096,
+            "downloaded": 1024, "progress": 25.0, "name": "movie.mkv"}
+    monkeypatch.setattr(
+        streaming_api.torrent_manager, "get_video_file_info",
+        lambda tid, fi=None: info,
+    )
+    r = client.head("/api/v1/streaming/tid-head/video")
+    assert r.status_code == 404
+    assert r.content == b""

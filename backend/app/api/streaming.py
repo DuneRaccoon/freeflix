@@ -126,6 +126,37 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
 
     return start, min(end, file_size - 1)
 
+
+def _resolve_video_file(torrent_id: str, file_index: Optional[int]) -> tuple:
+    """Resolve a torrent's video file for streaming, or raise the 404 both routes share.
+
+    An EXPLICIT file_index must resolve to that exact file — never silently fall
+    back to the largest — so an invalid index is distinguished from "metadata not
+    ready yet". Shared by head_video and stream_video so the two can never drift.
+
+    Stops before os.path.getsize on purpose: stream_video calls it inside a
+    try/except that turns a read failure into a 500, while head_video calls it
+    with no such wrapper. Pulling getsize in here would change stream_video's
+    error semantics for an unreadable file.
+    """
+    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
+    if not video_info:
+        if file_index is not None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Video file index {file_index} not found in this torrent",
+            )
+        raise HTTPException(
+            status_code=404,
+            detail="Video file not found or not ready for streaming",
+        )
+
+    file_path = video_info["path"]
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+    return video_info, file_path
+
 @router.head(
     "/{torrent_id}/video",
     summary="Metadata-only probe for a video stream",
@@ -143,21 +174,7 @@ async def head_video(
     file_index: Optional[int] = Query(None, description="Index of the file to probe (season packs)"),
 ):
     """Answer a HEAD probe from metadata alone: no prioritisation, no piece waiting."""
-    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
-    if not video_info:
-        if file_index is not None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Video file index {file_index} not found in this torrent",
-            )
-        raise HTTPException(
-            status_code=404,
-            detail="Video file not found or not ready for streaming",
-        )
-
-    file_path = video_info["path"]
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Video file not found on disk")
+    video_info, file_path = _resolve_video_file(torrent_id, file_index)
 
     file_size = os.path.getsize(file_path)
     return Response(
@@ -196,23 +213,8 @@ async def stream_video(
     # Resolve the video file. An EXPLICIT file_index must resolve to that exact
     # file — never silently fall back to the largest. Distinguish an invalid
     # index from "metadata not ready yet".
-    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
-    if not video_info:
-        if file_index is not None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Video file index {file_index} not found in this torrent",
-            )
-        raise HTTPException(
-            status_code=404,
-            detail="Video file not found or not ready for streaming",
-        )
+    video_info, file_path = _resolve_video_file(torrent_id, file_index)
 
-    # Ensure the file exists
-    file_path = video_info["path"]
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Video file not found on disk")
-    
     # Check if the file is accessible
     try:
         # Get file size

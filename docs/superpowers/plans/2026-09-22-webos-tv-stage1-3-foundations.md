@@ -1011,7 +1011,7 @@ git mv page.tsx layout.tsx loading.tsx globals.css '(web)/'
 ```bash
 cd /Users/benjaminherro/github/freeflix/frontend
 ls src/app          # expect exactly: (web)
-ls 'src/app/(web)'  # expect layout.tsx globals.css page.tsx loading.tsx + 16 dirs
+ls 'src/app/(web)'  # expect layout.tsx globals.css page.tsx loading.tsx + 15 dirs
 test ! -e src/app/layout.tsx && echo "OK: no root layout"
 grep -n "globals.css" 'src/app/(web)/layout.tsx'   # must still be './globals.css'
 ```

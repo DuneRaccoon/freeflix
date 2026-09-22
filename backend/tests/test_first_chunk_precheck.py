@@ -6,8 +6,17 @@ below the Content-Length it already promised. A desktop browser re-requests; a T
 media pipeline reports a generic playback failure. Waiting for the FIRST chunk
 before the response starts is the only point at which a real status code is still
 available.
+
+Two properties of that wait are as load-bearing as the 503 itself:
+
+- The budget is SWARM-AWARE (_adaptive_piece_timeout), not flat. On a Pi with a
+  low-seeder torrent the 10s-300s delivery band is the common case, so a flat
+  budget turns a slow success into a fatal error for a client that cannot retry.
+- No libtorrent call in the method may escape its try. This runs BEFORE the
+  response starts, so an exception here becomes a body served into a decoder.
 """
 import asyncio
+import time
 import types
 import pytest
 from fastapi.testclient import TestClient
@@ -25,10 +34,19 @@ class _FakeFile:
 
 
 class _FakeTI:
+    """`offset` is either a single offset for every file, or an {index: offset}
+    map. The map form matters: a TV season pack is ONE torrent with many video
+    files, so every file but the first has a non-zero offset and the piece
+    arithmetic is only really exercised once file_at() honours its argument."""
+
     def __init__(self, offset, piece_length, num_pieces):
-        self._offset, self._pl, self._np = offset, piece_length, num_pieces
+        self._offsets = offset if isinstance(offset, dict) else None
+        self._offset = None if self._offsets is not None else offset
+        self._pl, self._np = piece_length, num_pieces
 
     def file_at(self, i):
+        if self._offsets is not None:
+            return _FakeFile(self._offsets[i])
         return _FakeFile(self._offset)
 
     def piece_length(self):
@@ -137,5 +155,171 @@ def test_endpoint_206s_when_first_chunk_available(stub_video, monkeypatch):
 
     monkeypatch.setattr(streaming_api.torrent_manager, "wait_for_first_chunk", _ready)
     r = client.get("/api/v1/streaming/tid-1/video", headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206
+    assert r.headers["Content-Range"] == "bytes 0-99/4096"
+
+
+# --------------------------------------------------------------------------
+# Season packs: the piece arithmetic at a non-zero file offset.
+# --------------------------------------------------------------------------
+
+def _record_targeted_pieces(monkeypatch):
+    """Capture the (first_piece, last_piece) the wait actually asks about."""
+    seen = []
+
+    def _ready(handle, first_piece, last_piece):
+        seen.append((first_piece, last_piece))
+        return True
+
+    monkeypatch.setattr(torrent_manager, "_pieces_ready", _ready)
+    return seen
+
+
+def test_first_chunk_targets_pieces_for_a_non_zero_file_offset(monkeypatch):
+    # Episode 4 of a season pack starts 1000 bytes into the torrent, deliberately
+    # NOT on a piece boundary. Requesting bytes [128, 255] of that file means
+    # torrent bytes [1128, 1255], i.e. pieces 17..19 at a 64-byte piece length.
+    ti = _FakeTI(offset={0: 0, 3: 1000}, piece_length=64, num_pieces=200)
+    seen = _record_targeted_pieces(monkeypatch)
+    torrent_manager.active_torrents["t-pack"] = (_FakeHandle(ti, True), {})
+    try:
+        ok = asyncio.run(
+            torrent_manager.wait_for_first_chunk("t-pack", 3, 128, 128, budget=0.5)
+        )
+    finally:
+        del torrent_manager.active_torrents["t-pack"]
+    assert ok is True
+    assert seen == [(17, 19)], (
+        "the wait must offset by the file's position inside the torrent; "
+        f"got {seen}"
+    )
+
+
+def test_first_chunk_targets_different_pieces_per_file_index(monkeypatch):
+    # The same byte range in file 0 lands on pieces 2..3 — proof that file_at()
+    # is consulted rather than the arithmetic happening to work at offset 0.
+    ti = _FakeTI(offset={0: 0, 3: 1000}, piece_length=64, num_pieces=200)
+    seen = _record_targeted_pieces(monkeypatch)
+    torrent_manager.active_torrents["t-pack-0"] = (_FakeHandle(ti, True), {})
+    try:
+        asyncio.run(
+            torrent_manager.wait_for_first_chunk("t-pack-0", 0, 128, 128, budget=0.5)
+        )
+    finally:
+        del torrent_manager.active_torrents["t-pack-0"]
+    assert seen == [(2, 3)]
+
+
+# --------------------------------------------------------------------------
+# The budget is swarm-aware, not flat (CRITICAL 1a).
+# --------------------------------------------------------------------------
+
+def test_default_budget_comes_from_the_adaptive_timeout(monkeypatch):
+    ti = _FakeTI(offset=0, piece_length=64, num_pieces=16)
+    calls = []
+
+    def _adaptive(handle, **kw):
+        calls.append(handle)
+        return 0.5
+
+    monkeypatch.setattr(torrent_manager, "_adaptive_piece_timeout", _adaptive)
+    torrent_manager.active_torrents["t-adaptive"] = (_FakeHandle(ti, False), {})
+    try:
+        ok = asyncio.run(torrent_manager.wait_for_first_chunk("t-adaptive", 0, 0, 128))
+    finally:
+        del torrent_manager.active_torrents["t-adaptive"]
+    assert ok is False
+    assert len(calls) == 1, (
+        "with no explicit budget the wait must derive one from live swarm status, "
+        "not from a constant"
+    )
+
+
+def test_explicit_budget_overrides_the_adaptive_default(monkeypatch):
+    ti = _FakeTI(offset=0, piece_length=64, num_pieces=16)
+
+    def _must_not_run(*a, **k):
+        raise AssertionError("an explicit budget must not consult the swarm")
+
+    monkeypatch.setattr(torrent_manager, "_adaptive_piece_timeout", _must_not_run)
+    torrent_manager.active_torrents["t-explicit"] = (_FakeHandle(ti, False), {})
+    try:
+        ok = asyncio.run(
+            torrent_manager.wait_for_first_chunk("t-explicit", 0, 0, 128, budget=0.5)
+        )
+    finally:
+        del torrent_manager.active_torrents["t-explicit"]
+    assert ok is False
+
+
+def test_dead_swarm_answers_far_sooner_than_the_old_flat_budget():
+    # _FakeHandle.status() reports num_peers=0, so the adaptive budget is ~2s.
+    # This is the case the 503 was invented for: an honest fast failure. The
+    # previous flat 10s would have held the request five times as long — and on a
+    # LIVE swarm it would have cut the wait off at 10s and called a slow success
+    # a fatal error.
+    ti = _FakeTI(offset=0, piece_length=64, num_pieces=16)
+    torrent_manager.active_torrents["t-dead"] = (_FakeHandle(ti, False), {})
+    t0 = time.monotonic()
+    try:
+        ok = asyncio.run(torrent_manager.wait_for_first_chunk("t-dead", 0, 0, 128))
+    finally:
+        del torrent_manager.active_torrents["t-dead"]
+    elapsed = time.monotonic() - t0
+    assert ok is False
+    assert 1.5 <= elapsed < 6.0, f"expected the ~2s dead-swarm budget, waited {elapsed:.1f}s"
+
+
+# --------------------------------------------------------------------------
+# No unguarded libtorrent call before the response starts (CRITICAL 2).
+# --------------------------------------------------------------------------
+
+class _InvalidatedHandle:
+    """libtorrent raises this from every method once the handle is invalid, which
+    _block_torrent makes a live race: it calls session.remove_torrent(handle)
+    BEFORE popping active_torrents."""
+
+    def has_metadata(self):
+        raise RuntimeError("invalid torrent handle")
+
+    def get_torrent_info(self):
+        raise RuntimeError("invalid torrent handle")
+
+    def status(self):
+        raise RuntimeError("invalid torrent handle")
+
+
+def test_invalidated_handle_degrades_to_true_instead_of_raising():
+    # An exception escaping here reaches stream_video's catch-all BEFORE the
+    # response starts, so it is served as a body rather than truncating one.
+    # "Let the generator deal with it" is the correct degradation.
+    torrent_manager.active_torrents["t-invalid"] = (_InvalidatedHandle(), {})
+    try:
+        ok = asyncio.run(
+            torrent_manager.wait_for_first_chunk("t-invalid", 0, 0, 128, budget=0.5)
+        )
+    finally:
+        del torrent_manager.active_torrents["t-invalid"]
+    assert ok is True
+
+
+def test_endpoint_does_not_500_when_the_handle_goes_invalid(stub_video, monkeypatch):
+    # End-to-end shape of the same race, scoped to the PRE-RESPONSE path: the real
+    # wait_for_first_chunk runs against an invalidated handle. Before the fix that
+    # raised RuntimeError into stream_video's catch-all and was answered with a
+    # JSON 500 body — i.e. a JSON document handed to a media decoder. The generator
+    # is stubbed out because its own has_metadata() call is a different (already
+    # documented) case: it runs after the status line, so it truncates.
+    async def _bytes(*a, **k):
+        yield b"X" * 100
+
+    monkeypatch.setattr(streaming_api.torrent_manager, "stream_file_range", _bytes)
+    torrent_manager.active_torrents["tid-1"] = (_InvalidatedHandle(), {})
+    try:
+        r = client.get(
+            "/api/v1/streaming/tid-1/video", headers={"Range": "bytes=0-99"}
+        )
+    finally:
+        torrent_manager.active_torrents.pop("tid-1", None)
     assert r.status_code == 206
     assert r.headers["Content-Range"] == "bytes 0-99/4096"

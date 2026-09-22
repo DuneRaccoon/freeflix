@@ -63,19 +63,32 @@ RANGE_NOT_SATISFIABLE = (-1, -1)
 # client to give up instead of retrying with a single range.
 RANGE_MALFORMED = (-2, -2)
 
+# Sentinel for "the file exists but has no bytes yet" — a torrent whose metadata
+# has arrived but whose file libtorrent has not allocated. This is NOT a range
+# problem: a plain GET carrying no Range header at all used to land here and be
+# answered 416, a status only meaningful in reply to a Range request and one that
+# tells <video> to give up permanently. The endpoint maps it to 503 + Retry-After,
+# which is what it actually is: come back in a moment.
+RANGE_FILE_NOT_READY = (-3, -3)
+
 
 def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
     """Parse a Range header into (start, end) inclusive byte positions.
 
     Returns RANGE_NOT_SATISFIABLE when the range cannot be satisfied (HTTP 416),
-    and RANGE_MALFORMED when the header is syntactically invalid, uses a range
+    RANGE_MALFORMED when the header is syntactically invalid, uses a range
     unit other than "bytes", or asks for something we do not implement
-    (RFC 7233 §3.1: ignore it and serve the whole body). end past EOF is
+    (RFC 7233 §3.1: ignore it and serve the whole body), and RANGE_FILE_NOT_READY
+    when the file has no bytes yet (HTTP 503, retryable). end past EOF is
     clamped; an out-of-bounds start is a client error.
     """
+    if file_size <= 0:
+        # Checked FIRST, before the header is even looked at: a zero-length file
+        # is not a range failure, and a request with no Range header must not be
+        # answered with a range status at all.
+        return RANGE_FILE_NOT_READY
+
     if not range_header:
-        if file_size <= 0:
-            return RANGE_NOT_SATISFIABLE
         return 0, file_size - 1
 
     if not range_header.startswith('bytes='):
@@ -84,9 +97,6 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
         # unit to IGNORE the header, so the endpoint must serve 200 with no
         # Content-Range, not silently honor it as if it said "bytes=0-".
         return RANGE_MALFORMED
-
-    if file_size <= 0:
-        return RANGE_NOT_SATISFIABLE
 
     spec = range_header[len('bytes='):].strip()
 
@@ -145,10 +155,11 @@ def _resolve_video_file(torrent_id: str, file_index: Optional[int]) -> tuple:
     back to the largest — so an invalid index is distinguished from "metadata not
     ready yet". Shared by head_video and stream_video so the two can never drift.
 
-    Stops before os.path.getsize on purpose: stream_video calls it inside a
-    try/except that turns a read failure into a 500, while head_video calls it
-    with no such wrapper. Pulling getsize in here would change stream_video's
-    error semantics for an unreadable file.
+    Stops before os.path.getsize on purpose: stream_video runs getsize inside a
+    try/except that turns a read failure into an empty-bodied 503, while
+    head_video calls it with no such wrapper. Pulling getsize in here would move
+    it outside that try and change stream_video's error semantics for an
+    unreadable file.
     """
     video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
     if not video_info:
@@ -171,12 +182,20 @@ def _resolve_video_file(torrent_id: str, file_index: Optional[int]) -> tuple:
 @router.head(
     "/{torrent_id}/video",
     summary="Metadata-only probe for a video stream",
-    # Registered ABOVE the GET route on purpose. Starlette adds HEAD to every GET
-    # route and cannot be told not to, and it matches routes in registration
-    # order — so this must come first or a HEAD probe runs the full GET handler:
-    # prioritize_video_files + force_start_for_stream (a DB write) and then the
-    # piece-gated generator, which can block for up to 300s before the body is
-    # discarded. TV media pipelines probe with HEAD before GET.
+    # Before this route existed, HEAD /{torrent_id}/video was a bare 405: FastAPI's
+    # APIRoute.__init__ never calls super().__init__() and sets
+    # `self.methods = {method.upper() for method in methods}` directly, so
+    # Starlette's Route.__init__ — and with it its `self.methods.add("HEAD")` —
+    # never runs. (Verified against the pinned fastapi 0.104.1 / starlette 0.27.0;
+    # an earlier draft of the spec wrongly claimed a HEAD probe ran the full GET
+    # handler and could block 300s.) A TV media pipeline that probes with HEAD
+    # before GET got a refusal instead of the size and type it asked for.
+    #
+    # Registered ABOVE the GET route anyway: Starlette matches in registration
+    # order, so if FastAPI's method handling ever changes to auto-add HEAD, this
+    # route still wins and a probe can never fall into the GET handler's
+    # prioritize_video_files + force_start_for_stream (a DB write) and piece-gated
+    # generator. Deliberate defensive ordering, not a workaround for today.
     dependencies=[Depends(require_session_silent)],
 )
 async def head_video(
@@ -241,6 +260,14 @@ async def stream_video(
         # Parse range header if present.
         range_header = request.headers.get("Range")
         parsed = parse_range_header(range_header, file_size)
+        if parsed is RANGE_FILE_NOT_READY:
+            # The file is not allocated yet (metadata arrived, zero bytes on disk).
+            # Retryable, and empty-bodied: 416 here would tell <video> to stop for
+            # good over a condition that clears itself in seconds.
+            return Response(
+                status_code=503,
+                headers={"Retry-After": "2", "Accept-Ranges": "bytes"},
+            )
         if parsed is RANGE_NOT_SATISFIABLE:
             # RFC 7233 §4.4 — unsatisfiable range: 416 + the resource size.
             return Response(
@@ -300,8 +327,14 @@ async def stream_video(
             headers=headers
         )
     except Exception as e:
+        # NEVER a JSON body here. This is the same argument as the empty 401 above:
+        # whatever we return is fed straight to a decoder by a raw <video src>, and
+        # a JSON error document reaching it presents as corrupt media rather than
+        # as an error. 503 rather than 500 because most causes at this point are
+        # transient (a handle going invalid, a file momentarily unreadable while
+        # libtorrent moves it), so the client should come back rather than give up.
         logger.error(f"Error streaming video for torrent {torrent_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error streaming video: {str(e)}")
+        return Response(status_code=503, headers={"Retry-After": "2"})
 
 @router.get(
     "/{torrent_id}/info",

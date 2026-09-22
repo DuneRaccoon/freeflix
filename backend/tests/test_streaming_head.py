@@ -1,9 +1,19 @@
 """A HEAD probe must answer from metadata only.
 
-Starlette auto-adds HEAD to GET routes, so HEAD /video used to run the full GET
-handler: prioritize_video_files + force_start_for_stream (a DB write) and then the
-piece-gated generator, which can block for up to 300s before the body is thrown
-away. TV media pipelines probe with HEAD before GET.
+Before the HEAD route existed, HEAD /video was a bare 405. Starlette's
+Route.__init__ does auto-add HEAD to a GET route, but FastAPI's APIRoute.__init__
+never calls super().__init__() — it sets
+`self.methods = {method.upper() for method in methods}` directly — so that line
+never runs. Verified against the pinned fastapi 0.104.1 / starlette 0.27.0. (An
+earlier draft of the spec claimed a HEAD probe ran the full GET handler and could
+block for 300s; it did not.)
+
+A 405 is milder than that but still wrong for the target: a TV media pipeline
+probes with HEAD before GET and gets a refusal instead of the size and type it
+asked for. These tests pin the real contract — headers only, and none of the GET
+handler's side effects (prioritize_video_files, force_start_for_stream, the
+piece-gated generator) — and pin the defensive registration order that keeps it
+true if FastAPI's method handling ever changes.
 """
 import types
 import pytest
@@ -96,3 +106,33 @@ def test_head_404s_when_file_missing_on_disk(monkeypatch):
     r = client.head("/api/v1/streaming/tid-head/video")
     assert r.status_code == 404
     assert r.content == b""
+
+
+def _video_routes():
+    """The registered routes for the streaming /video path, in registration order."""
+    return [
+        r for r in app.routes
+        if getattr(r, "path", "").endswith("/streaming/{torrent_id}/video")
+    ]
+
+
+def test_get_route_does_not_carry_head():
+    # Pins the framework fact the route comment relies on: FastAPI's APIRoute does
+    # NOT inherit Starlette's automatic `methods.add("HEAD")`, so the GET route
+    # answers GET only. If this ever starts failing, FastAPI changed and the
+    # registration-order defence below became load-bearing rather than precautionary.
+    get_routes = [r for r in _video_routes() if "GET" in (r.methods or set())]
+    assert get_routes, "no GET route registered for /streaming/{torrent_id}/video"
+    for r in get_routes:
+        assert "HEAD" not in (r.methods or set())
+
+
+def test_head_route_is_registered_above_the_get_route():
+    # Starlette matches routes in registration order. Keeping the metadata-only
+    # HEAD route first means a probe can never fall into the GET handler even if
+    # FastAPI's method handling changes under us.
+    routes = _video_routes()
+    head_at = [i for i, r in enumerate(routes) if "HEAD" in (r.methods or set())]
+    get_at = [i for i, r in enumerate(routes) if "GET" in (r.methods or set())]
+    assert head_at and get_at
+    assert min(head_at) < min(get_at), "the HEAD route must be declared first"

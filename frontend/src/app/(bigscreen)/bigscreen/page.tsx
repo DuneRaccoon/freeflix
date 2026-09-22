@@ -49,38 +49,46 @@ export default function BigScreenDiagnostics() {
   const [listError, setListError] = useState('');
   const [videoSrc, setVideoSrc] = useState('');
   const [videoState, setVideoState] = useState('idle');
+  const [probeError, setProbeError] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const tilesRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setUa(navigator.userAgent);
-    setFacts([
-      ['innerWidth x innerHeight', `${window.innerWidth} x ${window.innerHeight}`],
-      ['screen.width x height', `${window.screen.width} x ${window.screen.height}`],
-      ['devicePixelRatio', String(window.devicePixelRatio)],
-      ['language', navigator.language],
-      ['MediaSource present', String(typeof window.MediaSource !== 'undefined')],
-    ]);
+    // This page's whole purpose is to survive an engine nobody has tested it on, so a
+    // probe throwing here must degrade to a visible, readable error — never to a blank
+    // section (see the same failure mode fixed for the torrent list below).
+    try {
+      setUa(navigator.userAgent);
+      setFacts([
+        ['innerWidth x innerHeight', `${window.innerWidth} x ${window.innerHeight}`],
+        ['screen.width x height', `${window.screen.width} x ${window.screen.height}`],
+        ['devicePixelRatio', String(window.devicePixelRatio)],
+        ['language', navigator.language],
+        ['MediaSource present', String(typeof window.MediaSource !== 'undefined')],
+      ]);
 
-    const s = (prop: string, value: string) =>
-      typeof CSS !== 'undefined' && CSS.supports ? CSS.supports(prop, value) : false;
+      const s = (prop: string, value: string) =>
+        typeof CSS !== 'undefined' && CSS.supports ? CSS.supports(prop, value) : false;
 
-    setProbes([
-      { label: 'CSS custom properties', ok: s('color', 'var(--x)') },
-      { label: 'CSS grid', ok: s('display', 'grid') },
-      { label: 'position: sticky', ok: s('position', 'sticky') },
-      { label: 'object-fit', ok: s('object-fit', 'contain') },
-      { label: 'oklch() — Tailwind v4 needs this', ok: s('color', 'oklch(50% 0.1 200)') },
-      { label: 'color-mix() — Tailwind v4 needs this', ok: s('color', 'color-mix(in srgb, red, blue)') },
-      { label: ':has()', ok: typeof CSS !== 'undefined' && CSS.supports ? CSS.supports('selector(:has(*))') : false },
-      { label: 'container queries', ok: s('container-type', 'inline-size') },
-      { label: 'aspect-ratio', ok: s('aspect-ratio', '16 / 9') },
-      { label: 'backdrop-filter', ok: s('backdrop-filter', 'blur(4px)') },
-      { label: 'CSS.registerProperty (@property)', ok: typeof (CSS as unknown as { registerProperty?: unknown }).registerProperty !== 'undefined' },
-      { label: 'JS: Array.prototype.at', ok: typeof (Array.prototype as unknown as { at?: unknown }).at === 'function' },
-      { label: 'JS: Object.hasOwn', ok: typeof (Object as unknown as { hasOwn?: unknown }).hasOwn === 'function' },
-      { label: 'JS: structuredClone', ok: typeof (window as unknown as { structuredClone?: unknown }).structuredClone === 'function' },
-    ]);
+      setProbes([
+        { label: 'CSS custom properties', ok: s('color', 'var(--x)') },
+        { label: 'CSS grid', ok: s('display', 'grid') },
+        { label: 'position: sticky', ok: s('position', 'sticky') },
+        { label: 'object-fit', ok: s('object-fit', 'contain') },
+        { label: 'oklch() — Tailwind v4 needs this', ok: s('color', 'oklch(50% 0.1 200)') },
+        { label: 'color-mix() — Tailwind v4 needs this', ok: s('color', 'color-mix(in srgb, red, blue)') },
+        { label: ':has()', ok: typeof CSS !== 'undefined' && CSS.supports ? CSS.supports('selector(:has(*))') : false },
+        { label: 'container queries', ok: s('container-type', 'inline-size') },
+        { label: 'aspect-ratio', ok: s('aspect-ratio', '16 / 9') },
+        { label: 'backdrop-filter', ok: s('backdrop-filter', 'blur(4px)') },
+        { label: 'CSS.registerProperty (@property)', ok: typeof (CSS as unknown as { registerProperty?: unknown }).registerProperty !== 'undefined' },
+        { label: 'JS: Array.prototype.at', ok: typeof (Array.prototype as unknown as { at?: unknown }).at === 'function' },
+        { label: 'JS: Object.hasOwn', ok: typeof (Object as unknown as { hasOwn?: unknown }).hasOwn === 'function' },
+        { label: 'JS: structuredClone', ok: typeof (window as unknown as { structuredClone?: unknown }).structuredClone === 'function' },
+      ]);
+    } catch (err) {
+      setProbeError(`Feature probing failed: ${String(err)}`);
+    }
   }, []);
 
   useEffect(() => {
@@ -93,8 +101,10 @@ export default function BigScreenDiagnostics() {
   }, []);
 
   useEffect(() => {
+    // preventScroll: focusing the first tile must not scroll the verdict banner (the
+    // single most important readout on this page) out of view on load.
     const first = tilesRef.current?.querySelector('button');
-    if (first instanceof HTMLElement) first.focus();
+    if (first instanceof HTMLElement) first.focus({ preventScroll: true });
   }, []);
 
   // Roving focus across the demo tiles, so the real remote's D-pad can be verified.
@@ -121,7 +131,7 @@ export default function BigScreenDiagnostics() {
         return;
       }
       const body = await res.json();
-      setTorrents(Array.isArray(body) ? body : (body.torrents ?? []));
+      setTorrents(Array.isArray(body) ? body : (Array.isArray(body?.torrents) ? body.torrents : []));
     } catch (err) {
       setListError(`fetch failed: ${String(err)}`);
     }
@@ -178,6 +188,7 @@ export default function BigScreenDiagnostics() {
       </table>
 
       <h2>Feature probes</h2>
+      {probeError ? <p className="bs-no">{probeError}</p> : null}
       <table className="bs-facts">
         <tbody>
           {probes.map((p) => (
@@ -226,8 +237,8 @@ export default function BigScreenDiagnostics() {
       </div>
       {listError ? <p className="bs-no">{listError}</p> : null}
       <div className="bs-controls">
-        {torrents.map((t) => (
-          <button className="bs-btn bs-btn--ghost" type="button" key={t.torrent_id ?? t.id}
+        {torrents.map((t, i) => (
+          <button className="bs-btn bs-btn--ghost" type="button" key={t.torrent_id ?? t.id ?? i}
                   onClick={() => play(t)}>
             {t.movie_title ?? t.name ?? t.torrent_id ?? t.id}
           </button>

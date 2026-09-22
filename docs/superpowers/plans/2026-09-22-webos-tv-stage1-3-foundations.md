@@ -1169,7 +1169,7 @@ describe('Chromium 87 target', () => {
   it('does not import framer-motion or tailwind on the TV surface', () => {
     const offences: string[] = [];
     for (const file of walk(BIGSCREEN_DIR)) {
-      if (file.endsWith('.test.ts')) continue;
+      if (file.endsWith('.test.ts') || file.endsWith('.test.tsx')) continue;
       const src = readFileSync(file, 'utf8');
       // No opt-out here: nothing on the TV surface may pull in Tailwind or framer-motion.
       if (src.includes('framer-motion')) offences.push(`${file}: framer-motion`);

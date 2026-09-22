@@ -514,6 +514,12 @@ profile to allow 2160p. Rationale in decision 9.
 - The TV scrub bar draws that boundary and **refuses to seek past it**. Prevention over a better error
   message: today a forward seek past the downloaded region holds the socket open silently for up to
   300s and a TV simply times out with a generic failure.
+- **The TV player must honour the `503` + `Retry-After` the stream endpoint now returns when the
+  first chunk is not yet available.** Stage 1 made that failure retryable; nothing retries it yet.
+  Nothing in the frontend keys on `503` today, and the existing recovery path classifies by
+  `MediaError.code`, not HTTP status — so without this the 503 degrades into the same opaque
+  playback failure it was introduced to replace. This is a stage-7 requirement, surfaced by the
+  stage-1 review.
 
 ### 7.5 Subtitles (v1, sidecar only)
 

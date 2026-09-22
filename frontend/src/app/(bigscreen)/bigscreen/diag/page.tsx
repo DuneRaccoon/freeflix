@@ -3,13 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
- * The stage-3 gate, rendered on the TV itself.
+ * /bigscreen/diag — the stage-3 gate, and afterwards a permanent field tool.
+ *
+ * It lives on /diag, NOT on /bigscreen, for two reasons. Spec §5.1 assigns
+ * /bigscreen to the TV home screen, so leaving the instrument there would mean
+ * stage 4 deletes it; and on a television you cannot open devtools without
+ * Developer Mode, so this page is the only way to read the engine version, the
+ * feature probes, the remote's key codes and an HTTP status off the device.
  *
  * Reports the web-engine version (the single fact that decides the CSS target —
  * Settings > Support shows firmware only, never the engine), probes the CSS and JS
  * features the design depends on, renders the FRE tokens at TV sizes so we can see
- * whether the hand-written stylesheet actually works, logs remote key codes, and
- * plays a real library file through a plain <video>.
+ * whether the hand-written stylesheet actually works, logs remote key codes, plays
+ * a real library file through a plain <video>, and reads back the raw HTTP status
+ * of a far-seek Range request (MediaError.code alone cannot tell a 503 from
+ * anything else).
  *
  * Runs unauthenticated, so browse it with AUTH_ENABLED=false set temporarily on the
  * backend (revert immediately afterwards).
@@ -49,6 +57,7 @@ export default function BigScreenDiagnostics() {
   const [listError, setListError] = useState('');
   const [videoSrc, setVideoSrc] = useState('');
   const [videoState, setVideoState] = useState('idle');
+  const [rangeProbe, setRangeProbe] = useState('');
   const [probeError, setProbeError] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const tilesRef = useRef<HTMLDivElement | null>(null);
@@ -154,6 +163,45 @@ export default function BigScreenDiagnostics() {
     if (v && Number.isFinite(v.duration)) v.currentTime = v.duration * f;
   }, []);
 
+  // A far seek into a not-yet-downloaded region is now answered 503 + Retry-After
+  // rather than a held-open 206 that truncates. <video> reports that as
+  // MediaError.code 2 or 4, identical to a dozen unrelated failures, so the gate
+  // cannot be answered by watching the element. This reads the status directly.
+  const probeFarRange = useCallback(async () => {
+    if (!videoSrc) {
+      setRangeProbe('Start a title first — the probe needs a stream URL.');
+      return;
+    }
+    setRangeProbe('probing…');
+    try {
+      // HEAD gives the full-file length without touching the torrent, which also
+      // exercises the new metadata-only HEAD route.
+      const head = await fetch(videoSrc, { method: 'HEAD' });
+      const len = head.headers.get('Content-Length');
+      const size = head.ok && len ? parseInt(len, 10) : 0;
+      // 90% in is past anything a sequential download has reached.
+      const from = size > 0 ? Math.floor(size * 0.9) : 1024 * 1024 * 1024;
+      const res = await fetch(videoSrc, { headers: { Range: 'bytes=' + from + '-' } });
+      const retryAfter = res.headers.get('Retry-After');
+      const contentRange = res.headers.get('Content-Range');
+      setRangeProbe(
+        'HEAD -> ' + head.status + ', Content-Length=' + (len || '(absent)') + '\n' +
+        'GET Range: bytes=' + from + '- -> ' + res.status + ' ' + res.statusText + '\n' +
+        'Retry-After=' + (retryAfter === null ? '(absent)' : retryAfter) + '\n' +
+        'Content-Range=' + (contentRange === null ? '(absent)' : contentRange) + '\n' +
+        (res.status === 503
+          ? 'VERDICT: the new 503 path fired. A TV client must retry after Retry-After.'
+          : res.status === 206
+            ? 'VERDICT: the range was already available — seek further, or pick a title earlier in its download.'
+            : 'VERDICT: unexpected status; record it in the gate notes.')
+      );
+      // Never drain the body: on a 206 it is the rest of the film.
+      if (res.body && typeof res.body.cancel === 'function') res.body.cancel();
+    } catch (err) {
+      setRangeProbe('probe failed: ' + String(err));
+    }
+  }, [videoSrc]);
+
   const major = chromeMajor(ua);
   const verdictClass =
     major === null ? 'bs-verdict bs-verdict--unknown'
@@ -234,7 +282,9 @@ export default function BigScreenDiagnostics() {
         <button className="bs-btn bs-btn--ghost" type="button" onClick={() => seek(-10)}>-10s</button>
         <button className="bs-btn bs-btn--ghost" type="button" onClick={() => seek(60)}>+60s</button>
         <button className="bs-btn bs-btn--ghost" type="button" onClick={() => seekFraction(0.9)}>Seek to 90%</button>
+        <button className="bs-btn bs-btn--ghost" type="button" onClick={probeFarRange}>Probe far seek (HTTP)</button>
       </div>
+      {rangeProbe ? <pre className="bs-probe">{rangeProbe}</pre> : null}
       {listError ? <p className="bs-no">{listError}</p> : null}
       <div className="bs-controls">
         {torrents.map((t, i) => (

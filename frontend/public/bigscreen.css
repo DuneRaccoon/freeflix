@@ -1,9 +1,14 @@
 /* ============================================================
    Freeflix — big-screen (10-foot) stylesheet.
    TARGET: Chromium 87 (webOS TV 22). Plain CSS only, no build step.
-   legacy-target.test.ts holds the list of constructs banned here and fails the
-   build if any appears. Tokens mirror the FRE Editorial-Noir set, which is
-   already plain hex, so they need no translation.
+   legacy-target.test.ts holds the list of constructs banned here. It is a vitest
+   file, so it runs under `npm test` / `npm run test:tv` — NOT during `next build`,
+   which happens inside the Docker image build where a test failure must not break
+   the image.
+   The colour tokens are COPIES of the FRE Editorial-Noir set in
+   src/app/(web)/globals.css (--ink here, --color-ink there). bigscreen-tokens
+   .test.ts pins the two lists together, because drift here is invisible until
+   somebody looks at a television.
    ============================================================ */
 
 :root {
@@ -18,8 +23,11 @@
   --danger: #E5564B;
   --success: #7BDCA0;
 
+  /* No webfont is loaded on this surface — no next/font, no @font-face — so both
+     stacks name only faces the TV already has. Listing a family nobody loads
+     (the web surface's Inter Tight) would just read as a promise the TV breaks. */
   --font-display: Georgia, "Times New Roman", serif;
-  --font-ui: "Inter Tight", system-ui, -apple-system, Arial, sans-serif;
+  --font-ui: system-ui, -apple-system, Arial, sans-serif;
 
   /* 1920x1080 CSS px regardless of panel resolution; 5% safe area. */
   --safe-x: 96px;
@@ -144,3 +152,33 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-btn:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
 .bs-btn--ghost { background: transparent; color: var(--text); border: 1px solid var(--hairline); }
+
+/* --- raw HTTP probe readout ----------------------------------------- */
+.bs-probe {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 16px 24px;
+  margin: 0 0 32px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--gold-lite);
+}
+
+/* --- error boundary -------------------------------------------------- */
+/* The TV has no console, so an uncaught render error has to say something. */
+.bs-error {
+  padding: var(--safe-y) var(--safe-x);
+  height: 100%;
+  overflow-y: auto;
+}
+.bs-error h1 { color: var(--danger); }
+.bs-error pre {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 16px 24px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--muted);
+}

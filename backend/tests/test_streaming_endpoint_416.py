@@ -50,3 +50,24 @@ def test_satisfiable_range_returns_206(stub_video):
     )
     assert r.status_code == 206
     assert r.headers["Content-Range"] == "bytes 0-99/1000"
+
+
+def test_multipart_range_serves_full_body_200(stub_video):
+    # RFC 7233 §3.1: an unimplementable/invalid Range must be IGNORED, not 500,
+    # and not 416 (which invites the client to give up rather than retry).
+    r = client.get(
+        "/api/v1/streaming/tid-1/video",
+        headers={"Range": "bytes=0-99,200-299"},
+    )
+    assert r.status_code == 200
+    assert "Content-Range" not in r.headers
+    assert r.headers["Content-Length"] == "1000"
+
+
+def test_garbage_range_serves_full_body_200(stub_video):
+    r = client.get(
+        "/api/v1/streaming/tid-1/video",
+        headers={"Range": "bytes=abc-def"},
+    )
+    assert r.status_code == 200
+    assert "Content-Range" not in r.headers

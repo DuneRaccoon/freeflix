@@ -79,6 +79,11 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
 
     spec = range_header[len('bytes='):].strip()
 
+    # A multipart range ("0-99,200-299") is legal HTTP we do not implement.
+    # Answering it with a single-part 206 would be a lie, so ignore the header.
+    if ',' in spec:
+        return RANGE_MALFORMED
+
     if '-' not in spec:
         return RANGE_MALFORMED
 

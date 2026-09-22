@@ -1,6 +1,6 @@
 """parse_range_header must signal HTTP 416 (not silently clamp) when the
 requested range starts at or beyond the file size."""
-from app.api.streaming import parse_range_header, RANGE_NOT_SATISFIABLE
+from app.api.streaming import parse_range_header, RANGE_NOT_SATISFIABLE, RANGE_MALFORMED
 
 
 def test_no_range_header_returns_full_file():
@@ -31,3 +31,21 @@ def test_start_beyond_filesize_is_unsatisfiable():
 
 def test_empty_file_any_range_unsatisfiable():
     assert parse_range_header("bytes=0-", 0) is RANGE_NOT_SATISFIABLE
+
+
+def test_multipart_range_is_malformed_not_parsed():
+    # Legal HTTP we do not implement. int('99,200') used to raise -> HTTP 500.
+    assert parse_range_header("bytes=0-99,200-299", 1000) is RANGE_MALFORMED
+
+
+def test_non_numeric_range_is_malformed():
+    assert parse_range_header("bytes=abc-def", 1000) is RANGE_MALFORMED
+    assert parse_range_header("bytes=10-abc", 1000) is RANGE_MALFORMED
+
+
+def test_end_before_start_is_malformed():
+    assert parse_range_header("bytes=500-100", 1000) is RANGE_MALFORMED
+
+
+def test_missing_dash_is_malformed():
+    assert parse_range_header("bytes=500", 1000) is RANGE_MALFORMED

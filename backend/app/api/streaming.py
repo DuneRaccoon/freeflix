@@ -43,32 +43,70 @@ def get_mime_type(file_path: str) -> str:
     return VIDEO_MIME_TYPES.get(ext, mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
 
 # Sentinel returned by parse_range_header for an unsatisfiable range
-# (start >= file_size). The endpoint maps this to HTTP 416.
+# (start >= file_size, or a zero-length suffix). The endpoint maps this to HTTP 416.
 RANGE_NOT_SATISFIABLE = (-1, -1)
+
+# Sentinel for a syntactically invalid range, or one we do not implement
+# (multipart). RFC 7233 §3.1 requires such a header to be IGNORED, so the
+# endpoint serves 200 with the full body rather than 416 — a 416 invites a
+# client to give up instead of retrying with a single range.
+RANGE_MALFORMED = (-2, -2)
 
 
 def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
     """Parse a Range header into (start, end) inclusive byte positions.
 
-    Returns RANGE_NOT_SATISFIABLE when the requested start is at or beyond
-    file_size (HTTP 416). end past EOF is clamped; start is NOT clamped — an
-    out-of-bounds start is a client error, not something to silently rewrite.
+    Returns RANGE_NOT_SATISFIABLE when the range cannot be satisfied (HTTP 416),
+    and RANGE_MALFORMED when the header is syntactically invalid or asks for
+    something we do not implement (RFC 7233 §3.1: ignore it and serve the whole
+    body). end past EOF is clamped; an out-of-bounds start is a client error.
     """
     if not range_header or not range_header.startswith('bytes='):
         if file_size <= 0:
             return RANGE_NOT_SATISFIABLE
         return 0, file_size - 1
 
-    ranges = range_header.replace('bytes=', '').split('-')
-    start = int(ranges[0]) if ranges[0] else 0
-    end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
-
-    if file_size <= 0 or start >= file_size or start < 0:
+    if file_size <= 0:
         return RANGE_NOT_SATISFIABLE
 
-    # Clamp the end to the last byte; start stays as requested (already in bounds).
-    end = max(start, min(end, file_size - 1))
-    return start, end
+    spec = range_header[len('bytes='):].strip()
+
+    if '-' not in spec:
+        return RANGE_MALFORMED
+
+    first, _, last = spec.partition('-')
+    first, last = first.strip(), last.strip()
+
+    try:
+        if not first:
+            # SUFFIX range: "bytes=-N" is the LAST N bytes, not the first N.
+            # Media pipelines use this to find a container index at EOF, so
+            # treating the empty first field as start=0 serves the wrong bytes
+            # under a 206 that claims otherwise.
+            if not last:
+                return RANGE_MALFORMED          # "bytes=-" means nothing
+            n = int(last)
+            if n <= 0:
+                return RANGE_NOT_SATISFIABLE    # "the last 0 bytes"
+            return max(0, file_size - n), file_size - 1
+
+        start = int(first)
+        end = int(last) if last else file_size - 1
+    except ValueError:
+        return RANGE_MALFORMED
+
+    if start < 0:
+        return RANGE_MALFORMED
+    if start >= file_size:
+        return RANGE_NOT_SATISFIABLE
+    # Checked after the out-of-bounds start: an open-ended range ("bytes=5000-")
+    # defaults end to file_size - 1, which is < start whenever start is past EOF.
+    # Checking end < start first would misreport that as malformed instead of
+    # unsatisfiable and break test_start_beyond_filesize_is_unsatisfiable.
+    if end < start:
+        return RANGE_MALFORMED
+
+    return start, min(end, file_size - 1)
 
 @router.get(
     "/{torrent_id}/video",
@@ -135,7 +173,14 @@ async def stream_video(
                 status_code=416,
                 headers={"Content-Range": f"bytes */{file_size}"},
             )
-        start, end = parsed
+        if parsed is RANGE_MALFORMED:
+            # RFC 7233 §3.1 — ignore an invalid range and serve the whole body.
+            # Clearing range_header is what makes the status 200 below, and what
+            # keeps Content-Range out of the response.
+            range_header = None
+            start, end = 0, file_size - 1
+        else:
+            start, end = parsed
         
         # Chunk size for streaming (1MB)
         chunk_size = 1024 * 1024
@@ -148,11 +193,12 @@ async def stream_video(
         
         # Create response headers
         headers = {
-            "Content-Range": f"bytes {start}-{end}/{file_size}",
             "Accept-Ranges": "bytes",
             "Content-Length": str(content_length),
             "Content-Type": content_type,
         }
+        if range_header:
+            headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
         
         # Return streaming response with appropriate status code
         status_code = 206 if range_header else 200

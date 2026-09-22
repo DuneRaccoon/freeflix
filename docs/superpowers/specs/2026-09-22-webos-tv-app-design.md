@@ -304,6 +304,8 @@ frontend/src/app/
     layout.tsx        <- own <html>/<body>; <link rel="stylesheet" href="/bigscreen.css">
     bigscreen/
       page.tsx              home
+      diag/page.tsx         diagnostics — the stage-3 instrument, kept as a permanent
+                            field tool because a TV has no devtools without Dev Mode
       pair/page.tsx         pairing
       profiles/page.tsx     who's watching
       search/page.tsx       grid keyboard + results
@@ -312,6 +314,9 @@ frontend/src/app/
       watch/[id]/page.tsx   player
       list/page.tsx         my list
 ```
+
+`(bigscreen)/error.tsx` is the surface's error boundary: on a device with no console an uncaught
+render error is otherwise a blank screen.
 
 A route group alone does not escape `app/layout.tsx`; two **root** layouts require that no
 `app/layout.tsx` exists and every route sits in a group. The alternative — branching the root layout

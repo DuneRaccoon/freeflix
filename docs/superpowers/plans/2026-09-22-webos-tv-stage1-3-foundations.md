@@ -40,9 +40,11 @@
 | `backend/tests/test_first_chunk_precheck.py` | NEW — unavailable first chunk yields 503, not a truncated 206 | 5 |
 | `frontend/src/app/(web)/**` | Every existing route, moved. URLs unchanged | 6 |
 | `frontend/src/app/(bigscreen)/layout.tsx` | TV root layout: own `<html>`/`<body>`, links `bigscreen.css`, no Tailwind | 7 |
-| `frontend/src/app/(bigscreen)/bigscreen/page.tsx` | The stage-3 diagnostic instrument | 7 |
+| `frontend/src/app/(bigscreen)/bigscreen/diag/page.tsx` | The stage-3 diagnostic instrument, kept permanently at `/bigscreen/diag` | 7 |
+| `frontend/src/app/(bigscreen)/error.tsx` | TV error boundary — the device has no console | 7 |
 | `frontend/public/bigscreen.css` | Hand-authored TV stylesheet (tokens + base + diagnostic styles) | 7 |
-| `frontend/src/app/(bigscreen)/legacy-target.test.ts` | Guard: greps the TV surface for forbidden constructs | 7 |
+| `frontend/src/app/(bigscreen)/legacy-target.test.ts` | Guard: greps the TV surface for forbidden constructs, bans `@/components` imports, pins the opt-out set | 7 |
+| `frontend/src/app/(bigscreen)/bigscreen-tokens.test.ts` | Pins the ten TV colour tokens to their `globals.css` originals | 7 |
 | `frontend/package.json` | `browserslist` pinned to chrome 87 | 7 |
 | `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md` | The gate's recorded findings + decision branches | 8 |
 
@@ -1072,25 +1074,34 @@ output in @layer, which Chromium 87 discards wholesale. URLs are unchanged."
 
 ## Task 7: `/bigscreen` skeleton, its stylesheet, and the diagnostic instrument
 
-The skeleton page *is* the stage-3 instrument: it reports the engine version, probes the CSS and
-JS features the design depends on, renders every FRÈ token at TV sizes so we can see whether the
-hand-written stylesheet works, logs remote key codes, and plays a real library file through a
-plain `<video>`.
+The stage-3 instrument lives at **`/bigscreen/diag`**, not at `/bigscreen`. Spec §5.1 assigns
+`/bigscreen` to the TV home screen, so leaving the instrument there would mean stage 4 deletes or
+overwrites it — on a device where you cannot open devtools without Developer Mode. On `/diag` it
+survives as a permanent field tool. It reports the engine version, probes the CSS and JS features
+the design depends on, renders every FRÈ token at TV sizes so we can see whether the hand-written
+stylesheet works, logs remote key codes, plays a real library file through a plain `<video>`, and
+reads back the raw HTTP status of a far-seek Range request.
 
 **Files:**
 - Create: `frontend/src/app/(bigscreen)/layout.tsx`
-- Create: `frontend/src/app/(bigscreen)/bigscreen/page.tsx`
+- Create: `frontend/src/app/(bigscreen)/bigscreen/diag/page.tsx`
+- Create: `frontend/src/app/(bigscreen)/error.tsx`
 - Create: `frontend/public/bigscreen.css`
 - Create: `frontend/src/app/(bigscreen)/legacy-target.test.ts`
-- Modify: `frontend/package.json` (add `browserslist`)
+- Create: `frontend/src/app/(bigscreen)/bigscreen-tokens.test.ts`
+- Modify: `frontend/package.json` (add `browserslist` and the `test:tv` script)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks (deliberately — it must work before pairing exists).
-- Produces: the route `/bigscreen`, served with no Tailwind, no providers and no auth gate.
+- Produces: the route `/bigscreen/diag`, served with no Tailwind, no providers and no auth gate.
 
 - [ ] **Step 1: Write the failing guard test**
 
-Create `frontend/src/app/(bigscreen)/legacy-target.test.ts`:
+Create `frontend/src/app/(bigscreen)/legacy-target.test.ts`. The sketch below is the
+forbidden-construct scan only; the shipped file also bans `@/components` imports (the guard is
+directory-scoped, so one such import puts Tailwind on the TV with the guard still green) and pins
+the set of files allowed to carry `@allow-legacy-probes` to exactly the diagnostics page. Read the
+committed file, not this block, when changing it.
 
 ```ts
 /**
@@ -1389,7 +1400,7 @@ export default function BigScreenLayout({
 
 - [ ] **Step 5: Write the diagnostic page**
 
-Create `frontend/src/app/(bigscreen)/bigscreen/page.tsx`. This is the stage-3 instrument.
+Create `frontend/src/app/(bigscreen)/bigscreen/diag/page.tsx`. This is the stage-3 instrument.
 
 ```tsx
 'use client';
@@ -1672,12 +1683,17 @@ category of "the TV is blank" syntax-error debugging.
 
 ```bash
 cd /Users/benjaminherro/github/freeflix/frontend
-npx vitest run 'src/app/(bigscreen)' 2>&1 | tail -20
+npm run test:tv 2>&1 | tail -20
 npx tsc --noEmit
 npm run build
 ```
 
-Expected: guard test PASSES, typecheck clean, build lists a new `/bigscreen` route.
+`test:tv` is `vitest run 'src/app/(bigscreen)'`. It is deliberately NOT part of `build`:
+`next build` runs inside the Docker image build, and an unrelated test failure must not be able to
+break an image. Nothing in CI runs it either — running it before committing TV work is the
+enforcement.
+
+Expected: guard test PASSES, typecheck clean, build lists a new `/bigscreen/diag` route.
 
 If the guard fails **on the diagnostics page**, its `@allow-legacy-probes` marker is missing or
 misspelled — that page names banned features deliberately. If it fails on any *other* file, fix
@@ -1688,11 +1704,11 @@ identifier, tighten the pattern rather than dropping the entry.
 
 ```bash
 cd /Users/benjaminherro/github/freeflix && make up d=1 && sleep 20
-curl -s -o /dev/null -w 'bigscreen -> %{http_code}\n' http://localhost:3001/bigscreen
+curl -s -o /dev/null -w 'diag -> %{http_code}\n' http://localhost:3001/bigscreen/diag
 curl -s -o /dev/null -w 'stylesheet -> %{http_code}\n' http://localhost:3001/bigscreen.css
 ```
 
-Expected: both 200. Open `http://localhost:3001/bigscreen` in a desktop browser: the verdict
+Expected: both 200. Open `http://localhost:3001/bigscreen/diag` in a desktop browser: the verdict
 banner should report your desktop Chrome major (≥111, green), every swatch distinct, Left/Right
 moving the gold ring, and the key log responding.
 
@@ -1707,8 +1723,9 @@ A second root layout with no Tailwind and no providers, a hand-authored
 Chromium-87-safe stylesheet linked straight from public/ so it bypasses
 PostCSS, and a diagnostics page that reports the engine version, probes the
 CSS/JS features the design depends on, logs remote key codes and plays a
-library file through a plain <video>. A guard test fails the build if post-87
-CSS or JS reaches the TV surface."
+library file through a plain <video>. A vitest guard (npm run test:tv) fails if
+post-87 CSS or JS reaches the TV surface, if anything there imports
+@/components, or if the TV colour tokens drift from globals.css."
 ```
 
 ---
@@ -1723,7 +1740,7 @@ Mode, no packaging.
 - Create: `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`
 
 **Interfaces:**
-- Consumes: `/bigscreen` from Task 7; the backend fixes from Tasks 1–5.
+- Consumes: `/bigscreen/diag` from Task 7; the backend fixes from Tasks 1–5.
 - Produces: recorded findings that decide the CSS strategy, the codec profile and whether the design needs revising.
 
 - [ ] **Step 1: Prepare the instance**
@@ -1743,7 +1760,7 @@ list torrents before pairing exists. **Revert this immediately after the test.**
 
 - [ ] **Step 2: Read the engine version off the TV**
 
-On the TV: Home → Web Browser → `http://<host-ip>:3001/bigscreen`.
+On the TV: Home → Web Browser → `http://<host-ip>:3001/bigscreen/diag`.
 
 Record the full user-agent string and the `Chrome/NN` major from the verdict banner. Also note the
 model number from Settings → Support → TV Information (firmware only — it does **not** show the
@@ -1769,9 +1786,10 @@ For each test title: press List torrents, select it, and record
 - whether audio is present (the AC3 case is the one that matters);
 - `-10s`, `+60s` and `Seek to 90%` — does each seek land and resume;
 - for a still-downloading title, whether `Seek to 90%` produces the new **503** from Task 5
-  rather than a silent stall. Use the diagnostics page's HTTP-status probe for this — a
-  `<video>` element only ever reports `MediaError.code`, so the status is otherwise
-  unobservable on a TV with no devtools.
+  rather than a silent stall. Press **Probe far seek (HTTP)** on the diagnostics page and record
+  the whole readout (HEAD status, GET status, `Retry-After`, `Content-Range`) — a `<video>`
+  element only ever reports `MediaError.code`, which cannot tell a 503 from a decode failure, so
+  the status is otherwise unobservable on a TV with no devtools.
 
 - [ ] **Step 6: Write up the results**
 
@@ -1780,7 +1798,7 @@ Create `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`:
 ```markdown
 # webOS TV — stage 3 gate results
 
-Run: <date>. Instance at http://<host>:3001/bigscreen, TV built-in browser.
+Run: <date>. Instance at http://<host>:3001/bigscreen/diag, TV built-in browser.
 
 ## Device
 | Fact | Value |

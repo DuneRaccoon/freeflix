@@ -126,6 +126,49 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
 
     return start, min(end, file_size - 1)
 
+@router.head(
+    "/{torrent_id}/video",
+    summary="Metadata-only probe for a video stream",
+    # Registered ABOVE the GET route on purpose. Starlette adds HEAD to every GET
+    # route and cannot be told not to, and it matches routes in registration
+    # order — so this must come first or a HEAD probe runs the full GET handler:
+    # prioritize_video_files + force_start_for_stream (a DB write) and then the
+    # piece-gated generator, which can block for up to 300s before the body is
+    # discarded. TV media pipelines probe with HEAD before GET.
+    dependencies=[Depends(require_session_silent)],
+)
+async def head_video(
+    torrent_id: str = Path(..., description="ID of the torrent"),
+    quality: Optional[str] = Query(None, description="Accepted for parity with GET; unused"),
+    file_index: Optional[int] = Query(None, description="Index of the file to probe (season packs)"),
+):
+    """Answer a HEAD probe from metadata alone: no prioritisation, no piece waiting."""
+    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
+    if not video_info:
+        if file_index is not None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Video file index {file_index} not found in this torrent",
+            )
+        raise HTTPException(
+            status_code=404,
+            detail="Video file not found or not ready for streaming",
+        )
+
+    file_path = video_info["path"]
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+    file_size = os.path.getsize(file_path)
+    return Response(
+        status_code=200,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+            "Content-Type": get_mime_type(file_path),
+        },
+    )
+
 @router.get(
     "/{torrent_id}/video",
     summary="Stream video from a torrent",

@@ -57,14 +57,22 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
     """Parse a Range header into (start, end) inclusive byte positions.
 
     Returns RANGE_NOT_SATISFIABLE when the range cannot be satisfied (HTTP 416),
-    and RANGE_MALFORMED when the header is syntactically invalid or asks for
-    something we do not implement (RFC 7233 §3.1: ignore it and serve the whole
-    body). end past EOF is clamped; an out-of-bounds start is a client error.
+    and RANGE_MALFORMED when the header is syntactically invalid, uses a range
+    unit other than "bytes", or asks for something we do not implement
+    (RFC 7233 §3.1: ignore it and serve the whole body). end past EOF is
+    clamped; an out-of-bounds start is a client error.
     """
-    if not range_header or not range_header.startswith('bytes='):
+    if not range_header:
         if file_size <= 0:
             return RANGE_NOT_SATISFIABLE
         return 0, file_size - 1
+
+    if not range_header.startswith('bytes='):
+        # Unsupported range unit (e.g. "items=0-5"). This is NOT "no header at
+        # all" — RFC 7233 §3.1 requires a server that doesn't support the given
+        # unit to IGNORE the header, so the endpoint must serve 200 with no
+        # Content-Range, not silently honor it as if it said "bytes=0-".
+        return RANGE_MALFORMED
 
     if file_size <= 0:
         return RANGE_NOT_SATISFIABLE
@@ -86,8 +94,10 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
             if not last:
                 return RANGE_MALFORMED          # "bytes=-" means nothing
             n = int(last)
-            if n <= 0:
-                return RANGE_NOT_SATISFIABLE    # "the last 0 bytes"
+            if n < 0:
+                return RANGE_MALFORMED          # "bytes=--5": syntax error, not a valid suffix length
+            if n == 0:
+                return RANGE_NOT_SATISFIABLE    # "the last 0 bytes": well-formed but unsatisfiable
             return max(0, file_size - n), file_size - 1
 
         start = int(first)
@@ -95,6 +105,9 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
     except ValueError:
         return RANGE_MALFORMED
 
+    # Defensive guard, not reachable today: partition('-') means a non-empty
+    # `first` can never itself contain a '-', so int(first) can never be
+    # negative. Kept in case that invariant ever changes.
     if start < 0:
         return RANGE_MALFORMED
     if start >= file_size:

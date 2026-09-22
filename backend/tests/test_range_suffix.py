@@ -32,3 +32,22 @@ def test_bare_dash_is_malformed():
 
 def test_whitespace_tolerated():
     assert parse_range_header("bytes= 500 - 799 ", 1000) == (500, 799)
+
+
+def test_unsupported_range_unit_is_malformed():
+    # RFC 7233 3.1: a unit other than "bytes" must be IGNORED (serve 200 with
+    # the full body), not honored as if it were "bytes=0-".
+    assert parse_range_header("items=0-5", 1000) is RANGE_MALFORMED
+
+
+def test_absent_header_still_returns_whole_file():
+    # Pins the split in Finding 1's fix: a genuinely absent header is NOT the
+    # same code path as an unsupported unit, and must still serve (0, size-1).
+    assert parse_range_header(None, 1000) == (0, 999)
+    assert parse_range_header("", 1000) == (0, 999)
+
+
+def test_double_dash_suffix_is_malformed():
+    # "bytes=--5": partition('-') takes the suffix branch with last="-5", so a
+    # negative suffix length is a syntax error, not "the last 0 bytes".
+    assert parse_range_header("bytes=--5", 1000) is RANGE_MALFORMED

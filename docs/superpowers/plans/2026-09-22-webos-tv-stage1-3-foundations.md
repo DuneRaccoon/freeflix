@@ -1360,10 +1360,13 @@ export const metadata: Metadata = {
 /**
  * Second root layout, for the TV surface only.
  *
- * It deliberately imports NO stylesheet: Tailwind v4 wraps its output in @layer,
- * which Chromium 87 (webOS TV 22) does not understand and therefore discards
- * wholesale, leaving an unstyled page. public/bigscreen.css is hand-authored
- * plain CSS and is linked directly so it never passes through PostCSS.
+ * It deliberately imports NO stylesheet: Tailwind v4 wraps its output in cascade
+ * layers, which Chromium 87 (webOS TV 22) does not understand and therefore
+ * discards wholesale, leaving an unstyled page. public/bigscreen.css is
+ * hand-authored plain CSS and is linked directly so it never passes through
+ * PostCSS. (Do not name the at-rule literally here — legacy-target.test.ts
+ * scans component files without stripping comments, so the token itself would
+ * fail the guard. Only the diagnostics page may name banned constructs.)
  *
  * It also mounts none of the app's providers — the TV surface must render before
  * device pairing exists.

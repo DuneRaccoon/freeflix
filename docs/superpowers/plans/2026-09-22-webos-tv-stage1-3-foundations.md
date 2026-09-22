@@ -1769,7 +1769,9 @@ For each test title: press List torrents, select it, and record
 - whether audio is present (the AC3 case is the one that matters);
 - `-10s`, `+60s` and `Seek to 90%` — does each seek land and resume;
 - for a still-downloading title, whether `Seek to 90%` produces the new **503** from Task 5
-  rather than a silent stall.
+  rather than a silent stall. Use the diagnostics page's HTTP-status probe for this — a
+  `<video>` element only ever reports `MediaError.code`, so the status is otherwise
+  unobservable on a TV with no devtools.
 
 - [ ] **Step 6: Write up the results**
 
@@ -1841,6 +1843,10 @@ Pick one and say why:
 - **Proceed, simplified.** Engine at or above 111 — the existing Tailwind v4 stylesheet
   renders. Keep the separate `(bigscreen)` surface (the focus, layout and player work is
   unchanged) but the TV surface may use the normal build, and the guard test relaxes.
+  **Also revert `browserslist: ["chrome 87"]` in `frontend/package.json` on this branch.**
+  That pin is app-wide and permanently downlevels the *web* bundle for a TV-only reason
+  this gate has just disproved (measured cost: `/downloads` 4.45→8.71 kB, `/members`
+  4.55→8.8 kB, `/streaming/[id]` 20.1→24.5 kB).
 - **Revise the codec strategy.** Rendering and remote fine, but direct play or seeking failed.
   Record exactly which files failed and how, then revisit spec §7.2/§7.4 — remember an HLS
   remux is unavailable on a Pi, so the lever is torrent selection, not transcoding.

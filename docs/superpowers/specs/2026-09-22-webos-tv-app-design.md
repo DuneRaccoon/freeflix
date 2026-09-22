@@ -283,7 +283,7 @@ No TLS, reverse proxy or tunnel exists anywhere in the repo. Prod compose publis
 ### 4.8 The FRÈ redesign is not a collision risk
 
 `feat/fre-frontend-redesign` is **fully merged into master** (0 unmerged commits). The Editorial-Noir
-token set lives in `frontend/src/app/globals.css:8-28` as **plain hex**, which is why a Chromium-87
+token set lives in `frontend/src/app/(web)/globals.css:8-28` as **plain hex** (moved there by stage 2), which is why a Chromium-87
 stylesheet can reuse it directly. Source-level modern CSS is modest — 9 `color-mix()` in 4 files,
 3 `:has()` in 1 file, 0 `oklch`, 0 `@property`, 0 `@layer`. The 85 `color-mix()` / 83 `oklab()` /
 65 `@property` / 4 `@layer` in the built CSS are **emitted by Tailwind v4 itself**.

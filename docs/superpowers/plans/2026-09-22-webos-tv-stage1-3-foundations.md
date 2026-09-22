@@ -373,10 +373,14 @@ for genuinely unsatisfiable ranges only."
 
 ## Task 3: `HEAD /{id}/video` returns headers without entering the generator
 
-Starlette adds `HEAD` to every `GET` route and `stream_video` has no method check, so a HEAD
-probe — a common TV first move — runs `prioritize_video_files` + `force_start_for_stream`
-(`backend/app/api/streaming.py:124-127`, which recomputes file priorities and writes to the DB)
-and can block on piece availability for up to 300s before the body is discarded.
+**Corrected during implementation.** Starlette's `Route.__init__` adds `HEAD` to every `GET`
+route, but FastAPI's `APIRoute.__init__` overrides it — it never calls `super().__init__()` and
+sets `self.methods` directly (verified against the pinned fastapi 0.104.1 / starlette 0.27.0). So
+`HEAD /{id}/video` does **not** reach `stream_video`; it matches no method and returns a bare
+**405**. The defect is milder than first described but still real: a TV media pipeline that probes
+with HEAD before GET is refused instead of being told the size and type, and may not fall back.
+The fix is unchanged — and registering above the GET route stays correct, both because it is
+required if FastAPI's method handling ever changes and because it documents the intent.
 
 Starlette matches routes in **registration order** and cannot be stopped from adding HEAD to a
 GET route, so the explicit HEAD route must be declared **above** the GET route in the file.

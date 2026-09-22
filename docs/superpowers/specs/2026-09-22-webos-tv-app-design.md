@@ -201,10 +201,15 @@ nothing until something is focused by accident.
 2. **Multipart ranges 500.** `bytes=0-99,200-299` → `int('99,200')` raises inside the `try` at `:118`,
    caught at `:170-172`, returned as a **JSON 500** which `<video>` feeds to the decoder as corrupt
    media. Any non-numeric range does the same. Both must be **ignored** (200, full body) — see §7.1.
-3. **HEAD enters the piece-gated generator.** Starlette 0.27 auto-adds HEAD to GET routes and
-   `stream_video` has no method check, so a HEAD probe runs
-   `prioritize_video_files` + `force_start_for_stream` (`streaming.py:124-127`) and can block on
-   piece availability up to 300s before the body is discarded.
+3. **HEAD is answered with 405.** *(Corrected during implementation — an earlier draft of this
+   spec said a HEAD probe ran the GET handler and could block for 300s. It does not.* Starlette's
+   `Route.__init__` does call `self.methods.add("HEAD")`, but FastAPI's `APIRoute.__init__`
+   overrides it entirely — it never calls `super().__init__()` and sets
+   `self.methods = {method.upper() for method in methods}` directly. Verified against the pinned
+   fastapi 0.104.1 / starlette 0.27.0.*) So `HEAD /{id}/video` matches no route's method and falls
+   through to a bare **405**. Milder than the original claim, but still wrong for the target: a TV
+   media pipeline that probes with HEAD before GET gets a refusal instead of the size and type it
+   asked for, and may not fall back.
 4. **The 300s cap truncates below `Content-Length`.** `stream_file_range`
    (`torrent/manager.py:1389-1401`) `return`s after a hard `cap = 300.0`, having already promised the
    full length.
@@ -467,8 +472,10 @@ independently is a liability.
    416. RFC 7233 §3.1 requires an invalid `Range` to be ignored, and §4.4 reserves 416 for a range
    that is *unsatisfiable*; a 416 here invites a client to give up rather than retry with a single
    range. (Corrected during planning — an earlier draft of this spec said 416.)
-3. `HEAD` on the video route returns headers only — no generator, no `prioritize_video_files`, no
-   `force_start_for_stream`.
+3. `HEAD` on the video route returns headers only — full-file `Content-Length`, `Content-Type`,
+   `Accept-Ranges`, empty body — instead of 405. It must do no `Range` parsing, no piece waiting,
+   no `prioritize_video_files` and no `force_start_for_stream`, and it must be registered **above**
+   the GET route so it cannot be shadowed if FastAPI's method handling ever changes.
 4. The dead-swarm path returns a definite error rather than truncating below a promised
    `Content-Length`. (`await_pieces_async` and `_adaptive_piece_timeout` already exist and are tested
    but are not wired into `stream_file_range` — wiring them is the natural fix.)
@@ -606,7 +613,7 @@ targets ≥60px tall.
 
 1. **Backend, pytest, TDD.** Every §7.1 fix gets a failing test first: `bytes=-500` returns the real
    last bytes; `bytes=0-99,200-299` and a malformed range both return 200 with the full body; a
-   range starting past EOF returns 416; HEAD returns headers
+   range starting past EOF returns 416; HEAD returns metadata headers rather than 405
    without entering the generator; a dead swarm returns an error rather than a short body. Note
    `backend/tests` is **not** bind-mounted — new files need `make build` or
    `-v "$(pwd)/backend/tests:/opt/freeflix/tests"`.

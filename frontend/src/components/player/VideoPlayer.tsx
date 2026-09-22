@@ -96,6 +96,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // currentTime to force the browser to re-issue the Range request to the backend.
   const recoveryAttemptRef = useRef<number>(0);
   const recoveryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Detaches the one-shot 'loadedmetadata' listener a recovery attempt installs to
+  // restore the playhead after load(). Held in a ref so a second attempt, a source
+  // change or an unmount can never leave a stale one behind.
+  const recoveryRestoreRef = useRef<(() => void) | null>(null);
   const RECOVERY_BACKOFF_MS = [1000, 2000, 4000, 8000];
   const MAX_RECOVERY_ATTEMPTS = RECOVERY_BACKOFF_MS.length;
 
@@ -487,9 +491,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     resetCursorTimeout();
   }, [isTimeBuffered, downloadProgress]);
 
-  // Bounded exponential-backoff recovery: re-seek to currentTime so the browser
-  // re-requests the active Range from the backend. After MAX_RECOVERY_ATTEMPTS we
-  // give up and let the page surface a source switch via onRecoveryExhausted.
+  // Bounded exponential-backoff recovery: reload the element and restore the
+  // playhead so the browser re-requests the active Range from the backend. After
+  // MAX_RECOVERY_ATTEMPTS we give up and let the page surface a source switch via
+  // onRecoveryExhausted.
   const attemptRecovery = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -512,14 +517,47 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const v = videoRef.current;
       if (!v) return;
       try {
-        // Re-seek to the current position (nudge) to force a fresh Range request.
-        const t = v.currentTime;
-        v.currentTime = Math.max(0, t);
-        v.play().catch(err => {
-          if (debug) console.error('Recovery play failed:', err);
-        });
+        // Capture the playhead BEFORE load(): load() resets currentTime to 0 and
+        // discards every buffered range.
+        const t = Math.max(0, v.currentTime);
+
+        // CRITICAL: load() is what makes this attempt do anything at all. Once the
+        // element is in an error state — MediaError set and networkState
+        // NETWORK_NO_SOURCE, which is exactly what the backend's 503 for an
+        // unavailable first chunk produces — writing currentTime is a no-op and
+        // play() does not re-run resource selection. Only load() resets
+        // networkState and re-fetches. Without it all four attempts silently did
+        // nothing and the user was pushed straight to "switch source".
+        v.load();
+
+        // Restore the position once metadata is back. load() drops readyState to
+        // HAVE_NOTHING synchronously, so the seek has to wait for metadata; setting
+        // currentTime before then is discarded.
+        if (recoveryRestoreRef.current) recoveryRestoreRef.current();
+        const restore = () => {
+          recoveryRestoreRef.current = null;
+          const vv = videoRef.current;
+          if (!vv) return;
+          try {
+            if (t > 0) vv.currentTime = t;
+          } catch (e) {
+            if (debug) console.error('Recovery seek failed:', e);
+          }
+          vv.play().catch(err => {
+            if (debug) console.error('Recovery play failed:', err);
+          });
+        };
+        v.addEventListener('loadedmetadata', restore, { once: true });
+        recoveryRestoreRef.current = () => {
+          v.removeEventListener('loadedmetadata', restore);
+          recoveryRestoreRef.current = null;
+        };
+
+        // If the reload fails too, the element fires 'error' again and handleError
+        // walks the ladder to the next (longer) attempt — so the backoff and the
+        // attempt count are untouched by this change.
       } catch (e) {
-        if (debug) console.error('Recovery seek failed:', e);
+        if (debug) console.error('Recovery reload failed:', e);
       }
     }, delay);
   }, [debug, onRecoveryExhausted]);
@@ -634,6 +672,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
       if (recoveryTimeoutRef.current) {
         clearTimeout(recoveryTimeoutRef.current);
+      }
+      if (recoveryRestoreRef.current) {
+        recoveryRestoreRef.current();
       }
     };
   }, [src, debug, updateVolumeFromMouseMove, stopVolumeDrag]);
@@ -970,6 +1011,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (recoveryTimeoutRef.current) {
           clearTimeout(recoveryTimeoutRef.current);
           recoveryTimeoutRef.current = null;
+        }
+        if (recoveryRestoreRef.current) {
+          recoveryRestoreRef.current();
         }
       } catch (e) {
         console.error("Error in playing event:", e);

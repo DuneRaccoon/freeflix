@@ -112,9 +112,9 @@ The Boys S01E01 The Name of the Game 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.mkv
 mime: video/x-matroska
 ```
 
-| Title | Container / video / audio | Plays | Resolution | Audio | -10s | +60s | 90% | MediaError |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| The Boys S01E01 (1080p AMZN WEB-DL) | `.mkv` (Matroska) / H.264 / DDP5.1 (E-AC3) | **yes — direct play** | not transcribed (the release is 1080p; `videoWidth x videoHeight` was not copied off the metadata line) | **yes** | **yes** (scrubbing within already-downloaded regions worked) | **yes**, within the downloaded region | **not tested** — at ~26% downloaded, 90% is past the download point, and that seek was not attempted | none observed |
+| Title | Container / video / audio | Plays | Resolution | Audio | Scrub (downloaded region) | Seek past download point | MediaError |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| The Boys S01E01 (1080p AMZN WEB-DL) | `.mkv` (Matroska) / H.264 / DDP5.1 (E-AC3) | **yes — direct play** | not transcribed (the release is 1080p; `videoWidth x videoHeight` was not copied off the metadata line) | **yes** | **yes** — scrubbing worked. Specific offsets were not recorded, so no individual seek distance is claimed | **not tested** — at ~26% downloaded, any seek past that point was not attempted | no problems reported (the overlay's `MediaError.code` was not read) |
 
 **Passed, and why each one matters:**
 
@@ -177,8 +177,11 @@ readable at viewing distance.
 
 So **stage 4's justification narrows**:
 
-- It is needed for **D-pad navigation** (nothing calls `.focus()`; `scrollIntoView` appears zero
-  times in the repo; a `PosterCard` has four focus stops) and for **10-foot legibility** (type scale,
+- It is needed for **D-pad navigation** — the web UI's browse surface has no focus management:
+  `scrollIntoView` is never called from it, nothing in it calls `.focus()`, and a `PosterCard`
+  has four focus stops (`Link` :166, `a` :208, `button` :222, `a` :242), so a 20-item rail is
+  ~80 D-pad presses. (The only `.focus()`/`scrollIntoView` calls in the repo are in
+  `ui/fre/Modal.tsx` and the diagnostics page built in stage 3.)
   safe-area insets, focus-ring visibility).
 - It is **not** needed for rendering or CSS compatibility. That justification is gone — the engine is
   Chromium 120 and Tailwind v4 renders on the set.

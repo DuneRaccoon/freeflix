@@ -1919,7 +1919,7 @@ The gate ran in **two halves**:
 | Half | Date | Where | Outcome |
 | --- | --- | --- | --- |
 | Engine + rendering (Steps 2–4) | 2026-10-06 | `/bigscreen/diag`, TV built-in browser | **"Proceed, simplified"** — see below |
-| Playback (Step 5) | 2026-10-07 | the **main web app**, TV built-in browser | Media path passed; **three items not tested** — see below |
+| Playback (Step 5) | 2026-10-07 | the **main web app**, TV built-in browser | Media path passed; **four items not tested** (seek past the download point, the far-seek HTTP probe, HEVC, DTS at 1080p) — see below |
 
 #### Half 1 — engine and rendering, 2026-10-06
 

@@ -655,6 +655,12 @@ async def device_poll(
 
     raw: Optional[str] = None
     status = "expired"
+    # The claimable-check-then-consume sequence below is not atomic at the database
+    # level. It is safe today because this block contains no ``await`` and uvicorn runs
+    # a single worker (compose runs ``workers=1``), so nothing can interleave between
+    # the check and the consume. If the backend is ever scaled to multiple workers,
+    # this needs ``SELECT ... FOR UPDATE`` on the pairing row, or the same pairing
+    # could mint two sessions.
     with db as session:
         row = device_pairing.find_by_device_code(session, code)
         now = auth_service.utcnow()

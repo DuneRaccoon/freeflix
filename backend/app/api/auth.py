@@ -128,6 +128,20 @@ def _set_session_cookie(response: Response, raw: str) -> None:
     )
 
 
+def _set_device_session_cookie(response: Response, raw: str) -> None:
+    """Same cookie, longer Max-Age.
+
+    A television cannot re-authenticate by itself, so its cookie outlives a browser's
+    — and touch_session slides the row's expiry on use, so an in-use TV never lapses.
+    """
+    response.set_cookie(
+        settings.cookie_name,
+        raw,
+        max_age=settings.device_session_ttl_days * 86400,
+        **auth_service.cookie_kwargs(),
+    )
+
+
 def _profile_payload(profile) -> UserResponse:
     """Serialize a profile for ``GET /me`` without ever touching ``to_dict()``.
 
@@ -611,3 +625,69 @@ async def device_start(db: Annotated[Session, Depends(get_db)]):
         expires_in=settings.device_pairing_ttl_minutes * 60,
         interval=2,
     )
+
+
+@router.post("/device/poll", response_model=DevicePollResponse)
+async def device_poll(
+    payload: DevicePollRequest,
+    response: Response,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Exchange an approved pairing for a session.
+
+    Four refusals collapse into ``expired``: unknown code, already consumed, past its
+    TTL, and denied-because-the-account-is-no-longer-active is the one that does not —
+    it answers ``denied`` so the screen can say something useful. An unknown code and a
+    consumed one deliberately look identical, so a replayed body cannot be told from a
+    guessed one.
+
+    ``STATUS_ACTIVE`` is re-checked HERE rather than trusted from the moment of
+    approval: an account suspended in between must not receive a session.
+    """
+    code = payload.device_code or ""
+    if not auth_service.rate_limiter.check(
+        f"device-poll:{auth_service.hash_token(code)}",
+        limit=_DEVICE_POLL_LIMIT,
+        window_seconds=_DEVICE_POLL_WINDOW,
+    ):
+        raise HTTPException(status_code=429, detail="Polling too fast")
+
+    raw: Optional[str] = None
+    status = "expired"
+    with db as session:
+        row = device_pairing.find_by_device_code(session, code)
+        now = auth_service.utcnow()
+
+        if row is None or row.status == PAIRING_CONSUMED or row.expires_at <= now:
+            status = "expired"
+        elif row.status == PAIRING_DENIED:
+            status = "denied"
+        elif row.status == PAIRING_PENDING:
+            row.poll_count = (row.poll_count or 0) + 1
+            status = "pending"
+        elif row.is_claimable(now):
+            account = (
+                session.query(Account)
+                .filter(Account.id == row.approved_account_id)
+                .first()
+            )
+            if account is None or account.status != STATUS_ACTIVE:
+                # The approval is stale. Burn the row so the device cannot sit and
+                # retry against an account that is no longer allowed in.
+                device_pairing.deny(session, row)
+                status = "denied"
+            else:
+                raw, _ = auth_service.create_session(
+                    session,
+                    account,
+                    user_agent=request.headers.get("user-agent"),
+                    device_name=row.device_name,
+                    device_kind="tv",
+                )
+                device_pairing.consume(session, row)
+                status = "approved"
+
+    if raw is not None:
+        _set_device_session_cookie(response, raw)
+    return DevicePollResponse(status=status)

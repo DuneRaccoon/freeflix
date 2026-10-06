@@ -351,15 +351,25 @@ def create_session(
     account: Account,
     *,
     user_agent: Optional[str] = None,
+    device_name: Optional[str] = None,
+    device_kind: Optional[str] = None,
 ) -> tuple[str, AuthSession]:
-    """Start a signed-in session. Returns ``(raw_cookie_value, row)``."""
+    """Start a signed-in session. Returns ``(raw_cookie_value, row)``.
+
+    ``device_kind`` set means this session belongs to something that cannot sign
+    itself in again — a television. Those get a much longer TTL, and in
+    touch_session a sliding one.
+    """
     raw = generate_token()
+    ttl_days = settings.device_session_ttl_days if device_kind else settings.session_ttl_days
     row = AuthSession(
         token_hash=hash_token(raw),
         account_id=account.id,
-        expires_at=utcnow() + datetime.timedelta(days=settings.session_ttl_days),
+        expires_at=utcnow() + datetime.timedelta(days=ttl_days),
         last_seen_at=utcnow(),
         user_agent=(user_agent or "")[:512] or None,
+        device_name=device_name,
+        device_kind=device_kind,
         unlocked_profiles=[],
     )
     session.add(row)

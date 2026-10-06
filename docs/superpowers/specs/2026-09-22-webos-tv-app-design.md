@@ -1,14 +1,25 @@
 # Smart TV app (LG webOS) — design
 
 Freeflix becomes installable on the household's LG TV. The TV surface is a new **`/bigscreen`** route
-group inside the existing Next.js app, built against a Chromium 87 target, driven by a remote; the
+group inside the existing Next.js app, driven by a remote; the
 "app" on the TV is a five-file webOS shell that hands off to it. A new **device-pairing** flow gets a
 session onto the TV without anyone typing a password on a D-pad.
 
-Target device: a 75-inch 2022 LG. No 75-inch 2022 LG OLED exists, so this is an LCD line
-(QNED / UQ / NanoCell) and therefore almost certainly **webOS 22 = Chromium 87**.
+Target device: a 75-inch 2022 LG, measured as **webOS 25 = Chromium 120**.
 
-Status: design locked 2026-09-22. Branch `feat/webos-tv-app` (to be created).
+*(Corrected during implementation — this spec originally targeted Chromium 87 throughout, inferred
+from the panel size: no 75-inch 2022 LG OLED exists, so the set had to be one of the mainstream LCD
+lines (QNED / UQ / NanoCell) that LG's "Re:New" upgrade programme skipped, therefore webOS 22,
+therefore Chromium 87. The stage-3 gate disproved it. The diagnostics page at `/bigscreen/diag`,
+opened in the TV's own browser, reported `Chromium 120 — modern target` with every post-87 feature
+probe answering yes — `oklch()`, `color-mix()`, `:has()`, container queries and `@property`
+included. The set is the one upgrade-eligible exception §3.1 itself named: a 75-inch QNED99 8K. The
+inference was sound and the conclusion was wrong. Every place this document argued from Chromium 87
+is corrected below and marked; the **performance** constraints are untouched, because a newer engine
+does not make a 2022 TV GPU faster.)*
+
+Status: design locked 2026-09-22; engine target corrected 2026-10-06 after the on-TV gate.
+Branch `feat/webos-tv-app` (merged).
 
 Naming note: `docs/superpowers/specs/2026-06-16-tv-support-design.md` is about **television shows**,
 not televisions. This document is the only one about the device.
@@ -24,10 +35,14 @@ continue-watching with the web client.
 
 Three things make this more than "add a stylesheet":
 
-1. **The web engine is frozen at Chromium 87.** Tailwind v4 requires Chrome 111+. Its emitted CSS
-   wraps everything in `@layer`, an at-rule Chromium 87 does not understand — and an unsupported
-   at-rule causes the whole block to be discarded. The existing stylesheet does not degrade on this
-   TV; it produces an unstyled page.
+1. **The existing UI is a pointer-first, GPU-hungry design, and the TV is neither.** *(Corrected
+   during implementation — this point originally read "the web engine is frozen at Chromium 87",
+   because Tailwind v4 requires Chrome 111+ and wraps its output in `@layer`, which Chromium 87
+   would discard wholesale, leaving an unstyled page. The set turned out to be Chromium 120, so
+   Tailwind v4 **would** render on it.)* What survives is the reason that was always load-bearing:
+   every interaction is hover- and pointer-driven, nothing is reachable by a D-pad, and the
+   atmosphere and player layers spend the whole frame budget on blur (§9). A 2022 television's GPU
+   cannot afford them at any engine version.
 2. **Auth has no door a remote can open.** The session is an HttpOnly, SameSite=Lax, same-origin
    cookie with no bearer-token path anywhere; the owner is password-only and members are
    magic-link-only. Neither credential is enterable on a D-pad, and the cookie expires absolutely at
@@ -43,8 +58,8 @@ Three things make this more than "add a stylesheet":
 | --- | --- |
 | 1 | **Approach A: `/bigscreen` route group in the existing Next app + a thin webOS shell.** Not a standalone packaged app (fights Next static export on four fronts, forces bearer auth, re-sideload per UI change) and not a piggyback on Jellyfin/DLNA (loses Freeflix's UI, `content_id` progress and in-progress-torrent streaming). |
 | 2 | **The shell hands off with `location.replace`**, LG's documented hosted-app pattern — not jellyfin-webos's cross-origin iframe. After handoff the origin is a normal `http://<host>:3001`, so the `/api/*` rewrite proxy, the session cookie and `<video>` credentials all work untouched. |
-| 3 | **Two root layouts.** Existing routes move into `app/(web)/`, the TV surface lives in `app/(bigscreen)/`. URLs do not change. This is the only way to stop the global Tailwind v4 stylesheet reaching the TV. |
-| 4 | **The TV stylesheet is hand-authored plain CSS** in `public/bigscreen.css`, linked so it bypasses PostCSS entirely, reusing the FRÈ hex tokens as ordinary custom properties. Not a second Tailwind major in the repo. |
+| 3 | **Two root layouts.** Existing routes move into `app/(web)/`, the TV surface lives in `app/(bigscreen)/`. URLs do not change. This is the only way to stop the global Tailwind v4 stylesheet — and with it the web design system's blur stacks, hover rails and atmosphere layer — reaching the TV. *(Corrected during implementation — originally justified as the only way to stop an `@layer` stylesheet Chromium 87 could not parse. The engine reads as 120, so Tailwind would render; the decision stands on the performance budget of §9 and on 10-foot layout + remote focus being different work, which it always did.)* |
+| 4 | **The TV stylesheet is hand-authored plain CSS** in `public/bigscreen.css`, linked so it bypasses PostCSS entirely, reusing the FRÈ hex tokens as ordinary custom properties. Not a second Tailwind major in the repo. Bypassing PostCSS is what keeps Tailwind and the web design system off this surface; it is not an engine workaround. |
 | 5 | **Device pairing (RFC 8628-shaped), not typed credentials.** TV shows a short code + QR; an already-signed-in phone approves; the TV's next poll receives `Set-Cookie`. |
 | 6 | **Device sessions slide; browser sessions stay absolute.** `touch_session` extends `expires_at` only when `device_kind` is set. Existing browser behaviour is unchanged. |
 | 7 | **No transcoding, no remuxing, no HLS.** The host is a Raspberry Pi. Progressive HTTP with byte ranges is the only transport. |
@@ -62,35 +77,40 @@ Three things make this more than "add a stylesheet":
 These were researched and then independently fact-checked; four initial claims were corrected in the
 process. Everything below is what survived.
 
-### 3.1 Engine version is the single hard constraint
+### 3.1 Engine version — inferred as 87, measured as 120
 
-| webOS TV | Year | Engine | UA fragment |
-| --- | --- | --- | --- |
-| 6.x | 2021 | Chromium 79 | `Chrome/79.0.3945.79` |
-| **22** | **2022** | **Chromium 87** | `Chrome/87.0.4280.88` |
-| 23 | 2023 | Chromium 94 | `Chrome/94.0.4606.128` |
-| 24 | 2024 | Chromium 108 | `Chrome/108.0.5359.211` |
-| 25 | 2025 | Chromium 120 | `Chrome/120.0.6099.270` |
+| webOS TV | Year | Engine | UA fragment | |
+| --- | --- | --- | --- | --- |
+| 6.x | 2021 | Chromium 79 | `Chrome/79.0.3945.79` | |
+| 22 | 2022 | Chromium 87 | `Chrome/87.0.4280.88` | *(originally assumed)* |
+| 23 | 2023 | Chromium 94 | `Chrome/94.0.4606.128` | |
+| 24 | 2024 | Chromium 108 | `Chrome/108.0.5359.211` | |
+| **25** | **2025** | **Chromium 120** | `Chrome/120.0.6099.270` | ← **this set** |
 
 Source: <https://webostv.developer.lge.com/develop/specifications/web-api-and-web-engine>.
 The platform token in the UA is `Web0S` with a **digit zero**; app UAs end in `WebAppManager`.
 
-LG's "Re:New" upgrade programme covered the 2022 OLED lineup plus the 2022 **QNED Mini LED 8K
-(QNED99/95)** — not the mainstream 2022 QNED/NanoCell/UQ LCD lines. Since there is no 75-inch 2022
-OLED (sizes were 42/48/55/65/77/83/97), a 75-inch 2022 LG is an LCD. The one upgrade-eligible
-exception at that size is a 75-inch QNED99 8K, which could now be on webOS 25 / Chromium 120.
+**The inference, recorded because it was wrong in an instructive way.** LG's "Re:New" upgrade
+programme covered the 2022 OLED lineup plus the 2022 **QNED Mini LED 8K (QNED99/95)** — not the
+mainstream 2022 QNED/NanoCell/UQ LCD lines. Since there is no 75-inch 2022 OLED (sizes were
+42/48/55/65/77/83/97), a 75-inch 2022 LG is an LCD. The one upgrade-eligible exception at that size
+is a 75-inch QNED99 8K. This spec concluded "almost certainly webOS 22 = Chromium 87" and told the
+implementation to **build for Chromium 87 and treat anything newer as a bonus, never as a plan**.
 
-**Build for Chromium 87. Treat anything newer as a bonus, never as a plan.**
+*(Corrected after the stage-3 gate.* The exception is the set. `navigator.userAgent` read on the
+television reports **Chromium 120 = webOS 25**, and the diagnostics page's feature probes all answer
+yes: `oklch()`, `color-mix()`, `:has()`, container queries, `@property`, and the JS entries below.
+So the engine is **not** the hard constraint this section claimed; the frame budget of §9 is. The
+constructs listed as unavailable — `@layer` (99), `:has()` (105), container queries (105),
+`color-mix()` / `oklch()` / `oklab()` (111), `@property` (111 for full support), CSS nesting (112),
+and in JS `Array.prototype.at` (92), `Object.hasOwn` (93), `structuredClone` (98), top-level `await`
+(89) — are all available and no longer forbidden. The method below was right, and is the only reason
+the mistake was caught before stage 4.*)
 
-Not available in Chromium 87, all of which appear in the current build output or source:
-`@layer` (99), `:has()` (105), container queries (105), `color-mix()` / `oklch()` / `oklab()` (111),
-`@property` (111 for full support), CSS nesting (112); and in JS `Array.prototype.at` (92),
-`Object.hasOwn` (93), `structuredClone` (98), top-level `await` (89).
-
-**Verify before writing CSS.** Settings → Support → TV Information shows *firmware only*, never the
-engine. The authoritative read is `navigator.userAgent`: either point the TV's built-in browser at a
-UA echo page on the LAN, or sideload a throwaway app and use
-`ares-inspect --device myTV --app <id> --open`.
+**Verify before writing CSS; do not infer the engine from the model.** Settings → Support → TV
+Information shows *firmware only*, never the engine. The authoritative read is `navigator.userAgent`:
+either point the TV's built-in browser at a UA echo page on the LAN (`/bigscreen/diag` is now that
+page), or sideload a throwaway app and use `ares-inspect --device myTV --app <id> --open`.
 
 ### 3.2 Media support is better than desktop Chrome, with sharp edges
 
@@ -283,10 +303,14 @@ No TLS, reverse proxy or tunnel exists anywhere in the repo. Prod compose publis
 ### 4.8 The FRÈ redesign is not a collision risk
 
 `feat/fre-frontend-redesign` is **fully merged into master** (0 unmerged commits). The Editorial-Noir
-token set lives in `frontend/src/app/(web)/globals.css:8-28` as **plain hex** (moved there by stage 2), which is why a Chromium-87
-stylesheet can reuse it directly. Source-level modern CSS is modest — 9 `color-mix()` in 4 files,
-3 `:has()` in 1 file, 0 `oklch`, 0 `@property`, 0 `@layer`. The 85 `color-mix()` / 83 `oklab()` /
-65 `@property` / 4 `@layer` in the built CSS are **emitted by Tailwind v4 itself**.
+token set lives in `frontend/src/app/(web)/globals.css:8-28` as **plain hex** (moved there by stage 2), which is why the
+hand-authored TV stylesheet can reuse the values directly without resolving Tailwind's `@theme`.
+Source-level modern CSS is modest — 9 `color-mix()` in 4 files, 3 `:has()` in 1 file, 0 `oklch`,
+0 `@property`, 0 `@layer`. The 85 `color-mix()` / 83 `oklab()` / 65 `@property` / 4 `@layer` in the
+built CSS are **emitted by Tailwind v4 itself**. *(Corrected during implementation — this paragraph
+read "which is why a Chromium-87 stylesheet can reuse it directly". The engine is Chromium 120
+(§3.1), so none of these counts is a compatibility problem any more. Plain hex is still what lets
+`public/bigscreen.css` stay outside PostCSS, which is what keeps Tailwind off the TV.)*
 
 ---
 
@@ -375,16 +399,28 @@ Operational requirement: a **DHCP reservation** for the Pi.
 
 - `public/bigscreen.css`, hand-authored, linked with `<link>` from `(bigscreen)/layout.tsx` so it
   never enters PostCSS. Tokens copied from `globals.css:8-28` as plain custom properties.
-- Permitted: custom properties, flexbox, CSS grid, `transform`, `opacity`, `transition`,
-  `position: sticky`, `object-fit`, media queries.
-- Forbidden: `@layer`, `@property`, `oklch()`, `oklab()`, `color-mix()`, `:has()`, `@container`,
-  native nesting, `backdrop-filter`, `mix-blend-mode`, SVG filters, `aspect-ratio` (use padding
-  ratio boxes).
-- `frontend/package.json` gains `"browserslist": ["chrome 87"]`, downlevelling SWC output app-wide.
-  Cost is a few KB on the web bundle; the benefit is that "the TV is blank" stops being a
-  syntax-error mystery.
-- No framer-motion inside `(bigscreen)`. A lint-style guard (a test that greps the bigscreen tree for
-  the forbidden list) is cheaper than remembering.
+- Permitted: everything Chromium 120 parses, which is everything we would reach for — custom
+  properties, flexbox, CSS grid, `transform`, `opacity`, `transition`, `position: sticky`,
+  `object-fit`, media queries, and also `aspect-ratio`, `:has()`, `@container`, `oklch()`,
+  `color-mix()`, `@property` and native nesting.
+- **Forbidden, on performance grounds only:** `backdrop-filter`, `mix-blend-mode` /
+  `background-blend-mode`, `filter: blur()`, SVG filters (`feTurbulence`, `feGaussianBlur`,
+  `filter: url()`). These are banned by the frame budget of §9, not by the engine: the 2022 panel's
+  compositor cannot afford a per-frame readback-and-blur, least of all over a decoding 1080p surface.
+  A newer engine does not change this, so **do not delete these because "Chromium 120 supports it"**.
+- No framer-motion, no `globals.css`, no `@/components` import inside `(bigscreen)`. Same rationale:
+  keep the pointer-first web tree and its blur stacks off TV silicon.
+- A lint-style guard (a test that greps the bigscreen tree for the forbidden list) is cheaper than
+  remembering: `frontend/src/app/(bigscreen)/legacy-target.test.ts`, run by `npm run test:tv`.
+- *(Corrected after the stage-3 gate — this section forbade `@layer`, `@property`, `oklch()`,
+  `oklab()`, `color-mix()`, `:has()`, `@container`, native nesting and `aspect-ratio`, and had
+  `frontend/package.json` gain `"browserslist": ["chrome 87"]` to downlevel SWC output app-wide
+  "for a few KB on the web bundle". The engine is Chromium 120 (§3.1), so those nine bans were
+  obsolete and the browserslist pin was paying a measured app-wide cost — `/downloads` 4.45 → 8.71 kB,
+  `/members` 4.55 → 8.8 kB, `/streaming/[id]` 20.2 → 24.6 kB — for nothing. The pin is reverted and
+  the engine-driven bans are dropped; the performance-driven ones above are kept and are now
+  commented in the guard with their reason, so the next engine reassessment does not take them with
+  it.)*
 
 ---
 
@@ -642,13 +678,20 @@ targets ≥60px tall.
    into a still-downloading region, (d) an AC3 track outputs audio. This costs twenty minutes, needs
    no LG account, and is the only thing that can invalidate the design.
 
+   **Run, 2026-10-06 — and it did invalidate part of it.** `/bigscreen/diag` in the TV's own browser
+   reported `Chromium 120 — modern target`, every feature probe yes, all ten colour tokens distinct,
+   remote key codes as expected. Verdict per the plan's gate: **"Proceed, simplified"** — the design
+   survives, the Chromium-87 assumption does not. §3.1, §4.8, §5.3, §12 and §14 are corrected
+   accordingly and the `browserslist` pin is reverted. Media checks (b)–(d) are unaffected by the
+   engine reading and stand as written.
+
 ---
 
 ## 12. Risks & mitigations
 
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |
-| Engine is Chromium 87, not 120 | High | Assumed. Design targets 87 throughout. |
+| ~~Engine is Chromium 87, not 120~~ **Resolved: the engine is Chromium 120** | — | *(Corrected after the stage-3 gate — this row read "Likelihood: High. Assumed. Design targets 87 throughout." It was backwards: the risk that materialised was the **inference itself**, not the engine. `navigator.userAgent` on the set reads Chromium 120 / webOS 25. The mitigation that actually worked was sequencing the twenty-minute on-TV read before stage 4, so the cost of being wrong was one `browserslist` line and one guard list, not a rebuilt UI. Generalised lesson: when a constraint is inferred from a product SKU rather than measured, treat the measurement as a gate, not a confirmation.)* |
 | MKV seeking hits the `Cues`/`SeekHead` defect on webOS 22 | Unknown | Deliberately untested-for. Step 11.5 settles it. If real: prefer `.mp4` releases in the `webos22` profile — an HLS remux is unavailable on a Pi. |
 | Pi cannot sustain 1080p off a partial torrent to the TV | Medium | 1080p default; available-bytes seek boundary; ARM cap already limits concurrent downloads to 2. |
 | `norigin-spatial-navigation` rejects React 19 | Medium | Hand-rolled focus manager fallback, scoped as task one. |
@@ -685,10 +728,10 @@ phase). Stages 1–3 are the first plan, because stage 3 can invalidate everythi
 
 | # | Stage | Why here |
 | --- | --- | --- |
-| 0 | Read `navigator.userAgent` off the TV; confirm model | One fact, decides the CSS target |
+| 0 | Read `navigator.userAgent` off the TV; confirm model | One fact, decides the CSS target. **Done 2026-10-06: Chromium 120 / webOS 25**, not the Chromium 87 this spec assumed — see §3.1. In practice stage 0 was folded into stage 3, because `/bigscreen/diag` is what reads the UA. |
 | 1 | Backend range/HEAD fixes + MIME table, TDD | Prerequisite for any playback, valuable to the web client too |
 | 2 | Two root layouts; empty `/bigscreen` + `bigscreen.css` skeleton | Smallest thing loadable on the TV |
-| 3 | **Load it in the TV's built-in browser.** Verify CSS, direct play, seek, AC3 | The gate. Stop and re-plan if this fails |
+| 3 | **Load it in the TV's built-in browser.** Verify CSS, direct play, seek, AC3 | The gate. Stop and re-plan if this fails. **Run 2026-10-06 → "Proceed, simplified"**: everything rendered, engine is Chromium 120, so the engine-driven CSS/JS bans and the `browserslist: ["chrome 87"]` pin were dropped. Stages 4–10 are otherwise unchanged. |
 | 4 | Focus manager (+ React 19 check), rails, cards, home | The bulk of the UI |
 | 5 | Device pairing: backend, `/link`, `/bigscreen/pair` | Unblocks using it without a keyboard |
 | 6 | Detail screens, season/episode picker, search keyboard, my list | Completes "watch + request" |

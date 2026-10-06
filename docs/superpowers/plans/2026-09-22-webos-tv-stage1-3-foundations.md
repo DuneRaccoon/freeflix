@@ -2,7 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the streaming byte path safe for a TV media pipeline, stand up an empty `/bigscreen` surface with its own Chromium-87-safe stylesheet, and run the one on-TV test that can invalidate the rest of the design.
+**Goal:** Make the streaming byte path safe for a TV media pipeline, stand up an empty `/bigscreen` surface with its own hand-authored stylesheet, and run the one on-TV test that can invalidate the rest of the design.
+
+**Status: complete, and the gate changed the plan.** Task 8 ran on 2026-10-06 and returned the
+**"Proceed, simplified"** verdict (see Task 8). The set reports Chromium 120 / webOS 25, not the
+Chromium 87 this plan was written against, so the engine-driven constructs are no longer forbidden
+and the `browserslist` pin is reverted. The performance-driven bans stay. Every "Chromium 87" below
+is left in place as the record of what was built and why, with a correction note.
 
 **Architecture:** Tasks 1–5 fix `backend/app/api/streaming.py` and `backend/app/torrent/manager.py` — all pure-Python, all unit-tested, all valuable to the existing web client. Tasks 6–7 split the Next.js app into two root layouts (`(web)` and `(bigscreen)`) so the TV surface can escape the Tailwind v4 global stylesheet, and ship a diagnostic page that doubles as the stage-3 instrument. Task 8 runs the gate on the real TV and records the result.
 
@@ -13,7 +19,7 @@
 ## Global Constraints
 
 - **Branch:** `feat/webos-tv-app` (already created; the spec is committed there).
-- **Target engine: Chromium 87** (webOS TV 22). Forbidden in anything under `(bigscreen)` or `public/bigscreen.css`: `@layer`, `@property`, `oklch()`, `oklab()`, `color-mix()`, `:has()`, `@container`, native CSS nesting, `backdrop-filter`, `mix-blend-mode`, SVG filters, `aspect-ratio`. Forbidden JS: `Array.prototype.at`, `Object.hasOwn`, `structuredClone`, top-level `await`.
+- ~~**Target engine: Chromium 87** (webOS TV 22).~~ **Corrected after the Task 8 gate — the engine is Chromium 120 (webOS 25).** As originally written, this constraint forbade, in anything under `(bigscreen)` or `public/bigscreen.css`: `@layer`, `@property`, `oklch()`, `oklab()`, `color-mix()`, `:has()`, `@container`, native CSS nesting, `backdrop-filter`, `mix-blend-mode`, SVG filters, `aspect-ratio`; and in JS `Array.prototype.at`, `Object.hasOwn`, `structuredClone`, top-level `await`. Everything in that list that was banned **because Chromium 87 cannot parse it** is now allowed. What remains forbidden, on **performance** grounds (spec §9 — TV GPU, not browser engine): `backdrop-filter`, `mix-blend-mode` / `background-blend-mode`, `filter: blur()`, SVG filters, plus `framer-motion`, `globals.css` and `@/components` imports. `legacy-target.test.ts` now states that split in its own comments so a future engine reassessment cannot take the performance bans with it.
 - **No transcoding, no remuxing, no HLS, no ffmpeg.** The host is a Raspberry Pi.
 - **SQLAlchemy 1.4 style**, not 2.0.
 - **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
@@ -45,7 +51,7 @@
 | `frontend/public/bigscreen.css` | Hand-authored TV stylesheet (tokens + base + diagnostic styles) | 7 |
 | `frontend/src/app/(bigscreen)/legacy-target.test.ts` | Guard: greps the TV surface for forbidden constructs, bans `@/components` imports, pins the opt-out set | 7 |
 | `frontend/src/app/(bigscreen)/bigscreen-tokens.test.ts` | Pins the ten TV colour tokens to their `globals.css` originals | 7 |
-| `frontend/package.json` | `browserslist` pinned to chrome 87 | 7 |
+| `frontend/package.json` | ~~`browserslist` pinned to chrome 87~~ — added in Task 7, **reverted after the Task 8 gate** | 7, 8 |
 | `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md` | The gate's recorded findings + decision branches | 8 |
 
 ---
@@ -1666,9 +1672,10 @@ export default function BigScreenDiagnostics() {
 }
 ```
 
-- [ ] **Step 6: Pin the JS target**
+- [ ] ~~**Step 6: Pin the JS target**~~ — **done, then reverted. Do not re-apply.**
 
-In `frontend/package.json`, add a top-level `browserslist` key (sibling of `"scripts"`):
+As written, this step added a top-level `browserslist` key to `frontend/package.json`
+(sibling of `"scripts"`):
 
 ```json
   "browserslist": [
@@ -1676,8 +1683,11 @@ In `frontend/package.json`, add a top-level `browserslist` key (sibling of `"scr
   ],
 ```
 
-This downlevels SWC output app-wide. It costs a few KB on the web bundle and removes a whole
-category of "the TV is blank" syntax-error debugging.
+The rationale was that it downlevels SWC output app-wide, costing "a few KB on the web bundle" and
+removing a whole category of "the TV is blank" syntax-error debugging. The Task 8 gate disproved the
+premise: the engine is Chromium 120. The pin was removed on 2026-10-06. The cost was not a few KB
+and it was not TV-only — it was the whole **web** bundle: `/downloads` 8.71 → 4.45 kB, `/members`
+8.8 → 4.55 kB, `/streaming/[id]` 24.6 → 20.2 kB on the revert.
 
 - [ ] **Step 7: Run the guard test and typecheck**
 
@@ -1858,7 +1868,7 @@ Pick one and say why:
 
 - **Proceed as designed.** Engine below 111, hand-written stylesheet renders, MKV/HEVC
   direct-plays, seeking works. Continue to stage 4 (focus manager, rails, cards, home).
-- **Proceed, simplified.** Engine at or above 111 — the existing Tailwind v4 stylesheet
+- **→ TAKEN, 2026-10-06. Proceed, simplified.** Engine at or above 111 — the existing Tailwind v4 stylesheet
   renders. Keep the separate `(bigscreen)` surface (the focus, layout and player work is
   unchanged) but the TV surface may use the normal build, and the guard test relaxes.
   **Also revert `browserslist: ["chrome 87"]` in `frontend/package.json` on this branch.**
@@ -1874,6 +1884,38 @@ Pick one and say why:
 ## Follow-ups discovered
 -
 ```
+
+### Gate outcome, recorded 2026-10-06
+
+`/bigscreen/diag`, opened in the TV's own browser, reported:
+
+| Fact | Value |
+| --- | --- |
+| Verdict banner | `Chromium 120 — modern target` |
+| Inferred webOS version | 25 (the 75-inch QNED99 8K — the one upgrade-eligible exception spec §3.1 named) |
+| Feature probes | **all yes**, including `oklch()`, `color-mix()`, `:has()`, container queries, `@property` |
+| Token swatches | all ten distinct |
+| Remote key codes | as expected |
+
+**Verdict: "Proceed, simplified"** — the second branch above. The design survives; the Chromium-87
+assumption does not. Actions taken on master:
+
+1. `"browserslist": ["chrome 87"]` removed from `frontend/package.json` — the explicit requirement of
+   this branch. Measured recovery: `/downloads` 8.71 → 4.45 kB, `/members` 8.8 → 4.55 kB,
+   `/streaming/[id]` 24.6 → 20.2 kB.
+2. `legacy-target.test.ts` **split by rationale** rather than relaxed wholesale. The engine-driven
+   bans are gone; the performance-driven ones (`backdrop-filter`, `mix-blend-mode`, `filter: blur()`,
+   SVG filters, and the `framer-motion` / `globals.css` / `@/components` import bans) are kept in a
+   separately commented list naming spec §9 as their authority, because TV silicon is not the browser
+   engine. Every structural assertion — the pinned `@allow-legacy-probes` set, the import rules, the
+   token-drift test — is unchanged.
+3. **Not** done, deliberately: the `(web)` / `(bigscreen)` split stays, `public/bigscreen.css` stays
+   hand-authored and outside PostCSS. "The TV surface may use the normal build" is permission, not
+   instruction, and taking it would drag the hover-driven rails and the §9 blur stacks onto TV
+   silicon. The 10-foot layout, focus management, remote handling and TV player are unchanged work.
+
+Spec §3.1, §4.8, §5.3, §11.5, §12 and §14 and the "Two root layouts" paragraph in `CLAUDE.md` are
+corrected to match, with the history preserved.
 
 - [ ] **Step 7: Restore the instance and commit**
 

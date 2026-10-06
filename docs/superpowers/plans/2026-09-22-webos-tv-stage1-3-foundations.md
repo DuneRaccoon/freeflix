@@ -979,6 +979,12 @@ retryable 503 is still possible. Mid-stream behaviour is unchanged."
 
 ## Task 6: Split the app into two root layouts
 
+> **Superseded in part — do not replay verbatim.** The code blocks below target
+> Chromium 87, which the Task 8 gate disproved: the set measured **Chromium 120 /
+> webOS 25**. They are kept as the record of what was written and why. The shipped
+> files have since been corrected — read them, not these blocks. See "Gate outcome,
+> recorded 2026-10-06" at the end of this document.
+
 `app/layout.tsx` imports `globals.css` for every route, and Tailwind v4 wraps its output in
 `@layer` — an at-rule Chromium 87 does not understand, which makes it discard the whole block.
 The TV surface therefore cannot share the stylesheet, and the App Router only allows a second
@@ -1079,6 +1085,12 @@ output in @layer, which Chromium 87 discards wholesale. URLs are unchanged."
 ---
 
 ## Task 7: `/bigscreen` skeleton, its stylesheet, and the diagnostic instrument
+
+> **Superseded in part — do not replay verbatim.** The code blocks below target
+> Chromium 87, which the Task 8 gate disproved: the set measured **Chromium 120 /
+> webOS 25**. They are kept as the record of what was written and why. The shipped
+> files have since been corrected — read them, not these blocks. See "Gate outcome,
+> recorded 2026-10-06" at the end of this document.
 
 The stage-3 instrument lives at **`/bigscreen/diag`**, not at `/bigscreen`. Spec §5.1 assigns
 `/bigscreen` to the TV home screen, so leaving the instrument there would mean stage 4 deletes or
@@ -1681,6 +1693,14 @@ As written, this step added a top-level `browserslist` key to `frontend/package.
   "browserslist": [
     "chrome 87"
   ],
+```
+
+> **REVERTED — do not apply this step.** This pin was removed on 2026-10-06 after the gate
+> measured Chromium 120. It downlevels the whole *web* bundle for a constraint that does not
+> exist: re-adding it costs `/downloads` +4.3 kB, `/members` +4.3 kB, `/streaming/[id]` +4.4 kB
+> and buys nothing. Skip this step entirely.
+
+```json
 ```
 
 The rationale was that it downlevels SWC output app-wide, costing "a few KB on the web bundle" and

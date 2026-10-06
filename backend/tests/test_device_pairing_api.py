@@ -3,23 +3,12 @@
 The flow is an RFC 8628-shaped device authorization grant: a device with no keyboard
 gets a long secret and a short human code, and a signed-in phone approves it.
 """
-import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import auth as auth_service
 from app.services import device_pairing as dp
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limiter():
-    """The limiter is a module-global singleton shared across the whole pytest
-    session, so without this one test's attempts leak into the next one's budget."""
-    auth_service.rate_limiter.clear()
-    yield
-    auth_service.rate_limiter.clear()
 
 
 def test_start_is_public_and_returns_both_codes():

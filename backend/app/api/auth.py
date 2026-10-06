@@ -91,9 +91,7 @@ _RESET_WINDOW = 15 * 60
 _DEVICE_POLL_LIMIT = 450
 _DEVICE_POLL_WINDOW = 15 * 60
 # Unauthenticated, so this one is a global bucket. A household never approaches it.
-# 120 rather than something tighter: the limiter is a process-wide singleton, and a
-# household pairs a device a handful of times a year, so this is still a real bound.
-_DEVICE_START_LIMIT = 120
+_DEVICE_START_LIMIT = 30
 _DEVICE_START_WINDOW = 15 * 60
 # Wrong codes typed by one signed-in account, mirroring the /claim wrong-code budget.
 _DEVICE_APPROVE_LIMIT = 10

@@ -723,6 +723,11 @@ async def device_approve(
         raise HTTPException(status_code=429, detail="Too many attempts")
 
     with db as session:
+        account = session.query(Account).filter(Account.id == ctx.account_id).first()
+        if account is None:
+            # Only reachable with auth_enabled=False, where require_session hands out a
+            # synthetic owner context that has no row behind it.
+            raise HTTPException(status_code=401, detail="Not signed in")
         row = device_pairing.find_pending_by_user_code(session, payload.user_code)
         if row is None:
             raise HTTPException(status_code=404, detail="That code is not valid")

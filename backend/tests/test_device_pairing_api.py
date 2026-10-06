@@ -230,3 +230,16 @@ def test_a_wrong_code_is_refused_and_budgeted(signed_in_client):
         "/api/v1/auth/device/approve", json={"user_code": "ZZZZ-ZZZZ", "device_name": "x"}
     )
     assert final.status_code == 429
+
+
+def test_approve_with_auth_disabled_is_a_401_not_a_500():
+    """The suite runs with auth off, so require_session hands out the synthetic
+    `dev-owner` context, which has no accounts row. Approving for it used to die on a
+    foreign key; it must be the same honest refusal /auth/me gives."""
+    start = client.post("/api/v1/auth/device/start").json()
+    r = client.post(
+        "/api/v1/auth/device/approve",
+        json={"user_code": start["user_code"], "device_name": "TV"},
+    )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Not signed in"

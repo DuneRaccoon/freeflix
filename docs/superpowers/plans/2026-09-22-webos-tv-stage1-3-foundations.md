@@ -4,8 +4,13 @@
 
 **Goal:** Make the streaming byte path safe for a TV media pipeline, stand up an empty `/bigscreen` surface with its own hand-authored stylesheet, and run the one on-TV test that can invalidate the rest of the design.
 
-**Status: complete, and the gate changed the plan.** Task 8 ran on 2026-10-06 and returned the
-**"Proceed, simplified"** verdict (see Task 8). The set reports Chromium 120 / webOS 25, not the
+**Status: complete, and the gate changed the plan.** Task 8 ran in two halves — engine and
+rendering on 2026-10-06, playback on 2026-10-07 — and returned the **"Proceed, simplified"** verdict
+(see Task 8; full record in
+[`2026-09-22-webos-tv-stage3-results.md`](./2026-09-22-webos-tv-stage3-results.md)). The playback
+half passed MKV direct play, DDP5.1 audio, streaming from a torrent at ~26% and seeking inside
+downloaded regions; **seeking past the download point, the far-seek HTTP probe, HEVC decode and
+DTS-at-1080p were not tested**. The set reports Chromium 120 / webOS 25, not the
 Chromium 87 this plan was written against, so the engine-driven constructs are no longer forbidden
 and the `browserslist` pin is reverted. The performance-driven bans stay. Every "Chromium 87" below
 is left in place as the record of what was built and why, with a correction note.
@@ -52,7 +57,7 @@ is left in place as the record of what was built and why, with a correction note
 | `frontend/src/app/(bigscreen)/legacy-target.test.ts` | Guard: greps the TV surface for forbidden constructs, bans `@/components` imports, pins the opt-out set | 7 |
 | `frontend/src/app/(bigscreen)/bigscreen-tokens.test.ts` | Pins the ten TV colour tokens to their `globals.css` originals | 7 |
 | `frontend/package.json` | ~~`browserslist` pinned to chrome 87~~ — added in Task 7, **reverted after the Task 8 gate** | 7, 8 |
-| `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md` | The gate's recorded findings + decision branches | 8 |
+| `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md` | The gate's recorded findings + decision branches — **written 2026-10-07** | 8 |
 
 ---
 
@@ -1821,7 +1826,7 @@ For each test title: press List torrents, select it, and record
   element only ever reports `MediaError.code`, which cannot tell a 503 from a decode failure, so
   the status is otherwise unobservable on a TV with no devtools.
 
-- [ ] **Step 6: Write up the results**
+- [x] **Step 6: Write up the results** — done 2026-10-07: [`2026-09-22-webos-tv-stage3-results.md`](./2026-09-22-webos-tv-stage3-results.md)
 
 Create `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`:
 
@@ -1905,7 +1910,18 @@ Pick one and say why:
 -
 ```
 
-### Gate outcome, recorded 2026-10-06
+### Gate outcome
+
+**Results file: [`docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`](./2026-09-22-webos-tv-stage3-results.md)** — written 2026-10-07, following the template above. It is the authoritative record; the summary below is a pointer, not a substitute.
+
+The gate ran in **two halves**:
+
+| Half | Date | Where | Outcome |
+| --- | --- | --- | --- |
+| Engine + rendering (Steps 2–4) | 2026-10-06 | `/bigscreen/diag`, TV built-in browser | **"Proceed, simplified"** — see below |
+| Playback (Step 5) | 2026-10-07 | the **main web app**, TV built-in browser | Media path passed; **three items not tested** — see below |
+
+#### Half 1 — engine and rendering, 2026-10-06
 
 `/bigscreen/diag`, opened in the TV's own browser, reported:
 
@@ -1915,7 +1931,7 @@ Pick one and say why:
 | Inferred webOS version | 25 (the 75-inch QNED99 8K — the one upgrade-eligible exception spec §3.1 named) |
 | Feature probes | **all yes**, including `oklch()`, `color-mix()`, `:has()`, container queries, `@property` |
 | Token swatches | all ten distinct |
-| Remote key codes | as expected |
+| Remote key codes | displayed **as expected** — but the individual `key` / `keyCode` values were **not transcribed**, so this plan records none of them. **461 for Back remains an assumption** carried from LG's docs; Task 7 of a later stage must re-read the key log before binding it. |
 
 **Verdict: "Proceed, simplified"** — the second branch above. The design survives; the Chromium-87
 assumption does not. Actions taken on master:
@@ -1936,6 +1952,54 @@ assumption does not. Actions taken on master:
 
 Spec §3.1, §4.8, §5.3, §11.5, §12 and §14 and the "Two root layouts" paragraph in `CLAUDE.md` are
 corrected to match, with the history preserved.
+
+#### Half 2 — playback, 2026-10-07
+
+Run **in the main web app on the TV** (not the diagnostics page), against a real library title while
+its torrent was **still downloading at ~26%**:
+
+```
+The Boys S01E01 The Name of the Game 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.mkv
+mime: video/x-matroska
+```
+
+**Passed:**
+
+| Observation | Why it mattered |
+| --- | --- |
+| **MKV / Matroska direct play** | The single biggest unknown. Desktop Chrome cannot demux Matroska at all, and spec §3.2's "the TV's pipeline beats the browser's" premise rested entirely on it. |
+| **DDP5.1 (Dolby Digital Plus / E-AC3) audio** | The audio path the library's YTS AAC releases never exercise. |
+| **Streaming from an in-progress torrent at ~26%** | Tasks 1–5 end to end on real data through a real TV media pipeline: piece-gated generator, sequential download, HTTP range handling. |
+| **Seeking within already-downloaded regions** | Scrubbing landed and resumed. |
+| **The existing Tailwind v4 web app renders correctly on the TV** | Confirms half 1's engine reading from the other direction. |
+
+**NOT tested — these are untested, not passed:**
+
+1. **Seeking past the download point** into a not-yet-downloaded region. This is exactly the case
+   **Task 5's first-chunk precheck and the `503` + `Retry-After`** were built for. At ~26% the far
+   seek was never attempted. **Still unknown on real hardware.**
+2. **The far-seek HTTP status probe** ("Probe far seek (HTTP)", Step 5's last bullet). The 503 path
+   has unit tests (`backend/tests/test_first_chunk_precheck.py`) and has **never been observed from
+   the TV**. Without it the status is unobservable there, because `<video>` reports only
+   `MediaError.code`.
+3. **HEVC / H.265 decode.** The tested file is **H.264**. Owner decision: **accept HEVC on
+   documentation rather than measurement** — LG's AV table lists HEVC Main/Main10 for webOS 22 and
+   this set is webOS 25, two platform versions newer. Recorded as an **accepted risk with a
+   rationale, not a result** (spec §12).
+
+Also still untouched: **DTS at 1080p**, the question spec §7.2 deliberately left unresolved. No DTS
+file was played, so the "penalty, not reject" rule is unvalidated in either direction.
+
+#### What half 2 changes for stage 4
+
+The owner reported the main web app "works perfectly" on the TV — **through the Magic Remote, which
+is a pointer** (spec §8.4 called this a trap). Real mouse events make hover rails and click-to-play
+overlays behave as on a desktop. It does **not** follow that the UI works on the **D-pad**, nor that
+24px body text is readable at viewing distance.
+
+So **stage 4's justification narrows**: it is needed for **D-pad navigation and 10-foot legibility**,
+not for rendering or CSS compatibility. Spec §14 is amended accordingly. The verdict above is
+unchanged — half 2 strengthens it on the media path and leaves the three items above open.
 
 - [ ] **Step 7: Restore the instance and commit**
 

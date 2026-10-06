@@ -18,7 +18,9 @@ inference was sound and the conclusion was wrong. Every place this document argu
 is corrected below and marked; the **performance** constraints are untouched, because a newer engine
 does not make a 2022 TV GPU faster.)*
 
-Status: design locked 2026-09-22; engine target corrected 2026-10-06 after the on-TV gate.
+Status: design locked 2026-09-22; engine target corrected 2026-10-06 after the on-TV gate; playback
+half of the gate run 2026-10-07. Stage 3 is complete — full record in
+`docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`.
 Branch `feat/webos-tv-app` (merged).
 
 Naming note: `docs/superpowers/specs/2026-06-16-tv-support-design.md` is about **television shows**,
@@ -48,7 +50,11 @@ Three things make this more than "add a stylesheet":
    magic-link-only. Neither credential is enterable on a D-pad, and the cookie expires absolutely at
    30 days with no refresh.
 3. **The byte path has never met a TV media pipeline.** Four defects in the range handling are
-   invisible to Chrome and immediately fatal on a TV (§4.2).
+   invisible to Chrome and immediately fatal on a TV (§4.2). *(Updated after the 2026-10-07 playback
+   run — it has now met one, and survived: a 1080p H.264 MKV with a DDP5.1 track direct-played off a
+   torrent that was still downloading at ~26%, with scrubbing inside the downloaded region. The one
+   part of the byte path still unmet by a TV is a **range request past the download point** — the
+   `503` + `Retry-After` response of §7.4 has unit tests and has never been observed from the set.)*
 
 ---
 
@@ -63,7 +69,7 @@ Three things make this more than "add a stylesheet":
 | 5 | **Device pairing (RFC 8628-shaped), not typed credentials.** TV shows a short code + QR; an already-signed-in phone approves; the TV's next poll receives `Set-Cookie`. |
 | 6 | **Device sessions slide; browser sessions stay absolute.** `touch_session` extends `expires_at` only when `device_kind` is set. Existing browser behaviour is unchanged. |
 | 7 | **No transcoding, no remuxing, no HLS.** The host is a Raspberry Pi. Progressive HTTP with byte ranges is the only transport. |
-| 8 | **Codec-aware torrent selection via a named client profile** (`client=webos22`). The capability table lives server-side; the TV sends a profile name, not a matrix. |
+| 8 | **Codec-aware torrent selection via a named client profile** (`client=webos22`). The capability table lives server-side; the TV sends a profile name, not a matrix. *(Corrected after the stage-3 gate — the device is webOS **25**, so the `webos22` name misdescribes the table it is built from; stage 8 re-decides it. See §7.2.)* |
 | 9 | **TV defaults to 1080p; 2160p is opt-in per title.** 4K is where LG's audio restrictions bite, where the 60 Mbps HEVC ceiling sits, and where a Pi feeding a partial torrent is likeliest to stall. |
 | 10 | **Fast-forward/rewind and speed control are removed on TV**, because the webOS pipeline does not support them. Discrete ±10s/±60s jumps replace them. |
 | 11 | **Subtitles v1 is sidecar-only**, with acknowledged partial coverage. Embedded MKV tracks stay out of reach. |
@@ -131,8 +137,13 @@ Source: <https://webostv.developer.lge.com/develop/specifications/video-audio-22
   `Cues`, LG's player behaves as though the file had no index. Reproduced on webOS 4.10.2, **not**
   confirmed on 22. It bites files whose headers were edited in place (mkvpropedit), less so files
   muxed once by mkvmerge. The field fix is a server-side HLS remux, which is unavailable here.
+  *(Updated after the 2026-10-07 run — one once-muxed 1080p H.264 MKV (`-FLUX`) direct-played and
+  scrubbed on this set with no symptom. That is the less-affected case the paragraph above predicts,
+  so the defect is **not** disproven in general — it is simply not blocking this library's typical
+  release.)*
 - Seeking into a not-yet-downloaded region is generic HTTP-range behaviour, not a webOS quirk. No
-  LG source addresses it.
+  LG source addresses it. *(Still true, and still **unmeasured on the TV** as of 2026-10-07 — §11.5
+  and §12.)*
 
 ### 3.3 The app format, and the `file://` origin trap
 
@@ -540,6 +551,17 @@ independently is a liability.
 The capability table lives server-side; the client sends only a profile name. `canPlayType()` is not
 used — TV implementations under-report.
 
+*(Corrected after the stage-3 gate — **the profile name is now inaccurate for this device.**
+`webos22` is named after, and its rules are derived from, LG's webOS **22** AV table
+(§3.2). The set measured as webOS **25**, two platform versions newer, and its AV table is likely
+**more permissive** — so these rules are, at worst, over-conservative for this device, and the name
+misdescribes what they model. Nothing is broken today: the profile does not exist yet. **Stage 8 is
+where it gets built, and stage 8 must decide which AV table it is built from and name it
+accordingly** — either re-derive from the webOS 25 table, or keep the 22 table as a deliberate
+floor and say so in the name. What the gate did **not** settle: HEVC decode (not tested — accepted
+on documentation, §12) and DTS at 1080p (not tested, untouched). Both are naturally measured during
+stage 8, which needs real files to validate the profile against anyway.)*
+
 ### 7.3 Quality policy
 
 TV requests **1080p** by default. The detail screen offers a per-title "4K" choice, which switches the
@@ -680,10 +702,41 @@ targets ≥60px tall.
 
    **Run, 2026-10-06 — and it did invalidate part of it.** `/bigscreen/diag` in the TV's own browser
    reported `Chromium 120 — modern target`, every feature probe yes, all ten colour tokens distinct,
-   remote key codes as expected. Verdict per the plan's gate: **"Proceed, simplified"** — the design
+   remote key codes as expected (the individual codes were *not* transcribed, so **461 for Back is
+   still an assumption**). Verdict per the plan's gate: **"Proceed, simplified"** — the design
    survives, the Chromium-87 assumption does not. §3.1, §4.8, §5.3, §12 and §14 are corrected
-   accordingly and the `browserslist` pin is reverted. Media checks (b)–(d) are unaffected by the
-   engine reading and stand as written.
+   accordingly and the `browserslist` pin is reverted.
+
+   **Playback half run, 2026-10-07.** On the TV, through the **main web app**, playing a real
+   library title (`The Boys S01E01 … 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.mkv`, `video/x-matroska`)
+   while its torrent was **still downloading at ~26%**:
+
+   - **(a) rendering — passed, and better than (a) asked.** Not only does the hand-authored
+     stylesheet render; the **existing Tailwind v4 web app renders correctly on the TV**.
+   - **(b) MKV direct play — passed.** Matroska demuxed and played natively. This was the single
+     biggest unknown: desktop Chrome cannot demux Matroska at all, and §3.2's whole "the TV's
+     pipeline is better than the browser's" premise rested on it. **HEVC was not part of (b)'s
+     result — the tested file is H.264.** HEVC decode is **not tested** and is carried as an
+     accepted documentation-backed risk (§12).
+   - **(c) seeking — half passed.** Scrubbing **within already-downloaded regions** works. Seeking
+     **past the download point** into a not-yet-downloaded region was **not tested**, and neither
+     was the "Probe far seek (HTTP)" readout. The `503` + `Retry-After` path (§7.4) has unit tests
+     and has **never been observed from the TV**.
+   - **(d) audio — passed, on a better case than AC3.** **DDP5.1 (Dolby Digital Plus / E-AC3)**
+     output correctly — a path the library's YTS AAC releases never exercise. **DTS at 1080p
+     remains untouched** (§7.2).
+   - Also passed, not in the original checklist: **streaming from an in-progress torrent at ~26%**
+     — the piece-gated generator, sequential download and HTTP range handling end to end on real
+     data.
+
+   Full record, including everything deliberately marked *not tested*:
+   `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`.
+
+   **One caveat that reshapes stage 4.** "It works perfectly on the TV" was observed **through the
+   Magic Remote, which is a pointer** — §8.4 already called that a trap, and it is. Real mouse
+   events mean hover rails and click-to-play overlays behave as on a desktop. It does **not** follow
+   that the UI works on the **D-pad**, nor that 24px body text is readable at viewing distance.
+   Both remain untested.
 
 ---
 
@@ -692,8 +745,9 @@ targets ≥60px tall.
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |
 | ~~Engine is Chromium 87, not 120~~ **Resolved: the engine is Chromium 120** | — | *(Corrected after the stage-3 gate — this row read "Likelihood: High. Assumed. Design targets 87 throughout." It was backwards: the risk that materialised was the **inference itself**, not the engine. `navigator.userAgent` on the set reads Chromium 120 / webOS 25. The mitigation that actually worked was sequencing the twenty-minute on-TV read before stage 4, so the cost of being wrong was one `browserslist` line and one guard list, not a rebuilt UI. Generalised lesson: when a constraint is inferred from a product SKU rather than measured, treat the measurement as a gate, not a confirmation.)* |
-| MKV seeking hits the `Cues`/`SeekHead` defect on webOS 22 | Unknown | Deliberately untested-for. Step 11.5 settles it. If real: prefer `.mp4` releases in the `webos22` profile — an HLS remux is unavailable on a Pi. |
-| Pi cannot sustain 1080p off a partial torrent to the TV | Medium | 1080p default; available-bytes seek boundary; ARM cap already limits concurrent downloads to 2. |
+| ~~MKV does not direct-play / MKV seeking hits the `Cues`/`SeekHead` defect~~ **Partly resolved** | — | *(Updated after the 2026-10-07 playback run.* **MKV direct play: retired.** A real 1080p H.264 Matroska file with a DDP5.1 track direct-played on the set, and seeking **within downloaded regions** worked — no `Cues`/`SeekHead` symptom on this file. Note the file was muxed once (`-FLUX`), which §3.2 says is the less-affected case, so the defect is retired for files like this one, not proven absent. **HEVC: not retired, and not measured.** The tested file is H.264. Accepted on documentation by owner decision: LG's AV table lists HEVC Main/Main10 for webOS **22** and this set is webOS **25**, two platform versions newer, so its table is at least as permissive. **That is an accepted risk with a rationale, not a result.** If it fails in the field the lever is torrent selection (§7.2); an HLS remux is unavailable on a Pi.) |
+| **Seeking past the download point into a not-yet-downloaded region** | **Unknown — still open** | *(Added after the 2026-10-07 run, which did **not** cover it.* The title under test was at ~26% and the far seek was never attempted, nor was the "Probe far seek (HTTP)" readout taken. The stage-1 first-chunk precheck and the `503` + `Retry-After` response exist and have unit tests, but **have never been observed from the TV**, and a `<video>` element reports only `MediaError.code`, so the status is unobservable there without the probe. Mitigations as designed: the available-bytes seek boundary (§7.4) prevents the seek rather than handling it, and stage 7 must make the player honour the 503. **Settle this with the HTTP probe before stage 7 ships.**) |
+| Pi cannot sustain 1080p off a partial torrent to the TV | ~~Medium~~ **Lowered — one successful observation** | *(Updated after the 2026-10-07 run.* 1080p H.264 streamed to the TV **from a torrent still downloading at ~26%**, played and scrubbed. That is one title, one session, no duration or rebuffer count recorded — it is evidence the path works, not a throughput measurement. Mitigations unchanged: 1080p default; available-bytes seek boundary; the ARM cap limiting concurrent downloads to 2.) |
 | `norigin-spatial-navigation` rejects React 19 | Medium | Hand-rolled focus manager fallback, scoped as task one. |
 | Dev Mode lapses and the tile vanishes | Certain, ~every 41 days | Browser-bookmark fallback is a documented deliverable; renewal routine noted in the README. |
 | Subtitle coverage disappoints (embedded-only releases) | High | Stated up front. Sidecar-only is v1; embedded extraction is out of scope. |
@@ -731,11 +785,11 @@ phase). Stages 1–3 are the first plan, because stage 3 can invalidate everythi
 | 0 | Read `navigator.userAgent` off the TV; confirm model | One fact, decides the CSS target. **Done 2026-10-06: Chromium 120 / webOS 25**, not the Chromium 87 this spec assumed — see §3.1. In practice stage 0 was folded into stage 3, because `/bigscreen/diag` is what reads the UA. |
 | 1 | Backend range/HEAD fixes + MIME table, TDD | Prerequisite for any playback, valuable to the web client too |
 | 2 | Two root layouts; empty `/bigscreen` + `bigscreen.css` skeleton | Smallest thing loadable on the TV |
-| 3 | **Load it in the TV's built-in browser.** Verify CSS, direct play, seek, AC3 | The gate. Stop and re-plan if this fails. **Run 2026-10-06 → "Proceed, simplified"**: everything rendered, engine is Chromium 120, so the engine-driven CSS/JS bans and the `browserslist: ["chrome 87"]` pin were dropped. Stages 4–10 are otherwise unchanged. |
-| 4 | Focus manager (+ React 19 check), rails, cards, home | The bulk of the UI |
+| 3 | **Load it in the TV's built-in browser.** Verify CSS, direct play, seek, AC3 | The gate. Stop and re-plan if this fails. **Complete.** Engine/rendering half run 2026-10-06 → **"Proceed, simplified"**: everything rendered, engine is Chromium 120, so the engine-driven CSS/JS bans and the `browserslist: ["chrome 87"]` pin were dropped. Playback half run 2026-10-07: **MKV direct play, DDP5.1 audio, streaming from a torrent at ~26% and seeking inside downloaded regions all passed**; **seeking past the download point, the far-seek HTTP probe, HEVC decode and DTS-at-1080p were not tested**. Full record: `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`. Stages 4–10 are otherwise unchanged. |
+| 4 | Focus manager (+ React 19 check), rails, cards, home | The bulk of the UI. *(Justification narrowed after the stage-3 gate — this stage used to be argued partly from the Chromium-87 CSS problem, i.e. that the web UI could not render on the TV at all. It renders fine. What stage 4 is now for is **D-pad navigation** — nothing in the repo calls `.focus()`, `scrollIntoView` appears zero times, a `PosterCard` has four focus stops — and **10-foot legibility**: type scale, safe-area insets, a visible focus ring. The "it works perfectly on the TV" observation was made through the **Magic Remote, which is a pointer** (§8.4), so it says nothing about either. This is a materially smaller job than this spec originally assumed.)* |
 | 5 | Device pairing: backend, `/link`, `/bigscreen/pair` | Unblocks using it without a keyboard |
 | 6 | Detail screens, season/episode picker, search keyboard, my list | Completes "watch + request" |
 | 7 | TV player: controls, 461, seek boundary, 401 handling | Depends on 1 and 5 |
-| 8 | Codec-aware selection + `webos22` profile + 4K opt-in | Needs a real player to validate against |
+| 8 | Codec-aware selection + `webos22` profile + 4K opt-in | Needs a real player to validate against. Also carries three things the stage-3 gate left unmeasured: **HEVC decode**, **DTS at 1080p**, and **which AV table the profile is derived from** (the device is webOS 25, the name says 22 — see §7.2). |
 | 9 | Subtitles: sidecar priority, WebVTT endpoint, `<track>` | Independent; last because coverage is partial |
 | 10 | `webos/` shell, IPK, `make tv-install`; README fallback + renewal notes | Cheapest step, deliberately last |

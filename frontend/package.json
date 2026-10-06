@@ -9,6 +9,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "//test:tv": "The Chromium-87 guard + TV palette pin. Deliberately NOT wired into `build`: next build runs inside the Docker image build, where an unrelated test failure must not break an image.",
+    "test:tv": "vitest run 'src/app/(bigscreen)'",
     "email": "email dev --dir src/emails --port 3030"
   },
   "dependencies": {
@@ -34,6 +36,9 @@
     "tailwind-merge": "^3.6.0",
     "zod": "^3.22.4"
   },
+  "browserslist": [
+    "chrome 87"
+  ],
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",

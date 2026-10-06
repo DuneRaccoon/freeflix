@@ -1318,11 +1318,17 @@ class TorrentManager:
         hands the player not-yet-downloaded (sparse / zero) bytes — including the
         MP4 `moov` atom when it lives at the END of the file. The browser decoder
         rejects those (PIPELINE_ERROR_DECODE / VideoToolbox -12909). This gates
-        every chunk on piece availability (await_pieces_async) — deadlining the
-        needed pieces so libtorrent fetches them next — and NEVER yields a chunk
-        whose pieces are not confirmed present (it ends the generator on timeout
-        instead of serving garbage). Disk reads run off the event loop via
-        asyncio.to_thread. StreamingResponse consumes async generators directly.
+        every chunk on piece availability — polling _pieces_ready while
+        re-asserting _deadline_pieces so libtorrent fetches them next — and NEVER
+        yields a chunk whose pieces are not confirmed present (it ends the
+        generator on timeout instead of serving garbage). Disk reads run off the
+        event loop via asyncio.to_thread. StreamingResponse consumes async
+        generators directly.
+
+        `piece_timeout` overrides the flat 300s per-chunk cap. The cap is
+        deliberately generous HERE, unlike the pre-response wait in
+        wait_for_first_chunk: once the status line is sent, giving up can only
+        truncate below the promised Content-Length, so waiting beats failing.
         """
         entry = self.active_torrents.get(torrent_id)
         handle = entry[0] if entry else None
@@ -1422,6 +1428,88 @@ class TorrentManager:
             )
         except Exception:
             return False
+
+    async def wait_for_first_chunk(self, torrent_id: str, file_index: int,
+                                   start: int, length: int,
+                                   budget: Optional[float] = None) -> bool:
+        """True once the pieces backing [start, start+length-1] are on disk.
+
+        Called by the streaming endpoint BEFORE it starts the response body. Once
+        StreamingResponse begins emitting, the status code is already sent, so a
+        later failure can only truncate below the promised Content-Length — which a
+        browser retries and a TV media pipeline reports as a generic playback
+        failure. Answering the first chunk up front is the only point at which a
+        seek into a not-yet-downloaded region can still become a retryable 503.
+
+        `budget` defaults to _adaptive_piece_timeout(handle) — NOT a flat number.
+        A flat budget is the wrong shape for this deployment: on a Pi with a
+        low-seeder torrent the 10s-300s delivery band is the common case, so a
+        flat 10s converts a slow SUCCESS into a fatal error for a client that
+        cannot retry. The adaptive budget instead spends ~2s on a dead swarm
+        (zero peers — the case the 503 exists for), `base` while peers are idle,
+        and stretches toward 60s in proportion to measured throughput. Pass an
+        explicit `budget` to override (tests do).
+
+        Return-value contract, deliberately asymmetric:
+        - Torrent absent from the session AT ENTRY -> True. It completed and was
+          removed, so every byte is on disk.
+        - Torrent leaves the session MID-WAIT -> False. That means deleted or
+          content-guard-blocked, and its files may already be gone; returning
+          True would hand the generator a missing file.
+        - Metadata missing or unreadable -> True: let the generator deal with it
+          rather than refusing a request that might well succeed.
+        - `budget` seconds elapse with pieces still missing -> False.
+
+        The mid-stream wait inside stream_file_range is unchanged.
+        """
+        entry = self.active_torrents.get(torrent_id)
+        handle = entry[0] if entry else None
+        if handle is None:
+            return True
+
+        try:
+            # has_metadata() MUST be inside the try. This runs BEFORE the response
+            # starts, so a RuntimeError("invalid torrent handle") — raised when the
+            # handle is invalidated between active_torrents.get() and here, which
+            # _block_torrent makes a live race by calling remove_torrent() before
+            # popping active_torrents — would propagate into stream_video's
+            # catch-all and serve a body into the decoder.
+            if not handle.has_metadata():
+                return True
+            ti = handle.get_torrent_info()
+            file_offset = ti.file_at(file_index).offset
+            piece_length = ti.piece_length()
+            num_pieces = ti.num_pieces()
+        except Exception:
+            # No usable metadata (or a handle that just went invalid): let the
+            # generator deal with it rather than refusing a request that might
+            # well succeed.
+            return True
+
+        if budget is None:
+            budget = self._adaptive_piece_timeout(handle)
+
+        first_piece = (file_offset + start) // piece_length
+        last_piece = (file_offset + start + max(length, 1) - 1) // piece_length
+
+        self._prioritize_window(handle, first_piece, num_pieces, first_piece)
+        self._deadline_pieces(handle, first_piece, last_piece, num_pieces)
+
+        waited = 0.0
+        while not self._pieces_ready(handle, first_piece, last_piece):
+            if torrent_id not in self.active_torrents:
+                return False
+            if waited >= budget:
+                logger.info(
+                    f"First chunk for {torrent_id} pieces {first_piece}-{last_piece} "
+                    f"not available within {budget:.0f}s; answering 503"
+                )
+                return False
+            await asyncio.sleep(0.25)
+            waited += 0.25
+            self._deadline_pieces(handle, first_piece, last_piece, num_pieces)
+
+        return True
 
     def _adaptive_piece_timeout(self, handle, *, base: float = 8.0,
                                 max_timeout: float = 60.0) -> float:

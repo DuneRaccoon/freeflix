@@ -200,8 +200,9 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-pair-url { font-size: 28px; color: var(--muted); word-break: break-all; }
 .bs-qr {
-  width: 360px;
-  height: 360px;
+  box-sizing: content-box;
+  width: 328px;
+  height: 328px;
   background: #fff;      /* a QR needs a light quiet zone to scan reliably */
   padding: 16px;
   border-radius: var(--radius);

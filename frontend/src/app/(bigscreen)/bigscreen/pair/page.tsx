@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { devicesService, type DeviceStart } from '@/services/devices';
 
 type Phase = 'starting' | 'ready' | 'denied' | 'unreachable';
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const MAX_POLL_FAILURES = 3;
+const MAX_BACKOFF_MS = 30_000;
 
 /**
  * /bigscreen/pair — the television's side of device pairing.
@@ -19,16 +21,26 @@ export default function PairPage() {
   const [start, setStart] = useState<DeviceStart | null>(null);
   const [qr, setQr] = useState<string | null>(null);
 
+  const inFlight = useRef(false);
+  const failures = useRef(0);
+
   const begin = useCallback(async () => {
+    // A double-press (or StrictMode's double mount) must not mint two pairings and
+    // orphan one server-side.
+    if (inFlight.current) return;
+    inFlight.current = true;
+    failures.current = 0;
     setPhase('starting');
-    setQr(null);
+    // Drop the old code at once: showing one nobody can use is what a restart is for.
+    setStart(null);
     try {
       const s = await devicesService.start();
       setStart(s);
       setPhase('ready');
     } catch {
-      setStart(null);
       setPhase('unreachable');
+    } finally {
+      inFlight.current = false;
     }
   }, []);
 
@@ -42,7 +54,9 @@ export default function PairPage() {
       const u = new URL(start.verification_uri, window.location.origin);
       // app_public_url is at its localhost default, which no phone on the network can
       // reach; the origin this television actually loaded from is one that works.
-      return LOOPBACK.has(u.hostname) ? `${window.location.origin}${u.pathname}` : u.toString();
+      return LOOPBACK.has(u.hostname)
+        ? new URL(u.pathname + u.search + u.hash, window.location.origin).toString()
+        : u.toString();
     } catch {
       return `${window.location.origin}/link`;
     }
@@ -57,12 +71,25 @@ export default function PairPage() {
 
     const tick = async () => {
       let status: string | null = null;
+      let threw = false;
       try {
         status = await devicesService.poll(start.device_code);
+        failures.current = 0;
       } catch {
-        // A blip while polling is not a reason to strand the screen; try again.
+        threw = true;
+        failures.current += 1;
       }
       if (cancelled) return;
+      if (threw) {
+        // A blip is retried with backoff; a run of them is a server we cannot reach,
+        // and the unreachable screen has the Try again control.
+        if (failures.current >= MAX_POLL_FAILURES) {
+          setPhase('unreachable');
+          return;
+        }
+        timer = setTimeout(tick, Math.min(delay * 2 ** failures.current, MAX_BACKOFF_MS));
+        return;
+      }
       if (status === 'approved') {
         // The cookie is already set; a hard navigation is needed because
         // SessionProvider boots once per document.
@@ -91,10 +118,18 @@ export default function PairPage() {
   // already on screen rather than breaking the screen. Encodes the user_code only,
   // never the device_code.
   useEffect(() => {
+    // Cleared here, not in begin(), so a stale in-flight render cannot land beside a new code.
+    setQr(null);
     if (!start || !linkUrl) return;
     let cancelled = false;
+    const target = new URL(linkUrl);
+    target.searchParams.set('code', start.user_code);
     import('qrcode')
-      .then((QR) => QR.toDataURL(`${linkUrl}?code=${start.user_code}`, { margin: 1, width: 360 }))
+      .then((QR) => {
+        const mod = QR as unknown as { default?: typeof QR };
+        // 328 = the 360px box minus its 16px padding, so the image is not resampled.
+        return (mod.default ?? QR).toDataURL(target.toString(), { margin: 1, width: 328 });
+      })
       .then((url) => { if (!cancelled) setQr(url); })
       .catch(() => { /* text URL is the fallback and is already on screen */ });
     return () => { cancelled = true; };

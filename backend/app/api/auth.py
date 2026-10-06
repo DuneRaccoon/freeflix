@@ -743,3 +743,57 @@ async def device_approve(
         auth_service.rate_limiter.reset(f"device-approve:{ctx.account_id}")
 
     return OkResponse(ok=True)
+
+
+@router.get("/devices", response_model=list[DeviceSessionResponse])
+async def list_devices(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Every live session on this account, so a television can be un-paired alone."""
+    now = auth_service.utcnow()
+    with db as session:
+        rows = (
+            session.query(AuthSession)
+            .filter(
+                AuthSession.account_id == ctx.account_id,
+                AuthSession.revoked_at.is_(None),
+                AuthSession.expires_at > now,
+            )
+            .order_by(AuthSession.last_seen_at.desc().nullslast())
+            .all()
+        )
+        return [
+            DeviceSessionResponse(
+                id=r.id,
+                device_name=r.device_name,
+                device_kind=r.device_kind,
+                created_at=r.created_at,
+                last_seen_at=r.last_seen_at,
+                current=(r.id == ctx.session_id),
+            )
+            for r in rows
+        ]
+
+
+@router.delete("/devices/{session_id}", response_model=OkResponse)
+async def revoke_device(
+    session_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Revoke one session. A session belonging to another account answers 404, not
+    403 — whether an id exists is not this caller's business."""
+    with db as session:
+        row = (
+            session.query(AuthSession)
+            .filter(
+                AuthSession.id == session_id,
+                AuthSession.account_id == ctx.account_id,
+            )
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="No such device")
+        auth_service.revoke_session(session, row)
+    return OkResponse(ok=True)

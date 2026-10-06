@@ -76,15 +76,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
   const cursorTimeout = useRef<NodeJS.Timeout | null>(null);
   const userInteractedRef = useRef<boolean>(false);
+  // MUTUAL EXCLUSION between concurrent USER audio actions only (the mute button,
+  // the volume drag, the m/ArrowUp/ArrowDown keys all early-return on it). It is
+  // deliberately NOT held across programmatic writes: `applyAudioIntent` runs on
+  // every `canplay` — i.e. on every rebuffer and every recovery of a
+  // still-downloading torrent — and holding this there made each one a window in
+  // which the user's own mute click was silently dropped.
   const volumeChangeInProgressRef = useRef<boolean>(false);
-  // The user's LAST EXPRESSED audio intent — written only by user actions (the
-  // mute toggle, the volume slider, the volume/mute keys, playWithSound,
-  // enableAudio, the unmute-on-first-gesture backstop). Never by a programmatic
-  // write, and never read back out of `playerState`: `playerState.isMuted` is
-  // derived from the element and so is both race-prone (the listener effect
-  // re-registers on every state change, between `volumechange` and `canplay`) and
-  // exactly the value a programmatic mute used to corrupt. This ref is what the
-  // element's audio state must converge on.
+  // "Ignore this echo", which is a different thing from "a user action is in
+  // flight". A programmatic audio write parks the value it just put on the element
+  // here and `handleVolumeChange` discards the `volumechange` that reports exactly
+  // that value back. Value-matched rather than time-windowed, so it can never
+  // swallow a user change that happens to land inside some interval, and nothing
+  // depends on when the asynchronous `volumechange` task actually runs.
+  //
+  // The token is NOT consumed on the first match: one programmatic write can touch
+  // both `muted` and `volume` and so queue two events, both reporting the same
+  // final pair. It is superseded by the next programmatic write instead. A
+  // lingering token can at worst discard a USER echo carrying that same pair — and
+  // every user audio path (the mute button, the volume drag, the m/arrow keys,
+  // playWithSound, unmuteOnFirstGesture) writes `playerState` and
+  // `showUnmuteButton` itself, so nothing is lost.
+  const programmaticAudioEchoRef = useRef<{ muted: boolean; volume: number } | null>(null);
+  // The audio state the element must converge on after any programmatic reload —
+  // i.e. the EFFECTIVE intent. Three kinds of write reach it, and nothing else:
+  //   - a user action (the mute toggle, the volume slider, the volume/mute keys,
+  //     playWithSound, the unmute-on-first-gesture backstop);
+  //   - the browser overruling the user: when autoplay with sound is blocked we
+  //     mute to keep playing, and that forced mute IS the effective state, so it
+  //     is recorded here — otherwise the next `canplay` would unmute an element
+  //     that has no user activation (Chrome pauses it) and desync the mute button;
+  //   - nothing else. In particular never from `playerState`: `playerState.isMuted`
+  //     is derived from the element and so is both race-prone (the listener effect
+  //     re-registers on every state change, between `volumechange` and `canplay`)
+  //     and exactly the value a programmatic mute used to corrupt.
+  // The initial value is the default we apply until the user expresses anything:
+  // unmuted at full volume. `handleCanPlay` converges the element onto this.
   const audioIntentRef = useRef<{ muted: boolean; volume: number }>({ muted: false, volume: 1.0 });
   const isDraggingVolumeRef = useRef<boolean>(false);
   const bufferingRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -157,30 +184,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   /**
    * Perform a PROGRAMMATIC audio write (one the user did not ask for: the
-   * autoplay-policy pre-mute, and the convergence back onto the user's intent).
+   * autoplay-policy pre-mute, and the convergence back onto the effective intent).
    *
    * It must not be mistaken for user intent by `handleVolumeChange`, which writes
-   * the element's audio state back into React. `volumechange` is delivered from a
-   * queued task, not synchronously with the assignment, so the guard cannot be
-   * cleared right after the write — it is released on a timeout, the same pattern
-   * every other programmatic audio change in this file uses.
+   * the element's audio state back into React (`isMuted`, which drives the mute
+   * button, and `showUnmuteButton`). `volumechange` is delivered from a queued
+   * task, NOT synchronously with the assignment, so the write cannot simply be
+   * bracketed — the echo arrives later. We therefore park the resulting value and
+   * let `handleVolumeChange` discard exactly the event that reports it back.
+   *
+   * No token is parked when the write changed nothing, because then no
+   * `volumechange` is fired and the token would go stale.
    */
   const applyAudioProgrammatically = useCallback((operation: (video: HTMLVideoElement) => void) => {
     const video = videoRef.current;
     if (!video) return;
 
-    volumeChangeInProgressRef.current = true;
+    const before = { muted: video.muted, volume: video.volume };
     try {
       operation(video);
     } catch (e) {
       console.error("Programmatic audio write error:", e);
     }
-    setTimeout(() => {
-      volumeChangeInProgressRef.current = false;
-    }, 100);
+    const after = { muted: video.muted, volume: video.volume };
+    if (after.muted !== before.muted || after.volume !== before.volume) {
+      programmaticAudioEchoRef.current = after;
+    }
   }, []);
 
-  /** Converge the element's audio state onto what the user last asked for. */
+  /** Converge the element's audio state onto the effective intent. */
   const applyAudioIntent = useCallback(() => {
     applyAudioProgrammatically(video => {
       video.muted = audioIntentRef.current.muted;
@@ -220,44 +252,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     return maxBufferedEnd - currentTime;
   }, []);
-
-  // Enable audio playback after user interaction
-  const enableAudio = useCallback(() => {
-    if (debug) console.log("Attempting to enable audio");
-    userInteractedRef.current = true;
-
-    safeVideoOperation(video => {
-      // Try to play to unlock audio capabilities
-      const playPromise = video.play();
-      if (playPromise !== undefined) {
-        playPromise.then(() => {
-          // Now we can set audio properties
-          if (debug) console.log("Play successful, setting volume to", playerState.volume);
-          video.volume = playerState.volume;
-
-          audioIntentRef.current = { muted: playerState.isMuted, volume: video.volume };
-
-          // Only unmute if the user hasn't explicitly muted
-          if (!playerState.isMuted) {
-            video.muted = false;
-            setShowUnmuteButton(false);
-          }
-
-          // Confirm player state
-          setPlayerState(prev => ({
-            ...prev,
-            isPlaying: true,
-            volume: video.volume,
-            isMuted: video.muted
-          }));
-        }).catch(e => {
-          console.error("Error in play attempt:", e);
-          // We still need to unmute for future interactions
-          setShowUnmuteButton(true);
-        });
-      }
-    });
-  }, [playerState.volume, playerState.isMuted, safeVideoOperation, debug]);
 
   // Toggle play/pause
   const togglePlay = useCallback((e?: React.MouseEvent) => {
@@ -688,15 +682,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsStalled(false);
     recoveryAttemptRef.current = 0;
 
-    // Ensure it starts muted for autoplay policy. Guarded: this is a programmatic
-    // write, so it must not land in `playerState.isMuted` and be mistaken later for
-    // an explicit user mute. `canplay` converges the element back onto
-    // `audioIntentRef`.
-    volumeChangeInProgressRef.current = true;
-    video.muted = true;
-    setTimeout(() => {
-      volumeChangeInProgressRef.current = false;
-    }, 100);
+    // Ensure it starts muted for autoplay policy. Via the helper: this is a
+    // programmatic write, so it must not land in `playerState.isMuted` and be
+    // mistaken later for an explicit user mute. `canplay` converges the element
+    // back onto `audioIntentRef`.
+    applyAudioProgrammatically(v => { v.muted = true; });
 
     // Set up a one-time click handler to detect first user interaction
     const handleFirstInteraction = () => {
@@ -730,7 +720,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         recoveryRestoreRef.current();
       }
     };
-  }, [src, debug, updateVolumeFromMouseMove, stopVolumeDrag]);
+  }, [src, debug, updateVolumeFromMouseMove, stopVolumeDrag, applyAudioProgrammatically]);
 
   // Keyboard controls
   useEffect(() => {
@@ -894,6 +884,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
 
     const handleVolumeChange = () => {
+      // The echo of a programmatic write: discard it, so a write the user did not
+      // ask for never reaches `playerState.isMuted` / `showUnmuteButton`.
+      const echo = programmaticAudioEchoRef.current;
+      if (echo && echo.muted === video.muted && echo.volume === video.volume) return;
+
+      // A user action is mid-flight; it writes the React state itself.
       if (volumeChangeInProgressRef.current) return;
 
       try {
@@ -974,7 +970,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }));
             }).catch(error => {
               if (debug) console.error('Sound-on autoplay blocked; retrying muted:', error);
-              // Browser blocked autoplay with sound → mute and retry so it still plays.
+              // Browser blocked autoplay with sound → mute and retry so it still
+              // plays. The forced mute is now the EFFECTIVE state, so record it as
+              // the intent: otherwise the next recovery's `canplay` →
+              // `applyAudioIntent()` would unmute an element that still has no user
+              // activation (Chrome pauses it mid-recovery), desync the mute button
+              // from the element, and register another `unmuteOnFirstGesture` pair
+              // on every retry. `unmuteOnFirstGesture` below overwrites it the
+              // moment the user does provide a gesture.
+              audioIntentRef.current = { ...audioIntentRef.current, muted: true };
               video.muted = true;
               video.play().then(() => {
                 setShowUnmuteButton(true);

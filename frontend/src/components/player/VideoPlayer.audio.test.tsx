@@ -67,6 +67,11 @@ function wireVideo(video: HTMLVideoElement, initialMuted = true) {
   let muted = initialMuted;
   let volume = 1;
   let t = 0;
+  // Every muted TRANSITION, in order. The end state alone hides a transient
+  // unmute: the blocked-autoplay fallback re-mutes, so a wrong unmute during a
+  // recovery is only visible here (and, in a real browser, as the pause Chrome
+  // applies to an element unmuted without activation).
+  const mutedLog: boolean[] = [];
   const queueVolumeChange = () => {
     setTimeout(() => video.dispatchEvent(new Event('volumechange')), 0);
   };
@@ -75,7 +80,7 @@ function wireVideo(video: HTMLVideoElement, initialMuted = true) {
     get: () => muted,
     set: (v: boolean) => {
       const next = !!v;
-      if (next !== muted) { muted = next; queueVolumeChange(); }
+      if (next !== muted) { muted = next; mutedLog.push(next); queueVolumeChange(); }
     },
   });
   Object.defineProperty(video, 'volume', {
@@ -94,7 +99,7 @@ function wireVideo(video: HTMLVideoElement, initialMuted = true) {
     configurable: true,
     get: () => ({ code: 2, message: 'simulated network error' }),
   });
-  return { seek: (v: number) => { t = v; } };
+  return { seek: (v: number) => { t = v; }, mutedLog };
 }
 
 const tick = (ms = 300) => act(() => { vi.advanceTimersByTime(ms); });
@@ -261,5 +266,110 @@ describe('VideoPlayer autoplay path (must not regress)', () => {
     expect(video.muted).toBe(true);
     expect(audioState(container).isMuted).toBe('true');
     expect(audioState(container).showUnmuteButton).toBe('true');
+  });
+});
+
+describe('VideoPlayer programmatic audio writes must not swallow the user', () => {
+  /**
+   * The guard that keeps a programmatic write out of React must NOT be the same
+   * ref the user handlers early-return on. `applyAudioIntent` runs on every
+   * `canplay` — every rebuffer and every recovery of a still-downloading torrent —
+   * so a held mutex would make each one a window in which a Mute click is dropped.
+   */
+  it('honours a Mute click landing immediately after canplay', async () => {
+    const { container, video, getMethods } = renderPlayer({ autoPlay: false });
+    wireVideo(video);
+
+    await userAsksForSound(getMethods());
+    expect(video.muted).toBe(false);
+
+    // canplay converges the element onto the intent, then the user mutes 10ms later
+    // — well inside any 100ms guard window.
+    act(() => { fireEvent.canPlay(video); });
+    act(() => { vi.advanceTimersByTime(10); });
+
+    const muteBtn = container.querySelector('[aria-label="Mute"]')!;
+    await act(async () => { fireEvent.click(muteBtn); });
+    await settle();
+
+    expect(video.muted).toBe(true);
+    expect(audioState(container).isMuted).toBe('true');
+  });
+
+  /**
+   * The ONE place the echo must be ignored asynchronously: the autoplay-policy
+   * pre-mute on a mid-session `loadstart` with autoPlay={true}. `volumechange` is
+   * delivered from a queued task, so a guard released synchronously with the write
+   * does not cover it — the pre-mute then lands in `playerState.isMuted` and raises
+   * the unmute affordance, which is the reported flicker. Asserted BEFORE `canplay`
+   * on purpose: `canplay`'s own restore would mask the leak afterwards.
+   */
+  it('autoPlay={true}: a mid-session loadstart pre-mute never reaches React', async () => {
+    const { container, video, getMethods } = renderPlayer({ autoPlay: true });
+    wireVideo(video);
+
+    await userAsksForSound(getMethods());
+    expect(video.muted).toBe(false);
+    expect(audioState(container).isMuted).toBe('false');
+
+    act(() => { fireEvent.loadStart(video); });
+    await settle();
+
+    // The element is pre-muted for autoplay policy (legitimate), but the user's
+    // audio state as React knows it is untouched and no affordance is raised.
+    expect(audioState(container).isMuted).toBe('false');
+    expect(audioState(container).showUnmuteButton).toBe('false');
+
+    // And the element converges back onto the intent once it is playable.
+    act(() => { fireEvent.canPlay(video); });
+    await settle();
+    expect(video.muted).toBe(false);
+    expect(audioState(container).isMuted).toBe('false');
+    expect(audioState(container).showUnmuteButton).toBe('false');
+  });
+
+  /**
+   * A browser-forced mute is the EFFECTIVE audio state, so it has to be recorded as
+   * the intent. Otherwise the next recovery's `canplay` -> `applyAudioIntent()`
+   * unmutes an element that still has no user activation (Chrome pauses it), and
+   * `playerState.isMuted` — which drives the mute button's icon and aria-label —
+   * disagrees with the element.
+   */
+  it('autoPlay={true}: a forced muted autoplay survives a recovery', async () => {
+    // play() is only allowed while muted — i.e. no user activation at all.
+    playSpy.mockImplementation(function (this: HTMLMediaElement) {
+      return this.muted
+        ? Promise.resolve()
+        : Promise.reject(new DOMException('blocked', 'NotAllowedError'));
+    });
+
+    const { container, video } = renderPlayer({ autoPlay: true });
+    const ctl = wireVideo(video);
+
+    act(() => { fireEvent.canPlay(video); });
+    await settle();
+
+    expect(video.muted).toBe(true);
+    expect(audioState(container).isMuted).toBe('true');
+
+    // Error -> backoff -> load() -> loadstart -> loadedmetadata -> canplay.
+    ctl.seek(42);
+    act(() => { fireEvent.error(video); });
+    const mutedWritesBeforeRecovery = ctl.mutedLog.length;
+    tick(1000);
+    expect(loadSpy).toHaveBeenCalledTimes(1);
+    ctl.seek(0);
+    act(() => { fireEvent.loadedMetadata(video); });
+    act(() => { fireEvent.canPlay(video); });
+    await settle();
+
+    // THE DEFECT: audioIntentRef still read { muted: false }, so the recovery's
+    // canplay unmuted an element with no user activation. The end state alone does
+    // not show it — the blocked-autoplay fallback re-mutes and papers over it — so
+    // assert the element was never unmuted during the recovery at all.
+    expect(ctl.mutedLog.slice(mutedWritesBeforeRecovery)).toEqual([]);
+    expect(video.muted).toBe(true);
+    expect(audioState(container).isMuted).toBe('true');
+    expect(video.currentTime).toBe(42);
   });
 });

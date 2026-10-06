@@ -616,6 +616,42 @@ class VerifyTokenResponse(BaseModel):
     redirect: str = "/"
     claimed: bool = False
 
+
+class DeviceStartResponse(BaseModel):
+    """Handed to a device that has no keyboard.
+
+    ``device_code`` is the secret and appears only in this body. ``user_code`` is the
+    short code a person reads off the screen; it is an index, not a secret.
+    """
+    device_code: str
+    user_code: str
+    verification_uri: str
+    expires_in: int
+    interval: int
+
+
+class DevicePollRequest(BaseModel):
+    device_code: str
+
+
+class DevicePollResponse(BaseModel):
+    status: str  # pending | approved | denied | expired
+
+
+class DeviceApproveRequest(BaseModel):
+    user_code: str
+    device_name: str = ""
+
+
+class DeviceSessionResponse(BaseModel):
+    id: str
+    device_name: Optional[str] = None
+    device_kind: Optional[str] = None
+    created_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    current: bool = False
+
+
 class AccountResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

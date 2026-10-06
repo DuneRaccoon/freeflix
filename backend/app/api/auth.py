@@ -29,6 +29,9 @@ from app.config import settings
 from app.database.models.accounts import (
     Account,
     AuthSession,
+    PAIRING_CONSUMED,
+    PAIRING_DENIED,
+    PAIRING_PENDING,
     PURPOSE_CLAIM_VERIFY,
     PURPOSE_LOGIN,
     PURPOSE_PASSWORD_RESET,
@@ -41,6 +44,11 @@ from app.dependencies.auth import AuthContext, require_session
 from app.models import (
     AccountResponse,
     AuthCapabilityResponse,
+    DeviceApproveRequest,
+    DevicePollRequest,
+    DevicePollResponse,
+    DeviceSessionResponse,
+    DeviceStartResponse,
     PasswordResetConfirm,
     PasswordResetRequest,
     PasswordSignInRequest,
@@ -58,6 +66,7 @@ from app.models import (
 )
 from app.services import accounts as accounts_service
 from app.services import auth as auth_service
+from app.services import device_pairing
 from app.services import mailer
 
 router = APIRouter()
@@ -75,6 +84,20 @@ _PASSWORD_LIMIT = 5
 _PASSWORD_WINDOW = 15 * 60
 _RESET_LIMIT = 3
 _RESET_WINDOW = 15 * 60
+
+# Generous: a device polls every two seconds for the whole ten-minute TTL, which is
+# ~300 calls, and that liveness is the flow working rather than abuse. The bucket is
+# per device_code, so one stuck device cannot throttle another.
+_DEVICE_POLL_LIMIT = 450
+_DEVICE_POLL_WINDOW = 15 * 60
+# Unauthenticated, so this one is a global bucket. A household never approaches it.
+# 120 rather than something tighter: the limiter is a process-wide singleton, and a
+# household pairs a device a handful of times a year, so this is still a real bound.
+_DEVICE_START_LIMIT = 120
+_DEVICE_START_WINDOW = 15 * 60
+# Wrong codes typed by one signed-in account, mirroring the /claim wrong-code budget.
+_DEVICE_APPROVE_LIMIT = 10
+_DEVICE_APPROVE_WINDOW = 15 * 60
 
 def _bad_credentials() -> HTTPException:
     """One constant refusal for every way a password sign-in can fail: unknown address, a
@@ -562,3 +585,31 @@ async def sign_out(
 
     response.delete_cookie(settings.cookie_name, path="/")
     return OkResponse(ok=True)
+
+
+@router.post("/device/start", response_model=DeviceStartResponse)
+async def device_start(db: Annotated[Session, Depends(get_db)]):
+    """Begin pairing a device that has no usable keyboard.
+
+    Public by necessity — the device has no credentials yet. That is safe because
+    starting a pairing grants nothing: the row is inert until an authenticated account
+    approves it, and the session is handed only to whoever holds the device_code.
+    """
+    if not auth_service.rate_limiter.check(
+        "device-start", limit=_DEVICE_START_LIMIT, window_seconds=_DEVICE_START_WINDOW
+    ):
+        raise HTTPException(status_code=429, detail="Too many pairing attempts")
+
+    with db as session:
+        raw, row = device_pairing.start_pairing(
+            session, ttl_minutes=settings.device_pairing_ttl_minutes
+        )
+        user_code = device_pairing.format_user_code(row.user_code)
+
+    return DeviceStartResponse(
+        device_code=raw,
+        user_code=user_code,
+        verification_uri=f"{settings.app_public_url.rstrip('/')}/link",
+        expires_in=settings.device_pairing_ttl_minutes * 60,
+        interval=2,
+    )

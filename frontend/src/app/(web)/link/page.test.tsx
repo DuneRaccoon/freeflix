@@ -72,4 +72,22 @@ describe('/link', () => {
     await userEvent.click(screen.getByRole('button', { name: /approve/i }));
     expect(await screen.findByText(/paired/i)).toBeInTheDocument();
   });
+
+  it('submits once however many times approve is pressed', async () => {
+    let resolve!: () => void;
+    (devicesService.approve as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise<void>((r) => { resolve = r; }),
+    );
+    render(<LinkPage />);
+    await userEvent.type(screen.getByLabelText(/code/i), 'BCDF-GHJK');
+    const approve = screen.getByRole('button', { name: /approve/i });
+    await userEvent.click(approve);
+    await userEvent.click(approve);
+    resolve();
+    // A second call would hit a no-longer-pending row and 404, telling the person
+    // their code is invalid straight after it worked.
+    expect(await screen.findByText(/paired/i)).toBeInTheDocument();
+    expect(devicesService.approve).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/not valid/i)).not.toBeInTheDocument();
+  });
 });

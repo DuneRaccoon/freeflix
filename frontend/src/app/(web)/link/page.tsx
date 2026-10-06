@@ -74,7 +74,7 @@ function LinkForm() {
               <span className="font-ui text-xs uppercase tracking-widest text-muted">
                 The television should show
               </span>
-              <p className="font-display text-4xl tracking-[0.2em] text-gold-lite sm:text-5xl">
+              <p className="font-display text-4xl uppercase tracking-[0.2em] text-gold-lite sm:text-5xl">
                 {shown}
               </p>
             </div>

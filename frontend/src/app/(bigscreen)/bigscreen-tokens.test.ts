@@ -2,10 +2,11 @@
  * The TV palette is a COPY, so something has to pin it.
  *
  * public/bigscreen.css cannot import from the web stylesheet: it is hand-authored
- * plain CSS, linked directly so it never passes through PostCSS, and globals.css
- * declares its tokens inside Tailwind v4's @theme — an at-rule Chromium 87 throws
- * away along with everything in it. So the ten Editorial-Noir colours exist twice,
- * under two names (`--ink` on the TV, `--color-ink` on the web).
+ * plain CSS, linked directly so it never passes through PostCSS — which is what
+ * keeps Tailwind and the web design system's blur stacks off TV silicon (spec §9) —
+ * and globals.css declares its tokens inside Tailwind v4's @theme, which only
+ * PostCSS resolves. So the ten Editorial-Noir colours exist twice, under two names
+ * (`--ink` on the TV, `--color-ink` on the web).
  *
  * Duplication with nothing pinning it drifts silently, and the drift is invisible
  * until somebody walks into the living room and looks at a television. This test

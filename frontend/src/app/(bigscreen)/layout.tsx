@@ -8,10 +8,12 @@ export const metadata: Metadata = {
 /**
  * Second root layout, for the TV surface only.
  *
- * It deliberately imports NO stylesheet: Tailwind v4 wraps its output in a CSS
- * cascade-layers at-rule that Chromium 87 (webOS TV 22) does not understand and
- * therefore discards wholesale, leaving an unstyled page. public/bigscreen.css is
- * hand-authored plain CSS and is linked directly so it never passes through PostCSS.
+ * It deliberately imports NO stylesheet. The engine would now cope — the set reads
+ * as Chromium 120 (webOS 25), so Tailwind v4's cascade layers would render — but
+ * the web stylesheet brings the whole pointer-first design system with it: the blur
+ * stacks and the full-viewport atmosphere layer that spec §9 keeps off TV silicon.
+ * public/bigscreen.css is hand-authored plain CSS, linked directly so it never
+ * passes through PostCSS, and legacy-target.test.ts pins both rules.
  *
  * It also mounts none of the app's providers — the TV surface must render before
  * device pairing exists.

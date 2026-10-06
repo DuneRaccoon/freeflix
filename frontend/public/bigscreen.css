@@ -1,10 +1,16 @@
 /* ============================================================
    Freeflix — big-screen (10-foot) stylesheet.
-   TARGET: Chromium 87 (webOS TV 22). Plain CSS only, no build step.
-   legacy-target.test.ts holds the list of constructs banned here. It is a vitest
-   file, so it runs under `npm test` / `npm run test:tv` — NOT during `next build`,
-   which happens inside the Docker image build where a test failure must not break
-   the image.
+   TARGET: the household's LG TV, read on the set as Chromium 120 / webOS 25. An
+   earlier draft of this file claimed Chromium 87 (webOS TV 22) — inferred from the
+   panel size, and disproved by an on-TV `navigator.userAgent` reading.
+   Plain CSS only, no build step. That is NOT an engine workaround: it is how this
+   surface stays out of PostCSS and therefore out of Tailwind and the web design
+   system, whose blur stacks and full-viewport atmosphere layer the TV GPU cannot
+   afford (spec §9).
+   legacy-target.test.ts holds the list of constructs banned here — now only the
+   GPU-expensive ones. It is a vitest file, so it runs under `npm test` /
+   `npm run test:tv` — NOT during `next build`, which happens inside the Docker
+   image build where a test failure must not break the image.
    The colour tokens are COPIES of the FRE Editorial-Noir set in
    src/app/(web)/globals.css (--ink here, --color-ink there). bigscreen-tokens
    .test.ts pins the two lists together, because drift here is invisible until

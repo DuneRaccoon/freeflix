@@ -22,7 +22,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * Runs unauthenticated, so browse it with AUTH_ENABLED=false set temporarily on the
  * backend (revert immediately afterwards).
  *
- * @allow-legacy-probes — this file names post-Chromium-87 CSS and JS features on
+ * @allow-legacy-probes — this file names expensive and post-Chromium-87 CSS and JS
+ * features on
  * purpose, to probe for them. legacy-target.test.ts skips any file with this marker;
  * no other file on the TV surface may carry it.
  */

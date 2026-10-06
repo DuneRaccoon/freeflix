@@ -12,8 +12,8 @@ import { useEffect, useRef } from 'react';
  * remote can do nothing at all until something has focus.
  *
  * Nested inside (bigscreen)/layout.tsx, so bigscreen.css is already linked and
- * this file adds no styles of its own. Chromium 87 target, same as everything
- * else here; legacy-target.test.ts enforces it.
+ * this file adds no styles of its own. It stays inside the TV performance budget,
+ * same as everything else here; legacy-target.test.ts enforces it.
  */
 export default function BigScreenError({
   error,

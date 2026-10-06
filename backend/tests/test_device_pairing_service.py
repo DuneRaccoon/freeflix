@@ -9,7 +9,7 @@ import datetime
 import pytest
 
 from app.database.models.accounts import (
-    DevicePairing, PAIRING_PENDING, PAIRING_APPROVED, PAIRING_CONSUMED,
+    DevicePairing, PAIRING_PENDING, PAIRING_APPROVED, PAIRING_CONSUMED, PAIRING_DENIED,
 )
 from app.services import auth as auth_service
 from app.services import device_pairing as dp
@@ -69,6 +69,28 @@ def test_user_code_collision_is_retried(db_session, monkeypatch):
     assert second.user_code == "ZZZZZZZZ"
 
 
+def test_consumed_or_expired_rows_do_not_force_retry(db_session, monkeypatch):
+    # The collision detector filters on status (pending/approved) and expires_at > now.
+    # If a consumed or expired row holds a code, the generator must NOT retry past it.
+    # This test seeds a consumed row with a known code, forces the generator to return
+    # that code on first attempt, and asserts it is accepted (not retried).
+
+    # Consume a row with a known code.
+    _, consumed = dp.start_pairing(db_session, ttl_minutes=10)
+    dp.approve(db_session, consumed, account_id="a", device_name="TV")
+    dp.consume(db_session, consumed)
+    db_session.flush()
+
+    # Force the generator to return the consumed row's code on first attempt.
+    monkeypatch.setattr(dp, "_random_user_code", lambda: consumed.user_code)
+
+    # start_pairing must succeed and use that code, not retry past the consumed row.
+    raw, new = dp.start_pairing(db_session, ttl_minutes=10)
+    assert new.user_code == consumed.user_code
+    # They are different rows, proving the code was reused (not rejected).
+    assert new.id != consumed.id
+
+
 def test_find_by_device_code_matches_only_the_hash(db_session):
     raw, row = dp.start_pairing(db_session, ttl_minutes=10)
     db_session.flush()
@@ -87,6 +109,34 @@ def test_find_claimable_ignores_pending_and_expired(db_session):
     assert dp.find_claimable_by_user_code(db_session, row.user_code) is not None
     row.expires_at = auth_service.utcnow() - datetime.timedelta(seconds=1)
     db_session.flush()
+    assert dp.find_claimable_by_user_code(db_session, row.user_code) is None
+
+
+def test_find_pending_distinguishes_from_claimable(db_session):
+    # Pending lookup and claimable lookup are opposites on the approval boundary:
+    # claimable finds approved rows, pending finds pending rows. If the two were
+    # swapped, every test still passes. This test fails if they are.
+    raw, row = dp.start_pairing(db_session, ttl_minutes=10)
+    db_session.flush()
+
+    # Pending IS found by find_pending_by_user_code.
+    assert dp.find_pending_by_user_code(db_session, row.user_code) is not None
+
+    # Approve it.
+    dp.approve(db_session, row, account_id="acct-1", device_name="TV")
+    db_session.flush()
+
+    # Now it is NOT found by find_pending_by_user_code (approval moved it out of "pending").
+    # This is the opposite of claimable, which WOULD find it now.
+    assert dp.find_pending_by_user_code(db_session, row.user_code) is None
+    assert dp.find_claimable_by_user_code(db_session, row.user_code) is not None
+
+    # Expire the approved row.
+    row.expires_at = auth_service.utcnow() - datetime.timedelta(seconds=1)
+    db_session.flush()
+
+    # Neither lookup finds an expired row.
+    assert dp.find_pending_by_user_code(db_session, row.user_code) is None
     assert dp.find_claimable_by_user_code(db_session, row.user_code) is None
 
 

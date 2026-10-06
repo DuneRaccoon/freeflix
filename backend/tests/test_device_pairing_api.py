@@ -160,3 +160,73 @@ def test_the_minted_session_is_tagged_as_a_device(an_account):
         )
         assert row.device_kind == "tv"
         assert row.device_name == "Living Room TV"
+
+
+@pytest.fixture
+def signed_in_client(an_account, auth_enabled):
+    """A TestClient carrying a real session cookie for `an_account`.
+
+    Requests auth enforcement on: the suite runs with the kill switch off, which would
+    hand out the synthetic ``dev-owner`` context instead of reading this cookie.
+    """
+    c = TestClient(app)
+    with get_db() as session:
+        acct = session.query(Account).filter(Account.id == an_account).first()
+        raw, _ = auth_service.create_session(session, acct)
+        session.commit()
+    c.cookies.set("ff_session", raw)
+    return c
+
+
+def test_approve_requires_a_session(auth_enabled):
+    start = client.post("/api/v1/auth/device/start").json()
+    r = client.post(
+        "/api/v1/auth/device/approve",
+        json={"user_code": start["user_code"], "device_name": "TV"},
+    )
+    assert r.status_code in (401, 403)
+
+
+def test_approve_then_poll_pairs_the_device(an_account, signed_in_client):
+    start = client.post("/api/v1/auth/device/start").json()
+    r = signed_in_client.post(
+        "/api/v1/auth/device/approve",
+        json={"user_code": start["user_code"], "device_name": "Living Room TV"},
+    )
+    assert r.status_code == 200
+    polled = client.post("/api/v1/auth/device/poll", json={"device_code": start["device_code"]})
+    assert polled.json()["status"] == "approved"
+
+
+def test_approve_accepts_the_hyphenated_form_and_lower_case(signed_in_client):
+    start = client.post("/api/v1/auth/device/start").json()
+    typed = start["user_code"].lower()
+    r = signed_in_client.post(
+        "/api/v1/auth/device/approve", json={"user_code": typed, "device_name": "TV"}
+    )
+    assert r.status_code == 200
+
+
+def test_approving_one_device_leaves_another_pending(signed_in_client):
+    """REVIEW FOCUS 4 — two devices pairing at once must not cross-wire."""
+    a = client.post("/api/v1/auth/device/start").json()
+    b = client.post("/api/v1/auth/device/start").json()
+    signed_in_client.post(
+        "/api/v1/auth/device/approve", json={"user_code": a["user_code"], "device_name": "A"}
+    )
+    assert client.post("/api/v1/auth/device/poll", json={"device_code": a["device_code"]}).json()["status"] == "approved"
+    assert client.post("/api/v1/auth/device/poll", json={"device_code": b["device_code"]}).json()["status"] == "pending"
+
+
+def test_a_wrong_code_is_refused_and_budgeted(signed_in_client):
+    for _ in range(10):
+        r = signed_in_client.post(
+            "/api/v1/auth/device/approve", json={"user_code": "ZZZZ-ZZZZ", "device_name": "x"}
+        )
+        assert r.status_code in (404, 429)
+    # The budget mirrors the /claim wrong-code budget: a signed-in account cannot sit
+    # and enumerate live codes.
+    final = signed_in_client.post(
+        "/api/v1/auth/device/approve", json={"user_code": "ZZZZ-ZZZZ", "device_name": "x"}
+    )
+    assert final.status_code == 429

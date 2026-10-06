@@ -397,10 +397,17 @@ def touch_session(session: Session, row: AuthSession) -> None:
 
     Without the throttle every request on every page would issue an UPDATE, which on
     a Raspberry Pi instance is real write amplification for no benefit.
+
+    For a DEVICE session the same write also slides ``expires_at`` forward. A browser
+    session keeps its absolute expiry because a person can sign in again; a television
+    cannot, so an in-use TV must never lapse. The asymmetry is deliberate and is the
+    only behaviour change to existing sessions in this stage.
     """
     now = utcnow()
     if row.last_seen_at is None or (now - row.last_seen_at).total_seconds() > 60:
         row.last_seen_at = now
+        if row.device_kind:
+            row.expires_at = now + datetime.timedelta(days=settings.device_session_ttl_days)
 
 
 def revoke_session(session: Session, row: AuthSession) -> None:

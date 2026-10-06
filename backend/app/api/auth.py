@@ -131,8 +131,10 @@ def _set_session_cookie(response: Response, raw: str) -> None:
 def _set_device_session_cookie(response: Response, raw: str) -> None:
     """Same cookie, longer Max-Age.
 
-    A television cannot re-authenticate by itself, so its cookie outlives a browser's
-    — and touch_session slides the row's expiry on use, so an in-use TV never lapses.
+    A television cannot re-authenticate by itself, so its cookie outlives a browser's.
+    touch_session slides the *row's* expiry on use, but nothing re-issues this cookie,
+    so its Max-Age is fixed at device_session_ttl_days from pairing: the cookie, not
+    the row, is the effective ceiling until a later change refreshes it.
     """
     response.set_cookie(
         settings.cookie_name,
@@ -697,3 +699,42 @@ async def device_poll(
     if raw is not None:
         _set_device_session_cookie(response, raw)
     return DevicePollResponse(status=status)
+
+
+@router.post("/device/approve", response_model=OkResponse)
+async def device_approve(
+    payload: DeviceApproveRequest,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Bind a pending pairing to the caller's account.
+
+    The genuine risk in any device grant is social engineering — persuading a
+    signed-in person to approve a device that is not theirs. The mitigations are the
+    screen (which names the device and shows the code to compare), the ten-minute TTL,
+    and this per-account wrong-code budget, which mirrors the one /claim already uses
+    so a signed-in account cannot sit and enumerate live codes.
+    """
+    if not auth_service.rate_limiter.check(
+        f"device-approve:{ctx.account_id}",
+        limit=_DEVICE_APPROVE_LIMIT,
+        window_seconds=_DEVICE_APPROVE_WINDOW,
+    ):
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
+    with db as session:
+        row = device_pairing.find_pending_by_user_code(session, payload.user_code)
+        if row is None:
+            raise HTTPException(status_code=404, detail="That code is not valid")
+        row.approve_attempts = (row.approve_attempts or 0) + 1
+        device_pairing.approve(
+            session,
+            row,
+            account_id=ctx.account_id,
+            device_name=payload.device_name,
+        )
+        # A correct code clears the budget, so a mistyped attempt followed by a correct
+        # one does not leave someone locked out of pairing their own television.
+        auth_service.rate_limiter.reset(f"device-approve:{ctx.account_id}")
+
+    return OkResponse(ok=True)

@@ -196,6 +196,12 @@ class AuthSession(Model):
     last_seen_at = Column(DateTime, nullable=True)
     user_agent = Column(String, nullable=True)
 
+    # Set only for a session minted by device pairing. device_kind drives the sliding
+    # expiry in touch_session: a television cannot re-authenticate by itself, so its
+    # session renews on use, while a browser session keeps its absolute expiry.
+    device_name = Column(String, nullable=True)
+    device_kind = Column(String, nullable=True)
+
     # list[str] of profile ids whose passcode has been entered in this session.
     # This is what makes the per-profile lock real rather than a client-side hint.
     unlocked_profiles = Column(JSON, nullable=True)
@@ -207,6 +213,70 @@ class AuthSession(Model):
     def is_usable(self, now: datetime.datetime) -> bool:
         return (
             self.revoked_at is None
+            and self.expires_at is not None
+            and self.expires_at > now
+        )
+
+
+# Pairing statuses. A row moves pending -> approved -> consumed, or pending -> denied.
+# "consumed" is terminal and is what makes a device_code single-use.
+PAIRING_PENDING = "pending"
+PAIRING_APPROVED = "approved"
+PAIRING_DENIED = "denied"
+PAIRING_CONSUMED = "consumed"
+
+
+class DevicePairing(Model):
+    """One in-flight attempt to put a session on a device that has no keyboard.
+
+    Two secrets with different jobs. ``device_code`` is long, random and stays on the
+    device; it is the thing that receives the session, so only its sha256 is stored.
+    ``user_code`` is short enough to read off a television across a room, so it is NOT
+    a secret — it is an index into a pending request. Guessing one lets an attacker
+    approve somebody else's device, which requires them to already hold a valid account
+    and gains them nothing.
+    """
+
+    __tablename__ = "auth_device_pairings"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+
+    device_code_hash = Column(String, nullable=False, unique=True, index=True)
+
+    # Indexed but NOT unique: uniqueness is enforced among live rows in application
+    # code (generate, check, retry). A full unique index would let one consumed row
+    # reserve its code forever, and a partial index is not expressible via sync_indexes.
+    user_code = Column(String, nullable=False, index=True)
+
+    status = Column(String, nullable=False, default=PAIRING_PENDING, index=True)
+    device_name = Column(String, nullable=True)
+    approved_account_id = Column(
+        String, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    expires_at = Column(DateTime, nullable=False, default=_utcnow, index=True)
+    consumed_at = Column(DateTime, nullable=True)
+
+    # Abuse counters. poll_count is also how a stuck device shows up in the logs.
+    poll_count = Column(Integer, nullable=False, default=0)
+    approve_attempts = Column(Integer, nullable=False, default=0)
+
+    account = relationship("Account", foreign_keys=[approved_account_id])
+
+    def is_usable(self, now: datetime.datetime) -> bool:
+        """Still awaiting approval. Approved rows are NOT usable — see is_claimable."""
+        return (
+            self.status == PAIRING_PENDING
+            and self.expires_at is not None
+            and self.expires_at > now
+        )
+
+    def is_claimable(self, now: datetime.datetime) -> bool:
+        """Approved and not yet exchanged for a session."""
+        return (
+            self.status == PAIRING_APPROVED
+            and self.consumed_at is None
             and self.expires_at is not None
             and self.expires_at > now
         )

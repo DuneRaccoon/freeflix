@@ -74,12 +74,12 @@ export default function PairPage() {
       let threw = false;
       try {
         status = await devicesService.poll(start.device_code);
-        failures.current = 0;
       } catch {
         threw = true;
-        failures.current += 1;
       }
       if (cancelled) return;
+      // After the cancelled check, so a stale poll cannot touch the shared counter.
+      failures.current = threw ? failures.current + 1 : 0;
       if (threw) {
         // A blip is retried with backoff; a run of them is a server we cannot reach,
         // and the unreachable screen has the Try again control.

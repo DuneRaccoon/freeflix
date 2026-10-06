@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import PairPage from './page';
 
 vi.mock('@/services/devices', () => ({
@@ -139,13 +139,16 @@ describe('/bigscreen/pair', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
     expect(poll.mock.calls.length).toBe(afterApproval);
 
+    // Unmount the first tree so only the second is in the document.
+    unmount();
     poll.mockClear();
     poll.mockResolvedValue('pending');
     const second = render(<PairPage />);
-    await second.findByText('BCDF-GHJK');
+    await within(second.container).findByText('BCDF-GHJK');
     await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    // Prove a poll chain was running at the moment of unmount.
+    expect(poll.mock.calls.length).toBeGreaterThan(0);
     second.unmount();
-    unmount();
     const afterUnmount = poll.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
     expect(poll.mock.calls.length).toBe(afterUnmount);

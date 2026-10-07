@@ -155,8 +155,10 @@ app.include_router(
     dependencies=GATED,
 )
 
-# Public: this is how an anonymous browser becomes authenticated. The two
-# session-bearing routes (/me, /signout) declare Depends(require_session) themselves.
+# Public: this is how an anonymous browser becomes authenticated. This is the one
+# router deliberately NOT gated at include time. The five session-bearing routes
+# (/me, /signout, GET /devices, DELETE /devices/{id}, POST /device/approve) declare
+# Depends(require_session) themselves; the rest are public by design.
 app.include_router(
     auth.router,
     prefix=f"{settings.api_v1_str}/auth",

@@ -67,7 +67,13 @@ def normalize_user_code(raw: str) -> str:
 
 
 def generate_user_code(session: Session) -> str:
-    """A code not currently held by any live (pending or approved, unexpired) row."""
+    """A code not currently held by any live (pending or approved, unexpired) row.
+
+    Check-then-insert against a deliberately non-unique index, so it relies on the same
+    property as the claimable-check-then-consume sequence in device_poll (api/auth.py):
+    no ``await`` between check and insert, and a single uvicorn worker. Read the comment
+    there before adding a second worker, and fix both sites together.
+    """
     now = auth_service.utcnow()
     for _ in range(_MAX_CODE_ATTEMPTS):
         candidate = _random_user_code()
@@ -121,21 +127,6 @@ def find_by_device_code(session: Session, raw: str) -> Optional[DevicePairing]:
     )
 
 
-def find_claimable_by_user_code(session: Session, user_code: str) -> Optional[DevicePairing]:
-    """An approved, unexpired, unconsumed row for this code."""
-    code = normalize_user_code(user_code)
-    if len(code) != USER_CODE_LENGTH:
-        return None
-    now = auth_service.utcnow()
-    row = (
-        session.query(DevicePairing)
-        .filter(DevicePairing.user_code == code)
-        .order_by(DevicePairing.created_at.desc())
-        .first()
-    )
-    return row if row is not None and row.is_claimable(now) else None
-
-
 def find_pending_by_user_code(session: Session, user_code: str) -> Optional[DevicePairing]:
     """A pending, unexpired row for this code — what the approver acts on."""
     code = normalize_user_code(user_code)
@@ -151,16 +142,34 @@ def find_pending_by_user_code(session: Session, user_code: str) -> Optional[Devi
     return row if row is not None and row.is_usable(now) else None
 
 
-def approve(session: Session, row: DevicePairing, *, account_id: str, device_name: str) -> None:
-    """Bind a pending row to the approving account."""
+def approve(session: Session, row: DevicePairing, *, account_id: str, device_name: str) -> bool:
+    """Bind a pending row to the approving account. False if it is not pending and live.
+
+    Unreachable today (the only caller resolves the row through find_pending_by_user_code,
+    which already filters pending-and-unexpired); insurance against a future re-approve
+    or resend endpoint.
+    """
+    if not row.is_usable(auth_service.utcnow()):
+        return False
     name = (device_name or "").strip()[:DEVICE_NAME_MAX_LENGTH] or DEFAULT_DEVICE_NAME
     row.status = PAIRING_APPROVED
     row.approved_account_id = account_id
     row.device_name = name
+    return True
 
 
-def deny(session: Session, row: DevicePairing) -> None:
+def deny(session: Session, row: DevicePairing) -> bool:
+    """Burn a live row. False if it is already terminal or expired.
+
+    Live means pending OR approved: device_poll denies an approved row whose account is
+    no longer active, so this must not use is_usable (pending only).
+    """
+    if row.status not in (PAIRING_PENDING, PAIRING_APPROVED) or not (
+        row.expires_at is not None and row.expires_at > auth_service.utcnow()
+    ):
+        return False
     row.status = PAIRING_DENIED
+    return True
 
 
 def consume(session: Session, row: DevicePairing) -> None:

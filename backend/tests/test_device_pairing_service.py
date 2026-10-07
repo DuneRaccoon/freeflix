@@ -99,45 +99,56 @@ def test_find_by_device_code_matches_only_the_hash(db_session):
     assert dp.find_by_device_code(db_session, "") is None
 
 
-def test_find_claimable_ignores_pending_and_expired(db_session):
-    raw, row = dp.start_pairing(db_session, ttl_minutes=10)
+def test_find_pending_only_finds_live_pending_rows(db_session):
+    _, row = dp.start_pairing(db_session, ttl_minutes=10)
     db_session.flush()
-    # Pending is not claimable — only approval makes it so.
-    assert dp.find_claimable_by_user_code(db_session, row.user_code) is None
-    dp.approve(db_session, row, account_id="acct-1", device_name="Living Room TV")
-    db_session.flush()
-    assert dp.find_claimable_by_user_code(db_session, row.user_code) is not None
-    row.expires_at = auth_service.utcnow() - datetime.timedelta(seconds=1)
-    db_session.flush()
-    assert dp.find_claimable_by_user_code(db_session, row.user_code) is None
-
-
-def test_find_pending_distinguishes_from_claimable(db_session):
-    # Pending lookup and claimable lookup are opposites on the approval boundary:
-    # claimable finds approved rows, pending finds pending rows. If the two were
-    # swapped, every test still passes. This test fails if they are.
-    raw, row = dp.start_pairing(db_session, ttl_minutes=10)
-    db_session.flush()
-
-    # Pending IS found by find_pending_by_user_code.
     assert dp.find_pending_by_user_code(db_session, row.user_code) is not None
 
-    # Approve it.
     dp.approve(db_session, row, account_id="acct-1", device_name="TV")
     db_session.flush()
-
-    # Now it is NOT found by find_pending_by_user_code (approval moved it out of "pending").
-    # This is the opposite of claimable, which WOULD find it now.
+    # Approval moves it out of "pending".
     assert dp.find_pending_by_user_code(db_session, row.user_code) is None
-    assert dp.find_claimable_by_user_code(db_session, row.user_code) is not None
 
-    # Expire the approved row.
+
+def test_find_pending_ignores_an_expired_row(db_session):
+    _, row = dp.start_pairing(db_session, ttl_minutes=10)
     row.expires_at = auth_service.utcnow() - datetime.timedelta(seconds=1)
     db_session.flush()
-
-    # Neither lookup finds an expired row.
     assert dp.find_pending_by_user_code(db_session, row.user_code) is None
-    assert dp.find_claimable_by_user_code(db_session, row.user_code) is None
+
+
+def test_approve_refuses_a_row_that_is_not_pending_and_live(db_session):
+    _, row = dp.start_pairing(db_session, ttl_minutes=10)
+    assert dp.approve(db_session, row, account_id="a", device_name="TV") is True
+    # Already approved: a second approve must not rebind it.
+    assert dp.approve(db_session, row, account_id="b", device_name="Other") is False
+    assert row.approved_account_id == "a"
+
+    _, stale = dp.start_pairing(db_session, ttl_minutes=10)
+    stale.expires_at = auth_service.utcnow() - datetime.timedelta(seconds=1)
+    assert dp.approve(db_session, stale, account_id="a", device_name="TV") is False
+    assert stale.status == PAIRING_PENDING
+
+
+def test_deny_burns_pending_and_approved_but_not_terminal_or_expired(db_session):
+    _, pending = dp.start_pairing(db_session, ttl_minutes=10)
+    assert dp.deny(db_session, pending) is True
+    assert pending.status == PAIRING_DENIED
+
+    # device_poll denies an APPROVED row whose account went inactive.
+    _, approved = dp.start_pairing(db_session, ttl_minutes=10)
+    dp.approve(db_session, approved, account_id="a", device_name="TV")
+    assert dp.deny(db_session, approved) is True
+
+    _, consumed = dp.start_pairing(db_session, ttl_minutes=10)
+    dp.approve(db_session, consumed, account_id="a", device_name="TV")
+    dp.consume(db_session, consumed)
+    assert dp.deny(db_session, consumed) is False
+    assert consumed.status == PAIRING_CONSUMED
+
+    _, stale = dp.start_pairing(db_session, ttl_minutes=10)
+    stale.expires_at = auth_service.utcnow() - datetime.timedelta(seconds=1)
+    assert dp.deny(db_session, stale) is False
 
 
 def test_approve_records_account_and_name(db_session):

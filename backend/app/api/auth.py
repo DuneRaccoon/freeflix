@@ -17,7 +17,7 @@ Two shapes in this file are deliberate and easy to "tidy" into a bug:
 """
 
 import secrets
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import (
     APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status,
@@ -90,8 +90,16 @@ _RESET_WINDOW = 15 * 60
 # per device_code, so one stuck device cannot throttle another.
 _DEVICE_POLL_LIMIT = 450
 _DEVICE_POLL_WINDOW = 15 * 60
-# Unauthenticated, so this one is a global bucket. A household never approaches it.
-_DEVICE_START_LIMIT = 30
+# Unauthenticated, and necessarily GLOBAL: /api/* is proxied by the Next.js server, so
+# every browser's request arrives from one address and any per-IP key collapses into
+# this same single bucket anyway. A shared bucket means the dominant failure mode is a
+# denial of service against the household (a burst of POSTs locks every television
+# out), not abuse, so the ceiling is deliberately loose. Tightening it only makes that
+# lockout cheaper. A pairing row is cheap (one row, no email, no third-party call, and
+# purge_expired reclaims them). The secret-guessing surface is not here: it is bounded
+# by _DEVICE_APPROVE_LIMIT on the approve side, the endpoint that actually matters
+# for guessing a user_code.
+_DEVICE_START_LIMIT = 240
 _DEVICE_START_WINDOW = 15 * 60
 # Wrong codes typed by one signed-in account, mirroring the /claim wrong-code budget.
 _DEVICE_APPROVE_LIMIT = 10
@@ -656,7 +664,7 @@ async def device_poll(
         raise HTTPException(status_code=429, detail="Polling too fast")
 
     raw: Optional[str] = None
-    status = "expired"
+    status: Literal["pending", "approved", "denied", "expired"] = "expired"
     # The claimable-check-then-consume sequence below is not atomic at the database
     # level. It is safe today because this block contains no ``await`` and uvicorn runs
     # a single worker (compose runs ``workers=1``), so nothing can interleave between

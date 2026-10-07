@@ -635,7 +635,8 @@ class DevicePollRequest(BaseModel):
 
 
 class DevicePollResponse(BaseModel):
-    status: str  # pending | approved | denied | expired
+    # Must match the frontend DevicePollStatus union exactly.
+    status: Literal["pending", "approved", "denied", "expired"]
 
 
 class DeviceApproveRequest(BaseModel):

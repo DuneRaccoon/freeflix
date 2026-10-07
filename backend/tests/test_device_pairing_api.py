@@ -208,7 +208,7 @@ def test_approve_accepts_the_hyphenated_form_and_lower_case(signed_in_client):
 
 
 def test_approving_one_device_leaves_another_pending(signed_in_client):
-    """REVIEW FOCUS 4 — two devices pairing at once must not cross-wire."""
+    """Two devices pairing at once must not cross-wire."""
     a = client.post("/api/v1/auth/device/start").json()
     b = client.post("/api/v1/auth/device/start").json()
     signed_in_client.post(
@@ -243,3 +243,12 @@ def test_approve_with_auth_disabled_is_a_401_not_a_500():
     )
     assert r.status_code == 401
     assert r.json()["detail"] == "Not signed in"
+
+
+def test_device_start_is_rate_limited_globally():
+    """The bucket is one shared key (the proxy makes per-caller keying impossible), so
+    past the ceiling every caller gets a 429."""
+    from app.api.auth import _DEVICE_START_LIMIT
+    for _ in range(_DEVICE_START_LIMIT):
+        assert client.post("/api/v1/auth/device/start").status_code == 200
+    assert client.post("/api/v1/auth/device/start").status_code == 429

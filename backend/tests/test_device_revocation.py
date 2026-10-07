@@ -90,3 +90,22 @@ def test_cannot_revoke_a_session_belonging_to_another_account(account_with_two_s
 
 def test_devices_requires_a_session(auth_enabled):
     assert TestClient(app).get("/api/v1/auth/devices").status_code in (401, 403)
+
+
+def test_list_omits_revoked_and_expired_sessions_but_keeps_live_ones(account_with_two_sessions):
+    import datetime
+    acct_id, browser_raw, browser_id, _, tv_id = account_with_two_sessions
+    with get_db() as session:
+        _, revoked = auth_service.create_session(session, session.query(Account).get(acct_id), device_name="Revoked TV", device_kind="tv")
+        _, expired = auth_service.create_session(session, session.query(Account).get(acct_id), device_name="Expired TV", device_kind="tv")
+        auth_service.revoke_session(session, revoked)
+        expired.expires_at = auth_service.utcnow() - datetime.timedelta(seconds=1)
+        revoked_id, expired_id = revoked.id, expired.id
+        session.commit()
+
+    c = TestClient(app)
+    c.cookies.set("ff_session", browser_raw)
+    ids = {row["id"] for row in c.get("/api/v1/auth/devices").json()}
+    assert {browser_id, tv_id} <= ids
+    assert revoked_id not in ids
+    assert expired_id not in ids

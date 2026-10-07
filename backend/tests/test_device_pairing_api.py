@@ -51,7 +51,7 @@ from app.services import auth as auth_service
 
 
 def _approve_directly(device_code: str, *, account_id: str, name: str = "Living Room TV"):
-    """Approve without going through the HTTP approve endpoint (that is Task 5)."""
+    """Approve at the service level, so a poll test is not also testing approve."""
     with get_db() as session:
         row = dp.find_by_device_code(session, device_code)
         dp.approve(session, row, account_id=account_id, device_name=name)
@@ -89,7 +89,7 @@ def test_poll_mints_a_session_once_approved(an_account):
 
 
 def test_a_consumed_device_code_mints_nothing_on_replay(an_account):
-    """REVIEW FOCUS 1 — a replayed device_code must not mint a second session."""
+    """A replayed device_code must not mint a second session."""
     start = client.post("/api/v1/auth/device/start").json()
     _approve_directly(start["device_code"], account_id=an_account)
     first = client.post("/api/v1/auth/device/poll", json={"device_code": start["device_code"]})
@@ -102,7 +102,7 @@ def test_a_consumed_device_code_mints_nothing_on_replay(an_account):
 
 
 def test_three_hundred_polls_do_not_throttle_the_device():
-    """REVIEW FOCUS 2 — a device polls every 2s for 10 minutes. That is the flow
+    """A device polls every 2s for 10 minutes. That is the flow
     working, not abuse, and it must not throttle itself into failure."""
     start = client.post("/api/v1/auth/device/start").json()
     for _ in range(300):
@@ -112,7 +112,7 @@ def test_three_hundred_polls_do_not_throttle_the_device():
 
 
 def test_a_suspended_account_receives_no_session(an_account):
-    """REVIEW FOCUS 3 — STATUS_ACTIVE is re-checked at poll time, never trusted
+    """STATUS_ACTIVE is re-checked at poll time, never trusted
     from the moment of approval."""
     start = client.post("/api/v1/auth/device/start").json()
     _approve_directly(start["device_code"], account_id=an_account)
@@ -127,7 +127,7 @@ def test_a_suspended_account_receives_no_session(an_account):
 
 
 def test_a_pairing_that_expired_after_approval_mints_nothing(an_account):
-    """REVIEW FOCUS 5 — approved but expired must fail closed."""
+    """Approved but expired must fail closed."""
     start = client.post("/api/v1/auth/device/start").json()
     _approve_directly(start["device_code"], account_id=an_account)
     with get_db() as session:

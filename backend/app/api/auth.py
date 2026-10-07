@@ -96,7 +96,9 @@ _DEVICE_POLL_WINDOW = 15 * 60
 # denial of service against the household (a burst of POSTs locks every television
 # out), not abuse, so the ceiling is deliberately loose. Tightening it only makes that
 # lockout cheaper. A pairing row is cheap (one row, no email, no third-party call, and
-# purge_expired reclaims them). The secret-guessing surface is not here: it is bounded
+# purge_expired reclaims them at the next startup -- there is no scheduled job, so a
+# long-running instance accumulates dead rows until it restarts, exactly as the token
+# and session purges do). The secret-guessing surface is not here: it is bounded
 # by _DEVICE_APPROVE_LIMIT on the approve side, the endpoint that actually matters
 # for guessing a user_code.
 _DEVICE_START_LIMIT = 240

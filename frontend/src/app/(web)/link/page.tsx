@@ -10,12 +10,14 @@ import AuthNotice from '@/components/auth/AuthNotice';
 import AuthSpinner from '@/components/auth/AuthSpinner';
 import { statusOf } from '@/components/auth/helpers';
 
+const DEFAULT_DEVICE_NAME = 'Television';
+
 function LinkForm() {
   const searchParams = useSearchParams();
   // Passed to the server exactly as typed: it owns the alphabet and accepts the
   // hyphenated and lower-case forms, so normalising here would only drift from it.
   const [code, setCode] = useState(searchParams.get('code') ?? '');
-  const [deviceName, setDeviceName] = useState('Television');
+  const [deviceName, setDeviceName] = useState(DEFAULT_DEVICE_NAME);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pairedAs, setPairedAs] = useState<string | null>(null);
@@ -24,7 +26,7 @@ function LinkForm() {
     e.preventDefault();
     if (submitting || !code.trim()) return;
 
-    const name = deviceName.trim() || 'Television';
+    const name = deviceName.trim() || DEFAULT_DEVICE_NAME;
     setSubmitting(true);
     setError(null);
     try {
@@ -32,11 +34,11 @@ function LinkForm() {
       setPairedAs(name);
     } catch (err) {
       const status = statusOf(err);
-      // 404 is deliberately vague: it covers a wrong code and an expired one alike.
+      // 404 is deliberately vague: it covers a wrong code, an expired one and one already approved alike.
       // 429 is the per-account wrong-code budget, and the person can act on it.
       setError(
         status === 404
-          ? 'That code is not valid or has expired.'
+          ? 'That code is not valid, has expired, or was already approved.'
           : status === 429
             ? 'Too many attempts. Wait a few minutes.'
             : 'Could not approve the device. Please try again.',

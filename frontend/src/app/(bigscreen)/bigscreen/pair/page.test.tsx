@@ -76,7 +76,7 @@ describe('/bigscreen/pair', () => {
     (devicesService.poll as ReturnType<typeof vi.fn>).mockResolvedValue('expired');
     render(<PairPage />);
     await screen.findByText('BCDF-GHJK');
-    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(7000); });
     await waitFor(() =>
       expect((devicesService.start as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2),
     );
@@ -123,7 +123,7 @@ describe('/bigscreen/pair', () => {
     (devicesService.poll as ReturnType<typeof vi.fn>).mockResolvedValueOnce('expired').mockResolvedValue('pending');
     render(<PairPage />);
     await screen.findByText('BCDF-GHJK');
-    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(7000); });
     expect(await screen.findByText('WXYZ-QRST')).toBeInTheDocument();
     expect(screen.queryByText('BCDF-GHJK')).not.toBeInTheDocument();
   });
@@ -164,5 +164,41 @@ describe('/bigscreen/pair', () => {
     expect(poll).toHaveBeenCalledTimes(3);
     await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
     expect(poll).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not restart instantly when a pairing comes back expired', async () => {
+    const start = devicesService.start as ReturnType<typeof vi.fn>;
+    (devicesService.poll as ReturnType<typeof vi.fn>).mockResolvedValue('expired');
+    render(<PairPage />);
+    await screen.findByText('BCDF-GHJK');
+    // Poll fires at 2s; the restart must wait beyond that, not follow it at once.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(start).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops restarting after repeated expiries and shows the unreachable screen', async () => {
+    const start = devicesService.start as ReturnType<typeof vi.fn>;
+    (devicesService.poll as ReturnType<typeof vi.fn>).mockResolvedValue('expired');
+    render(<PairPage />);
+    await screen.findByText('BCDF-GHJK');
+    // Step in small slices: each restart needs a render before its poll timer exists.
+    for (let i = 0; i < 20; i++) await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(await screen.findByText(/can.t reach/i)).toBeInTheDocument();
+    const calls = start.mock.calls.length;
+    expect(calls).toBe(5);
+    await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+    expect(start).toHaveBeenCalledTimes(calls);
+  });
+
+  it('says the account can no longer sign in when the pairing is denied', async () => {
+    (devicesService.poll as ReturnType<typeof vi.fn>).mockResolvedValue('denied');
+    render(<PairPage />);
+    await screen.findByText('BCDF-GHJK');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(await screen.findByText(/no longer sign in/i)).toBeInTheDocument();
+    expect(screen.queryByText(/declined|on your phone/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 });

@@ -8,6 +8,10 @@ type Phase = 'starting' | 'ready' | 'denied' | 'unreachable';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 const MAX_POLL_FAILURES = 3;
 const MAX_BACKOFF_MS = 30_000;
+// A pairing that keeps coming back expired is a clock or TTL problem, not a slow phone.
+// start is one global rate bucket for the whole household, so restarts back off and stop.
+const MIN_RESTART_MS = 2_000;
+const MAX_EXPIRED_RESTARTS = 5;
 
 /**
  * /bigscreen/pair — the television's side of device pairing.
@@ -23,13 +27,17 @@ export default function PairPage() {
 
   const inFlight = useRef(false);
   const failures = useRef(0);
+  const expiredRuns = useRef(0);
+  const restartTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const begin = useCallback(async () => {
+  // `isRestart` is true only for the automatic expiry restart, which must keep counting.
+  const begin = useCallback(async (isRestart = false) => {
     // A double-press (or StrictMode's double mount) must not mint two pairings and
     // orphan one server-side.
     if (inFlight.current) return;
     inFlight.current = true;
     failures.current = 0;
+    if (!isRestart) expiredRuns.current = 0;
     setPhase('starting');
     // Drop the old code at once: showing one nobody can use is what a restart is for.
     setStart(null);
@@ -46,6 +54,9 @@ export default function PairPage() {
 
   useEffect(() => {
     void begin();
+    return () => {
+      if (restartTimer.current) clearTimeout(restartTimer.current);
+    };
   }, [begin]);
 
   const linkUrl = useMemo(() => {
@@ -90,6 +101,7 @@ export default function PairPage() {
         timer = setTimeout(tick, Math.min(delay * 2 ** failures.current, MAX_BACKOFF_MS));
         return;
       }
+      if (status !== 'expired') expiredRuns.current = 0;
       if (status === 'approved') {
         // The cookie is already set; a hard navigation is needed because
         // SessionProvider boots once per document.
@@ -97,7 +109,18 @@ export default function PairPage() {
         return;
       }
       if (status === 'expired') {
-        void begin();
+        expiredRuns.current += 1;
+        if (expiredRuns.current >= MAX_EXPIRED_RESTARTS) {
+          setPhase('unreachable');
+          return;
+        }
+        // Drop the dead code now; the next one starts after a growing minimum delay.
+        setPhase('starting');
+        setStart(null);
+        restartTimer.current = setTimeout(
+          () => void begin(true),
+          Math.min(MIN_RESTART_MS * 2 ** (expiredRuns.current - 1), MAX_BACKOFF_MS),
+        );
         return;
       }
       if (status === 'denied') {
@@ -150,8 +173,8 @@ export default function PairPage() {
   if (phase === 'denied') {
     return (
       <main className="bs-page bs-pair">
-        <h1>Sign-in was declined</h1>
-        <p>The request was denied on your phone.</p>
+        <h1>That account can no longer sign in</h1>
+        <p>It may have been suspended or removed. Try again with a different account.</p>
         <div className="bs-controls">
           <button className="bs-btn" autoFocus onClick={() => void begin()}>Try again</button>
         </div>

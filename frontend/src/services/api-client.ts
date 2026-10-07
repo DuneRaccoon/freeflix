@@ -66,6 +66,14 @@ function handleUnauthorized(error: AxiosError): void {
   if (error.config?.__allow401) return;
   const { pathname, search } = window.location;
   if (PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p))) return;
+  // The TV surface has its own front door. Sending it to /signin would land a remote
+  // on an email-and-password form it cannot usefully fill in.
+  if (pathname.startsWith('/bigscreen')) {
+    if (pathname.startsWith('/bigscreen/pair')) return;
+    redirecting = true;
+    window.location.replace('/bigscreen/pair');
+    return;
+  }
   redirecting = true;
   window.location.replace(`/signin?next=${encodeURIComponent(`${pathname}${search}`)}`);
 }

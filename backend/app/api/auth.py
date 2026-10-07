@@ -17,7 +17,7 @@ Two shapes in this file are deliberate and easy to "tidy" into a bug:
 """
 
 import secrets
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import (
     APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status,
@@ -29,6 +29,9 @@ from app.config import settings
 from app.database.models.accounts import (
     Account,
     AuthSession,
+    PAIRING_CONSUMED,
+    PAIRING_DENIED,
+    PAIRING_PENDING,
     PURPOSE_CLAIM_VERIFY,
     PURPOSE_LOGIN,
     PURPOSE_PASSWORD_RESET,
@@ -41,6 +44,11 @@ from app.dependencies.auth import AuthContext, require_session
 from app.models import (
     AccountResponse,
     AuthCapabilityResponse,
+    DeviceApproveRequest,
+    DevicePollRequest,
+    DevicePollResponse,
+    DeviceSessionResponse,
+    DeviceStartResponse,
     PasswordResetConfirm,
     PasswordResetRequest,
     PasswordSignInRequest,
@@ -58,6 +66,7 @@ from app.models import (
 )
 from app.services import accounts as accounts_service
 from app.services import auth as auth_service
+from app.services import device_pairing
 from app.services import mailer
 
 router = APIRouter()
@@ -75,6 +84,28 @@ _PASSWORD_LIMIT = 5
 _PASSWORD_WINDOW = 15 * 60
 _RESET_LIMIT = 3
 _RESET_WINDOW = 15 * 60
+
+# Generous: a device polls every two seconds for the whole ten-minute TTL, which is
+# ~300 calls, and that liveness is the flow working rather than abuse. The bucket is
+# per device_code, so one stuck device cannot throttle another.
+_DEVICE_POLL_LIMIT = 450
+_DEVICE_POLL_WINDOW = 15 * 60
+# Unauthenticated, and necessarily GLOBAL: /api/* is proxied by the Next.js server, so
+# every browser's request arrives from one address and any per-IP key collapses into
+# this same single bucket anyway. A shared bucket means the dominant failure mode is a
+# denial of service against the household (a burst of POSTs locks every television
+# out), not abuse, so the ceiling is deliberately loose. Tightening it only makes that
+# lockout cheaper. A pairing row is cheap (one row, no email, no third-party call, and
+# purge_expired reclaims them at the next startup -- there is no scheduled job, so a
+# long-running instance accumulates dead rows until it restarts, exactly as the token
+# and session purges do). The secret-guessing surface is not here: it is bounded
+# by _DEVICE_APPROVE_LIMIT on the approve side, the endpoint that actually matters
+# for guessing a user_code.
+_DEVICE_START_LIMIT = 240
+_DEVICE_START_WINDOW = 15 * 60
+# Wrong codes typed by one signed-in account, mirroring the /claim wrong-code budget.
+_DEVICE_APPROVE_LIMIT = 10
+_DEVICE_APPROVE_WINDOW = 15 * 60
 
 def _bad_credentials() -> HTTPException:
     """One constant refusal for every way a password sign-in can fail: unknown address, a
@@ -103,6 +134,22 @@ def _set_session_cookie(response: Response, raw: str) -> None:
         settings.cookie_name,
         raw,
         max_age=settings.session_ttl_days * 86400,
+        **auth_service.cookie_kwargs(),
+    )
+
+
+def _set_device_session_cookie(response: Response, raw: str) -> None:
+    """Same cookie, longer Max-Age.
+
+    A television cannot re-authenticate by itself, so its cookie outlives a browser's.
+    touch_session slides the *row's* expiry on use, but nothing re-issues this cookie,
+    so its Max-Age is fixed at device_session_ttl_days from pairing: the cookie, not
+    the row, is the effective ceiling until a later change refreshes it.
+    """
+    response.set_cookie(
+        settings.cookie_name,
+        raw,
+        max_age=settings.device_session_ttl_days * 86400,
         **auth_service.cookie_kwargs(),
     )
 
@@ -561,4 +608,202 @@ async def sign_out(
                 logger.warning(f"Sign-out for unknown session id {ctx.session_id}")
 
     response.delete_cookie(settings.cookie_name, path="/")
+    return OkResponse(ok=True)
+
+
+@router.post("/device/start", response_model=DeviceStartResponse)
+async def device_start(db: Annotated[Session, Depends(get_db)]):
+    """Begin pairing a device that has no usable keyboard.
+
+    Public by necessity — the device has no credentials yet. That is safe because
+    starting a pairing grants nothing: the row is inert until an authenticated account
+    approves it, and the session is handed only to whoever holds the device_code.
+    """
+    if not auth_service.rate_limiter.check(
+        "device-start", limit=_DEVICE_START_LIMIT, window_seconds=_DEVICE_START_WINDOW
+    ):
+        raise HTTPException(status_code=429, detail="Too many pairing attempts")
+
+    with db as session:
+        raw, row = device_pairing.start_pairing(
+            session, ttl_minutes=settings.device_pairing_ttl_minutes
+        )
+        user_code = device_pairing.format_user_code(row.user_code)
+
+    return DeviceStartResponse(
+        device_code=raw,
+        user_code=user_code,
+        verification_uri=f"{settings.app_public_url.rstrip('/')}/link",
+        expires_in=settings.device_pairing_ttl_minutes * 60,
+        interval=2,
+    )
+
+
+@router.post("/device/poll", response_model=DevicePollResponse)
+async def device_poll(
+    payload: DevicePollRequest,
+    response: Response,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Exchange an approved pairing for a session.
+
+    Four refusals collapse into ``expired``: unknown code, already consumed, past its
+    TTL, and denied-because-the-account-is-no-longer-active is the one that does not —
+    it answers ``denied`` so the screen can say something useful. An unknown code and a
+    consumed one deliberately look identical, so a replayed body cannot be told from a
+    guessed one.
+
+    ``STATUS_ACTIVE`` is re-checked HERE rather than trusted from the moment of
+    approval: an account suspended in between must not receive a session.
+    """
+    code = payload.device_code or ""
+    if not auth_service.rate_limiter.check(
+        f"device-poll:{auth_service.hash_token(code)}",
+        limit=_DEVICE_POLL_LIMIT,
+        window_seconds=_DEVICE_POLL_WINDOW,
+    ):
+        raise HTTPException(status_code=429, detail="Polling too fast")
+
+    raw: Optional[str] = None
+    status: Literal["pending", "approved", "denied", "expired"] = "expired"
+    # The claimable-check-then-consume sequence below is not atomic at the database
+    # level. It is safe today because this block contains no ``await`` and uvicorn runs
+    # a single worker (compose runs ``workers=1``), so nothing can interleave between
+    # the check and the consume. If the backend is ever scaled to multiple workers,
+    # this needs ``SELECT ... FOR UPDATE`` on the pairing row, or the same pairing
+    # could mint two sessions.
+    with db as session:
+        row = device_pairing.find_by_device_code(session, code)
+        now = auth_service.utcnow()
+
+        if row is None or row.status == PAIRING_CONSUMED or row.expires_at <= now:
+            status = "expired"
+        elif row.status == PAIRING_DENIED:
+            status = "denied"
+        elif row.status == PAIRING_PENDING:
+            row.poll_count = (row.poll_count or 0) + 1
+            status = "pending"
+        elif row.is_claimable(now):
+            account = (
+                session.query(Account)
+                .filter(Account.id == row.approved_account_id)
+                .first()
+            )
+            if account is None or account.status != STATUS_ACTIVE:
+                # The approval is stale. Burn the row so the device cannot sit and
+                # retry against an account that is no longer allowed in.
+                device_pairing.deny(session, row)
+                status = "denied"
+            else:
+                raw, _ = auth_service.create_session(
+                    session,
+                    account,
+                    user_agent=request.headers.get("user-agent"),
+                    device_name=row.device_name,
+                    device_kind="tv",
+                )
+                device_pairing.consume(session, row)
+                status = "approved"
+
+    if raw is not None:
+        _set_device_session_cookie(response, raw)
+    return DevicePollResponse(status=status)
+
+
+@router.post("/device/approve", response_model=OkResponse)
+async def device_approve(
+    payload: DeviceApproveRequest,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Bind a pending pairing to the caller's account.
+
+    The genuine risk in any device grant is social engineering — persuading a
+    signed-in person to approve a device that is not theirs. The mitigations are the
+    screen (which names the device and shows the code to compare), the ten-minute TTL,
+    and this per-account wrong-code budget, which mirrors the one /claim already uses
+    so a signed-in account cannot sit and enumerate live codes.
+    """
+    if not auth_service.rate_limiter.check(
+        f"device-approve:{ctx.account_id}",
+        limit=_DEVICE_APPROVE_LIMIT,
+        window_seconds=_DEVICE_APPROVE_WINDOW,
+    ):
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
+    with db as session:
+        account = session.query(Account).filter(Account.id == ctx.account_id).first()
+        if account is None:
+            # Only reachable with auth_enabled=False, where require_session hands out a
+            # synthetic owner context that has no row behind it.
+            raise HTTPException(status_code=401, detail="Not signed in")
+        row = device_pairing.find_pending_by_user_code(session, payload.user_code)
+        if row is None:
+            raise HTTPException(status_code=404, detail="That code is not valid")
+        row.approve_attempts = (row.approve_attempts or 0) + 1
+        device_pairing.approve(
+            session,
+            row,
+            account_id=ctx.account_id,
+            device_name=payload.device_name,
+        )
+        # A correct code clears the budget, so a mistyped attempt followed by a correct
+        # one does not leave someone locked out of pairing their own television.
+        auth_service.rate_limiter.reset(f"device-approve:{ctx.account_id}")
+
+    return OkResponse(ok=True)
+
+
+@router.get("/devices", response_model=list[DeviceSessionResponse])
+async def list_devices(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Every live session on this account, so a television can be un-paired alone."""
+    now = auth_service.utcnow()
+    with db as session:
+        rows = (
+            session.query(AuthSession)
+            .filter(
+                AuthSession.account_id == ctx.account_id,
+                AuthSession.revoked_at.is_(None),
+                AuthSession.expires_at > now,
+            )
+            .order_by(AuthSession.last_seen_at.desc().nullslast())
+            .all()
+        )
+        return [
+            DeviceSessionResponse(
+                id=r.id,
+                device_name=r.device_name,
+                device_kind=r.device_kind,
+                created_at=r.created_at,
+                last_seen_at=r.last_seen_at,
+                current=(r.id == ctx.session_id),
+            )
+            for r in rows
+        ]
+
+
+@router.delete("/devices/{session_id}", response_model=OkResponse)
+async def revoke_device(
+    session_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Revoke one session. A session belonging to another account answers 404, not
+    403 — whether an id exists is not this caller's business."""
+    with db as session:
+        row = (
+            session.query(AuthSession)
+            .filter(
+                AuthSession.id == session_id,
+                AuthSession.account_id == ctx.account_id,
+            )
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="No such device")
+        auth_service.revoke_session(session, row)
     return OkResponse(ok=True)

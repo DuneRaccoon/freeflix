@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     session_ttl_days: int = 30
     magic_link_ttl_minutes: int = 20
     invite_ttl_hours: int = 72
+    # Device pairing. The TTL is short because a code is readable off a screen; the
+    # session TTL is long and SLIDING because a television cannot re-authenticate by
+    # itself — see touch_session.
+    device_pairing_ttl_minutes: int = 10
+    device_session_ttl_days: int = 180
 
     # Public origin used to build the links that go INTO emails.
     app_public_url: str = "http://localhost:3001"

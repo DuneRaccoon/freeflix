@@ -365,3 +365,36 @@ def test_tokens_can_be_invalidated_by_account_not_just_email(db_session):
         db_session, account_id=account.id, purpose="claim_verify"
     ) == 1
     assert auth_service.consume_auth_token(db_session, stale2) is None
+
+
+def test_purge_expired_reclaims_old_device_pairings(db_session):
+    from app.database.models.accounts import DevicePairing
+    now = auth_service.utcnow()
+
+    def _row(code, expires_at):
+        row = DevicePairing(
+            device_code_hash=auth_service.hash_token(code),
+            user_code=code[:8].upper(),
+            status="pending",
+            created_at=now,
+            expires_at=expires_at,
+            poll_count=0,
+            approve_attempts=0,
+        )
+        db_session.add(row)
+        return row
+
+    old = _row("purge-old-xxxxxxxx", now - datetime.timedelta(days=2))
+    fresh = _row("purge-new-xxxxxxxx", now + datetime.timedelta(minutes=10))
+    db_session.flush()
+    old_hash, fresh_hash = old.device_code_hash, fresh.device_code_hash
+
+    counts = auth_service.purge_expired(db_session)
+    assert counts["pairings"] >= 1
+    remaining = {
+        r.device_code_hash
+        for r in db_session.query(DevicePairing).filter(
+            DevicePairing.device_code_hash.in_([old_hash, fresh_hash])
+        )
+    }
+    assert remaining == {fresh_hash}

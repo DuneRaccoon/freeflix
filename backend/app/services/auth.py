@@ -35,6 +35,7 @@ from app.database.models.accounts import (
     Account,
     AuthSession,
     AuthToken,
+    DevicePairing,
     STATUS_ACTIVE,
 )
 
@@ -351,15 +352,25 @@ def create_session(
     account: Account,
     *,
     user_agent: Optional[str] = None,
+    device_name: Optional[str] = None,
+    device_kind: Optional[str] = None,
 ) -> tuple[str, AuthSession]:
-    """Start a signed-in session. Returns ``(raw_cookie_value, row)``."""
+    """Start a signed-in session. Returns ``(raw_cookie_value, row)``.
+
+    ``device_kind`` set means this session belongs to something that cannot sign
+    itself in again — a television. Those get a much longer TTL, and in
+    touch_session a sliding one.
+    """
     raw = generate_token()
+    ttl_days = settings.device_session_ttl_days if device_kind else settings.session_ttl_days
     row = AuthSession(
         token_hash=hash_token(raw),
         account_id=account.id,
-        expires_at=utcnow() + datetime.timedelta(days=settings.session_ttl_days),
+        expires_at=utcnow() + datetime.timedelta(days=ttl_days),
         last_seen_at=utcnow(),
         user_agent=(user_agent or "")[:512] or None,
+        device_name=device_name,
+        device_kind=device_kind,
         unlocked_profiles=[],
     )
     session.add(row)
@@ -387,10 +398,21 @@ def touch_session(session: Session, row: AuthSession) -> None:
 
     Without the throttle every request on every page would issue an UPDATE, which on
     a Raspberry Pi instance is real write amplification for no benefit.
+
+    For a DEVICE session the same write also slides ``expires_at`` forward. A browser
+    session keeps its absolute expiry because a person can sign in again; a television
+    cannot, so the row's expiry slides while the TV is in use. That is NOT a guarantee
+    that an in-use TV never lapses: the session cookie is issued once with a fixed
+    Max-Age of ``device_session_ttl_days`` (see ``_set_device_session_cookie`` in
+    api/auth.py) and nothing re-issues it, so the cookie is the effective ceiling and
+    an in-use TV does lapse at that point. The asymmetry is deliberate and is the only
+    behaviour change to existing sessions in this stage.
     """
     now = utcnow()
     if row.last_seen_at is None or (now - row.last_seen_at).total_seconds() > 60:
         row.last_seen_at = now
+        if row.device_kind:
+            row.expires_at = now + datetime.timedelta(days=settings.device_session_ttl_days)
 
 
 def revoke_session(session: Session, row: AuthSession) -> None:
@@ -432,7 +454,7 @@ def mark_profile_unlocked(session: Session, row: AuthSession, profile_id: str) -
 
 
 def purge_expired(session: Session) -> dict[str, int]:
-    """Housekeeping: drop dead tokens and sessions. Safe to call on any schedule."""
+    """Housekeeping: drop dead tokens, sessions and device pairings. Safe to call on any schedule."""
     now = utcnow()
     tokens = (
         session.query(AuthToken)
@@ -444,9 +466,17 @@ def purge_expired(session: Session) -> dict[str, int]:
         .filter(AuthSession.expires_at < now - datetime.timedelta(days=1))
         .delete(synchronize_session=False)
     )
-    if tokens or sessions:
-        logger.info(f"Purged {tokens} expired auth tokens and {sessions} sessions")
-    return {"tokens": tokens, "sessions": sessions}
+    pairings = (
+        session.query(DevicePairing)
+        .filter(DevicePairing.expires_at < now - datetime.timedelta(days=1))
+        .delete(synchronize_session=False)
+    )
+    if tokens or sessions or pairings:
+        logger.info(
+            f"Purged {tokens} expired auth tokens, {sessions} sessions "
+            f"and {pairings} device pairings"
+        )
+    return {"tokens": tokens, "sessions": sessions, "pairings": pairings}
 
 
 # ------------------------------------------------------------------ cookie helpers

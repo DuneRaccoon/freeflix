@@ -6,6 +6,7 @@ from .accounts import (
     Account,
     AuthSession,
     AuthToken,
+    DevicePairing,
     Instance,
     Invite,
 )

@@ -165,13 +165,35 @@ describe('TV performance budget (spec §9)', () => {
     const offences: string[] = [];
     for (const { id, src } of tvSourceFiles()) {
       for (const spec of importSpecifiers(src)) {
+        // Match a path SEGMENT, not a substring. `spec.includes('components/')` also
+        // matched this surface's own `../_components/Rail`, because `_components/`
+        // contains `components/` — a false positive that pushed a TV-local import into
+        // an absolute `@/app/(bigscreen)/...` spelling to get around the guard. A guard
+        // that punishes the idiom it is protecting teaches people to route around it.
         const escapesToComponents =
-          spec.startsWith('@/components') ||
-          (spec.includes('..') && spec.includes('components/'));
+          spec.startsWith('@/components/') ||
+          spec === '@/components' ||
+          (spec.includes('..') && /(^|\/)components\//.test(spec));
         if (escapesToComponents) offences.push(`${id}: ${spec}`);
       }
     }
     expect(offences).toEqual([]);
+  });
+
+  it('judges web-component imports by path segment, not by substring', () => {
+    // Pins both directions of the rule the `escapesToComponents` check above encodes,
+    // because its first spelling got this wrong and silently blocked `../_components/`.
+    const rejects = (spec: string) =>
+      spec.startsWith('@/components/') ||
+      spec === '@/components' ||
+      (spec.includes('..') && /(^|\/)components\//.test(spec));
+
+    for (const spec of ['@/components', '@/components/browse/BrowseScreen', '../../components/ui/Modal', '../components/Card']) {
+      expect(rejects(spec), `${spec} should be rejected`).toBe(true);
+    }
+    for (const spec of ['./Card', '../_components/Rail', '../_focus/useFocusGrid', '@/services/movies', '@/lib/contentId', 'next/link']) {
+      expect(rejects(spec), `${spec} should be allowed`).toBe(false);
+    }
   });
 
   it('only the diagnostics page opts out of the checks', () => {

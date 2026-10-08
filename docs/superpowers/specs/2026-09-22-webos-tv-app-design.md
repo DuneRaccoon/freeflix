@@ -678,14 +678,26 @@ vertical** (5%); no interactive element or text outside it. Body text ≥24px, t
 targets ≥60px tall.
 
 *(Added during stage 4, because "body text ≥24px" turned out to be under-specified the first time
-a real card was styled.* There is a **caption tier below the body floor, and it is narrow**: the
-only text allowed under 24px is text a viewer never has to read to make a choice. A section
-kicker — the uppercase, letter-spaced eyebrow over a rail — qualifies at 20px, because it is
-decorative and the rail's own 40px title carries the meaning. A card's **title does not qualify**
-and takes the 24px floor: it is the name of the thing being chosen, read from ten feet. Nor does a
-year (22px) or a short status pill like "Up next" (20px) — a year is how a viewer tells two films
-of the same name apart, and the pill changes what pressing OK will do. When in doubt the test is
-not "is this small text" but "would a viewer have to lean in to decide".)*
+a real card was styled, and **restated once more after the first version of this amendment
+contradicted the stylesheet it was written to govern**.* The useful distinction is not two tiers
+but three, by **how** a viewer takes the text in:
+
+| Tier | Floor | What belongs | Shipped |
+| --- | --- | --- | --- |
+| **Read** — prose a viewer parses to decide | **≥ 24px** | a card's title, a hero's overview, any sentence | `.bs-card__label` 24px, `.bs-hero__overview` 24px |
+| **Glanced** — a short token recognised by shape and position, not read word by word | **≥ 20px** | a year, a short status pill ("Up next"), an episode label | `.bs-card__sub` 22px, `.bs-card__badge` 20px |
+| **Decorative** — carries no information the screen does not carry elsewhere | **≥ 20px** | the uppercase letter-spaced eyebrow over a rail, whose 40px title holds the meaning | `.bs-rail__eyebrow` 20px |
+
+A card's **title takes the Read floor**: it is the name of the thing being chosen, from ten feet.
+A year and a pill do **not** — which an earlier draft of this paragraph got exactly backwards by
+saying they "do not qualify", a reading that would have required 24px for both and which nothing
+in the implementation ever followed. They are decision *information* (a year is how a viewer tells
+two films of the same name apart; the pill changes what pressing OK does), and that is why stage 4
+moved them **up**, from 20px and 18px. But they are four characters in a fixed position, not prose:
+a viewer recognises them without reading them. Hence 20px rather than 24px.
+
+When in doubt the test is not "is this small text" but **"does the viewer have to read it, or only
+notice it"**.)*
 
 ---
 

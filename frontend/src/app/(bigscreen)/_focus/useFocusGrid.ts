@@ -23,17 +23,19 @@ import {
  * already claimed (`defaultPrevented`, e.g. a nested transport bar) is left alone.
  *
  * OWNERSHIP: only one `useFocusGrid` may be live per screen. The listener is on
- * `window` and checks no scope, so two instances would both act on every arrow. A
- * screen with two focusable regions mounts one at a time (the profiles screen mounts
- * the grid or the keypad, never both).
+ * `window` and checks no scope. Two instances do not both move — whichever registered
+ * first claims the arrow and the `defaultPrevented` check above makes the second inert —
+ * which is worse than it sounds: during an overlapping mount the INCOMING screen is the
+ * dead one until the outgoing screen unmounts. So a screen with two focusable regions
+ * mounts one at a time (the profiles screen mounts the grid or the keypad, never both).
  *
  * RESTORING A POSITION (`storageKey`). Rails load one at a time, so the row a saved
  * position points at is usually still empty when the first rail appears. The saved
  * target is therefore held as a pending restore, not resolved on the first shape:
  * focus falls back to the first populated row, nothing is written to storage while
  * the restore is pending (the fallback must never overwrite the saved position), and
- * the target is adopted the moment its row fills. Any move the user makes themselves
- * cancels it and persisting resumes from there.
+ * the target is adopted the moment its row fills. Any press the viewer makes cancels
+ * it — including one that cannot move — and persisting resumes from there.
  */
 
 export interface FocusProps {
@@ -174,8 +176,9 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
   );
 
   // A screen that unmounts inside the delay must not lose its last position. `pagehide`
-  // covers the other exit: a full-page navigation (or the TV killing the app) within the
-  // delay, which no unmount cleanup would see.
+  // covers the other exit: a reload or a full-page navigation within the delay, which no
+  // unmount cleanup would see. (An abruptly killed app is not recoverable either way —
+  // sessionStorage dies with the browsing context.)
   useEffect(() => {
     const onHide = () => flushPersist();
     window.addEventListener('pagehide', onHide);
@@ -184,6 +187,14 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
       flushPersist();
     };
   }, [flushPersist]);
+
+  /** True when DOM focus is on the body or on one of our own cells. */
+  const focusIsOurs = useCallback(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) return true;
+    for (const el of elements.current.values()) if (el === active) return true;
+    return false;
+  }, []);
 
   /** Make `next` the focused target. */
   const go = useCallback(
@@ -199,11 +210,15 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
       // that cannot move (Up at the top of the screen) is still the viewer driving, and
       // a restore that teleported focus a second later would read as the screen
       // shifting under them.
+      const cancelled = how.user && pendingRestore.current !== null;
       if (how.user) pendingRestore.current = null;
       columnMemory.current[next.row] = next.col;
       // While a restore is pending the target is only a stand-in; writing it would
-      // destroy the position we are waiting to restore.
-      if (changed && pendingRestore.current === null) schedulePersist(next);
+      // destroy the position we are waiting to restore. `cancelled` covers the press
+      // that goes nowhere: it ends the restore, so the stand-in it leaves focus on is
+      // now the real position and has to be written, or the next visit would restore
+      // the position the viewer just declined.
+      if ((changed || cancelled) && pendingRestore.current === null) schedulePersist(next);
 
       if (!how.focusDom) return;
       const el = elements.current.get(cellKey(next.row, next.col));
@@ -274,8 +289,12 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
     } else {
       start = clampTarget(counts, base);
     }
-    if (!same(start, focusedRef.current)) go(start, { focusDom: true, user: false });
-  }, [shape, storageKey, go, flushPersist]);
+    // Adoption must not yank DOM focus out of something this grid does not own — an
+    // overlay or a dialog opened from a card, which later stages add. The model still
+    // moves, so the next arrow press focuses the adopted cell.
+    const ours = focusIsOurs();
+    if (!same(start, focusedRef.current)) go(start, { focusDom: ours, user: false });
+  }, [shape, storageKey, go, flushPersist, focusIsOurs]);
 
   const setFocus = useCallback(
     (t: FocusTarget) => {

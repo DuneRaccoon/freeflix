@@ -311,6 +311,37 @@ describe('useFocusGrid', () => {
       expect(document.activeElement).toBe(screen.getByText('0-0'));
     });
 
+    it('writes the declined position when a non-moving press cancels the restore', () => {
+      // Cancelling is not enough: if nothing is written, the next visit restores the
+      // very position the viewer just declined.
+      seed('home', 3, 2);
+      const { rerender, unmount } = render(<Harness rowCounts={[0, 0, 0, 0]} storageKey="home" />);
+      rerender(<Harness rowCounts={[5, 0, 0, 0]} storageKey="home" />);
+      press('ArrowUp'); // goes nowhere, but ends the restore
+      unmount();
+      expect(stored('home')).toEqual({ row: 0, col: 0 });
+    });
+
+    it('does not pull DOM focus out of something the grid does not own when a rail loads', () => {
+      // A later stage opens an overlay from a card. A rail finishing its fetch must not
+      // steal focus out of it; the model still moves, so the next arrow lands correctly.
+      seed('home', 3, 2);
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      try {
+        const { rerender } = render(<Harness rowCounts={[5, 0, 0, 0]} storageKey="home" />);
+        outside.focus();
+        expect(document.activeElement).toBe(outside);
+        rerender(<Harness rowCounts={[5, 0, 0, 5]} storageKey="home" />);
+        expect(document.activeElement).toBe(outside);
+        // The model adopted 3:2 without touching the DOM, so the press moves from there.
+        press('ArrowRight');
+        expect(document.activeElement).toBe(screen.getByText('3-3'));
+      } finally {
+        outside.remove();
+      }
+    });
+
     it('flushes the pending write on pagehide, which an unmount would never see', () => {
       render(<Harness rowCounts={[3, 3]} storageKey="home" />);
       press('ArrowRight');

@@ -36,7 +36,6 @@ const FALLBACK_LENGTH = 4;
  * `.bs-dots`, `.bs-keypad` and `.bs-profiles` do), and the screen sits in `.bs-shell`, not
  * the already-inset `.bs-page`, so anything built from them re-applies the safe area.
  */
-const INSET = { padding: '0 var(--safe-x)' } as const;
 
 const statusOf = (err: unknown): number | undefined =>
   (err as { response?: { status?: number } } | null)?.response?.status;
@@ -76,7 +75,7 @@ function ProfileGrid({ users, onOpen }: { users: User[]; onOpen: (u: User) => vo
         // Padding top and bottom on every row: `.bs-shell__scroll` is a clipping scroller with no
         // top padding of its own, so without it the focused face's scale and ring are cut off
         // along the top edge. Two rows' worth of it is the 48px between them.
-        <div key={r} className="bs-profiles" style={{ paddingTop: 24, paddingBottom: 24 }}>
+        <div key={r} className="bs-profiles">
           {row.map((u, c) => (
             <button
               key={u.id}
@@ -87,7 +86,7 @@ function ProfileGrid({ users, onOpen }: { users: User[]; onOpen: (u: User) => vo
             >
               <Face user={u} />
               {/* A span, not the <p> the stylesheet was drawn for: a button may only hold phrasing content. */}
-              <span className="bs-profile__name" style={{ display: 'block' }}>{u.display_name}</span>
+              <span className="bs-profile__name">{u.display_name}</span>
             </button>
           ))}
         </div>
@@ -218,7 +217,7 @@ function Keypad({
       </div>
       {/* Always mounted, so the live region exists before its text does, and reserving its
           line so the keys below do not jump under a focus ring when it fills. */}
-      <p role="alert" className="bs-no" style={{ ...INSET, minHeight: '1.45em' }}>{message}</p>
+      <p role="alert" className="bs-no bs-msg">{message}</p>
       <div className="bs-keypad">
         {KEY_ROWS.flatMap((row, r) =>
           row.map((k, c) => (
@@ -337,8 +336,8 @@ export default function ProfilesPage() {
   } else if (loadFailed) {
     body = (
       <>
-        <p role="alert" className="bs-no" style={INSET}>Could not load profiles.</p>
-        <div className="bs-controls" style={INSET}>
+        <p role="alert" className="bs-no bs-msg">Could not load profiles.</p>
+        <div className="bs-controls bs-msg">
           <button type="button" className="bs-btn" autoFocus onClick={retry}>Try again</button>
         </div>
       </>
@@ -352,10 +351,10 @@ export default function ProfilesPage() {
       <>
         <ProfileGrid users={users} onOpen={(u) => void open(u)} />
         {opening === 'opening' && (
-          <p className="bs-note" role="status" style={{ marginTop: 8 }}>Opening…</p>
+          <p className="bs-note bs-msg" role="status">Opening…</p>
         )}
         {opening === 'failed' && (
-          <p role="alert" className="bs-no" style={{ ...INSET, marginTop: 8 }}>
+          <p role="alert" className="bs-no bs-msg">
             Could not open that profile. Try again.
           </p>
         )}
@@ -364,7 +363,8 @@ export default function ProfilesPage() {
   }
 
   return (
-    // .bs-shell, not .bs-page: see INSET. html and body cannot scroll, so the body needs a scroller.
+    // .bs-shell, not .bs-page: every group here carries its own safe inset, and .bs-page
+    // would apply it a second time. html and body cannot scroll, so this needs a scroller.
     <main className="bs-shell">
       <header className="bs-shell__head">
         <h1>{locked ? locked.user.display_name : 'Who’s watching?'}</h1>

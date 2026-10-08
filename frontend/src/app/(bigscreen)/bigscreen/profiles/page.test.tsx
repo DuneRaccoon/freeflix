@@ -347,6 +347,80 @@ describe('/bigscreen/profiles', () => {
       });
     });
 
+    describe('pressing the retry while the backend hangs', () => {
+      const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]';
+      const somethingFocused = () => {
+        const active = document.activeElement;
+        expect(active).not.toBe(document.body);
+        expect(active?.matches(FOCUSABLE)).toBe(true);
+      };
+
+      it('keeps the same button mounted and focused, relabelled, through the whole cycle', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const hung = deferred<User[]>();
+        getUsers.mockRejectedValueOnce(httpError(500)).mockReturnValue(hung.promise);
+        render(<ProfilesPage />);
+        const retry = await screen.findByRole('button', { name: /try again/i });
+        expect(document.activeElement).toBe(retry);
+
+        fireEvent.click(retry);
+        // In flight: the very node the viewer pressed, still focused, saying what it is doing.
+        expect(screen.getByRole('button')).toBe(retry);
+        expect(retry).toHaveTextContent(/trying again/i);
+        expect(document.activeElement).toBe(retry);
+        somethingFocused();
+
+        // Not dead for the next ten seconds, at any point of them.
+        for (let i = 0; i < 4; i++) {
+          await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+          somethingFocused();
+        }
+        // A second press while it is in flight does not issue a second request.
+        fireEvent.click(screen.getByRole('button'));
+        expect(getUsers).toHaveBeenCalledTimes(2);
+
+        // The patience timer puts the label back, and the button can be pressed again.
+        await act(async () => { await vi.advanceTimersByTimeAsync(2_500); });
+        somethingFocused();
+        expect(screen.getByRole('button', { name: /^try again$/i })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button'));
+        expect(getUsers).toHaveBeenCalledTimes(3);
+        somethingFocused();
+      });
+
+      it('hands focus to the grid when the retry is finally answered', async () => {
+        const slow = deferred<User[]>();
+        getUsers.mockRejectedValueOnce(httpError(500)).mockReturnValueOnce(slow.promise);
+        render(<ProfilesPage />);
+        fireEvent.click(await screen.findByRole('button', { name: /try again/i }));
+        somethingFocused();
+        await act(async () => { slow.resolve([ben()]); });
+        await settle();
+        expect(document.activeElement).toBe(profileButton('Ben'));
+      });
+
+      it('goes back to the offer when the retry fails, with the button still there', async () => {
+        const second = deferred<User[]>();
+        getUsers.mockRejectedValueOnce(httpError(500)).mockReturnValueOnce(second.promise);
+        render(<ProfilesPage />);
+        const retry = await screen.findByRole('button', { name: /try again/i });
+        fireEvent.click(retry);
+        await act(async () => { second.reject(httpError(500)); });
+        expect(screen.getByRole('button', { name: /^try again$/i })).toBeInTheDocument();
+        somethingFocused();
+      });
+
+      it('does the same for Check again on an empty account', async () => {
+        getUsers.mockResolvedValueOnce([]).mockReturnValue(deferred<User[]>().promise);
+        render(<ProfilesPage />);
+        const check = await screen.findByRole('button', { name: /check again/i });
+        fireEvent.click(check);
+        expect(screen.getByRole('button')).toBe(check);
+        expect(check).toHaveTextContent(/checking/i);
+        somethingFocused();
+      });
+    });
+
     it('offers a retry when the profiles cannot be loaded, and recovers', async () => {
       getUsers.mockRejectedValueOnce(httpError(500)).mockResolvedValueOnce([ben()]);
       render(<ProfilesPage />);
@@ -777,6 +851,28 @@ describe('/bigscreen/profiles', () => {
       expect(router.replace).not.toHaveBeenCalled();
       expect(router.push).not.toHaveBeenCalled();
     };
+
+    it('a profile still being opened when Back is pressed is never selected', async () => {
+      const settingsCall = deferred<UserSettings>();
+      await openProfile('Ben', [ben(), mum()], () => settingsCall.promise);
+      // router.replace is a transition: the page stays mounted while it resolves.
+      await back();
+      expect(router.replace).toHaveBeenCalledTimes(1);
+      expect(router.replace).toHaveBeenCalledWith('/bigscreen');
+
+      await act(async () => { settingsCall.resolve(OPEN); });
+      // The cancelled choice is not persisted, and nothing navigates a second time.
+      expect(localStorage.getItem('bs-profile')).toBeNull();
+      expect(router.replace).toHaveBeenCalledTimes(1);
+    });
+
+    it('a profile whose passcode check is still pending when Back is pressed does not raise a keypad', async () => {
+      const settingsCall = deferred<UserSettings>();
+      await openProfile('Mum', [ben(), mum()], () => settingsCall.promise);
+      await back();
+      await act(async () => { settingsCall.reject(httpError(423)); });
+      expect(document.querySelector('.bs-keypad')).toBeNull();
+    });
 
     it('closes the keypad and returns to the grid, without navigating', async () => {
       await openKeypad(4);

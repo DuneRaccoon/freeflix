@@ -258,6 +258,11 @@ export default function ProfilesPage() {
   const [users, setUsers] = useState<User[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloads, setReloads] = useState(0);
+  // A retry the viewer pressed that has not been answered. The button they pressed STAYS
+  // MOUNTED and only changes its label: unmounting the focused control drops DOM focus to
+  // <body>, and with a hung backend nothing on screen would be focusable until the patience
+  // timer fired (home's retry is the same shape; see its `Retry` type).
+  const [retrying, setRetrying] = useState(false);
   const [locked, setLocked] = useState<{ user: User; length: number } | null>(null);
   const [opening, setOpening] = useState<Opening>('idle');
   // Which open() is current. A late answer for an earlier press, or for a screen the
@@ -274,7 +279,9 @@ export default function ProfilesPage() {
     let cancelled = false;
     // Slow is failed, here: the retry control is the only way off a loading screen.
     const impatience = setTimeout(() => {
-      if (!cancelled) setLoadFailed(true);
+      if (cancelled) return;
+      setRetrying(false);
+      setLoadFailed(true);
     }, LOAD_PATIENCE_MS);
     usersService
       .getUsers()
@@ -283,11 +290,13 @@ export default function ProfilesPage() {
         clearTimeout(impatience);
         // An answer that turns up after the failed screen went up wins over it.
         setLoadFailed(false);
+        setRetrying(false);
         setUsers(list);
       })
       .catch(() => {
         if (cancelled) return;
         clearTimeout(impatience);
+        setRetrying(false);
         setLoadFailed(true);
       });
     return () => {
@@ -362,8 +371,11 @@ export default function ProfilesPage() {
   }, []);
 
   const retry = () => {
-    setLoadFailed(false);
-    setUsers(null);
+    if (retrying) return; // one request at a time; the button says it is working
+    // Neither `loadFailed` nor `users` is cleared: whichever screen holds the button keeps
+    // holding it until the answer (or the patience timer) replaces it. A stuck earlier
+    // request is abandoned by the load effect's cleanup when `reloads` changes.
+    setRetrying(true);
     setReloads((n) => n + 1);
   };
 
@@ -373,8 +385,15 @@ export default function ProfilesPage() {
   // or empty screen, which has nothing to collapse) does Back go home. `replace`, as in `enter`:
   // leaving is not somewhere to come back to, and home does not act on Back.
   useBackKey(() => {
-    if (locked) leaveKeypad();
-    else router.replace(HOME);
+    if (locked) {
+      leaveKeypad();
+    } else {
+      // `replace` is a transition: this page stays mounted while it resolves, so an open()
+      // still in flight would otherwise answer into it, `select()` a profile the viewer just
+      // backed out of, and write it to localStorage where it outlives the app.
+      latestOpen.current += 1;
+      router.replace(HOME);
+    }
   });
 
   let body: React.ReactNode;
@@ -397,7 +416,9 @@ export default function ProfilesPage() {
       <>
         <p role="alert" className="bs-no bs-msg">Could not load profiles.</p>
         <div className="bs-controls bs-inset">
-          <button type="button" className="bs-btn" autoFocus onClick={retry}>Try again</button>
+          <button type="button" className="bs-btn" autoFocus onClick={retry}>
+            {retrying ? 'Trying again…' : 'Try again'}
+          </button>
         </div>
       </>
     );
@@ -410,7 +431,9 @@ export default function ProfilesPage() {
         {/* Something focusable, or the remote has nothing to act on; and the profile may be
             created on a phone while the television waits. */}
         <div className="bs-controls bs-inset">
-          <button type="button" className="bs-btn" autoFocus onClick={retry}>Check again</button>
+          <button type="button" className="bs-btn" autoFocus onClick={retry}>
+            {retrying ? 'Checking…' : 'Check again'}
+          </button>
         </div>
       </>
     );

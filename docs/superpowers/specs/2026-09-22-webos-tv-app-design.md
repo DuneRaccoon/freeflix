@@ -677,6 +677,16 @@ UI half-works — a trap. Build for the D-pad; treat the pointer as a bonus.
 vertical** (5%); no interactive element or text outside it. Body text ≥24px, titles 40–56px, focus
 targets ≥60px tall.
 
+*(Added during stage 4, because "body text ≥24px" turned out to be under-specified the first time
+a real card was styled.* There is a **caption tier below the body floor, and it is narrow**: the
+only text allowed under 24px is text a viewer never has to read to make a choice. A section
+kicker — the uppercase, letter-spaced eyebrow over a rail — qualifies at 20px, because it is
+decorative and the rail's own 40px title carries the meaning. A card's **title does not qualify**
+and takes the 24px floor: it is the name of the thing being chosen, read from ten feet. Nor does a
+year (22px) or a short status pill like "Up next" (20px) — a year is how a viewer tells two films
+of the same name apart, and the pill changes what pressing OK will do. When in doubt the test is
+not "is this small text" but "would a viewer have to lean in to decide".)*
+
 ---
 
 ## 9. Performance budget

@@ -12,16 +12,30 @@ export interface RailModel {
   loading?: boolean;
 }
 
-/** Enough to fill a 1080p row's visible width for either shape. */
+/**
+ * A fixed placeholder count, not a measured fill: three posters span 768px and three
+ * wide cards 1332px of the 1728px safe width, so the row is not full until cards arrive.
+ */
 const SKELETON_COUNT = 3;
+
+/**
+ * How many focusable cells this rail renders: the number the screen must report to
+ * `useFocusGrid` as this row's count. A loading rail draws skeletons, which are not
+ * focusable, so it is 0 even when stale `items` are present. Reporting `items.length`
+ * instead would make Down into a skeleton row a dead press with no error anywhere.
+ */
+export function railCellCount(rail: RailModel): number {
+  return rail.loading ? 0 : rail.items.length;
+}
 
 /**
  * A titled row of cards: grid row `row`, one cell per card.
  *
  * THE COUNT CONTRACT. The screen tells `useFocusGrid` how many cells each row has, and
- * that number must equal what this renders. A loading rail therefore reports 0 and this
- * never calls `focusPropsFor` for it; a rail that reported 5 and drew 3 would let focus
- * land on a cell that does not exist, on a device with no pointer and no Tab key.
+ * that number must equal what this renders: build the grid's `rowCounts` with
+ * `railCellCount`, never with `items.length`. A loading rail reports 0 and this never
+ * calls `focusPropsFor` for it; a rail that reported 5 and drew 3 would let focus land on
+ * a cell that does not exist, on a device with no pointer and no Tab key.
  *
  * Cells are keyed by INDEX, not by item id. A refetch that re-keys the focused card
  * while the row count is unchanged would unmount the focused node and drop DOM focus to
@@ -41,7 +55,7 @@ export function Rail({
 }) {
   const { title, eyebrow, shape, items, loading } = rail;
   // An empty rail is removed, as on the web. Loading is not empty: it holds its place.
-  if (!loading && items.length === 0) return null;
+  if (!loading && railCellCount(rail) === 0) return null;
 
   return (
     <section className="bs-rail" aria-busy={loading || undefined}>

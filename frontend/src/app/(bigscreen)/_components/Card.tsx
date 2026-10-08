@@ -4,7 +4,13 @@ import Link from 'next/link';
 import type { FocusProps } from '../_focus/useFocusGrid';
 
 export interface CardItem {
-  /** Stable key and focus identity. */
+  /**
+   * The title's identity, for the screen's own bookkeeping (resume lookups, de-duping).
+   * `Rail` deliberately does NOT key cards by it: it keys by column index, because a
+   * refetch that re-keys the focused card while the row count is unchanged unmounts the
+   * focused node and DOM focus falls to `<body>`, which a remote cannot recover from.
+   * Do not "fix" the rail to `key={item.id}`.
+   */
   id: string;
   /** Where OK navigates. A bigscreen route, never a (web) route. */
   href: string;
@@ -38,17 +44,41 @@ export interface CardItem {
  *
  * `memo` is what makes the focus hook's per-cell `FocusProps` worth having: a move
  * re-renders the grid's owner, and only the two cells whose `tabIndex` flipped should
- * follow it (given items whose identity the owner keeps stable).
+ * follow it. It compares by value (`sameProps`), so a screen that rebuilds its
+ * `CardItem`s inline on every render still gets the saving.
  */
-export const Card = memo(function Card({
-  item,
-  shape,
-  focusProps,
-}: {
+interface CardProps {
   item: CardItem;
   shape: 'poster' | 'wide';
   focusProps: FocusProps;
-}) {
+}
+
+/**
+ * Every field of `CardItem`, as a record so that adding a field to the interface is a
+ * type error here until the comparison below knows about it. A field the comparator
+ * forgets would make the card silently stop updating when only that field changed.
+ */
+const ITEM_FIELDS: Record<keyof CardItem, true> = {
+  id: true,
+  href: true,
+  title: true,
+  subtitle: true,
+  artUrl: true,
+  progressPct: true,
+  badge: true,
+};
+const ITEM_KEYS = Object.keys(ITEM_FIELDS) as Array<keyof CardItem>;
+
+function sameProps(a: CardProps, b: CardProps): boolean {
+  if (a.shape !== b.shape) return false;
+  const [fa, fb] = [a.focusProps, b.focusProps];
+  if (fa !== fb && (fa.tabIndex !== fb.tabIndex || fa.ref !== fb.ref || fa.onFocus !== fb.onFocus)) {
+    return false;
+  }
+  return a.item === b.item || ITEM_KEYS.every((k) => a.item[k] === b.item[k]);
+}
+
+export const Card = memo(function Card({ item, shape, focusProps }: CardProps) {
   // The URL that failed, not a flag: rails key cells by index, so a refetch can hand
   // this instance a different title, and a sticky "failed" would show it as a text card.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -58,25 +88,38 @@ export const Card = memo(function Card({
   const progress = item.progressPct ?? 0;
 
   return (
-    <Link href={item.href} className={`bs-card bs-card--${shape}`} {...focusProps}>
+    // Both the link and its image are natively draggable. Magic Remote jitter during an
+    // OK press can start a drag, and a drag swallows the click. Turning it off on the
+    // image alone is not enough, because the drag can then fall back to the enclosing link.
+    <Link
+      href={item.href}
+      className={`bs-card bs-card--${shape}`}
+      draggable={false}
+      {...focusProps}
+    >
       {showArt ? (
         <img
           className="bs-card__art"
           src={artUrl}
           alt=""
           loading="lazy"
+          draggable={false}
           onError={() => setFailedUrl(artUrl)}
         />
       ) : (
-        // The title is already in the label below; do not read it out twice.
+        // The title is already in the label below; do not read it out twice. The text is
+        // wrapped because a flex container cannot line-clamp its own text (see the CSS).
         <span className="bs-card__art bs-card__fallback" aria-hidden="true">
-          {title}
+          <span className="bs-card__fallback-text">{title}</span>
         </span>
       )}
       <p className="bs-card__label">{title}</p>
       {(subtitle || badge) && (
+        // A flex row of up to two element children: the subtitle text, which takes the
+        // ellipsis, and the badge, which must survive it. The subtitle is its own element
+        // so the CSS can truncate it without touching the badge.
         <span className="bs-card__sub">
-          {subtitle}
+          {subtitle && <span className="bs-card__subtext">{subtitle}</span>}
           {badge && <span className="bs-card__badge">{badge}</span>}
         </span>
       )}
@@ -87,4 +130,4 @@ export const Card = memo(function Card({
       )}
     </Link>
   );
-});
+}, sameProps);

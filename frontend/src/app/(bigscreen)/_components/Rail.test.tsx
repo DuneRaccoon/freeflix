@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { useFocusGrid, type FocusProps } from '../_focus/useFocusGrid';
-import { Rail, type RailModel } from './Rail';
+import { Rail, railCellCount, type RailModel } from './Rail';
 import type { CardItem } from './Card';
 
 const items = (n: number, prefix = 'm'): CardItem[] =>
@@ -154,12 +154,40 @@ describe('Rail', () => {
   });
 });
 
+describe('railCellCount', () => {
+  it('is the number of items for a loaded rail', () => {
+    expect(railCellCount(rail({ items: items(4) }))).toBe(4);
+  });
+
+  it('is 0 for an empty rail', () => {
+    expect(railCellCount(rail({ items: [] }))).toBe(0);
+  });
+
+  it('is 0 for a loading rail, even with stale items', () => {
+    expect(railCellCount(rail({ loading: true, items: [] }))).toBe(0);
+    expect(railCellCount(rail({ loading: true, items: items(4) }))).toBe(0);
+  });
+
+  it.each([
+    ['loaded', rail({ items: items(4) })],
+    ['empty', rail({ items: [] })],
+    ['loading', rail({ loading: true, items: [] })],
+    ['loading with stale items', rail({ loading: true, items: items(4) })],
+  ])('equals the focusable cells a %s rail renders', (_name, model) => {
+    // The whole point of exporting it: this number goes to useFocusGrid as the row's
+    // count, and a rail that reports N while drawing fewer leaves focus on a cell that
+    // does not exist.
+    const { container } = render(<Rail rail={model} row={0} focusPropsFor={stubFocusPropsFor()} />);
+    expect(container.querySelectorAll('[tabindex]')).toHaveLength(railCellCount(model));
+  });
+});
+
 /**
- * A rail and the grid that drives it, wired the way a screen wires them: a loading rail
- * reports 0, anything else reports the number of cards it renders.
+ * A rail and the grid that drives it, wired the way a screen wires them: the row counts
+ * come from `railCellCount`.
  */
 function Screen({ rails }: { rails: RailModel[] }) {
-  const grid = useFocusGrid({ rowCounts: rails.map((r) => (r.loading ? 0 : r.items.length)) });
+  const grid = useFocusGrid({ rowCounts: rails.map(railCellCount) });
   return (
     <div>
       {rails.map((r, row) => (
@@ -255,5 +283,91 @@ describe('Rail inside a focus grid', () => {
       />,
     );
     expect(document.activeElement).toBe(screen.getByText('Title a0').closest('a'));
+  });
+
+  describe('loading transitions', () => {
+    it('focuses the first card when the only rail goes from loading to loaded', () => {
+      // The real first-paint path on the TV: rails resolve one at a time, so the grid
+      // starts with nothing focusable and must pick up the first card the moment it exists.
+      const { container, rerender } = render(
+        <Screen rails={[rail({ key: 'a', loading: true, items: [] })]} />,
+      );
+      expect(container.querySelectorAll('[tabindex]')).toHaveLength(0);
+      expect(document.activeElement).toBe(document.body);
+
+      rerender(<Screen rails={[rail({ key: 'a', items: items(3, 'a') })]} />);
+      expect(container.querySelectorAll('[tabindex]')).toHaveLength(3);
+      expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+      expect(document.activeElement).toBe(screen.getByText('Title a0').closest('a'));
+    });
+
+    it('does not steal focus when a later rail finishes loading, and can then be entered', () => {
+      const { container, rerender } = render(
+        <Screen
+          rails={[
+            rail({ key: 'a', title: 'A', items: items(3, 'a') }),
+            rail({ key: 'b', title: 'B', loading: true, items: [] }),
+          ]}
+        />,
+      );
+      press('ArrowRight');
+      const focused = document.activeElement;
+      expect(focused).toBe(screen.getByText('Title a1').closest('a'));
+      // Down into a skeleton row goes nowhere, and does not lose focus.
+      press('ArrowDown');
+      expect(document.activeElement).toBe(focused);
+
+      rerender(
+        <Screen
+          rails={[
+            rail({ key: 'a', title: 'A', items: items(3, 'a') }),
+            rail({ key: 'b', title: 'B', items: items(3, 'b') }),
+          ]}
+        />,
+      );
+      expect(document.activeElement).toBe(focused);
+      expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+      press('ArrowDown');
+      expect(document.activeElement).toBe(screen.getByText('Title b1').closest('a'));
+    });
+
+    it('hands focus to the next populated rail when the focused rail starts loading', () => {
+      // "Loading wins over stale items" means the focused rail's cards are replaced by
+      // skeletons while the viewer is on one of them. DOM focus must not fall to <body>.
+      const { container, rerender } = render(
+        <Screen
+          rails={[
+            rail({ key: 'a', title: 'A', items: items(3, 'a') }),
+            rail({ key: 'b', title: 'B', items: items(3, 'b') }),
+          ]}
+        />,
+      );
+      press('ArrowRight');
+      expect(document.activeElement).toBe(screen.getByText('Title a1').closest('a'));
+
+      rerender(
+        <Screen
+          rails={[
+            rail({ key: 'a', title: 'A', loading: true, items: items(3, 'a') }),
+            rail({ key: 'b', title: 'B', items: items(3, 'b') }),
+          ]}
+        />,
+      );
+      expect(container.querySelectorAll('.bs-skel')).toHaveLength(3);
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(screen.getByText('Title b0').closest('a'));
+      expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+
+    it('hands focus back and forth cleanly when the only rail reloads', () => {
+      const { container, rerender } = render(<Screen rails={[rail({ key: 'a', items: items(3, 'a') })]} />);
+      press('ArrowRight');
+      rerender(<Screen rails={[rail({ key: 'a', loading: true, items: items(3, 'a') })]} />);
+      expect(container.querySelectorAll('[tabindex]')).toHaveLength(0);
+
+      rerender(<Screen rails={[rail({ key: 'a', items: items(3, 'new') })]} />);
+      expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+      expect(document.activeElement).toBe(screen.getByText('Title new0').closest('a'));
+    });
   });
 });

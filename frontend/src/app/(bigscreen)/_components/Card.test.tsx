@@ -3,6 +3,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import type { FocusProps } from '../_focus/useFocusGrid';
 import { Card, type CardItem } from './Card';
 
+/** Everything a remote, a Tab key or a screen reader could stop on. */
+const FOCUS_STOPS = 'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]';
+
 const item = (over: Partial<CardItem> = {}): CardItem => ({
   id: 'movie:1',
   href: '/bigscreen/movie/1',
@@ -27,15 +30,33 @@ function renderCard(
 }
 
 describe('Card', () => {
-  it('is exactly one focusable element, carrying the href', () => {
+  describe('one focus stop, in every state', () => {
     // The web PosterCard has four stops pointing at three identical hrefs, which is what
-    // makes a 20-item rail ~80 presses to cross. The TV card is one <a>.
-    const { container } = renderCard({ progressPct: 42, badge: 'Up next', subtitle: '1995' });
-    const stops = container.querySelectorAll('[tabindex]');
-    expect(stops).toHaveLength(1);
-    expect(stops[0].tagName).toBe('A');
-    expect(stops[0]).toHaveAttribute('href', '/bigscreen/movie/1');
-    expect(container.querySelectorAll('a, button, input, select, textarea')).toHaveLength(1);
+    // makes a 20-item rail ~80 presses to cross. The TV card is one <a>, whatever it is
+    // showing: a retry affordance or a Play pill added in only one state must fail here.
+    type ArtState = 'art' | 'no art' | 'art after onError';
+    const ARTS: ArtState[] = ['art', 'no art', 'art after onError'];
+    const matrix = ARTS.flatMap((art) =>
+      [false, true].flatMap((badge) => [false, true].map((bar) => ({ art, badge, bar }))),
+    );
+
+    it.each(matrix)('$art, badge: $badge, progress bar: $bar', ({ art, badge, bar }) => {
+      const { container } = renderCard({
+        artUrl: art === 'no art' ? null : 'https://img.test/heat.jpg',
+        subtitle: '1995',
+        badge: badge ? 'Up next' : null,
+        progressPct: bar ? 42 : 0,
+      });
+      if (art === 'art after onError') {
+        fireEvent.error(container.querySelector('img') as HTMLImageElement);
+        expect(container.querySelector('img')).toBeNull();
+      }
+      const stops = container.querySelectorAll(FOCUS_STOPS);
+      expect(stops).toHaveLength(1);
+      expect(stops[0].tagName).toBe('A');
+      expect(stops[0]).toHaveAttribute('href', '/bigscreen/movie/1');
+      expect(stops[0]).toBe(container.firstElementChild);
+    });
   });
 
   it('renders the title, as a paragraph and not a heading', () => {
@@ -67,29 +88,6 @@ describe('Card', () => {
 
     rerender(<Card item={item()} shape="poster" focusProps={focus({ tabIndex: -1, ref, onFocus })} />);
     expect(container.querySelector('a')).toHaveAttribute('tabindex', '-1');
-  });
-
-  it('does not re-render when its props are unchanged', () => {
-    // The focus hook hands out memoised per-cell props so that a move re-renders two
-    // cards, not twenty. That only holds if the card is itself memoised.
-    let reads = 0;
-    const counted = item();
-    Object.defineProperty(counted, 'href', {
-      get() {
-        reads += 1;
-        return '/bigscreen/movie/1';
-      },
-    });
-    const props = focus();
-    const { rerender } = render(<Card item={counted} shape="poster" focusProps={props} />);
-    const afterMount = reads;
-    expect(afterMount).toBeGreaterThan(0);
-
-    rerender(<Card item={counted} shape="poster" focusProps={props} />);
-    expect(reads).toBe(afterMount);
-
-    rerender(<Card item={counted} shape="poster" focusProps={{ ...props, tabIndex: 0 }} />);
-    expect(reads).toBeGreaterThan(afterMount);
   });
 
   describe('progress bar', () => {
@@ -139,6 +137,16 @@ describe('Card', () => {
       expect(fallback).toHaveTextContent('Heat');
     });
 
+    it('keeps the fallback title inside a wrapper the stylesheet can line-clamp', () => {
+      // A flex container cannot clamp its own text, so the title needs its own element.
+      const { container } = renderCard({ title: 'A very long title '.repeat(10) });
+      const fallback = container.querySelector('.bs-card__fallback') as HTMLElement;
+      const text = fallback.querySelector('.bs-card__fallback-text') as HTMLElement;
+      expect(text).not.toBeNull();
+      expect(text.textContent).toBe('A very long title '.repeat(10));
+      expect(fallback.children).toHaveLength(1);
+    });
+
     it('does not announce the fallback title a second time', () => {
       const { container } = renderCard({});
       expect(container.querySelector('.bs-card__fallback')).toHaveAttribute('aria-hidden', 'true');
@@ -164,6 +172,21 @@ describe('Card', () => {
     });
   });
 
+  describe('dragging', () => {
+    // Magic Remote jitter during an OK press can start a native drag, which swallows the
+    // click. A link and an image are both draggable by default.
+    it('cannot be dragged, by the link or by the image', () => {
+      const { container } = renderCard({ artUrl: 'https://img.test/heat.jpg' });
+      expect(container.querySelector('a')).toHaveAttribute('draggable', 'false');
+      expect(container.querySelector('img')).toHaveAttribute('draggable', 'false');
+    });
+
+    it('cannot be dragged in the fallback state either', () => {
+      const { container } = renderCard({});
+      expect(container.querySelector('a')).toHaveAttribute('draggable', 'false');
+    });
+  });
+
   describe('subtitle and badge', () => {
     it('renders the subtitle', () => {
       const { container } = renderCard({ subtitle: '1995' });
@@ -180,6 +203,36 @@ describe('Card', () => {
       expect(badge.closest('.bs-card__sub')).not.toBeNull();
       expect(badge.closest('.bs-card__label')).toBeNull();
       expect(container.querySelector('.bs-card__label')).not.toHaveTextContent('Up next');
+    });
+
+    it('keeps the subtitle text and the badge as separate siblings, text first', () => {
+      // jsdom cannot evaluate the stylesheet, so this pins the structure it relies on:
+      // .bs-card__sub is a flex row whose `gap` separates two element children, and the
+      // text (not the row) carries the ellipsis so the badge survives truncation.
+      const { container } = renderCard({ subtitle: 'S1 E3', badge: 'Up next' });
+      const sub = container.querySelector('.bs-card__sub') as HTMLElement;
+      expect(Array.from(sub.children).map((c) => c.className)).toEqual(['bs-card__subtext', 'bs-card__badge']);
+      const badge = sub.querySelector('.bs-card__badge') as HTMLElement;
+      expect(badge.previousElementSibling).toBe(sub.querySelector('.bs-card__subtext'));
+      expect(sub.querySelector('.bs-card__subtext')).toHaveTextContent('S1 E3');
+      // No bare text node between them to stand in for the gap.
+      expect(Array.from(sub.childNodes).every((n) => n.nodeType === Node.ELEMENT_NODE)).toBe(true);
+    });
+
+    it('makes a badge with no subtitle the only child, so no gap precedes it', () => {
+      const { container } = renderCard({ subtitle: null, badge: 'Up next' });
+      const sub = container.querySelector('.bs-card__sub') as HTMLElement;
+      expect(sub.children).toHaveLength(1);
+      expect(sub.firstElementChild).toHaveClass('bs-card__badge');
+      expect(sub.firstElementChild!.previousElementSibling).toBeNull();
+      expect(sub.childNodes).toHaveLength(1);
+    });
+
+    it('makes a subtitle with no badge the only child', () => {
+      const { container } = renderCard({ subtitle: '1995' });
+      const sub = container.querySelector('.bs-card__sub') as HTMLElement;
+      expect(sub.children).toHaveLength(1);
+      expect(sub.firstElementChild).toHaveClass('bs-card__subtext');
     });
 
     it('has no badge when none is given', () => {

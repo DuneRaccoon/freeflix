@@ -388,12 +388,26 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   align-items: center;
   justify-content: center;
   padding: 16px;
+  overflow: hidden;
   font-family: var(--font-display);
   font-size: 28px;
   text-align: center;
   color: var(--gold-lite);
   border: 1px solid var(--hairline);
 }
+/* The title sits in its own element because a flex container cannot line-clamp its own
+   text. The line-height is fixed so the clamp is arithmetic: a wide card's box is 207px
+   inside its padding (5 lines of 35px), a poster's is 326px (9 lines). Past that the title
+   ends in an ellipsis instead of spilling out of the card. */
+.bs-card__fallback-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.bs-card--poster .bs-card__fallback-text { -webkit-line-clamp: 9; }
 .bs-card__label {
   margin: 12px 0 0;
   /* 24px, the body floor: this is the title of the thing the viewer is choosing, read
@@ -407,14 +421,22 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 /* One line, always. The track's 24px padding leaves a focused card's ring about 1px of
    clearance, so a subtitle that wrapped to a second line would clip the ring top and
-   bottom. 22px because the year is how a viewer tells two films of the same name apart. */
+   bottom. 22px because the year is how a viewer tells two films of the same name apart.
+   The row is flex so the badge survives truncation: the subtitle text takes the ellipsis
+   (min-width: 0 lets it shrink below its content) and the badge never shrinks. `gap` only
+   separates siblings, so a badge with no subtitle beside it has no leading space. */
 .bs-card__sub {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 4px 0 0;
   font-size: 22px;
   color: var(--muted);
-  white-space: nowrap;
+}
+.bs-card__subtext {
+  min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 /* Resume progress; the fill width arrives as an inline style. */
@@ -428,16 +450,15 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-card__bar span { display: block; height: 100%; background: var(--gold); }
 .bs-card__badge {
-  display: inline-block;
-  margin: 0 0 0 8px;
+  flex: 0 0 auto;
+  margin: 0;
   padding: 2px 10px;
   font-size: 20px;
+  white-space: nowrap;
   border-radius: 999px;
   background: var(--surface-2);
   color: var(--gold-lite);
 }
-/* A card with a badge but no subtitle text would otherwise sit 8px in from the label. */
-.bs-card__badge:first-child { margin-left: 0; }
 
 /* --- skeletons ------------------------------------------------------------ */
 /* These reserve the ARTWORK box, not the finished card: the label and subtitle below it

@@ -466,6 +466,11 @@ Rules the implementation must honour:
 - **One focusable element per card.** The card is a single `next/link` `<Link>` rendering one `<a className="bs-card">` that receives `focusProps` (its `tabIndex`, `ref` and `onFocus`). There is no Play button, no My List button and no separate Info link on a TV card — the web's `PosterCard` has four focus stops pointing at three identical hrefs, and that is exactly what makes a 20-item rail ~80 D-pad presses. Play and My List live on the detail screen (stage 6).
 - `next/link` is permitted by the guard (`next/*`). Use it so the TV gets prefetch; a television's network is the slow part.
 - **No hover-dependent behaviour.** The Magic Remote fires real mouse events, which makes hover UI half-work — a trap. Everything reachable must be reachable by focus.
+- **Use `<p>` for `.bs-card__label`, not a heading.** `bigscreen.css` styles `h1`/`h2`/`h3` as
+  **global element rules**, so an `<h3 class="bs-card__label">` silently inherits gold-lite
+  colour and weight 600. Likewise put `.bs-card__badge` inside `.bs-card__sub`, never inside
+  `.bs-card__label`: the label is a `-webkit-box` with vertical orientation, which lays its
+  children out as block-level boxes and would drop the badge onto its own line.
 - Artwork: an `<img>` with `loading="lazy"` and `onError` swapping to the `.bs-card__fallback` text title-card. The services layer already returns absolute URLs, so there is no URL helper to call.
 - `Rail` returns `null` when `items.length === 0 && !loading` — an empty rail is removed, matching the web.
 - While `loading`, render three skeletons of the matching shape and **no focusable element**.
@@ -670,7 +675,9 @@ Rules:
 3. On OK: fetch `usersService.getUserSettings(profile.id)`. If `has_passcode` is false, `select(profile)` and navigate to `/bigscreen`. If it is true, show the keypad.
 4. The keypad is a 3×4 `.bs-keypad` grid of digits 0–9 plus a delete key, modelled on the web's existing 3×3 `PasscodePrompt` (already remote-friendly). Draw `passcode_len` dots in `.bs-dots`, filling them as digits are entered. Submit automatically once the entered length equals `passcode_len` — a remote has no comfortable Enter-after-typing affordance and the length is known.
 5. On a complete entry call `usersService.unlockProfile(profile.id, code)`. On success `select(profile)` and navigate. On failure (**423 or 403 both mean a wrong code**) clear the dots and show "That code was not right" — and keep focus on the keypad rather than bouncing back to the grid, because a remote user who mistyped wants to retype, not restart.
-6. The keypad and the profile grid each get their own `useFocusGrid`; only one is mounted at a time, so only one `window` listener is ever installed.
+6. The keypad and the profile grid each get their own `useFocusGrid`; only one is mounted at a time, so only one `window` listener is ever installed. This is not a style preference: the listener is on `window` and whichever grid registered **first** claims an arrow, so two live grids would leave the *incoming* one inert during an overlapping mount.
+7. **Mount this screen in `.bs-shell` + `.bs-shell__scroll`, not in `.bs-page`.** `.bs-profiles`, `.bs-keypad`, `.bs-dots` and `.bs-note` each carry their own `padding: 0 var(--safe-x)`, so nesting them inside `.bs-page` (itself inset) would double the inset to 192px. `html, body` cannot scroll, so the screen needs a scroller around it either way.
+8. For the wrong-code message use `.bs-no` (the danger colour), not `.bs-note` (muted).
 7. There is no "add a profile" affordance on the TV. Creating a profile needs text entry and the web surface already does it well; the next stage's search keyboard is the first place text entry is worth building.
 
 - [ ] **Step 1: Write the failing `useTvProfile` tests**
@@ -725,12 +732,14 @@ export function Hero(props: {
 
 /** Upgrade a TMDB image URL to a larger rendition. Returns the input unchanged
  *  when it is not a recognisable TMDB sized path. */
-export function atSize(url: string | null | undefined, size: 'w1920' | 'original'): string | null;
+export function atSize(url: string | null | undefined, size: 'w1920'): string | null;
 ```
 
 **The hero artwork must be upgraded client-side.** §9 requires `w1920`/`original` for the hero
 instead of the `w1280` the catalog returns — a `w1280` backdrop is roughly a 3× upscale on a 4K
-panel. The services layer hands back fully-formed absolute URLs, so there is no size parameter to
+panel. **`w1920` only, never `original`**: an original TMDB backdrop can be 3840×2160, roughly
+33MB decoded in a television's very finite memory, and the hero is displayed in a 1920-wide box
+regardless. The services layer hands back fully-formed absolute URLs, so there is no size parameter to
 pass; `atSize` rewrites the `/t/p/{size}/` segment of a TMDB URL with a regex and returns anything
 unrecognised untouched. Test it with a real TMDB-shaped URL, with a non-TMDB URL, and with `null`.
 

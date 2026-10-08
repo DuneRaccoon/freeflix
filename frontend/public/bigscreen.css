@@ -232,6 +232,12 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   overflow-y: auto;
   scroll-behavior: smooth;
   padding: 0 0 var(--safe-y);
+  /* The focus manager scrolls with `block: 'nearest'`, which stops the moment the box
+     is merely inside the scrollport. Without this, a down-move lands the card's bottom
+     exactly on the screen edge: the resume bar falls off, the ring is cut, and moving
+     UP into a rail hides the rail's own title above the scrollport. The insets cover
+     the rail title plus the ~11px a focused card's 1.06 scale and ring overshoot. */
+  scroll-padding: 100px 0 80px;
 }
 .bs-shell__head {
   padding: var(--safe-y) var(--safe-x) 0;
@@ -247,14 +253,23 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    token as rgba) so the text stays legible with no per-frame effect. */
 .bs-hero {
   position: relative;
-  /* 560px, not a full-bleed 620px: the first rail's title and the top of its cards then
-     sit above the fold on a 1080px canvas, which is what tells a viewer there is more
-     below. A hero that fills the screen reads as the whole screen. */
+  /* 560px: with the shell head, the first rail's title lands at y~672 and 86% of its
+     poster art is above the 1080px fold, which is what tells a viewer there is more
+     below. (620px also cleared the fold, at 69% of the art — this is a margin
+     improvement, not a fix for a hidden rail. A poster's LABEL only clears the fold at
+     a hero of ~470px or less, which costs more artwork than the label is worth.) */
   height: 560px;
   padding: var(--safe-y) var(--safe-x);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+}
+/* The hero is one focus stop on the home screen. The ring is INSET, because an outset
+   outline on a 1920px-wide full-bleed box is clipped by the viewport on both sides. No
+   scale either: scaling a full-bleed element would show the page background behind it. */
+.bs-hero:focus {
+  outline: var(--focus-ring) solid var(--gold);
+  outline-offset: -4px;
 }
 .bs-hero__art {
   position: absolute;
@@ -319,6 +334,9 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-rail__track {
   display: flex;
+  /* Without this a card with no subtitle is stretched to the tallest card in the rail,
+     so its focus ring surrounds ~120px of empty space. */
+  align-items: flex-start;
   gap: 24px;
   overflow-x: auto;
   padding: 24px var(--safe-x);
@@ -387,9 +405,21 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.bs-card__sub { margin: 4px 0 0; font-size: 20px; color: var(--muted); }
+/* One line, always. The track's 24px padding leaves a focused card's ring about 1px of
+   clearance, so a subtitle that wrapped to a second line would clip the ring top and
+   bottom. 22px because the year is how a viewer tells two films of the same name apart. */
+.bs-card__sub {
+  display: block;
+  margin: 4px 0 0;
+  font-size: 22px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Resume progress; the fill width arrives as an inline style. */
 .bs-card__bar {
+  display: block;
   margin: 8px 0 0;
   height: 6px;
   background: var(--hairline);
@@ -401,13 +431,18 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   display: inline-block;
   margin: 0 0 0 8px;
   padding: 2px 10px;
-  font-size: 18px;
+  font-size: 20px;
   border-radius: 999px;
   background: var(--surface-2);
   color: var(--gold-lite);
 }
 
 /* --- skeletons ------------------------------------------------------------ */
+/* These reserve the ARTWORK box, not the finished card: the label and subtitle below it
+   add 43-121px once a rail resolves, so a rail does shift as it loads. The intersection
+   lookahead fetches well before a rail is on screen, so in practice the shift happens
+   off-screen. Do not add a shimmer: §9 allows transform and opacity only, and a looping
+   animation on a television costs frames for nothing. */
 /* A rail that has not loaded yet occupies its final height, so the layout does not
    jump when the cards arrive. Flat blocks only: a looping shimmer would cost
    frames for nothing (spec §9 allows transform and opacity, not a loop). */
@@ -457,7 +492,10 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-profile__face img { width: 100%; height: 100%; object-fit: cover; }
 .bs-profile__name { margin: 16px 0 0; font-size: 28px; text-align: center; }
+/* Inset like .bs-profiles: §8.5 puts no interactive element outside the safe area, and
+   nothing guards that, so each group that can be mounted full-bleed carries its own. */
 .bs-keypad {
+  padding: 0 var(--safe-x);
   display: grid;
   grid-template-columns: repeat(3, 120px);
   gap: 16px;
@@ -474,7 +512,8 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   cursor: pointer;
 }
 .bs-key:focus { outline: var(--focus-ring) solid var(--gold); outline-offset: 2px; }
-.bs-dots { display: flex; gap: 16px; margin: 24px 0; }
+.bs-dots {
+  padding: 0 var(--safe-x); display: flex; gap: 16px; margin: 24px 0; }
 .bs-dot {
   width: 24px;
   height: 24px;

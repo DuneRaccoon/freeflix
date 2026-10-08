@@ -67,8 +67,12 @@ const PROFILES = '/bigscreen/profiles';
  * the shell's job in a later stage, and a `window.close()` from a browser tab does nothing
  * useful. The hook is still installed, so the press is claimed rather than handed to the
  * browser, which can walk history to wherever this page was entered from (the picker
- * replaces itself with home, so that is often another copy of this screen). Delete the
- * `useBackKey` call below if the platform's own Back should apply at the root instead.
+ * replaces itself with home, so that is often another copy of this screen). Walking out of
+ * (bigscreen) into the web app is unrecoverable on this device: a remote cannot type a URL.
+ *
+ * STAGE 10 OWES THIS A REAL ANSWER. Inside the webOS shell, Back at the root is how a viewer
+ * expects to leave an app, and swallowing it means they cannot. The shell is the only place
+ * that can exit cleanly, so it should replace `stayOnHome` with its own handler.
  */
 const stayOnHome = () => {};
 

@@ -146,11 +146,63 @@ describe('fetchContinueWatching', () => {
     expect(items.map((c) => c.title)).toEqual(['New', 'Mid', 'Old']);
   });
 
-  it('does not let an older in-progress episode resurface behind a finished newer one', async () => {
-    // The show is represented by its most recent row. That row is complete, so the show
-    // leaves the rail; falling through to an older half-watched episode would offer the
+  it('turns a completed episode into an Up next card that opens the show screen', async () => {
+    // Nothing in a progress row says whether episode + 1 exists or where its file is, so
+    // the card claims neither: it goes to the show's detail screen, where the viewer
+    // picks. The web resumes the episode just finished, which is the bug this avoids.
+    getShow.mockResolvedValue({ backdrop_url: 'https://img.test/got.jpg' } as ShowDetail);
+    getRecent.mockResolvedValue([
+      row({
+        completed: true,
+        percentage: 100,
+        torrent_id: 'pack',
+        file_index: 2,
+        movie_id: 'tv:1399:s1:e3',
+        title: 'Game of Thrones S01E03',
+      }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual({
+      id: 'tv:1399:up-next',
+      href: '/bigscreen/show/1399',
+      title: 'Game of Thrones',
+      subtitle: null,
+      badge: 'Up next',
+      artUrl: 'https://img.test/got.jpg',
+    });
+    // No bar (nothing to resume) and no watch route (no file exists for episode + 1).
+    expect(items[0].progressPct).toBeUndefined();
+    expect(items[0].href).not.toContain('/bigscreen/watch/');
+    expect(getShow).toHaveBeenCalledWith(1399);
+  });
+
+  it('badges only the Up next card', async () => {
+    getRecent.mockResolvedValue([
+      row({ id: 'a', completed: true, percentage: 100, movie_id: 'tv:1399:s1:e1', title: 'Game of Thrones S01E01', last_watched_at: '2026-10-03T00:00:00' }),
+      row({ id: 'b', movie_id: 'tv:66732:s2:e4', title: 'Stranger Things S02E04', last_watched_at: '2026-10-02T00:00:00' }),
+      row({ id: 'c', movie_id: 'movie:603', last_watched_at: '2026-10-01T00:00:00' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => [c.id, c.badge ?? null])).toEqual([
+      ['tv:1399:up-next', 'Up next'],
+      ['tv:66732', null],
+      ['movie:603', null],
+    ]);
+  });
+
+  it('lets a finished latest episode stand for the show, so an older half-watched one cannot resurface behind it', async () => {
+    // The show is represented by its most recent row, claimed BEFORE the completed check.
+    // If that order were swapped, the finished E3 would be skipped without claiming the
+    // show and the half-watched E2 below it would take its place: a card offering the
     // viewer something they have already moved past.
     getRecent.mockResolvedValue([
+      row({
+        id: 'e2',
+        movie_id: 'tv:1399:s1:e2',
+        title: 'Game of Thrones S01E02',
+        last_watched_at: '2026-09-30T20:00:00',
+      }),
       row({
         id: 'e3',
         completed: true,
@@ -159,28 +211,53 @@ describe('fetchContinueWatching', () => {
         title: 'Game of Thrones S01E03',
         last_watched_at: '2026-10-02T20:00:00',
       }),
-      row({
-        id: 'e2',
-        movie_id: 'tv:1399:s1:e2',
-        title: 'Game of Thrones S01E02',
-        last_watched_at: '2026-09-30T20:00:00',
-      }),
-    ]);
-    expect((await fetchContinueWatching({ userId: 'u1' })).items).toEqual([]);
-  });
-
-  it('never badges a card Up next: the next episode cannot be known from a progress row', async () => {
-    // The web turns a completed episode into an "Up next" card for episode + 1 without
-    // checking it exists, and points it at the file just finished. Nothing in a
-    // progress row says whether episode + 1 exists or where its file is, so there is
-    // no honest card to emit here; the finished episode is simply left out.
-    getRecent.mockResolvedValue([
-      row({ completed: true, percentage: 100, movie_id: 'tv:1399:s1:e1', title: 'Game of Thrones S01E01' }),
-      row({ id: 'x', movie_id: 'tv:66732:s2:e4', title: 'Stranger Things S02E04' }),
     ]);
     const { items } = await fetchContinueWatching({ userId: 'u1' });
-    expect(items.map((c) => c.id)).toEqual(['tv:66732']);
-    expect(items.some((c) => c.badge)).toBe(false);
+    expect(items.map((c) => c.id)).toEqual(['tv:1399:up-next']);
+    expect(items.some((c) => c.subtitle === 'S01 · E02')).toBe(false);
+  });
+
+  it('prefers a newer in-progress episode to an older completed one', async () => {
+    getRecent.mockResolvedValue([
+      row({
+        id: 'e1',
+        completed: true,
+        percentage: 100,
+        movie_id: 'tv:1399:s1:e1',
+        title: 'Game of Thrones S01E01',
+        last_watched_at: '2026-09-30T20:00:00',
+      }),
+      row({
+        id: 'e2',
+        torrent_id: 'pack',
+        file_index: 1,
+        movie_id: 'tv:1399:s1:e2',
+        title: 'Game of Thrones S01E02',
+        last_watched_at: '2026-10-02T20:00:00',
+      }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: 'tv:1399', subtitle: 'S01 · E02', href: '/bigscreen/watch/pack?file=1' });
+    expect(items[0].badge).toBeUndefined();
+  });
+
+  it('still offers Up next for a finished episode whose torrent was removed', async () => {
+    // Up next opens the show screen, so it needs no torrent.
+    getRecent.mockResolvedValue([
+      row({ completed: true, percentage: 100, torrent_id: null, movie_id: 'tv:1399:s1:e3', title: 'Game of Thrones S01E03' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => c.id)).toEqual(['tv:1399:up-next']);
+  });
+
+  it('does not let an unresumable newest episode claim the show from an older resumable one', async () => {
+    getRecent.mockResolvedValue([
+      row({ id: 'new', torrent_id: null, movie_id: 'tv:1399:s1:e3', title: 'Game of Thrones S01E03', last_watched_at: '2026-10-02T20:00:00' }),
+      row({ id: 'old', movie_id: 'tv:1399:s1:e2', title: 'Game of Thrones S01E02', last_watched_at: '2026-09-30T20:00:00' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => [c.id, c.subtitle])).toEqual([['tv:1399', 'S01 · E02']]);
   });
 
   it('links to a bigscreen watch route, with ?file= when file_index is set', async () => {
@@ -246,7 +323,7 @@ describe('fetchContinueWatching', () => {
     expect((await fetchContinueWatching({ userId: 'u1' })).items).toEqual([]);
   });
 
-  it('caps the rail at 10 cards, which also bounds the artwork lookups', async () => {
+  it('caps the rail at 6 cards, which also bounds the artwork lookups', async () => {
     getRecent.mockResolvedValue(
       Array.from({ length: 24 }, (_, i) =>
         row({
@@ -258,9 +335,10 @@ describe('fetchContinueWatching', () => {
       ),
     );
     const { items } = await fetchContinueWatching({ userId: 'u1' });
-    expect(items).toHaveLength(10);
+    expect(items).toHaveLength(6);
     expect(items[0].title).toBe('Film 1');
-    expect(getMovie).toHaveBeenCalledTimes(10);
+    expect(items[5].title).toBe('Film 6');
+    expect(getMovie).toHaveBeenCalledTimes(6);
   });
 
   it.each([403, 404, 423])('resolves to an empty rail, and does not throw, on a %i', async (status) => {

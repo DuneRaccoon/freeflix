@@ -6,9 +6,8 @@ import { tvService } from '@/services/tv';
 import { parseContentId, showNameFromTitle, tmdbIdFromContentId } from '@/lib/contentId';
 import { parseUtc } from '@/lib/parseUtc';
 import { watchlistItemToCatalogItem } from '@/lib/watchlist/toCatalogItem';
-// Type-only, so erased at build; spelled with the alias for the reason given in rails.ts.
-import type { CardItem } from '@/app/(bigscreen)/_components/Card';
-import type { RailModel } from '@/app/(bigscreen)/_components/Rail';
+import type { CardItem } from '../_components/Card';
+import type { RailModel } from '../_components/Rail';
 import { catalogItemToCard } from './rails';
 
 export interface ContinueWatchingDeps {
@@ -34,10 +33,13 @@ const FETCH_LIMIT = 24;
 
 /**
  * The most cards the rail will draw. Each card costs one title-detail request for its
- * artwork, so this bounds the fan-out as well as the D-pad presses to cross it. The web
- * caps at 6.
+ * artwork, and spec §9 counts exactly that among the home-request costs the TV trims.
+ * Six wide cards are 2568px against 1728px of visible width, so the rail still scrolls
+ * past the screen and the viewer never sees its edge. It is also the web's cap.
  */
-const MAX_CARDS = 10;
+const MAX_CARDS = 6;
+
+const UP_NEXT = 'Up next';
 
 /** The profile-scoped endpoints refuse (403/404/423) rather than return nothing. */
 const empty = (spec: Omit<RailModel, 'items'>): RailModel => ({ ...spec, items: [] });
@@ -88,19 +90,18 @@ async function backdropFor(art: NonNullable<Candidate['art']>): Promise<string |
  * - The content id is `movie_id`. The ORM row also has `content_id`, but the response
  *   model exposes only `movie_id`, so reading `content_id` is `undefined` on every row.
  * - A row whose torrent was removed (`torrent_id` NULL, FK ON DELETE SET NULL) is kept
- *   in history but can never resume, so it is not offered.
+ *   in history but can never resume, so it is not offered as a resume card.
  * - A show is one card, represented by its most recently watched row.
  * - A completed movie is not "where you left off".
  *
- * UP NEXT IS DELIBERATELY ABSENT. The web turns a completed episode into an "Up next"
- * card for episode + 1, without checking that the episode exists, and leaves the link
- * on the file just finished. Doing it honestly needs two things this function does not
- * have: the show's season data (to know episode + 1 exists) and a torrent or file for
- * that episode (to resume anything). A progress row carries neither, and `deps` is just
- * a profile id. A card that replays the finished episode is a bug the viewer blames on
- * the app, so a show whose latest episode is complete is left out until the viewer
- * starts another. When a screen has the season data, the right card links to the show's
- * detail route, not to a watch route; add it then, with its inputs injected here.
+ * A COMPLETED EPISODE BECOMES AN "UP NEXT" CARD FOR ITS SHOW. It links to the show's
+ * detail route, which is where a viewer picks the next episode, and it carries no
+ * progress bar because there is nothing to resume. The web does this differently and
+ * wrongly: it badges a card "Up next" for episode + 1 without checking that the episode
+ * exists, then leaves the link on the file just finished. Nothing in a progress row
+ * says whether episode + 1 exists or where its file is, so this card claims neither. It
+ * needs no torrent either, so a finished episode whose torrent was later removed still
+ * gets one. The show id comes straight out of the content id; nothing new is fetched.
  */
 export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): Promise<RailModel> {
   if (!userId) return empty(CONTINUE_WATCHING);
@@ -114,42 +115,56 @@ export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): P
 
     for (const row of rows) {
       if (candidates.length >= MAX_CARDS) break;
-      if (!row.torrent_id || !row.movie_id) continue;
+      if (!row.movie_id) continue;
 
       const parsed = parseContentId(row.movie_id);
-      const progressPct = Math.round(row.percentage);
-      const href = resumeHref(row.torrent_id, row.file_index);
 
       if (parsed.kind === 'tv') {
         const { showId, season, episode } = parsed;
         // A tv id that did not parse has no show to group under; skip rather than guess.
         if (showId === undefined || season === undefined || episode === undefined) continue;
         if (seenShows.has(showId)) continue;
-        // Claim the show BEFORE the completed check, so a finished latest episode hides
-        // the show instead of letting an older half-watched one surface behind it.
+        // An unfinished episode with no torrent can never resume, and must not claim the
+        // show: an older episode that still can resume is the better card.
+        if (!row.completed && !row.torrent_id) continue;
+        // Claim the show BEFORE branching on completed, so a finished latest episode
+        // becomes the show's one card (Up next) instead of an older half-watched episode
+        // surfacing behind it.
         seenShows.add(showId);
-        if (row.completed) continue;
+        const title = showNameFromTitle(row.title, showId);
         candidates.push({
           art: { kind: 'tv', tmdbId: showId },
-          card: {
-            id: `tv:${showId}`,
-            href,
-            title: showNameFromTitle(row.title, showId),
-            subtitle: `S${pad2(season)} · E${pad2(episode)}`,
-            progressPct,
-          },
+          card: row.completed
+            ? {
+                // Distinct from the resume card's id, so the two can never be confused.
+                id: `tv:${showId}:up-next`,
+                href: `/bigscreen/show/${showId}`,
+                title,
+                subtitle: null,
+                badge: UP_NEXT,
+                // No progressPct: nothing to resume, and a part-filled bar would be a lie.
+              }
+            : {
+                id: `tv:${showId}`,
+                href: resumeHref(row.torrent_id as string, row.file_index),
+                title,
+                subtitle: `S${pad2(season)} · E${pad2(episode)}`,
+                progressPct: Math.round(row.percentage),
+              },
         });
       } else {
-        if (row.completed) continue;
+        // A finished film is not "where you left off", and without a torrent it cannot
+        // resume.
+        if (row.completed || !row.torrent_id) continue;
         const tmdbId = tmdbIdFromContentId(row.movie_id);
         candidates.push({
           art: tmdbId === undefined ? null : { kind: 'movie', tmdbId },
           card: {
             id: row.movie_id,
-            href,
+            href: resumeHref(row.torrent_id, row.file_index),
             title: row.title ?? 'Untitled',
             subtitle: null,
-            progressPct,
+            progressPct: Math.round(row.percentage),
           },
         });
       }

@@ -1,12 +1,8 @@
 import type { BrowseParams, CatalogItem, CatalogPage } from '@/types';
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
-// Type-only, so erased at build. Spelled with the `@/app/...` alias rather than
-// `../_components/...` because the guard in legacy-target.test.ts rejects any relative
-// specifier containing both `..` and `components/`, and `_components/` is a substring
-// match for it. This directory is the TV's own, not the web's component tree.
-import type { CardItem } from '@/app/(bigscreen)/_components/Card';
-import type { RailModel } from '@/app/(bigscreen)/_components/Rail';
+import type { CardItem } from '../_components/Card';
+import type { RailModel } from '../_components/Rail';
 
 export interface TvRailSpec {
   key: string;

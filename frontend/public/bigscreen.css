@@ -436,6 +436,8 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   background: var(--surface-2);
   color: var(--gold-lite);
 }
+/* A card with a badge but no subtitle text would otherwise sit 8px in from the label. */
+.bs-card__badge:first-child { margin-left: 0; }
 
 /* --- skeletons ------------------------------------------------------------ */
 /* These reserve the ARTWORK box, not the finished card: the label and subtitle below it

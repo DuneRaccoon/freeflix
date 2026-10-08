@@ -156,6 +156,20 @@ function readAliased(spec: string): string | null {
 }
 
 /**
+ * An `@/`-form for a relative specifier that climbs out of `(bigscreen)`, or null when it
+ * stays inside (those are TV-local files, which this surface owns) or resolves outside `src`.
+ * `id` is the importing file's `(bigscreen)`-relative path.
+ */
+function relativeToAlias(id: string, spec: string): string | null {
+  if (!spec.startsWith('.')) return null;
+  const fromDir = join(BIGSCREEN_DIR, id, '..');
+  const target = join(fromDir, spec);
+  if (target.startsWith(BIGSCREEN_DIR)) return null;
+  if (!target.startsWith(SRC_DIR)) return null;
+  return `@/${relative(SRC_DIR, target).split(sep).join('/')}`;
+}
+
+/**
  * The web-component imports sitting one hop behind `spec`: what the module it names
  * imports that `escapesToComponents` rejects. The reader is injectable so the rule can be
  * exercised against modules that are not on disk.
@@ -164,6 +178,15 @@ function readAliased(spec: string): string | null {
  * helper whose first import is a component) without turning a guard into a module
  * resolver: no graph, no cycle handling, no tsconfig. A longer chain is left to review; this
  * is for the one a future author is most likely to write.
+ *
+ * THE EDGE IT GUARDS IS LATENT, NOT LIVE — checked, because an earlier version of this
+ * comment claimed otherwise. In both `@/lib/buildMixedRailsScreen` and
+ * `@/lib/buildRailsScreen`, `RowConfig` is an interface used only in type positions, so the
+ * binding is unused after type erasure and SWC drops the import: importing either module
+ * does not put `PosterCard` or the Tailwind runtime in a TV bundle as things stand. The
+ * guard still rejects them, deliberately. A type-only edge becomes a value edge in one
+ * character — use `RowConfig` as a value, or add any second import — and nothing else here
+ * would notice. Being conservative about an edge that cannot be seen is the point.
  */
 function componentImportsBehind(spec: string, read: (spec: string) => string | null = readAliased): string[] {
   const body = read(spec);
@@ -242,8 +265,13 @@ describe('TV performance budget (spec §9)', () => {
     for (const { id, src } of tvSourceFiles()) {
       for (const spec of importSpecifiers(src)) {
         // A direct component import is the previous test's finding; do not report it twice.
-        if (!spec.startsWith('@/') || escapesToComponents(spec)) continue;
-        for (const nested of componentImportsBehind(spec)) offences.push(`${id} -> ${spec} -> ${nested}`);
+        if (escapesToComponents(spec)) continue;
+        // A relative specifier that climbs out of (bigscreen) reaches the same modules under
+        // a different spelling, and neither check saw it: verified, `../../../lib/...` in a
+        // TV file passed every test. Resolve it so one hop behind it is followed too.
+        const aliased = spec.startsWith('@/') ? spec : relativeToAlias(id, spec);
+        if (!aliased) continue;
+        for (const nested of componentImportsBehind(aliased)) offences.push(`${id} -> ${spec} -> ${nested}`);
       }
     }
     expect(offences, offences.join('; ')).toEqual([]);
@@ -262,6 +290,14 @@ describe('TV performance budget (spec §9)', () => {
     expect(componentImportsBehind('@/lib/leaky-relative', read)).toEqual(['../components/ui/Modal']);
     expect(componentImportsBehind('@/lib/clean', read)).toEqual([]);
     expect(componentImportsBehind('@/lib/not-there', read)).toEqual([]);
+
+    // Pin the extension forms. Trimming this list leaves the guard green while quietly
+    // ceasing to follow whole classes of module — verified: narrowing it to ['.ts'] alone
+    // kept all of these tests passing before this assertion existed.
+    expect(readAliased('@/types'), '/index.ts form').not.toBeNull();
+    expect(readAliased('@/components/browse/BrowseScreen'), '.tsx form').not.toBeNull();
+    expect(readAliased('@/services/movies'), '.ts form').not.toBeNull();
+    expect(readAliased('@/lib/nothing-here-at-all')).toBeNull();
 
     // The real resolver must find real files: it follows at least one `@/` import the TV
     // surface actually makes.

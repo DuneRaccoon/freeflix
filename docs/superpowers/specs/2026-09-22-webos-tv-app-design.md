@@ -607,9 +607,40 @@ replace the control surface entirely.
 
 ### 8.1 Focus library
 
-`@noriginmedia/norigin-spatial-navigation` — hooks-based, in production on webOS/Tizen/Vizio. **Its
-React 19 peer range is unverified and is task one.** Fallback: a hand-rolled roving-tabindex manager
-(~150 lines), genuinely viable because we own every component on this surface.
+~~`@noriginmedia/norigin-spatial-navigation`~~ **Decided during stage 4: hand-rolled, and the
+library was rejected on its merits rather than on compatibility.**
+
+*(This row read: "`@noriginmedia/norigin-spatial-navigation` — hooks-based, in production on
+webOS/Tizen/Vizio. **Its React 19 peer range is unverified and is task one.** Fallback: a
+hand-rolled roving-tabindex manager (~150 lines), genuinely viable because we own every component
+on this surface."*
+
+**The compatibility question was answered and it is a non-issue**: version 3.3.0 declares
+`react: ">=16.8.0"` (on its `-react` sub-package rather than the installed meta-package), which
+React 19.0.0 satisfies with no peer conflict. So the "task one" spike was unnecessary and the §12
+risk row below is void.
+
+**It lost on three design facts instead**, each read out of its `dist/index.mjs`:
+
+1. It installs its **own `window` keydown listener and calls `preventDefault` + `stopPropagation`
+   on every arrow and Enter** unless `shouldUseNativeEvents: true`. §8.3 requires the opposite:
+   arrows must seek only when the transport bar holds focus, and must not be claimed globally.
+   Opting out of its event handling leaves us handling events ourselves, which is the thing the
+   dependency was supposed to provide.
+2. Without `shouldFocusDOMNode: true` it **never moves real DOM focus** — it tracks focus in its own
+   store. Every focus style on this surface is a CSS `:focus` selector, and `bigscreen.css` calls
+   the ring "the whole navigation model on a remote". Its default mode silently turns that off.
+3. It has **no concept of a Back key**, so webOS `461` needs a hand-written `window` listener
+   whatever else is used.
+
+A strict rail grid also does not need geometric nearest-neighbour search. Explicit row and column
+indices are more predictable, and they are what make the load-bearing rule expressible: **vertical
+movement skips any row with zero focusable items**, because every catalog call in this codebase is
+`.catch(() => emptyPage)` and a still-loading or empty rail is the normal case. Landing focus on a
+skeleton is unrecoverable on a device with no Tab key and no pointer.
+
+The implementation is `(bigscreen)/_focus/` — a pure model plus a `useFocusGrid` hook — built in
+`docs/superpowers/plans/2026-10-09-tv-stage4-navigation.md`.
 
 ### 8.2 Rules
 
@@ -748,7 +779,7 @@ targets ≥60px tall.
 | ~~MKV does not direct-play / MKV seeking hits the `Cues`/`SeekHead` defect~~ **Partly resolved** | — | *(Updated after the 2026-10-07 playback run.* **MKV direct play: retired.** A real 1080p H.264 Matroska file with a DDP5.1 track direct-played on the set, and seeking **within downloaded regions** worked — no `Cues`/`SeekHead` symptom on this file. Note the file was muxed once (`-FLUX`), which §3.2 says is the less-affected case, so the defect is retired for files like this one, not proven absent. **HEVC: not retired, and not measured.** The tested file is H.264. Accepted on documentation by owner decision: LG's AV table lists HEVC Main/Main10 for webOS **22** and this set is webOS **25**, two platform versions newer, so its table is at least as permissive. **That is an accepted risk with a rationale, not a result.** If it fails in the field the lever is torrent selection (§7.2); an HLS remux is unavailable on a Pi.) |
 | **Seeking past the download point into a not-yet-downloaded region** | **Unknown — still open** | *(Added after the 2026-10-07 run, which did **not** cover it.* The title under test was at ~26% and the far seek was never attempted, nor was the "Probe far seek (HTTP)" readout taken. The stage-1 first-chunk precheck and the `503` + `Retry-After` response exist and have unit tests, but **have never been observed from the TV**, and a `<video>` element reports only `MediaError.code`, so the status is unobservable there without the probe. Mitigations as designed: the available-bytes seek boundary (§7.4) prevents the seek rather than handling it, and stage 7 must make the player honour the 503. **Settle this with the HTTP probe before stage 7 ships.**) |
 | Pi cannot sustain 1080p off a partial torrent to the TV | ~~Medium~~ **Lowered — one successful observation** | *(Updated after the 2026-10-07 run.* 1080p H.264 streamed to the TV **from a torrent still downloading at ~26%**, played and scrubbed. That is one title, one session, no duration or rebuffer count recorded — it is evidence the path works, not a throughput measurement. Mitigations unchanged: 1080p default; available-bytes seek boundary; the ARM cap limiting concurrent downloads to 2.) |
-| `norigin-spatial-navigation` rejects React 19 | Medium | Hand-rolled focus manager fallback, scoped as task one. |
+| ~~`norigin-spatial-navigation` rejects React 19~~ **Void — it accepts React 19** | — | *(Settled during stage 4: 3.3.0 declares `react: ">=16.8.0"`, which React 19.0.0 satisfies. The library was still rejected, but for its global arrow `preventDefault`, its need for `shouldFocusDOMNode` to move real focus at all, and its absence of any Back concept — see §8.1. The hand-rolled manager shipped as a deliberate choice, not as a fallback.)* |
 | Dev Mode lapses and the tile vanishes | Certain, ~every 41 days | Browser-bookmark fallback is a documented deliverable; renewal routine noted in the README. |
 | Subtitle coverage disappoints (embedded-only releases) | High | Stated up front. Sidecar-only is v1; embedded extraction is out of scope. |
 | Two root layouts regress a web route | Low | Mechanical move; the existing ~85 colocated tests plus a route-by-route smoke pass. |

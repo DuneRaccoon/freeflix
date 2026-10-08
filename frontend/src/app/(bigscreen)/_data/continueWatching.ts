@@ -118,7 +118,9 @@ async function fetchBackdrop(art: NonNullable<Candidate['art']>): Promise<string
     const detail =
       art.kind === 'tv'
         ? await tvService.getShow(art.tmdbId)
-        : await moviesService.getDetail(art.tmdbId);
+        : // Artwork only: skip the backend's torrent search, which is most of a movie
+          // detail's cost. An older backend ignores the parameter and just answers slowly.
+          await moviesService.getDetail(art.tmdbId, { withQualities: false });
     return detail.backdrop_url ?? null;
   } catch {
     return null;

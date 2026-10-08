@@ -13,8 +13,19 @@ export const moviesService = {
     return response.data;
   },
 
-  getDetail: async (tmdbId: number): Promise<MovieDetail> => {
-    const response = await apiClient.get(`/movies/${tmdbId}`);
+  /**
+   * `withQualities: false` asks the backend to skip its torrent search, leaving
+   * `available_qualities` empty. For callers that only want the TMDB fields (artwork).
+   * Omitted by default, so the request is byte-identical to before for everyone else.
+   */
+  getDetail: async (
+    tmdbId: number,
+    opts?: { withQualities?: boolean },
+  ): Promise<MovieDetail> => {
+    const response = await apiClient.get(
+      `/movies/${tmdbId}`,
+      opts?.withQualities === false ? { params: { with_qualities: false } } : undefined,
+    );
     return response.data;
   },
 

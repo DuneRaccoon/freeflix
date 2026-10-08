@@ -57,8 +57,16 @@ def _cached_item(tmdb_id: int) -> Optional[CatalogItem]:
         )
 
 
-async def detail(tmdb_id: int) -> Optional[MovieDetail]:
-    """Rich detail via TMDB-by-id, falling back to the cached list item."""
+async def detail(tmdb_id: int, *, with_qualities: bool = True) -> Optional[MovieDetail]:
+    """Rich detail via TMDB-by-id, falling back to the cached list item.
+
+    ``with_qualities=False`` skips the torrent search (a separate, slow provider call)
+    for callers that only want the TMDB fields, e.g. artwork. ``available_qualities`` is
+    then left empty. Nothing torrent-derived is written in that mode: ``torrents_json``
+    is not touched, and ``detail_json`` is not refreshed either, so the cache never
+    holds a quality-less snapshot of the detail. The base list item is still upserted
+    (it carries no torrent data), so a deep-linked id is cached either way.
+    """
     enriched = await tmdb.movie_details(tmdb_id)
     base = enriched
     if base is None:
@@ -68,8 +76,9 @@ async def detail(tmdb_id: int) -> Optional[MovieDetail]:
         base = MovieDetail(**cached.model_dump())
 
     name = f"{base.title} {base.year}".strip() if base.year else base.title
-    hits = await catalog.torrents(name)
-    base.available_qualities = available_qualities(hits)
+    hits = await catalog.torrents(name) if with_qualities else None
+    if hits is not None:
+        base.available_qualities = available_qualities(hits)
 
     # Upsert the base item first so even a never-browsed id (e.g. a direct deep
     # link enriched via TMDB) gets cached, avoiding a re-fetch on the next load.
@@ -83,8 +92,9 @@ async def detail(tmdb_id: int) -> Optional[MovieDetail]:
                 vote_average=base.vote_average, vote_count=base.vote_count,
                 popularity=base.popularity, original_language=base.original_language,
             )
-            row.set_detail(db, base.model_dump())
-            row.set_torrents(db, [h.model_dump() for h in hits])
+            if hits is not None:
+                row.set_detail(db, base.model_dump())
+                row.set_torrents(db, [h.model_dump() for h in hits])
     except Exception as e:
         logger.error(f"Failed to persist movie detail {tmdb_id}: {e}")
     return base

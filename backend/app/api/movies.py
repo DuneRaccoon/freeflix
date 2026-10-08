@@ -37,8 +37,14 @@ async def search_movies(q: str = Query(..., min_length=1), page: int = Query(1, 
 
 
 @router.get("/{tmdb_id}", response_model=MovieDetail, summary="Movie detail")
-async def movie_detail(tmdb_id: int = Path(..., ge=1)):
-    detail = await movie_service.detail(tmdb_id)
+async def movie_detail(
+    tmdb_id: int = Path(..., ge=1),
+    with_qualities: bool = Query(
+        True,
+        description="Set false to skip the torrent search; available_qualities is then empty.",
+    ),
+):
+    detail = await movie_service.detail(tmdb_id, with_qualities=with_qualities)
     if detail is None:
         raise HTTPException(status_code=404, detail="Movie not found")
     return detail

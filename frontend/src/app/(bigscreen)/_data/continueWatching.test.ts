@@ -316,7 +316,8 @@ describe('fetchContinueWatching', () => {
       row({ id: 'b', movie_id: 'tv:1399:s1:e1', title: 'Game of Thrones S01E01', last_watched_at: '2026-10-02T00:00:00' }),
     ]);
     const { items } = await fetchContinueWatching({ userId: 'u1' });
-    expect(getMovie).toHaveBeenCalledWith(603);
+    // Artwork only: the cheap form, so the backend skips its ~20s torrent search.
+    expect(getMovie).toHaveBeenCalledWith(603, { withQualities: false });
     expect(getShow).toHaveBeenCalledWith(1399);
     expect(items.map((c) => c.artUrl)).toEqual(['https://img.test/m.jpg', 'https://img.test/s.jpg']);
   });

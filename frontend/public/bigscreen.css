@@ -487,11 +487,8 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 
 /* --- skeletons ------------------------------------------------------------ */
-/* These reserve the ARTWORK box, not the finished card: the label and subtitle below it
-   add 43-125px once a rail resolves, so a rail does shift as it loads. The intersection
-   lookahead fetches well before a rail is on screen, so in practice the shift happens
-   off-screen. Do not add a shimmer: §9 allows transform and opacity only, and a looping
-   animation on a television costs frames for nothing. */
+/* Do not add a shimmer: §9 allows transform and opacity only, and a looping animation on a
+   television costs frames for nothing. What each skeleton reserves is said below. */
 .bs-skel { background: var(--surface-2); border-radius: var(--radius); }
 /* These reserve the WHOLE card, not just its art box: a poster card with a two-line title
    and a year measures ~470px and a wide resume card ~365px. Reserving only the art meant

@@ -872,9 +872,9 @@ describe('/bigscreen home: returning to where the viewer was', () => {
 });
 
 describe('/bigscreen home: keeping the focused card in view', () => {
-  // A skeleton is shorter than the rail that replaces it, so a rail landing above the focused
-  // card pushes it down, and the focus hook only scrolls when focus moves. jsdom has no
-  // layout, so the geometry is supplied.
+  // A rail landing above the focused card pushes it down (Continue Watching lands from nothing,
+  // ~650px, above every catalog rail but trending), and the focus hook only scrolls when focus
+  // moves, not when layout does. jsdom has no layout, so the geometry is supplied.
   function layout(focusedBox: { top: number; bottom: number }) {
     const box = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) });
     return vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -939,9 +939,11 @@ describe('/bigscreen home: no polling', () => {
   });
 
   it('leaves no timer running once it has settled', async () => {
-    // Fully settled on purpose: with only trending answered, the patience timer is still
-    // pending (by design), and a timer installed after full settle would slip past a
-    // check made this early.
+    // Asserted at full settle, not after the first rail: by then the panel is long gone, so
+    // the patience timer is not pending either way, and what this is for is a timer that a
+    // LATER landing installs (a retry, a lookahead rail, a profile rail), which a check made
+    // after trending alone would never see. The 1s covers the focus hook's one-shot 200ms
+    // position write.
     useProfile(BEN);
     renderHome();
     await answer('trending');
@@ -970,7 +972,7 @@ describe('/bigscreen home: no polling', () => {
     // asserted that it appeared, which is why that got through.
     renderHome();
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-    fetchRailMock.mock.calls.length = 0;
+    fetchRailMock.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await settle();
     expect(fetchedKeys()).toContain('trending');
@@ -1003,6 +1005,232 @@ describe('/bigscreen home: no polling', () => {
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+});
+
+describe('/bigscreen home: the retry', () => {
+  // One value, three states. idle: nothing to offer. offered: Try again is on the panel.
+  // inflight: it was pressed and the first rail has not answered. idle becomes offered when
+  // the panel has been up for LOAD_PATIENCE_MS or every catalog rail has answered with no
+  // cards; offered becomes inflight on a press; inflight becomes idle when the CURRENT request
+  // for the first rail lands with cards, becomes offered when it lands empty, and becomes
+  // offered again after another LOAD_PATIENCE_MS, so a retry that hangs can be retried.
+  const PATIENCE = 10_000;
+  const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  const tryAgain = () => screen.getByRole('button', { name: 'Try again' });
+  const trying = () => screen.getByRole('button', { name: 'Trying again…' });
+  const press = async (button: HTMLElement) => { fireEvent.click(button); await settle(); };
+  const trendingRequests = () => fetchedKeys().filter((k) => k === 'trending').length;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  describe('being offered', () => {
+    it('offers nothing while the first rail is merely slow, and offers Try again once patience runs out', async () => {
+      renderHome();
+      await advance(PATIENCE - 1);
+      expect(screen.queryByRole('button', { name: /try/i })).toBeNull();
+      await advance(1);
+      expect(tryAgain()).toBeInTheDocument();
+    });
+
+    it('moves focus onto the button when it arrives beside the link the viewer is on', async () => {
+      // The link slides from column 0 to 1 as the button takes column 0, and the grid's
+      // target (0, 0) does not change, so nothing but autoFocus puts DOM focus on the new cell.
+      renderHome();
+      const link = screen.getByRole('link', { name: 'Who’s watching?' });
+      expect(active()).toBe(link);
+      await advance(PATIENCE);
+      expect(active()).toBe(tryAgain());
+      expect(active()).not.toBe(link);
+      arrow('ArrowRight');
+      expect(active()).toBe(link);
+    });
+
+    it('is offered at once, without waiting out the patience, when every rail has answered with no cards', async () => {
+      vi.stubGlobal('IntersectionObserver', undefined);
+      renderHome();
+      for (const spec of TV_RAILS) await act(async () => { railAnswers.get(spec.key)!.resolve(catalogRail(spec.key, 0)); });
+      expect(tryAgain()).toBeInTheDocument();
+      expect(active()).toBe(tryAgain());
+    });
+
+    it('is offered after the patience when the first rail answered with no cards but the others are still out', async () => {
+      renderHome();
+      await answer('trending', 0);
+      expect(screen.queryByRole('button', { name: /try/i })).toBeNull();
+      await advance(PATIENCE);
+      expect(tryAgain()).toBeInTheDocument();
+    });
+
+    it('is not offered at all once there is something to show', async () => {
+      renderHome();
+      await answer('trending');
+      await advance(PATIENCE * 3);
+      expect(screen.queryByRole('button', { name: /try/i })).toBeNull();
+    });
+  });
+
+  describe('pressing it', () => {
+    it('asks for the first rail again, keeps the same focused button, and says so', async () => {
+      renderHome();
+      await advance(PATIENCE);
+      const button = tryAgain();
+      expect(trendingRequests()).toBe(1);
+      await press(button);
+      expect(trendingRequests()).toBe(2);
+      expect(trying()).toBe(button);
+      expect(active()).toBe(button);
+    });
+
+    it('ignores a second press while the retry is out', async () => {
+      renderHome();
+      await advance(PATIENCE);
+      await press(tryAgain());
+      await press(trying());
+      await press(trying());
+      expect(trendingRequests()).toBe(2);
+    });
+  });
+
+  describe('a retry that comes back', () => {
+    async function retried() {
+      renderHome();
+      await advance(PATIENCE);
+      const stale = railAnswers.get('trending')!;
+      await press(tryAgain());
+      return { stale, fresh: railAnswers.get('trending')! };
+    }
+
+    it('with cards shows the hero, with focus on it and no button, and leaves no timer behind', async () => {
+      const { fresh } = await retried();
+      await act(async () => { fresh.resolve(catalogRail('trending', 3)); });
+      expect(document.querySelector('.bs-hero')).toHaveAttribute('href', '/bigscreen/movie/100');
+      expect(active()).toBe(document.querySelector('.bs-hero'));
+      expect(screen.queryByRole('button', { name: /try/i })).toBeNull();
+      await advance(PATIENCE * 3);
+      expect(trendingRequests()).toBe(2);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('empty offers Try again straight away, on the same button, and a second press is admitted', async () => {
+      const { fresh } = await retried();
+      const button = trying();
+      await act(async () => { fresh.resolve(catalogRail('trending', 0)); });
+      expect(tryAgain()).toBe(button);
+      expect(active()).toBe(button);
+      await press(button);
+      expect(trendingRequests()).toBe(3);
+      expect(trying()).toBe(button);
+    });
+  });
+
+  describe('a retry that hangs', () => {
+    it('can be retried again after another patience, rather than leaving the button dead', async () => {
+      renderHome();
+      await advance(PATIENCE);
+      await press(tryAgain());
+      expect(trendingRequests()).toBe(2);
+      // Just short of the patience it is still in flight: the label and the guard agree.
+      await advance(PATIENCE - 1);
+      await press(trying());
+      expect(trendingRequests()).toBe(2);
+      await advance(1);
+      expect(screen.queryByRole('button', { name: 'Trying again…' })).toBeNull();
+      await press(tryAgain());
+      expect(trendingRequests()).toBe(3);
+      // And once more, so it is a cycle and not a single extra life.
+      await advance(PATIENCE);
+      await press(tryAgain());
+      expect(trendingRequests()).toBe(4);
+    });
+
+    it('lands whichever request answers first, and the earlier ones change nothing', async () => {
+      renderHome();
+      await advance(PATIENCE);
+      const first = railAnswers.get('trending')!;
+      await press(tryAgain());
+      const second = railAnswers.get('trending')!;
+      await advance(PATIENCE);
+      await press(tryAgain());
+      const third = railAnswers.get('trending')!;
+      await act(async () => { third.resolve(catalogRail('trending', 3)); });
+      expect(wrapperOf('trending').querySelectorAll('a.bs-card')).toHaveLength(3);
+      await act(async () => {
+        first.resolve(catalogRail('trending', 0));
+        second.reject(new Error('socket hang up'));
+      });
+      expect(wrapperOf('trending').querySelectorAll('a.bs-card')).toHaveLength(3);
+      expect(document.querySelector('.bs-hero')).toHaveAttribute('href', '/bigscreen/movie/100');
+    });
+  });
+
+  describe('a superseded request', () => {
+    // fetchRail turns ANY failure into an empty rail, so an old hung request that finally
+    // errors (a half-open socket after the TV comes out of standby) would otherwise land as
+    // "empty" on top of a retry that succeeded, and take the hero and the rail with it.
+    async function retried() {
+      renderHome();
+      await advance(PATIENCE);
+      const stale = railAnswers.get('trending')!;
+      await press(tryAgain());
+      return { stale, fresh: railAnswers.get('trending')! };
+    }
+
+    it('landing empty after a successful retry changes nothing on screen', async () => {
+      const { stale, fresh } = await retried();
+      await act(async () => { fresh.resolve(catalogRail('trending', 3)); });
+      const focused = active();
+      const before = document.body.innerHTML;
+      await act(async () => { stale.resolve(catalogRail('trending', 0)); });
+      expect(document.body.innerHTML).toBe(before);
+      expect(active()).toBe(focused);
+      expect(document.querySelector('.bs-hero')).toHaveAttribute('href', '/bigscreen/movie/100');
+      expect(wrapperOf('trending').querySelectorAll('a.bs-card')).toHaveLength(3);
+    });
+
+    it('rejecting after a successful retry changes nothing either', async () => {
+      const { stale, fresh } = await retried();
+      await act(async () => { fresh.resolve(catalogRail('trending', 3)); });
+      const before = document.body.innerHTML;
+      await act(async () => { stale.reject(new Error('socket hang up')); });
+      expect(document.body.innerHTML).toBe(before);
+    });
+
+    it('landing empty mid-retry does not flip the label back or admit another press', async () => {
+      const { stale } = await retried();
+      await act(async () => { stale.resolve(catalogRail('trending', 0)); });
+      expect(trying()).toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+      await press(trying());
+      expect(trendingRequests()).toBe(2);
+    });
+
+    it('landing with cards mid-retry is dropped too: only the current request counts', async () => {
+      const { stale, fresh } = await retried();
+      await act(async () => { stale.resolve(catalogRail('trending', 5)); });
+      expect(wrapperOf('trending').querySelectorAll('a.bs-card')).toHaveLength(0);
+      expect(trying()).toBeInTheDocument();
+      await act(async () => { fresh.resolve(catalogRail('trending', 3)); });
+      expect(wrapperOf('trending').querySelectorAll('a.bs-card')).toHaveLength(3);
+    });
+
+    it('also holds for a lazy rail that the retry reset while its request was out', async () => {
+      renderHome();
+      await observer().see('top-rated');
+      const stale = railAnswers.get('top-rated')!;
+      await advance(PATIENCE);
+      await press(tryAgain());
+      // The retry put top-rated back to watching. A late answer from before it must not
+      // stand in for the request it replaced.
+      await act(async () => { stale.resolve(catalogRail('top-rated', 4)); });
+      expect(wrapperOf('top-rated').querySelectorAll('a.bs-card')).toHaveLength(0);
+      expect(wrapperOf('top-rated').querySelector('.bs-skel')).not.toBeNull();
+      await observer().see('top-rated');
+      await answer('top-rated', 2);
+      expect(wrapperOf('top-rated').querySelectorAll('a.bs-card')).toHaveLength(2);
+    });
   });
 });
 

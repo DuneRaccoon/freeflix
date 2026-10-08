@@ -131,6 +131,27 @@ const SPEC_BY_KEY = new Map(TV_RAILS.map((spec) => [spec.key, spec]));
 
 type Settled = Readonly<Record<string, RailModel>>;
 
+/**
+ * The panel's retry, as ONE value so the button, its label and the guard on a press cannot
+ * disagree (an earlier version kept three booleans and the guard read the wrong one).
+ *
+ *   idle     nothing is offered.
+ *   offered  Try again is on the panel.
+ *   inflight Try again was pressed and the first rail has not answered.
+ *
+ * idle -> offered     the panel has been up for LOAD_PATIENCE_MS, or every catalog rail has
+ *                     answered with no cards (this one is derived at render, so the button
+ *                     arrives in the same commit as the message).
+ * offered -> inflight a press, which issues the requests.
+ * inflight -> idle    the CURRENT request for the first rail lands with cards.
+ * inflight -> offered the current request lands empty, or another LOAD_PATIENCE_MS passes, so
+ *                     a retry that hangs can be retried instead of dead-ending. Landing empty
+ *                     goes to offered rather than idle because idle would unmount the button
+ *                     the viewer is standing on, and a focused control that unmounts drops DOM
+ *                     focus to <body> with the grid's target unchanged.
+ */
+type Retry = 'idle' | 'offered' | 'inflight';
+
 /** `settled` without the given keys, or the same object when none of them is in it. */
 function without(settled: Settled, keys: readonly string[]): Settled {
   if (!keys.some((k) => k in settled)) return settled;
@@ -151,22 +172,21 @@ function savedCatalogSpec(): TvRailSpec | null {
  */
 function StatusPanel({
   nothingToShow,
-  showRetry,
-  retrying,
+  retry,
   autoFocusRetry,
   onRetry,
   focusPropsFor,
 }: {
   /** Every rail has answered and none had a card. */
   nothingToShow: boolean;
-  showRetry: boolean;
-  /** A retry is in flight; the label says so rather than inviting another press. */
-  retrying: boolean;
+  /** Whether the button is on the panel at all, and what it says. One value, so they agree. */
+  retry: Retry;
   /** Take DOM focus on mount. Only true when focus is already on this row. */
   autoFocusRetry: boolean;
   onRetry: () => void;
   focusPropsFor: (row: number, col: number) => FocusProps;
 }) {
+  const showRetry = retry !== 'idle';
   return (
     <div className="bs-hero">
       <div className="bs-hero__body">
@@ -196,7 +216,7 @@ function StatusPanel({
               {...focusPropsFor(RECOVERY_ROW, 0)}
               onClick={onRetry}
             >
-              {retrying ? 'Trying again…' : 'Try again'}
+              {retry === 'inflight' ? 'Trying again…' : 'Try again'}
             </button>
           )}
           <Link
@@ -223,13 +243,27 @@ export default function HomePage() {
   const [settled, setSettled] = useState<Settled>({});
   // The catalog row behind the first rail's first card: what the hero draws.
   const [lead, setLead] = useState<CatalogItem | null>(null);
-  // How many times the viewer has pressed Try again; only its being non-zero is read.
-  const [attempts, setAttempts] = useState(0);
+  // The retry as stored. `retryState` below is what the screen reads: it adds the one
+  // transition that is derived rather than stored.
+  const [storedRetry, setRetry] = useState<Retry>('idle');
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const observer = useRef<IntersectionObserver | null>(null);
   /** Rails whose fetch has been issued. A rail is fetched once. */
   const started = useRef(new Set<string>());
+  /**
+   * Which request for each rail is current. A request captures the number it was issued
+   * under and lands only if it is still the latest, so an answer from a request that has
+   * since been superseded is dropped. `fetchRail` turns ANY failure into an empty rail, so
+   * without this an old request that finally errors (a half-open socket after the set comes
+   * out of standby) lands "empty" on top of a retry that succeeded and takes the rail with it.
+   */
+  const generation = useRef(new Map<string, number>());
+  const supersede = useCallback((key: string): number => {
+    const next = (generation.current.get(key) ?? 0) + 1;
+    generation.current.set(key, next);
+    return next;
+  }, []);
   // Set in the effect rather than at declaration, so StrictMode's second mount revives it.
   const alive = useRef(true);
 
@@ -239,14 +273,19 @@ export default function HomePage() {
     const wrapper = scrollerRef.current?.querySelector(`[data-rail="${spec.key}"]`);
     if (wrapper) observer.current?.unobserve(wrapper);
 
+    const mine = supersede(spec.key);
     const land = (rail: CatalogRail) => {
-      if (!alive.current) return;
+      if (!alive.current || generation.current.get(spec.key) !== mine) return;
       // Replaced wholesale. `lead` rides along inside the rail and is read out separately.
       setSettled((prev) => ({ ...prev, [spec.key]: rail }));
-      if (spec.key === LEAD.key) setLead(rail.lead);
+      if (spec.key === LEAD.key) {
+        setLead(rail.lead);
+        // The current request for the first rail has answered, which ends a retry in flight.
+        setRetry((prev) => (railCellCount(rail) > 0 ? 'idle' : prev === 'inflight' ? 'offered' : prev));
+      }
     };
     fetchRail(spec).then(land, () => land(failed(spec)));
-  }, []);
+  }, [supersede]);
 
   /** Fetch these rails when they near the viewport, or now when nothing can watch for that. */
   const watch = useCallback(
@@ -337,12 +376,13 @@ export default function HomePage() {
 
   const rails = useMemo(() => LINEUP.map((slot) => settled[slot.id] ?? slot.placeholder), [settled]);
 
-  // A skeleton is shorter than the rail that replaces it (its label and subtitle are not
-  // reserved), so a rail that fills in ABOVE the focused card pushes the card down, and
-  // nothing scrolls it back: the focus hook scrolls when focus moves, not when layout does.
-  // It shows after a restore, which jumps far down the page and then loads the rails around
-  // the target. Only an element that has actually left the scrollport is scrolled, so the
-  // common case (a rail landing below the viewer) does nothing at all.
+  // A rail that fills in ABOVE the focused card pushes the card down, and nothing scrolls it
+  // back: the focus hook scrolls when focus moves, not when layout does. Continue Watching
+  // and My List are the sure case, since they land from nothing (~650px for the first) and
+  // sit above every catalog rail but trending; a restore, which jumps far down the page and
+  // then loads the rails around its target, is the other. Only an element that has actually
+  // left the scrollport is scrolled, so the common case (a rail landing below the viewer)
+  // does nothing at all.
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     const el = document.activeElement;
@@ -362,22 +402,23 @@ export default function HomePage() {
   // Every catalog rail has answered and none had a card. Profile rails are not waited for:
   // a hung watchlist must not keep "try again" off a screen that has nothing else.
   const nothingToShow = noCards && catalogSettled;
-  const [impatient, setImpatient] = useState(false);
-  // ...or the first rail has simply taken too long. `catalogSettled` can never become true
-  // while a request hangs, so waiting for it would leave the panel reading "Loading…" with
-  // no way to act. The retry is offered on patience as well as on proof.
-  const showRetry = nothingToShow || attempts > 0 || impatient;
-  useEffect(() => {
-    if (!leadPending) {
-      setImpatient(false);
-      return;
-    }
-    const timer = setTimeout(() => setImpatient(true), LOAD_PATIENCE_MS);
-    return () => clearTimeout(timer);
-  }, [leadPending, attempts]);
   // The panel holds the hero's place until there is a hero, or a reason there will not be.
   const showPanel = leadPending || noCards;
-  const recoveryCount = showPanel ? (showRetry ? 2 : 1) : 0;
+  // idle -> offered on proof is derived here rather than stored, so the button arrives in the
+  // same commit as the "Nothing to show" message instead of one render behind it.
+  const retryState: Retry = storedRetry === 'idle' && nothingToShow ? 'offered' : storedRetry;
+  const recoveryCount = showPanel ? (retryState !== 'idle' ? 2 : 1) : 0;
+
+  // Patience. `catalogSettled` can never become true while a request hangs (`apiClient` sets
+  // no timeout), so waiting for proof would leave a panel reading "Loading…" with nothing to
+  // act on but the link. Offer the retry once the panel has been up this long, and again
+  // after a press that has gone unanswered this long. One-shot, and cleared whenever the
+  // panel goes away or a retry is on offer.
+  useEffect(() => {
+    if (!showPanel || retryState === 'offered') return;
+    const timer = setTimeout(() => setRetry('offered'), LOAD_PATIENCE_MS);
+    return () => clearTimeout(timer);
+  }, [showPanel, retryState]);
 
   const grid = useFocusGrid({
     rowCounts: [recoveryCount, heroItem ? 1 : 0, ...rails.map(railCellCount)],
@@ -385,20 +426,20 @@ export default function HomePage() {
   });
 
   const retry = () => {
-    // Ignore a second press while a retry is already in flight. NOT `!nothingToShow`:
-    // `nothingToShow` requires every catalog rail to have ANSWERED, which can never happen
-    // while one hangs — i.e. exactly the state the patience button exists for, where that
-    // guard swallowed every press. The hung request is not aborted, so a retry can leave
-    // two in flight for the same rail; both call `land` and the last writer wins, which is
-    // harmless because they carry the same payload.
-    if (attempts > 0 && leadPending) return;
+    // Only an offered retry is pressable: not one in flight, and not an idle panel.
+    if (retryState !== 'offered') return;
     // Only rails with no cards are reset, and here that is all of them. A rail that has
     // items is never put back to loading: that would blank it and drop its focus.
     const empties = TV_RAILS.filter((spec) => railCellCount(settled[spec.key] ?? skeleton(spec)) === 0);
-    for (const spec of empties) started.current.delete(spec.key);
+    for (const spec of empties) {
+      // Requests already out for a reset rail are superseded NOW, not when its new request is
+      // issued: a lazy rail is only re-watched here, and its old answer must not land in the gap.
+      supersede(spec.key);
+      started.current.delete(spec.key);
+    }
     setSettled((prev) => without(prev, empties.map((spec) => spec.key)));
     setLead(null);
-    setAttempts((n) => n + 1);
+    setRetry('inflight');
     if (empties.includes(LEAD)) begin(LEAD);
     watch(empties.filter((spec) => spec !== LEAD));
   };
@@ -412,8 +453,7 @@ export default function HomePage() {
     top = (
       <StatusPanel
         nothingToShow={nothingToShow}
-        showRetry={showRetry}
-        retrying={attempts > 0 && leadPending}
+        retry={retryState}
         // Only claim focus if the viewer is already on this row. On the patience path other
         // rails have usually landed and the viewer may be in one of them; stealing focus
         // there would jump the page to the top, cancel a pending restore, and overwrite the

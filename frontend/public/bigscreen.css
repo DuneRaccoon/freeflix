@@ -247,7 +247,10 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    token as rgba) so the text stays legible with no per-frame effect. */
 .bs-hero {
   position: relative;
-  height: 620px;
+  /* 560px, not a full-bleed 620px: the first rail's title and the top of its cards then
+     sit above the fold on a 1080px canvas, which is what tells a viewer there is more
+     below. A hero that fills the screen reads as the whole screen. */
+  height: 560px;
   padding: var(--safe-y) var(--safe-x);
   display: flex;
   flex-direction: column;
@@ -375,7 +378,9 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-card__label {
   margin: 12px 0 0;
-  font-size: 22px;
+  /* 24px, the body floor: this is the title of the thing the viewer is choosing, read
+     from ten feet away. The metadata below it may be smaller; this may not. */
+  font-size: 24px;
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;

@@ -162,6 +162,48 @@ describe('toRail', () => {
   });
 });
 
+describe('lead: the catalog row behind the first card', () => {
+  // The home hero needs a title's backdrop and overview, which a CardItem does not carry.
+  // Without `lead` the screen would have to fetch the title again, and a title-detail call
+  // is a torrent search.
+  it('is the row items[0] was built from', () => {
+    const rail = toRail(SPEC, movies(2), shows(2));
+    expect(rail.lead).toMatchObject({ tmdb_id: 1, media_type: 'movie' });
+    expect(catalogItemToCard(rail.lead!, 'poster')).toEqual(rail.items[0]);
+  });
+
+  it('carries the fields a card drops', () => {
+    const first = item({ tmdb_id: 7, media_type: 'movie', overview: 'A heist.', backdrop_url: 'https://img.test/b.jpg' });
+    const rail = toRail(SPEC, [first], []);
+    expect(rail.lead?.overview).toBe('A heist.');
+    expect(rail.lead?.backdrop_url).toBe('https://img.test/b.jpg');
+  });
+
+  it('is the first show when there are no movies', () => {
+    expect(toRail(SPEC, [], shows(2)).lead).toMatchObject({ tmdb_id: 1, media_type: 'tv' });
+  });
+
+  it('skips an unusable first row, exactly as the cards do', () => {
+    const broken = [null, ...movies(2)] as unknown as CatalogItem[];
+    const rail = toRail(SPEC, broken, []);
+    expect(rail.lead).toMatchObject({ tmdb_id: 1, media_type: 'movie' });
+    expect(rail.items[0].id).toBe('movie:1');
+  });
+
+  it('is null for an empty rail', () => {
+    expect(toRail(SPEC, [], []).lead).toBeNull();
+  });
+
+  it('arrives with fetchRail, and is null when both halves fail', async () => {
+    browseMovies.mockResolvedValue(page(movies(1)));
+    browseShows.mockResolvedValue(page(shows(1)));
+    expect((await fetchRail(SPEC)).lead).toMatchObject({ tmdb_id: 1, media_type: 'movie' });
+    browseMovies.mockRejectedValue(new Error('502'));
+    browseShows.mockRejectedValue(new Error('502'));
+    expect((await fetchRail(SPEC)).lead).toBeNull();
+  });
+});
+
 describe('catalogItemToCard', () => {
   const movie = item({ tmdb_id: 603, media_type: 'movie', title: 'The Matrix', year: 1999 });
   const show = item({ tmdb_id: 1399, media_type: 'tv', title: 'Game of Thrones', year: 2011 });

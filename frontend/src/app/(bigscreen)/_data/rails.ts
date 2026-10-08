@@ -91,6 +91,20 @@ export const TV_RAILS: readonly TvRailSpec[] = [
 ];
 
 /**
+ * A catalog rail as the screen receives it: the `RailModel` it draws, plus the catalog row
+ * behind its first card.
+ *
+ * `RailModel` is a view model and carries only what a card draws. The home hero needs more
+ * of the same title (its backdrop and its overview), which a `CardItem` does not hold. `lead`
+ * hands that source row through, so the screen does not have to look the title up again: a
+ * title-detail call is a TMDB request and then a torrent search (see continueWatching.ts).
+ */
+export interface CatalogRail extends RailModel {
+  /** The row `items[0]` was built from; null for an empty rail. */
+  lead: CatalogItem | null;
+}
+
+/**
  * A longer rail is just more D-pad presses to cross. Shared with My List, which would
  * otherwise be 150 anchors for a 150-title watchlist.
  */
@@ -131,7 +145,7 @@ function isUsable(item: CatalogItem | null | undefined): item is CatalogItem {
  * over a loading placeholder with `{ ...placeholder, ...result }` would otherwise keep
  * `loading: true`, and `railCellCount` would report 0 focusable cells for a full rail.
  */
-export function toRail(spec: TvRailSpec, movies: CatalogItem[], shows: CatalogItem[]): RailModel {
+export function toRail(spec: TvRailSpec, movies: CatalogItem[], shows: CatalogItem[]): CatalogRail {
   // Unusable rows go BEFORE the interleave, so a bad row does not shift the alternation.
   const [m, t] = [movies.filter(isUsable), shows.filter(isUsable)];
   const mixed: CatalogItem[] = [];
@@ -140,13 +154,15 @@ export function toRail(spec: TvRailSpec, movies: CatalogItem[], shows: CatalogIt
     if (i < m.length) mixed.push(m[i]);
     if (i < t.length) mixed.push(t[i]);
   }
+  const shown = mixed.slice(0, RAIL_CAP);
   return {
     key: spec.key,
     title: spec.title,
     eyebrow: spec.eyebrow,
     shape: spec.shape,
-    items: mixed.slice(0, RAIL_CAP).map((item) => catalogItemToCard(item, spec.shape)),
+    items: shown.map((item) => catalogItemToCard(item, spec.shape)),
     loading: false,
+    lead: shown[0] ?? null,
   };
 }
 
@@ -170,7 +186,7 @@ async function half(call: (() => Promise<CatalogPage>) | null): Promise<CatalogI
  * after them throws, the rail comes back empty, and `Rail` removes an empty rail rather
  * than drawing a hole.
  */
-export async function fetchRail(spec: TvRailSpec): Promise<RailModel> {
+export async function fetchRail(spec: TvRailSpec): Promise<CatalogRail> {
   try {
     const { movieParams, tvParams } = spec;
     const [movies, shows] = await Promise.all([

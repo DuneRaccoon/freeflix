@@ -339,7 +339,12 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   align-items: flex-start;
   gap: 24px;
   overflow-x: auto;
-  padding: 24px var(--safe-x);
+  /* 32px, not 24px. A focused card grows by 3% of its height plus an 8.5px ring, which
+     at a full poster (two-line title, subtitle, progress bar) left only ~1px of
+     clearance inside a 24px pad — and a badge adds another 1px of row height. Anything
+     that ever adds a pixel to a card would clip the ring top and bottom, with nothing
+     to catch it. 8px of slack is cheaper than that tripwire. */
+  padding: 32px var(--safe-x);
   scroll-behavior: smooth;
   scrollbar-width: none;
 }

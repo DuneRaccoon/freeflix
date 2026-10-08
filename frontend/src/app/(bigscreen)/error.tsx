@@ -47,24 +47,34 @@ export default function BigScreenError({
     <div className="bs-error">
       <h1>This screen could not be drawn</h1>
       <p>
-        Freeflix hit an error while rendering. Press OK on Try again. If it keeps
-        failing, choose Reload the page, or press Back to return to Home.
+        Freeflix hit an error while drawing this screen. Press OK to reload, which fetches
+        everything again. Try again only re-draws, which helps if the fault was passing.
+        Back returns to Home.
       </p>
       <pre>
         {error.message ? error.message : 'No message was provided.'}
         {error.digest ? '\ndigest: ' + error.digest : ''}
       </pre>
       <div className="bs-controls">
-        <button className="bs-btn" type="button" {...grid.focusProps(0, 0)} onClick={() => reset()}>
-          Try again
+        {/* Reload is FIRST, and therefore the one focus lands on. `reset()` only re-renders
+            the same tree, so a deterministic render fault throws again and the first control
+            a viewer presses would be a no-op loop. Reload re-fetches everything and is the
+            one that actually recovers; Try again stays for a fault that was passing. */}
+        <button
+          className="bs-btn"
+          type="button"
+          {...grid.focusProps(0, 0)}
+          onClick={() => window.location.reload()}
+        >
+          Reload the page
         </button>
         <button
           className="bs-btn bs-btn--ghost"
           type="button"
           {...grid.focusProps(0, 1)}
-          onClick={() => window.location.reload()}
+          onClick={() => reset()}
         >
-          Reload the page
+          Try again
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { usersService, type User } from '@/services/users';
 import { getInitials, resolveAvatarSrc } from '@/lib/avatars/resolve';
@@ -250,6 +251,28 @@ function Keypad({
 
 type Opening = 'idle' | 'opening' | 'failed';
 
+/**
+ * The list is still loading. The 10s fall-through to the failed screen bounds how long this
+ * lasts, but for those 10s a screen with no ring reads as a frozen television — and this was
+ * the one state on the surface without a control. Home is always a valid destination.
+ *
+ * Its own `useFocusGrid`, the same way ProfileGrid and Keypad have theirs: exactly one of
+ * the three is mounted at a time, which is what the hook's ownership rule requires.
+ */
+function LoadingWithWayOut() {
+  const grid = useFocusGrid({ rowCounts: [1] });
+  return (
+    <>
+      <p className="bs-note">Loading profiles…</p>
+      <div className="bs-controls bs-inset">
+        <Link href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...grid.focusProps(0, 0)}>
+          Back to Home
+        </Link>
+      </div>
+    </>
+  );
+}
+
 export default function ProfilesPage() {
   const router = useRouter();
   // restore: false, because this screen fetches the profile list itself.
@@ -423,7 +446,7 @@ export default function ProfilesPage() {
       </>
     );
   } else if (users === null) {
-    body = <p className="bs-note">Loading profiles…</p>;
+    body = <LoadingWithWayOut />;
   } else if (users.length === 0) {
     body = (
       <>

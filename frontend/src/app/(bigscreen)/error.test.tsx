@@ -26,19 +26,21 @@ describe('(bigscreen)/error.tsx', () => {
   const retry = () => screen.getByRole('button', { name: /try again/i });
   const reload = () => screen.getByRole('button', { name: /reload/i });
 
-  it('focuses Try again on mount', async () => {
+  it('focuses Reload the page on mount, not Try again', async () => {
+    // `reset()` only re-renders the same tree, so a deterministic render fault throws
+    // again: the first control a viewer presses must be the one that actually recovers.
     renderIt();
     await settle();
-    expect(document.activeElement).toBe(retry());
+    expect(document.activeElement).toBe(reload());
   });
 
-  it('reaches Reload the page with Right, and comes back with Left', async () => {
+  it('reaches Try again with Right, and comes back with Left', async () => {
     renderIt();
     await settle();
     await arrow('ArrowRight');
-    expect(document.activeElement).toBe(reload());
-    await arrow('ArrowLeft');
     expect(document.activeElement).toBe(retry());
+    await arrow('ArrowLeft');
+    expect(document.activeElement).toBe(reload());
   });
 
   it('wires both buttons to their actions', async () => {

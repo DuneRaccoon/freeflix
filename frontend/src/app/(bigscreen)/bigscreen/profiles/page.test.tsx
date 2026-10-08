@@ -973,3 +973,17 @@ describe('bigscreen.css, as this screen relies on it', () => {
     expect(body).not.toMatch(/margin/);
   });
 });
+
+describe('/bigscreen/profiles: every state keeps a focus target', () => {
+  it('offers a way home while the list is still loading', async () => {
+    // The 10s fall-through bounds how long this lasts, but a screen with no ring reads as
+    // a frozen television, and this was the one state on the surface without a control.
+    getUsers.mockReturnValue(new Promise(() => {}));
+    render(<ProfilesPage />);
+    await act(async () => {});
+    expect(screen.getByText('Loading profiles…')).toBeInTheDocument();
+    const home = screen.getByRole('link', { name: /back to home/i });
+    expect(home).toHaveAttribute('href', '/bigscreen');
+    expect(document.activeElement).toBe(home);
+  });
+});

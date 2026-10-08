@@ -403,6 +403,9 @@ export default function ProfilesPage() {
     // ABOVE the rows, and always mounted. Below them it is off the bottom of the scroller
     // once there are a few rows (focus in row 1 hides it), and mounting it only when it has
     // text would shove the whole grid down under the viewer's focus ring.
+    // Above is better, not bulletproof: measured, it stays visible for up to 12 profiles
+    // (two rows), and scrolls off the top only once focus reaches a third row. An account
+    // with 13+ profiles would need this pinned to the scroller instead.
     const failed = opening === 'failed';
     body = (
       <>

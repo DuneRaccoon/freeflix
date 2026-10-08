@@ -490,9 +490,15 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    carries it: a focused tile scales and draws its ring outside itself, and a row sitting
    flush against the scroller's edge has the ring clipped. Measured in a 1920x1080
    Chromium render of this stylesheet. */
+/* nowrap, never wrap: the page chunks profiles into rows of six and gives each row its own
+   container, and the focus model's rows ARE those containers. A container that re-flowed on
+   a narrow viewport would draw one row on two lines, so Right would land on a tile on the
+   next line and Down would skip a visual line. Six tiles are 6*240 + 5*48 = 1680px, plus
+   the two insets = 1872px: they fit the 1920px design space, and on anything narrower the
+   row scrolls sideways rather than lying about where its tiles are. */
 .bs-profiles {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 48px;
   padding: 24px var(--safe-x);
 }
@@ -529,13 +535,19 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-profile__face img { width: 100%; height: 100%; object-fit: cover; }
 /* display:block because this is a <span>: without it the margin is ignored. */
 .bs-profile__name { display: block; margin: 16px 0 0; font-size: 28px; text-align: center; }
-/* A status or error line under a group. min-height holds one line so the layout does not
-   jump when a message appears, which on a remote reads as the screen moving under you. */
+/* A status or error line for a screen. Mount it ABOVE the group it speaks for and keep it
+   mounted: min-height holds one line so the layout does not jump when a message appears,
+   which on a remote reads as the screen moving under you, and above is the one place a
+   scrolling grid cannot push it off the bottom of the viewport. */
 .bs-msg {
   padding: 0 var(--safe-x);
   margin: 8px 0 0;
   min-height: 1.45em;
 }
+/* The safe inset and nothing else, for a group that has its own margins: .bs-controls, which
+   .bs-msg would fight (both are one-class rules and .bs-msg comes later, so it would win the
+   margin and put a button 8px under the line above it). */
+.bs-inset { padding: 0 var(--safe-x); }
 /* Inset like .bs-profiles: §8.5 puts no interactive element outside the safe area, and
    nothing guards that, so each group that can be mounted full-bleed carries its own. */
 .bs-keypad {

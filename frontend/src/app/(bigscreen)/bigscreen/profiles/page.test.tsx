@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { User, UserSettings } from '@/services/users';
 import ProfilesPage from './page';
@@ -105,6 +107,7 @@ describe('/bigscreen/profiles', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   describe('the profile grid', () => {
@@ -207,10 +210,141 @@ describe('/bigscreen/profiles', () => {
       expect(document.activeElement).toBe(profileButton('Person 6'));
     });
 
-    it('says so when the account has no profiles, rather than showing an empty screen', async () => {
+    // The boundaries of the chunking: an exact multiple of six must not leave an empty
+    // trailing row, and the rows must be what the focus model counts.
+    it.each([
+      [1, [1]],
+      [5, [5]],
+      [6, [6]],
+      [7, [6, 1]],
+      [12, [6, 6]],
+      [13, [6, 6, 1]],
+    ])('lays %i profiles out as rows of %j, with no empty row', async (count, expected) => {
+      getUsers.mockResolvedValue(Array.from({ length: count }, (_, i) => profile(`p${i}`, `Person ${i}`)));
+      const { container } = render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Person 0' });
+      await settle();
+      const rows = [...container.querySelectorAll('.bs-profiles')];
+      expect(rows.map((r) => r.querySelectorAll('.bs-profile').length)).toEqual(expected);
+      expect(container.querySelectorAll('.bs-profile')).toHaveLength(count);
+    });
+
+    it('navigates an exact row of six: Right stops at the sixth, and Down has nowhere to go', async () => {
+      getUsers.mockResolvedValue(Array.from({ length: 6 }, (_, i) => profile(`p${i}`, `Person ${i}`)));
+      render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Person 0' });
+      await settle();
+      for (let i = 0; i < 8; i++) arrow('ArrowRight');
+      expect(document.activeElement).toBe(profileButton('Person 5'));
+      arrow('ArrowDown');
+      expect(document.activeElement).toBe(profileButton('Person 5'));
+    });
+
+    it('navigates two exact rows of six: Down lands under, Right never crosses to the next row', async () => {
+      getUsers.mockResolvedValue(Array.from({ length: 12 }, (_, i) => profile(`p${i}`, `Person ${i}`)));
+      render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Person 0' });
+      await settle();
+      for (let i = 0; i < 3; i++) arrow('ArrowRight');
+      arrow('ArrowDown');
+      expect(document.activeElement).toBe(profileButton('Person 9')); // row 1, column 3
+      for (let i = 0; i < 8; i++) arrow('ArrowRight');
+      expect(document.activeElement).toBe(profileButton('Person 11')); // end of the LAST row: no wrap
+      arrow('ArrowDown');
+      expect(document.activeElement).toBe(profileButton('Person 11'));
+      arrow('ArrowUp');
+      // The focus model returns to the column row 0 last held, not the one Down left from.
+      expect(document.activeElement).toBe(profileButton('Person 3'));
+    });
+
+    it('says so when the account has no profiles, with something to press', async () => {
       getUsers.mockResolvedValue([]);
       render(<ProfilesPage />);
       expect(await screen.findByText(/no profiles/i)).toBeInTheDocument();
+      // Nothing focusable would leave a remote with no way to act at all.
+      const check = screen.getByRole('button', { name: /check again/i });
+      expect(document.activeElement).toBe(check);
+      expect(check.closest('.bs-controls')).toHaveClass('bs-inset');
+    });
+
+    it('checks again when asked, and shows a profile created in the meantime', async () => {
+      getUsers.mockResolvedValueOnce([]).mockResolvedValueOnce([ben()]);
+      render(<ProfilesPage />);
+      fireEvent.click(await screen.findByRole('button', { name: /check again/i }));
+      expect(await screen.findByRole('button', { name: 'Ben' })).toBeInTheDocument();
+      expect(getUsers).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not fetch the profile list twice when a profile is remembered', async () => {
+      // The hook's restore would fetch the very list this screen is fetching.
+      localStorage.setItem('bs-profile', 'p1');
+      getUsers.mockResolvedValue([ben()]);
+      render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Ben' });
+      await settle();
+      expect(getUsers).toHaveBeenCalledTimes(1);
+    });
+
+    describe('a slow server', () => {
+      it('gives way to the failed screen after ten seconds, so there is something to press', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        getUsers.mockReturnValue(deferred<User[]>().promise);
+        render(<ProfilesPage />);
+        expect(screen.getByText(/loading profiles/i)).toBeInTheDocument();
+        expect(screen.queryByRole('button')).toBeNull();
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+        expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+        await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+
+        const retry = screen.getByRole('button', { name: /try again/i });
+        expect(screen.getByRole('alert')).toHaveTextContent(/could not load/i);
+        expect(document.activeElement).toBe(retry);
+      });
+
+      it('shows the profiles after all if the answer turns up after the failed screen did', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const slow = deferred<User[]>();
+        getUsers.mockReturnValue(slow.promise);
+        render(<ProfilesPage />);
+        await act(async () => { await vi.advanceTimersByTimeAsync(10_500); });
+        await screen.findByRole('button', { name: /try again/i });
+
+        await act(async () => { slow.resolve([ben()]); });
+        expect(profileButton('Ben')).toBeInTheDocument();
+        expect(screen.queryByRole('alert')).toBeNull();
+      });
+
+      it('retrying abandons the stuck request, whatever it later says', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const stuck = deferred<User[]>();
+        const second = deferred<User[]>();
+        getUsers.mockReturnValueOnce(stuck.promise).mockReturnValueOnce(second.promise);
+        render(<ProfilesPage />);
+        await act(async () => { await vi.advanceTimersByTimeAsync(10_500); });
+        fireEvent.click(await screen.findByRole('button', { name: /try again/i }));
+        expect(getUsers).toHaveBeenCalledTimes(2);
+
+        await act(async () => { stuck.resolve([ben()]); });
+        expect(screen.queryByRole('button', { name: 'Ben' })).toBeNull();
+        await act(async () => { second.resolve([mum()]); });
+        expect(profileButton('Mum')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Ben' })).toBeNull();
+      });
+
+      it('does not give up on a request that is merely taking a while', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const slow = deferred<User[]>();
+        getUsers.mockReturnValue(slow.promise);
+        render(<ProfilesPage />);
+        await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+        await act(async () => { slow.resolve([ben()]); });
+        expect(profileButton('Ben')).toBeInTheDocument();
+        // The timer was cancelled by the answer: it must not raise the failed screen later.
+        await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(profileButton('Ben')).toBeInTheDocument();
+      });
     });
 
     it('offers a retry when the profiles cannot be loaded, and recovers', async () => {
@@ -219,6 +353,9 @@ describe('/bigscreen/profiles', () => {
       const retry = await screen.findByRole('button', { name: /try again/i });
       expect(screen.getByRole('alert')).toHaveTextContent(/could not load/i);
       expect(document.activeElement).toBe(retry);
+      // .bs-msg would fight .bs-controls for the margin and put the button 8px under the line.
+      expect(retry.closest('.bs-controls')).toHaveClass('bs-inset');
+      expect(retry.closest('.bs-controls')).not.toHaveClass('bs-msg');
       fireEvent.click(retry);
       expect(await screen.findByRole('button', { name: 'Ben' })).toBeInTheDocument();
       expect(screen.queryByRole('alert')).toBeNull();
@@ -266,6 +403,40 @@ describe('/bigscreen/profiles', () => {
     it('falls back to four dots when the length is not known', async () => {
       const { container } = await openKeypad(null);
       expect(dots(container)).toHaveLength(4);
+    });
+
+    // Below the rows, three rows of tiles are taller than the scroller, so a viewer with focus
+    // in the first row never sees it; and mounting it only when it has text would shove the
+    // whole grid down under their focus ring.
+    it('keeps one status line above every row, mounted and empty until it has something to say', async () => {
+      const pending = deferred<UserSettings>();
+      getUsers.mockResolvedValue(Array.from({ length: 13 }, (_, i) => profile(`p${i}`, `Person ${i}`)));
+      getUserSettings.mockReturnValue(pending.promise);
+      const { container } = render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Person 0' });
+      await settle();
+
+      const rows = [...container.querySelectorAll('.bs-profiles')];
+      expect(rows).toHaveLength(3);
+      const aboveAll = (el: Element) =>
+        rows.every((r) => el.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+      const line = screen.getByRole('status');
+      expect(line).toBeEmptyDOMElement();
+      expect(line).toHaveClass('bs-msg');
+      expect(aboveAll(line)).toBe(true);
+
+      const person = profileButton('Person 0');
+      await act(async () => { person.focus(); fireEvent.click(person); });
+      expect(line).toHaveTextContent('Opening…');
+
+      await act(async () => { pending.reject(httpError(500)); });
+      const alert = await screen.findByRole('alert');
+      // The same element, so nothing below it moved when it filled.
+      expect(alert).toBe(line);
+      expect(alert).toHaveTextContent(/could not open/i);
+      expect(alert).toHaveClass('bs-no', 'bs-msg');
+      expect(aboveAll(alert)).toBe(true);
     });
 
     it('stays on the grid and says so when the profile cannot be opened', async () => {
@@ -488,5 +659,138 @@ describe('/bigscreen/profiles', () => {
       await screen.findByRole('button', { name: '1' });
       expect(filledDots(first.container)).toHaveLength(0);
     });
+
+    describe('a passcode length that is not the one on screen', () => {
+      /**
+       * Open Mum's keypad where GET /users answers each call from `lists` in turn (the last
+       * one repeats): the page load first, then the re-read after a wrong code.
+       */
+      async function openKeypadFromLists(lists: Array<User[] | Error>) {
+        getUsers.mockReset();
+        for (const l of lists) {
+          if (l instanceof Error) getUsers.mockRejectedValueOnce(l);
+          else getUsers.mockResolvedValueOnce(l);
+        }
+        const last = lists[lists.length - 1];
+        getUsers.mockImplementation(() => (last instanceof Error ? Promise.reject(last) : Promise.resolve(last)));
+        getUserSettings.mockRejectedValue(httpError(423));
+        unlockProfile.mockRejectedValue(httpError(403));
+        const view = render(<ProfilesPage />);
+        const button = await screen.findByRole('button', { name: 'Mum' });
+        await act(async () => { button.focus(); fireEvent.click(button); });
+        await screen.findByRole('button', { name: '1' });
+        await settle();
+        return view;
+      }
+
+      it('adopts the length from the list after a wrong code, so the real code can be typed', async () => {
+        // Lengthened on the web while the TV sat on the picker: the page loaded 4, the code is 6.
+        const { container } = await openKeypadFromLists([[ben(), mum(4)], [ben(), mum(6)]]);
+        expect(dots(container)).toHaveLength(4);
+
+        await pressKeys('1', '2', '3', '4');
+        await waitFor(() => expect(dots(container)).toHaveLength(6));
+        expect(screen.getByRole('alert')).toHaveTextContent('That code was not right');
+        expect(unlockProfile).toHaveBeenCalledTimes(1);
+
+        // Five digits do not submit now; the sixth does, with all six.
+        await pressKeys('1', '2', '3', '4', '5');
+        expect(unlockProfile).toHaveBeenCalledTimes(1);
+        await pressKeys('6');
+        await waitFor(() => expect(unlockProfile).toHaveBeenCalledTimes(2));
+        expect(unlockProfile).toHaveBeenLastCalledWith('p2', '123456');
+      });
+
+      it('replaces the four-dot fallback when the first list did not carry a length', async () => {
+        const { container } = await openKeypadFromLists([[ben(), mum(null)], [ben(), mum(8)]]);
+        expect(dots(container)).toHaveLength(4);
+        await pressKeys('1', '2', '3', '4');
+        await waitFor(() => expect(dots(container)).toHaveLength(8));
+      });
+
+      it('also shrinks to a shortened code', async () => {
+        const { container } = await openKeypadFromLists([[ben(), mum(6)], [ben(), mum(4)]]);
+        await pressKeys('1', '2', '3', '4', '5', '6');
+        await waitFor(() => expect(dots(container)).toHaveLength(4));
+      });
+
+      it('keeps the refreshed list, so Back then OK does not bring the old length back', async () => {
+        const { container } = await openKeypadFromLists([[ben(), mum(4)], [ben(), mum(6)]]);
+        await pressKeys('1', '2', '3', '4');
+        await waitFor(() => expect(dots(container)).toHaveLength(6));
+
+        await pressKeys('Back to profiles');
+        const button = profileButton('Mum');
+        await act(async () => { button.focus(); fireEvent.click(button); });
+        await screen.findByRole('button', { name: '1' });
+        expect(dots(container)).toHaveLength(6);
+      });
+
+      it('leaves the length alone when the re-read fails, and still reports a wrong code', async () => {
+        const { container } = await openKeypadFromLists([[ben(), mum(4)], new Error('offline')]);
+        await pressKeys('1', '2', '3', '4');
+        expect(await screen.findByRole('alert')).toHaveTextContent('That code was not right');
+        await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+        await settle();
+        expect(dots(container)).toHaveLength(4);
+        expect(key('1')).toBeInTheDocument();
+      });
+
+      it('leaves the length alone when the list agrees with the screen', async () => {
+        const { container } = await openKeypadFromLists([[ben(), mum(4)], [ben(), mum(4)]]);
+        await pressKeys('1', '2', '3', '4');
+        await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+        await settle();
+        expect(dots(container)).toHaveLength(4);
+      });
+
+      it('does not re-read the list for a throttled attempt, which says nothing about the length', async () => {
+        const { container } = await openKeypadFromLists([[ben(), mum(4)], [ben(), mum(6)]]);
+        unlockProfile.mockRejectedValue(httpError(429));
+        await pressKeys('1', '2', '3', '4');
+        await screen.findByRole('alert');
+        await settle();
+        expect(getUsers).toHaveBeenCalledTimes(1);
+        expect(dots(container)).toHaveLength(4);
+      });
+
+      it('does not pull the viewer back onto the keypad if they pressed Back before the re-read landed', async () => {
+        const reread = deferred<User[]>();
+        const { container } = await openKeypadFromLists([[ben(), mum(4)], [ben(), mum(6)]]);
+        getUsers.mockReset();
+        getUsers.mockReturnValue(reread.promise);
+        await pressKeys('1', '2', '3', '4');
+        await screen.findByRole('alert');
+        await pressKeys('Back to profiles');
+        await act(async () => { reread.resolve([ben(), mum(6)]); });
+        expect(container.querySelector('.bs-keypad')).toBeNull();
+        expect(profileButton('Mum')).toBeInTheDocument();
+      });
+    });
+  });
+});
+
+describe('bigscreen.css, as this screen relies on it', () => {
+  const css = readFileSync(join(process.cwd(), 'public/bigscreen.css'), 'utf8');
+  const rule = (selector: string): string => {
+    const escaped = selector.replace(/[.\-]/g, '\\$&');
+    const m = css.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`));
+    expect(m, `${selector} has a rule`).not.toBeNull();
+    return m![1];
+  };
+
+  it('.bs-profiles does not wrap: its rows are the focus model\'s rows', () => {
+    // The page chunks into rows of six and gives each its own container. A container that
+    // re-flowed would draw one row on two lines on a narrow viewport, so Right would land
+    // on a tile on the next line and Down would skip a visual line.
+    const body = rule('.bs-profiles');
+    expect(body).toMatch(/flex-wrap:\s*nowrap/);
+    expect(body).not.toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it('.bs-inset is the safe inset and no margin, so it cannot fight .bs-controls', () => {
+    const body = rule('.bs-inset');
+    expect(body).toMatch(/padding:\s*0\s+var\(--safe-x\)/);
+    expect(body).not.toMatch(/margin/);
   });
 });

@@ -35,6 +35,11 @@ describe('useTvProfile', () => {
   beforeEach(() => {
     localStorage.clear();
     getUsers.mockReset();
+    // The hook keeps the last choice in a module-level variable, so it outlives a test the
+    // way it outlives a screen. Clearing is the public way to reset it.
+    const { result, unmount } = renderHook(() => useTvProfile({ restore: false }));
+    act(() => result.current.clear());
+    unmount();
   });
 
   afterEach(() => {
@@ -151,6 +156,30 @@ describe('useTvProfile', () => {
     expect(result.current.loading).toBe(false);
   });
 
+  describe('with restore: false (the picker, which only wants select)', () => {
+    it('fetches nothing even when an id is stored, and is not loading', () => {
+      localStorage.setItem(KEY, 'a');
+      getUsers.mockResolvedValue([user('a')]);
+      const seen: boolean[] = [];
+      const { result } = renderHook(() => {
+        const s = useTvProfile({ restore: false });
+        seen.push(s.loading);
+        return s;
+      });
+      expect(getUsers).not.toHaveBeenCalled();
+      // Nothing to wait for, so not "loading" on any render, the first included.
+      expect(seen.every((l) => l === false)).toBe(true);
+      expect(result.current.profile).toBeNull();
+    });
+
+    it('still persists a choice, for the screen that does restore', async () => {
+      const picker = renderHook(() => useTvProfile({ restore: false }));
+      act(() => picker.result.current.select({ id: 'x', display_name: 'Xi', avatar: null }));
+      expect(localStorage.getItem(KEY)).toBe('x');
+      expect(picker.result.current.profile?.id).toBe('x');
+    });
+  });
+
   describe('when localStorage throws', () => {
     it('on read: profile null, loading false, and the screen survives', async () => {
       vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
@@ -170,6 +199,44 @@ describe('useTvProfile', () => {
       });
       expect(() => act(() => result.current.select({ id: 'x', display_name: 'Xi', avatar: null }))).not.toThrow();
       expect(result.current.profile?.id).toBe('x');
+    });
+
+    // The picker selects, then home mounts its OWN hook instance and reads storage. A
+    // choice that only lives in the first instance's state sends the viewer straight back
+    // to the picker, forever.
+    it.each([
+      ['a write that fails', ['setItem']],
+      ['storage that can be neither read nor written', ['getItem', 'setItem']],
+    ] as const)('on %s: a second hook instance still sees the choice', async (_name, broken) => {
+      for (const method of broken) {
+        vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+          throw new DOMException('denied', 'SecurityError');
+        });
+      }
+      const picker = renderHook(() => useTvProfile({ restore: false }));
+      act(() => picker.result.current.select({ id: 'x', display_name: 'Xi', avatar: null }));
+      picker.unmount();
+
+      getUsers.mockResolvedValue([user('w'), user('x', { display_name: 'Xi' })]);
+      const home = renderHook(() => useTvProfile());
+      await waitFor(() => expect(home.result.current.loading).toBe(false));
+      expect(home.result.current.profile).toEqual({ id: 'x', display_name: 'Xi', avatar: 'house:reel' });
+    });
+
+    it('a choice that could not be written beats a stale earlier one left in storage', async () => {
+      // Read-only storage still holds last launch's choice; this launch's cannot replace it.
+      localStorage.setItem(KEY, 'old');
+      const picker = renderHook(() => useTvProfile({ restore: false }));
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('read-only', 'InvalidStateError');
+      });
+      act(() => picker.result.current.select({ id: 'new', display_name: 'New', avatar: null }));
+      picker.unmount();
+
+      getUsers.mockResolvedValue([user('old'), user('new')]);
+      const home = renderHook(() => useTvProfile());
+      await waitFor(() => expect(home.result.current.loading).toBe(false));
+      expect(home.result.current.profile?.id).toBe('new');
     });
 
     it('on remove: clear still takes effect for this session', async () => {

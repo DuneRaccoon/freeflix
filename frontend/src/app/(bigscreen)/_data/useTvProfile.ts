@@ -40,9 +40,25 @@ export interface TvProfileState {
  */
 const STORAGE_KEY = 'bs-profile';
 
+/**
+ * The choice as THIS page load last made it, for when storage cannot hold it.
+ *
+ * Not per hook instance, and that is the point. The picker calls `select()` and navigates;
+ * home mounts its OWN `useTvProfile()` and reads storage. If the write failed (a TV in a
+ * restricted mode, a full quota) that read finds nothing, home sees `profile: null` and
+ * sends the viewer straight back to "Who's watching?", forever, with no way out on a
+ * remote. A module-level value survives the client-side navigation between the two.
+ *
+ * It wins over storage when set: it is the newer of the two, and a write that failed
+ * leaves storage holding a stale earlier choice. `clear()` sets it back to null, which
+ * defers to storage again.
+ */
+let memoryId: string | null = null;
+
 // Storage can throw on access (a TV in a restricted mode, a full quota), so every touch
 // degrades to "nothing remembered" instead of taking the screen down.
 function readStoredId(): string | null {
+  if (memoryId) return memoryId;
   try {
     return localStorage.getItem(STORAGE_KEY);
   } catch {
@@ -51,11 +67,12 @@ function readStoredId(): string | null {
 }
 
 function writeStoredId(id: string | null): void {
+  memoryId = id;
   try {
     if (id) localStorage.setItem(STORAGE_KEY, id);
     else localStorage.removeItem(STORAGE_KEY);
   } catch {
-    /* the choice holds for this session; it just will not survive a restart */
+    /* held in memoryId for the rest of this page load; it just will not survive a restart */
   }
 }
 
@@ -66,16 +83,27 @@ const toTvProfile = (p: TvProfile): TvProfile => ({
   avatar: p.avatar,
 });
 
-export function useTvProfile(): TvProfileState {
+export interface TvProfileOptions {
+  /**
+   * Resolve the remembered profile on mount (default). The picker passes `false`: it only
+   * wants `select`, and the restore would fetch the same profile list the picker fetches
+   * for itself.
+   */
+  restore?: boolean;
+}
+
+export function useTvProfile({ restore = true }: TvProfileOptions = {}): TvProfileState {
   const [profile, setProfile] = useState<TvProfile | null>(null);
   // True on the first render whatever is stored: storage is unreadable on the server, so
   // "not yet known" is the one answer the server render and the client's first agree on.
-  const [loading, setLoading] = useState(true);
+  // (With nothing to restore there is nothing to wait for, and the option is constant.)
+  const [loading, setLoading] = useState(restore);
   // Set once someone has chosen. A restore that lands afterwards must neither replace
   // that choice nor erase it from storage as "no longer in the list".
   const decided = useRef(false);
 
   useEffect(() => {
+    if (!restore) return;
     const storedId = readStoredId();
     if (!storedId) {
       setLoading(false);
@@ -100,7 +128,7 @@ export function useTvProfile(): TvProfileState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [restore]);
 
   const select = useCallback((p: TvProfile) => {
     decided.current = true;

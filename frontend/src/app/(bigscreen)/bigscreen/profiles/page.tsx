@@ -25,17 +25,22 @@ import { useTvProfile } from '../../_data/useTvProfile';
 
 const HOME = '/bigscreen';
 
-/** `.bs-profiles` fits six 240px faces and their 48px gaps in the 1728px inside the safe area. */
+/** Six 240px faces and their 48px gaps are 1680px, which fit the 1728px inside the safe area. */
 const PER_ROW = 6;
 
-/** Web's fallback when the length is unknown (a code is 4 to 8 digits). */
+/**
+ * Web's fallback when the length is unknown (a code is 4 to 8 digits). A wrong guess here
+ * would auto-submit at the wrong digit and the viewer could never type the real code, so
+ * the page re-reads the list after a wrong attempt and adopts a different length.
+ */
 const FALLBACK_LENGTH = 4;
 
 /**
- * `.bs-no`, `.bs-controls` and friends carry no side inset of their own (`.bs-note`,
- * `.bs-dots`, `.bs-keypad` and `.bs-profiles` do), and the screen sits in `.bs-shell`, not
- * the already-inset `.bs-page`, so anything built from them re-applies the safe area.
+ * How long "Loading profiles…" may stand before it gives way to the failed screen. `apiClient`
+ * sets no timeout, so a hung request would otherwise leave a screen with nothing focusable on
+ * it, which a remote cannot recover from.
  */
+const LOAD_PATIENCE_MS = 10_000;
 
 const statusOf = (err: unknown): number | undefined =>
   (err as { response?: { status?: number } } | null)?.response?.status;
@@ -63,8 +68,9 @@ function Face({ user }: { user: User }) {
 }
 
 function ProfileGrid({ users, onOpen }: { users: User[]; onOpen: (u: User) => void }) {
-  // One container per row, so the focus model's rows are the rendered rows whatever the
-  // viewport width. A single wrapping container would let the browser re-flow them.
+  // One container per row, and `.bs-profiles` does not wrap, so the rows the focus model
+  // counts are the rows the viewer sees. (Chunking alone is not enough: a container that
+  // wrapped would draw one chunk on two lines on a narrow viewport.)
   const rows = chunk(users, PER_ROW);
   // storageKey: coming back from the keypad (or from home, to switch profile) lands on the
   // profile the viewer was last on instead of the first one.
@@ -72,9 +78,6 @@ function ProfileGrid({ users, onOpen }: { users: User[]; onOpen: (u: User) => vo
   return (
     <>
       {rows.map((row, r) => (
-        // Padding top and bottom on every row: `.bs-shell__scroll` is a clipping scroller with no
-        // top padding of its own, so without it the focused face's scale and ring are cut off
-        // along the top edge. Two rows' worth of it is the 48px between them.
         <div key={r} className="bs-profiles">
           {row.map((u, c) => (
             <button
@@ -244,7 +247,8 @@ type Opening = 'idle' | 'opening' | 'failed';
 
 export default function ProfilesPage() {
   const router = useRouter();
-  const { select } = useTvProfile();
+  // restore: false, because this screen fetches the profile list itself.
+  const { select } = useTvProfile({ restore: false });
 
   const [users, setUsers] = useState<User[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -263,16 +267,27 @@ export default function ProfilesPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // Slow is failed, here: the retry control is the only way off a loading screen.
+    const impatience = setTimeout(() => {
+      if (!cancelled) setLoadFailed(true);
+    }, LOAD_PATIENCE_MS);
     usersService
       .getUsers()
       .then((list) => {
-        if (!cancelled) setUsers(list);
+        if (cancelled) return;
+        clearTimeout(impatience);
+        // An answer that turns up after the failed screen went up wins over it.
+        setLoadFailed(false);
+        setUsers(list);
       })
       .catch(() => {
-        if (!cancelled) setLoadFailed(true);
+        if (cancelled) return;
+        clearTimeout(impatience);
+        setLoadFailed(true);
       });
     return () => {
       cancelled = true;
+      clearTimeout(impatience);
     };
   }, [reloads]);
 
@@ -316,6 +331,31 @@ export default function ProfilesPage() {
     [enter],
   );
 
+  /**
+   * After a wrong code, re-read the list and adopt a changed `passcode_len` for that profile
+   * (and keep the refreshed list, so Back then OK does not reuse the stale one). The 423 that
+   * opened the keypad has no body, so the length can only come from the list, and the list can
+   * be older than the code: it was lengthened on the web while the TV sat on the picker.
+   * Without this a six-digit code is auto-submitted at digit four, forever, each attempt
+   * spending one of the five the server allows per five minutes.
+   *
+   * Not awaited by the keypad: a hung request must not freeze the message, and the answer
+   * lands a round trip after it, many key presses before the digit that would use it.
+   */
+  const adoptCurrentLength = useCallback(async (id: string) => {
+    let list: User[];
+    try {
+      list = await usersService.getUsers();
+    } catch {
+      return; // keep what is on screen
+    }
+    setUsers(list);
+    const fresh = list.find((u) => u.id === id);
+    const length = fresh?.settings?.passcode_len;
+    if (!fresh || !length || length < 1) return;
+    setLocked((cur) => (cur && cur.user.id === id && cur.length !== length ? { user: fresh, length } : cur));
+  }, []);
+
   const retry = () => {
     setLoadFailed(false);
     setUsers(null);
@@ -328,7 +368,11 @@ export default function ProfilesPage() {
       <Keypad
         key={locked.user.id}
         length={locked.length}
-        attempt={(code) => tryUnlock(locked.user.id, code)}
+        attempt={async (code) => {
+          const outcome = await tryUnlock(locked.user.id, code);
+          if (outcome === 'wrong') void adoptCurrentLength(locked.user.id);
+          return outcome;
+        }}
         onUnlocked={() => enter(locked.user)}
         onBack={() => setLocked(null)}
       />
@@ -337,7 +381,7 @@ export default function ProfilesPage() {
     body = (
       <>
         <p role="alert" className="bs-no bs-msg">Could not load profiles.</p>
-        <div className="bs-controls bs-msg">
+        <div className="bs-controls bs-inset">
           <button type="button" className="bs-btn" autoFocus onClick={retry}>Try again</button>
         </div>
       </>
@@ -345,19 +389,27 @@ export default function ProfilesPage() {
   } else if (users === null) {
     body = <p className="bs-note">Loading profiles…</p>;
   } else if (users.length === 0) {
-    body = <p className="bs-note">No profiles on this account yet. Create one in the Freeflix web app.</p>;
-  } else {
     body = (
       <>
+        <p className="bs-note">No profiles on this account yet. Create one in the Freeflix web app.</p>
+        {/* Something focusable, or the remote has nothing to act on; and the profile may be
+            created on a phone while the television waits. */}
+        <div className="bs-controls bs-inset">
+          <button type="button" className="bs-btn" autoFocus onClick={retry}>Check again</button>
+        </div>
+      </>
+    );
+  } else {
+    // ABOVE the rows, and always mounted. Below them it is off the bottom of the scroller
+    // once there are a few rows (focus in row 1 hides it), and mounting it only when it has
+    // text would shove the whole grid down under the viewer's focus ring.
+    const failed = opening === 'failed';
+    body = (
+      <>
+        <p className={failed ? 'bs-no bs-msg' : 'bs-note bs-msg'} role={failed ? 'alert' : 'status'}>
+          {opening === 'opening' ? 'Opening…' : failed ? 'Could not open that profile. Try again.' : null}
+        </p>
         <ProfileGrid users={users} onOpen={(u) => void open(u)} />
-        {opening === 'opening' && (
-          <p className="bs-note bs-msg" role="status">Opening…</p>
-        )}
-        {opening === 'failed' && (
-          <p role="alert" className="bs-no bs-msg">
-            Could not open that profile. Try again.
-          </p>
-        )}
       </>
     );
   }

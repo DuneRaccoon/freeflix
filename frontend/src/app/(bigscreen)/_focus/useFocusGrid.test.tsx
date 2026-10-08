@@ -299,13 +299,24 @@ describe('useFocusGrid', () => {
       expect(stored('home')).toEqual({ row: 0, col: 1 });
     });
 
-    it('treats a press that cannot move as not having moved, so the restore still lands', () => {
+    it('cancels the restore on any press, even one that cannot move', () => {
+      // A press that goes nowhere (Up at the top of the screen) is still the viewer
+      // driving. Adopting the restore afterwards would teleport focus a second later,
+      // which on a television reads as the screen shifting under them.
       seed('home', 3, 2);
       const { rerender } = render(<Harness rowCounts={[0, 0, 0, 0]} storageKey="home" />);
       rerender(<Harness rowCounts={[5, 0, 0, 0]} storageKey="home" />);
-      press('ArrowUp'); // nothing above row 0: the viewer is still looking at the same cell
+      press('ArrowUp'); // nothing above row 0
       rerender(<Harness rowCounts={[5, 0, 0, 5]} storageKey="home" />);
-      expect(document.activeElement).toBe(screen.getByText('3-2'));
+      expect(document.activeElement).toBe(screen.getByText('0-0'));
+    });
+
+    it('flushes the pending write on pagehide, which an unmount would never see', () => {
+      render(<Harness rowCounts={[3, 3]} storageKey="home" />);
+      press('ArrowRight');
+      expect(stored('home')).toBeNull(); // still inside the trailing delay
+      act(() => { window.dispatchEvent(new Event('pagehide')); });
+      expect(stored('home')).toEqual({ row: 0, col: 1 });
     });
 
     it('with nothing stored, falls back to the first populated row and remembers it', () => {

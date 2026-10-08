@@ -173,8 +173,17 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
     [flushPersist],
   );
 
-  // A screen that unmounts inside the delay must not lose its last position.
-  useEffect(() => flushPersist, [flushPersist]);
+  // A screen that unmounts inside the delay must not lose its last position. `pagehide`
+  // covers the other exit: a full-page navigation (or the TV killing the app) within the
+  // delay, which no unmount cleanup would see.
+  useEffect(() => {
+    const onHide = () => flushPersist();
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      flushPersist();
+    };
+  }, [flushPersist]);
 
   /** Make `next` the focused target. */
   const go = useCallback(
@@ -186,8 +195,11 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
       if (next.row < 0) return;
 
       // The viewer taking control ends any pending restore, which then never yanks
-      // focus away from where they went.
-      if (changed && how.user) pendingRestore.current = null;
+      // focus away from where they went. Deliberately NOT gated on `changed`: a press
+      // that cannot move (Up at the top of the screen) is still the viewer driving, and
+      // a restore that teleported focus a second later would read as the screen
+      // shifting under them.
+      if (how.user) pendingRestore.current = null;
       columnMemory.current[next.row] = next.col;
       // While a restore is pending the target is only a stand-in; writing it would
       // destroy the position we are waiting to restore.

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { usersService, type User } from '@/services/users';
 import { getInitials, resolveAvatarSrc } from '@/lib/avatars/resolve';
 import { useFocusGrid } from '../../_focus/useFocusGrid';
+import { useBackKey } from '../../_focus/useBackKey';
 import { useTvProfile } from '../../_data/useTvProfile';
 
 /**
@@ -17,6 +18,10 @@ import { useTvProfile } from '../../_data/useTvProfile';
  * registered first claims an arrow, so two live grids leave the INCOMING one inert for as
  * long as the outgoing one is mounted. The profile grid and the keypad are therefore
  * separate components and the page renders one or the other, never both.
+ *
+ * BACK escalates: the keypad gives way to the profile grid, and the grid to home. The remote's
+ * Back key and the keypad's own on-screen Back key run the same `leaveKeypad`. The on-screen
+ * key stays because the remote key's identity on this device is unverified (see `useBackKey`).
  *
  * There is no "add a profile" here. Creating one needs text entry, which the web already
  * does well; the first place text entry is worth building on this surface is the search
@@ -136,7 +141,7 @@ const DEL: KeyDef = { id: 'del', label: 'Del', aria: 'Delete' };
  * Phone order, with the bottom-left cell a real key rather than the web keypad's blank.
  * The focus model only knows "n items per row", so a blank would shift the bottom row's
  * columns and Down from `8` would land on Delete instead of `0`. A full 3x4 also gives
- * the viewer a way out: nothing here is bound to the remote's own Back key.
+ * the viewer a way out that does not depend on the remote's own Back key being recognised.
  */
 const KEY_ROWS: KeyDef[][] = [
   [digit('1'), digit('2'), digit('3')],
@@ -362,6 +367,16 @@ export default function ProfilesPage() {
     setReloads((n) => n + 1);
   };
 
+  const leaveKeypad = () => setLocked(null);
+
+  // collapse -> leave: the keypad closes first, and only from the grid (or a loading, failed
+  // or empty screen, which has nothing to collapse) does Back go home. `replace`, as in `enter`:
+  // leaving is not somewhere to come back to, and home does not act on Back.
+  useBackKey(() => {
+    if (locked) leaveKeypad();
+    else router.replace(HOME);
+  });
+
   let body: React.ReactNode;
   if (locked) {
     body = (
@@ -374,7 +389,7 @@ export default function ProfilesPage() {
           return outcome;
         }}
         onUnlocked={() => enter(locked.user)}
-        onBack={() => setLocked(null)}
+        onBack={leaveKeypad}
       />
     );
   } else if (loadFailed) {

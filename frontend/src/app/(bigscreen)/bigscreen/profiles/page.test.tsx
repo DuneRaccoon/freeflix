@@ -768,6 +768,89 @@ describe('/bigscreen/profiles', () => {
       });
     });
   });
+
+  describe('the remote’s Back key', () => {
+    // Fired the way a remote sends it: the key often has no usable name, only a code.
+    const back = (init: KeyboardEventInit = { key: 'Unidentified', keyCode: 461 }) =>
+      act(async () => { fireEvent.keyDown(window, init); });
+    const gone = () => {
+      expect(router.replace).not.toHaveBeenCalled();
+      expect(router.push).not.toHaveBeenCalled();
+    };
+
+    it('closes the keypad and returns to the grid, without navigating', async () => {
+      await openKeypad(4);
+      await pressKeys('1', '2');
+      await back();
+      expect(document.querySelector('.bs-keypad')).toBeNull();
+      expect(profileButton('Ben')).toBeInTheDocument();
+      expect(document.activeElement).toBe(profileButton('Mum'));
+      expect(unlockProfile).not.toHaveBeenCalled();
+      gone();
+    });
+
+    it('goes home from the grid', async () => {
+      getUsers.mockResolvedValue([ben(), mum()]);
+      render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Ben' });
+      await settle();
+      await back({ key: 'XF86Back' });
+      // Replace, as choosing a profile does: leaving is not somewhere to come back to.
+      expect(router.replace).toHaveBeenCalledTimes(1);
+      expect(router.replace).toHaveBeenCalledWith('/bigscreen');
+      expect(router.push).not.toHaveBeenCalled();
+    });
+
+    it('escalates one step per press: keypad, then grid, then home', async () => {
+      await openKeypad(4);
+      await back();
+      expect(document.querySelector('.bs-keypad')).toBeNull();
+      gone();
+      await back();
+      expect(router.replace).toHaveBeenCalledTimes(1);
+      expect(router.replace).toHaveBeenCalledWith('/bigscreen');
+    });
+
+    it('does what the keypad’s own Back key does: a result arriving after it is ignored', async () => {
+      const pending = deferred<{ ok: boolean }>();
+      unlockProfile.mockReturnValue(pending.promise);
+      await openKeypad(4);
+      await pressKeys('1', '2', '3', '4');
+      await waitFor(() => expect(unlockProfile).toHaveBeenCalled());
+      await back({ key: 'Escape' });
+      expect(document.querySelector('.bs-keypad')).toBeNull();
+      await act(async () => { pending.resolve({ ok: true }); });
+      gone();
+      expect(localStorage.getItem('bs-profile')).toBeNull();
+    });
+
+    it('leaves a screen that has nothing to collapse, such as the loading one', async () => {
+      getUsers.mockReturnValue(deferred<User[]>().promise);
+      render(<ProfilesPage />);
+      expect(screen.getByText(/loading profiles/i)).toBeInTheDocument();
+      await back({ key: 'Backspace' });
+      expect(router.replace).toHaveBeenCalledWith('/bigscreen');
+    });
+
+    it('neither acts on nor claims a key that is not Back', async () => {
+      getUsers.mockResolvedValue([ben(), mum()]);
+      render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Ben' });
+      await settle();
+      // fireEvent returns false when the event was cancelled.
+      expect(fireEvent.keyDown(window, { key: 'a', keyCode: 65 })).toBe(true);
+      gone();
+    });
+
+    it('stops listening when the page unmounts', async () => {
+      getUsers.mockResolvedValue([ben()]);
+      const { unmount } = render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Ben' });
+      unmount();
+      expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+      gone();
+    });
+  });
 });
 
 describe('bigscreen.css, as this screen relies on it', () => {

@@ -7,6 +7,7 @@ import type { CatalogItem } from '@/types';
 import { Hero } from '../_components/Hero';
 import { Rail, railCellCount, type RailModel } from '../_components/Rail';
 import { readStored, useFocusGrid, type FocusProps } from '../_focus/useFocusGrid';
+import { useBackKey } from '../_focus/useBackKey';
 import { TV_RAILS, fetchRail, type CatalogRail, type TvRailSpec } from '../_data/rails';
 import { fetchContinueWatching, fetchMyList, type ProfileRail } from '../_data/continueWatching';
 import { useTvProfile } from '../_data/useTvProfile';
@@ -60,6 +61,16 @@ import { useTvProfile } from '../_data/useTvProfile';
  */
 
 const PROFILES = '/bigscreen/profiles';
+
+/**
+ * BACK on home does nothing, on purpose. Home is the root of this surface; leaving the app is
+ * the shell's job in a later stage, and a `window.close()` from a browser tab does nothing
+ * useful. The hook is still installed, so the press is claimed rather than handed to the
+ * browser, which can walk history to wherever this page was entered from (the picker
+ * replaces itself with home, so that is often another copy of this screen). Delete the
+ * `useBackKey` call below if the platform's own Back should apply at the root instead.
+ */
+const stayOnHome = () => {};
 
 /** Fetch a rail this far before it scrolls into view: a screenful and a bit at 1080p. */
 const LOOKAHEAD = '600px 0px';
@@ -202,6 +213,7 @@ export default function HomePage() {
   const router = useRouter();
   const { profile, loading: profileLoading, clear } = useTvProfile();
   const profileId = profile?.id ?? null;
+  useBackKey(stayOnHome);
 
   // One entry per rail that has answered, keyed by slot id. A missing key is a placeholder.
   const [settled, setSettled] = useState<Settled>({});

@@ -37,7 +37,7 @@
  * `npm run test:tv` before committing TV work is the enforcement.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 /**
@@ -139,6 +139,37 @@ function importSpecifiers(src: string): string[] {
   return out;
 }
 
+const SRC_DIR = join(process.cwd(), 'src');
+
+/**
+ * Source of the module an `@/`-rooted specifier names, or null when it names nothing on
+ * disk here (a package, or a path this does not model).
+ */
+function readAliased(spec: string): string | null {
+  if (!spec.startsWith('@/')) return null;
+  const rel = spec.slice(2);
+  for (const tail of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
+    const file = join(SRC_DIR, rel + tail);
+    if (existsSync(file)) return readFileSync(file, 'utf8');
+  }
+  return null;
+}
+
+/**
+ * The web-component imports sitting one hop behind `spec`: what the module it names
+ * imports that `escapesToComponents` rejects. The reader is injectable so the rule can be
+ * exercised against modules that are not on disk.
+ *
+ * ONE HOP, ON PURPOSE. It catches the trap that exists (a TV file reaching for a `@/lib`
+ * helper whose first import is a component) without turning a guard into a module
+ * resolver: no graph, no cycle handling, no tsconfig. A longer chain is left to review; this
+ * is for the one a future author is most likely to write.
+ */
+function componentImportsBehind(spec: string, read: (spec: string) => string | null = readAliased): string[] {
+  const body = read(spec);
+  return body === null ? [] : importSpecifiers(body).filter(escapesToComponents);
+}
+
 describe('TV performance budget (spec §9)', () => {
   it('the TV stylesheet uses no GPU-expensive CSS', () => {
     const css = stripCssComments(readFileSync(TV_STYLESHEET, 'utf8'));
@@ -198,6 +229,46 @@ describe('TV performance budget (spec §9)', () => {
     for (const spec of ['./Card', '../_components/Rail', '../_focus/useFocusGrid', '@/services/movies', '@/lib/contentId', 'next/link']) {
       expect(escapesToComponents(spec), `${spec} should be allowed`).toBe(false);
     }
+  });
+
+  it('does not reach the web components through an intermediate module', () => {
+    // The import test above only sees specifiers written INSIDE (bigscreen). A TV file may
+    // import @/lib/foo, and @/lib/foo may import @/components/... — which lands PosterCard and
+    // the Tailwind runtime in the TV bundle with the guard still green. Both
+    // @/lib/buildMixedRailsScreen and @/lib/buildRailsScreen do exactly this (they import
+    // RowConfig from the browse screen). Test files are not scanned (tvSourceFiles drops
+    // them), which is why _data/railsDrift.test.ts may import the first one to pin a copy.
+    const offences: string[] = [];
+    for (const { id, src } of tvSourceFiles()) {
+      for (const spec of importSpecifiers(src)) {
+        // A direct component import is the previous test's finding; do not report it twice.
+        if (!spec.startsWith('@/') || escapesToComponents(spec)) continue;
+        for (const nested of componentImportsBehind(spec)) offences.push(`${id} -> ${spec} -> ${nested}`);
+      }
+    }
+    expect(offences, offences.join('; ')).toEqual([]);
+  });
+
+  it('can see through an intermediate module, and is not vacuous', () => {
+    // Without this the check above passes whenever it resolves nothing (a wrong SRC_DIR, an
+    // alias that stops matching) — a guard that can only ever be green.
+    const fake: Record<string, string> = {
+      '@/lib/leaky': "import { Row } from '@/components/browse/BrowseScreen';\nexport const a = 1;",
+      '@/lib/leaky-relative': "import { Row } from '../components/ui/Modal';",
+      '@/lib/clean': "import { x } from '@/services/movies';\nimport y from './sibling';",
+    };
+    const read = (spec: string) => fake[spec] ?? null;
+    expect(componentImportsBehind('@/lib/leaky', read)).toEqual(['@/components/browse/BrowseScreen']);
+    expect(componentImportsBehind('@/lib/leaky-relative', read)).toEqual(['../components/ui/Modal']);
+    expect(componentImportsBehind('@/lib/clean', read)).toEqual([]);
+    expect(componentImportsBehind('@/lib/not-there', read)).toEqual([]);
+
+    // The real resolver must find real files: it follows at least one `@/` import the TV
+    // surface actually makes.
+    const followed = tvSourceFiles()
+      .flatMap(({ src }) => importSpecifiers(src))
+      .filter((spec) => spec.startsWith('@/') && readAliased(spec) !== null);
+    expect(followed.length).toBeGreaterThan(0);
   });
 
   it('only the diagnostics page opts out of the checks', () => {

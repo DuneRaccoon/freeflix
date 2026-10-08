@@ -1005,3 +1005,40 @@ describe('/bigscreen home: no polling', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
+
+describe('/bigscreen home: Back', () => {
+  // Home is the root of this surface, so Back has nowhere to go. It is still claimed: handed
+  // to the browser it would walk history, and the picker replaces itself with home.
+  it.each([
+    ['a remote that sends only a code', { key: 'Unidentified', keyCode: 461 }],
+    ['Escape', { key: 'Escape' }],
+    ['Backspace', { key: 'Backspace' }],
+    ['XF86Back', { key: 'XF86Back' }],
+  ])('does nothing visible, and claims the press: %s', async (_name, init) => {
+    useProfile(BEN);
+    renderHome();
+    await answer('trending');
+    const parked = active();
+    // fireEvent returns false when the event was cancelled.
+    expect(fireEvent.keyDown(window, init)).toBe(false);
+    await settle();
+    expect(router.push).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    expect(active()).toBe(parked);
+  });
+
+  it('claims no other key', async () => {
+    renderHome();
+    await answer('trending');
+    expect(fireEvent.keyDown(window, { key: 'Enter', keyCode: 13 })).toBe(true);
+    expect(fireEvent.keyDown(window, { key: 'a', keyCode: 65 })).toBe(true);
+  });
+
+  it('stops claiming Back once the screen is gone', async () => {
+    const { unmount } = renderHome();
+    await answer('trending');
+    unmount();
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+  });
+});

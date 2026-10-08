@@ -15,6 +15,21 @@ export interface ContinueWatchingDeps {
   userId: string;
 }
 
+/**
+ * A profile-scoped rail, and whether its call was refused because the profile is locked.
+ *
+ * `useTvProfile` trusts a stored profile id without checking it, so the first
+ * profile-scoped call is where a passcode lock shows up. Both fetchers RESOLVE on a
+ * refusal (Home must render without the rail, not error), which leaves an empty rail
+ * looking the same whether the cause is a 423, a 403, or a profile with nothing in it.
+ * Home must not guess a lock from an empty array, so the one place that sees the status
+ * says so. Always an explicit boolean, like `loading`.
+ */
+export interface ProfileRail extends RailModel {
+  /** True only for a 423: this session has not entered the profile's passcode. */
+  locked: boolean;
+}
+
 const CONTINUE_WATCHING: Omit<RailModel, 'items'> = {
   key: 'continue-watching',
   title: 'Continue Watching',
@@ -56,14 +71,22 @@ const ARTWORK_BUDGET_MS = 2500;
  * `loading: true` if the key is merely omitted, and `railCellCount` then reports 0
  * focusable cells for a full rail: a dead row with nothing erroring anywhere.
  */
-const settled = (spec: Omit<RailModel, 'items'>, items: CardItem[]): RailModel => ({
+const settled = (spec: Omit<RailModel, 'items'>, items: CardItem[], locked = false): ProfileRail => ({
   ...spec,
   items,
   loading: false,
+  locked,
 });
 
 /** The profile-scoped endpoints refuse (403/404/423) rather than return nothing. */
-const empty = (spec: Omit<RailModel, 'items'>): RailModel => settled(spec, []);
+const empty = (spec: Omit<RailModel, 'items'>): ProfileRail => settled(spec, []);
+
+const statusOf = (err: unknown): number | undefined =>
+  (err as { response?: { status?: number } } | null)?.response?.status;
+
+/** An empty rail for a call that threw; `locked` only when the profile's passcode is what stopped it. */
+const refused = (spec: Omit<RailModel, 'items'>, err: unknown): ProfileRail =>
+  settled(spec, [], statusOf(err) === 423);
 
 interface Candidate {
   /** Whose artwork to look up; null when the title cannot be identified. */
@@ -184,6 +207,7 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
  * The profile's Continue Watching rail. Resolves to an empty rail, and never rejects,
  * when no profile is selected or the call is refused (403 someone else's profile, 404
  * unknown, 423 passcode-locked): Home renders without the rail rather than erroring.
+ * A 423 is also reported, as `locked: true`, so Home can send the viewer to the picker.
  *
  * Rules, each of which a naive rewrite gets wrong:
  * - The content id is `movie_id`. The ORM row also has `content_id`, but the response
@@ -202,7 +226,7 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
  * needs no torrent either, so a finished episode whose torrent was later removed still
  * gets one. The show id comes straight out of the content id; nothing new is fetched.
  */
-export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): Promise<RailModel> {
+export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): Promise<ProfileRail> {
   if (!userId) return empty(CONTINUE_WATCHING);
   try {
     const rows = (await streamingService.getRecentProgress(userId, FETCH_LIMIT))
@@ -231,8 +255,8 @@ export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): P
       CONTINUE_WATCHING,
       candidates.map((c, i) => ({ ...c.card, artUrl: artwork[i] })),
     );
-  } catch {
-    return empty(CONTINUE_WATCHING);
+  } catch (err) {
+    return refused(CONTINUE_WATCHING, err);
   }
 }
 
@@ -246,7 +270,7 @@ export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): P
  * into a number for the href. Capped like the catalog rails: the full list belongs on a
  * dedicated screen, not in 150 anchors a remote has to cross.
  */
-export async function fetchMyList({ userId }: ContinueWatchingDeps): Promise<RailModel> {
+export async function fetchMyList({ userId }: ContinueWatchingDeps): Promise<ProfileRail> {
   if (!userId) return empty(MY_LIST);
   try {
     const items: CardItem[] = [];
@@ -261,7 +285,7 @@ export async function fetchMyList({ userId }: ContinueWatchingDeps): Promise<Rai
       items.push(catalogItemToCard(watchlistItemToCatalogItem(entry), 'poster'));
     }
     return settled(MY_LIST, items);
-  } catch {
-    return empty(MY_LIST);
+  } catch (err) {
+    return refused(MY_LIST, err);
   }
 }

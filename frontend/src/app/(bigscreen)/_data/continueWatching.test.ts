@@ -467,6 +467,46 @@ describe('fetchContinueWatching', () => {
     expect((await fetchContinueWatching({ userId: 'u1' })).items).toEqual([]);
   });
 
+  // Home cannot tell a locked profile from a new one by looking at an empty rail, and a
+  // restored profile id is trusted without being checked. The fetcher is the only place
+  // that sees the status, so it says so.
+  describe('reporting a passcode lock', () => {
+    it('says locked on a 423, because the profile needs its passcode before it can be used', async () => {
+      getRecent.mockRejectedValue(refused(423));
+      const rail = await fetchContinueWatching({ userId: 'u1' });
+      expect(rail.locked).toBe(true);
+      expect(rail.items).toEqual([]);
+      expect(rail.loading).toBe(false);
+    });
+
+    it.each([403, 404, 500, 502])('does not say locked on a %i', async (status) => {
+      getRecent.mockRejectedValue(refused(status));
+      expect((await fetchContinueWatching({ userId: 'u1' })).locked).toBe(false);
+    });
+
+    it('does not say locked on a network failure, an empty history, or a full rail', async () => {
+      getRecent.mockRejectedValue(new Error('Network Error'));
+      expect((await fetchContinueWatching({ userId: 'u1' })).locked).toBe(false);
+      getRecent.mockResolvedValue([]);
+      expect((await fetchContinueWatching({ userId: 'u1' })).locked).toBe(false);
+      getRecent.mockResolvedValue([row()]);
+      expect((await fetchContinueWatching({ userId: 'u1' })).locked).toBe(false);
+    });
+
+    it('does not say locked when there is no profile, and makes no call to find out', async () => {
+      expect((await fetchContinueWatching({ userId: '' })).locked).toBe(false);
+      expect(getRecent).not.toHaveBeenCalled();
+    });
+
+    it('does not take a 423 from an artwork lookup for a lock', async () => {
+      getRecent.mockResolvedValue([row()]);
+      getMovie.mockRejectedValue(refused(423));
+      const rail = await fetchContinueWatching({ userId: 'u1' });
+      expect(rail.locked).toBe(false);
+      expect(rail.items).toHaveLength(1);
+    });
+  });
+
   it('does not call the backend at all when no profile is selected', async () => {
     const rail = await fetchContinueWatching({ userId: '' });
     expect(rail.items).toEqual([]);
@@ -581,5 +621,28 @@ describe('fetchMyList', () => {
   it('does not call the backend at all when no profile is selected', async () => {
     expect((await fetchMyList({ userId: '' })).items).toEqual([]);
     expect(listWatchlist).not.toHaveBeenCalled();
+  });
+
+  describe('reporting a passcode lock', () => {
+    it('says locked on a 423', async () => {
+      listWatchlist.mockRejectedValue(refused(423));
+      const rail = await fetchMyList({ userId: 'u1' });
+      expect(rail.locked).toBe(true);
+      expect(rail.items).toEqual([]);
+      expect(rail.loading).toBe(false);
+    });
+
+    it.each([403, 404, 500])('does not say locked on a %i', async (status) => {
+      listWatchlist.mockRejectedValue(refused(status));
+      expect((await fetchMyList({ userId: 'u1' })).locked).toBe(false);
+    });
+
+    it('does not say locked for an empty list, a full one, or no profile', async () => {
+      listWatchlist.mockResolvedValue([]);
+      expect((await fetchMyList({ userId: 'u1' })).locked).toBe(false);
+      listWatchlist.mockResolvedValue([entry()]);
+      expect((await fetchMyList({ userId: 'u1' })).locked).toBe(false);
+      expect((await fetchMyList({ userId: '' })).locked).toBe(false);
+    });
   });
 });

@@ -51,4 +51,29 @@ describe('focus model', () => {
     expect(clampTarget([2], { row: 4, col: 0 })).toEqual({ row: 0, col: 0 });
     expect(clampTarget([2, 0], { row: 1, col: 0 })).toEqual({ row: 0, col: 0 });
   });
+
+  it('stays up and does not wrap when every row above is empty', () => {
+    expect(move([0, 0, 2], { row: 2, col: 1 }, 'up', [])).toEqual({ row: 2, col: 1 });
+  });
+
+  it('recovers a `from` that sits on a row which has since emptied', () => {
+    // Focus can be on a rail that refetched to zero items between two key presses.
+    // Moving "from" a row with nothing in it is meaningless, so it clamps onto the grid.
+    expect(move([0, 2], { row: 0, col: 0 }, 'right', [])).toEqual({ row: 1, col: 0 });
+    expect(move([0, 2], { row: 0, col: 0 }, 'down', [])).toEqual({ row: 1, col: 0 });
+    expect(move([2, 0], { row: 1, col: 0 }, 'left', [])).toEqual({ row: 0, col: 0 });
+  });
+
+  it('moves from NO_TARGET onto the first populated row, or nowhere on an empty grid', () => {
+    expect(move([0, 2, 2], NO_TARGET, 'down', [])).toEqual({ row: 1, col: 0 });
+    expect(move([0, 0], NO_TARGET, 'right', [])).toEqual(NO_TARGET);
+  });
+
+  it('treats a NaN count as an empty row rather than inventing a NaN column', () => {
+    expect(isEmptyGrid([NaN])).toBe(true);
+    expect(firstTarget([NaN, 2])).toEqual({ row: 1, col: 0 });
+    expect(clampTarget([NaN, 2], { row: 0, col: 0 })).toEqual({ row: 1, col: 0 });
+    expect(move([2, NaN, 3], { row: 0, col: 1 }, 'down', [])).toEqual({ row: 2, col: 1 });
+    expect(move([NaN, 2], { row: 0, col: 0 }, 'right', [])).toEqual({ row: 1, col: 0 });
+  });
 });

@@ -25,13 +25,22 @@ function countOf(rowCounts: RowCounts, row: number): number {
   return rowCounts[row] ?? 0;
 }
 
+/**
+ * The single definition of "this row can be focused". Written as a positive
+ * comparison so a NaN count (which fails every comparison) reads as empty everywhere
+ * instead of slipping past a `<= 0` check and producing a NaN column.
+ */
+function hasItems(n: number | undefined): boolean {
+  return (n ?? 0) > 0;
+}
+
 function clamp(n: number, min: number, max: number): number {
   return Math.min(Math.max(n, min), max);
 }
 
 /** True when there is nothing anywhere to focus (also true for no rows at all). */
 export function isEmptyGrid(rowCounts: RowCounts): boolean {
-  return rowCounts.every((n) => !(n > 0));
+  return !rowCounts.some(hasItems);
 }
 
 /**
@@ -42,7 +51,7 @@ export function isEmptyGrid(rowCounts: RowCounts): boolean {
  * recover with, so the screen would be stuck.
  */
 export function firstTarget(rowCounts: RowCounts): FocusTarget {
-  const row = rowCounts.findIndex((n) => n > 0);
+  const row = rowCounts.findIndex(hasItems);
   return row === -1 ? NO_TARGET : { row, col: 0 };
 }
 
@@ -55,7 +64,7 @@ export function firstTarget(rowCounts: RowCounts): FocusTarget {
  */
 export function clampTarget(rowCounts: RowCounts, t: FocusTarget): FocusTarget {
   const n = countOf(rowCounts, t.row);
-  if (n <= 0) return firstTarget(rowCounts);
+  if (!hasItems(n)) return firstTarget(rowCounts);
   return { row: t.row, col: clamp(t.col, 0, n - 1) };
 }
 
@@ -81,7 +90,7 @@ export function move(
   columnMemory: readonly number[],
 ): FocusTarget {
   const here = countOf(rowCounts, from.row);
-  if (here <= 0) return clampTarget(rowCounts, from);
+  if (!hasItems(here)) return clampTarget(rowCounts, from);
 
   if (dir === 'left' || dir === 'right') {
     const col = clamp(from.col + (dir === 'right' ? 1 : -1), 0, here - 1);
@@ -91,7 +100,7 @@ export function move(
   const step = dir === 'down' ? 1 : -1;
   for (let row = from.row + step; row >= 0 && row < rowCounts.length; row += step) {
     const n = rowCounts[row];
-    if (n > 0) return { row, col: clamp(columnMemory[row] ?? from.col, 0, n - 1) };
+    if (hasItems(n)) return { row, col: clamp(columnMemory[row] ?? from.col, 0, n - 1) };
   }
   return from;
 }

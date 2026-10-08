@@ -493,8 +493,13 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    off-screen. Do not add a shimmer: §9 allows transform and opacity only, and a looping
    animation on a television costs frames for nothing. */
 .bs-skel { background: var(--surface-2); border-radius: var(--radius); }
-.bs-skel--poster { flex: 0 0 auto; width: 240px; height: 360px; }
-.bs-skel--wide { flex: 0 0 auto; width: 428px; height: 241px; }
+/* These reserve the WHOLE card, not just its art box: a poster card with a two-line title
+   and a year measures ~470px and a wide resume card ~365px. Reserving only the art meant
+   every rail grew ~115px as it resolved, and with six lazy rails that is ~700px of
+   cumulative shift under the viewer. Erring slightly small is better than slightly large:
+   a short card leaves a gap, a tall one pushes the next rail off the fold. */
+.bs-skel--poster { flex: 0 0 auto; width: 240px; height: 470px; }
+.bs-skel--wide { flex: 0 0 auto; width: 428px; height: 365px; }
 
 /* --- profile grid and keypad ----------------------------------------------- */
 /* Who's-watching grid and the PIN pad. Profiles carry the same ring and scale as

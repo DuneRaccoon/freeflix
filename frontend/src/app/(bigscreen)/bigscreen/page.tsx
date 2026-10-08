@@ -138,6 +138,7 @@ function StatusPanel({
   nothingToShow,
   showRetry,
   retrying,
+  autoFocusRetry,
   onRetry,
   focusPropsFor,
 }: {
@@ -146,6 +147,8 @@ function StatusPanel({
   showRetry: boolean;
   /** A retry is in flight; the label says so rather than inviting another press. */
   retrying: boolean;
+  /** Take DOM focus on mount. Only true when focus is already on this row. */
+  autoFocusRetry: boolean;
   onRetry: () => void;
   focusPropsFor: (row: number, col: number) => FocusProps;
 }) {
@@ -171,7 +174,13 @@ function StatusPanel({
             // has not changed, so nothing else would move DOM focus onto the new cell 0.
             // A press while a retry is in flight does nothing rather than unmounting the
             // button: an unmounted focused control drops DOM focus to <body>.
-            <button type="button" className="bs-btn" autoFocus {...focusPropsFor(RECOVERY_ROW, 0)} onClick={onRetry}>
+            <button
+              type="button"
+              className="bs-btn"
+              autoFocus={autoFocusRetry}
+              {...focusPropsFor(RECOVERY_ROW, 0)}
+              onClick={onRetry}
+            >
               {retrying ? 'Trying again…' : 'Try again'}
             </button>
           )}
@@ -324,7 +333,7 @@ export default function HomePage() {
     if (!scroller || !(el instanceof HTMLElement) || !scroller.contains(el)) return;
     const [box, view] = [el.getBoundingClientRect(), scroller.getBoundingClientRect()];
     if (box.bottom > view.bottom || box.top < view.top) {
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      el.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
   }, [settled]);
 
@@ -360,7 +369,13 @@ export default function HomePage() {
   });
 
   const retry = () => {
-    if (!nothingToShow) return;
+    // Ignore a second press while a retry is already in flight. NOT `!nothingToShow`:
+    // `nothingToShow` requires every catalog rail to have ANSWERED, which can never happen
+    // while one hangs — i.e. exactly the state the patience button exists for, where that
+    // guard swallowed every press. The hung request is not aborted, so a retry can leave
+    // two in flight for the same rail; both call `land` and the last writer wins, which is
+    // harmless because they carry the same payload.
+    if (attempts > 0 && leadPending) return;
     // Only rails with no cards are reset, and here that is all of them. A rail that has
     // items is never put back to loading: that would blank it and drop its focus.
     const empties = TV_RAILS.filter((spec) => railCellCount(settled[spec.key] ?? skeleton(spec)) === 0);
@@ -383,6 +398,11 @@ export default function HomePage() {
         nothingToShow={nothingToShow}
         showRetry={showRetry}
         retrying={attempts > 0 && leadPending}
+        // Only claim focus if the viewer is already on this row. On the patience path other
+        // rails have usually landed and the viewer may be in one of them; stealing focus
+        // there would jump the page to the top, cancel a pending restore, and overwrite the
+        // saved position with the recovery row.
+        autoFocusRetry={grid.focused.row === RECOVERY_ROW}
         onRetry={retry}
         focusPropsFor={grid.focusProps}
       />

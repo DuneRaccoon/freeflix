@@ -892,7 +892,7 @@ describe('/bigscreen home: keeping the focused card in view', () => {
     await observer().see('top-rated');
     await answer('top-rated', 2);
     expect(scrolledTo()).toContain(focused);
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'center' });
     spy.mockRestore();
   });
 
@@ -939,9 +939,14 @@ describe('/bigscreen home: no polling', () => {
   });
 
   it('leaves no timer running once it has settled', async () => {
+    // Fully settled on purpose: with only trending answered, the patience timer is still
+    // pending (by design), and a timer installed after full settle would slip past a
+    // check made this early.
+    useProfile(BEN);
     renderHome();
     await answer('trending');
-    // The focus hook's one-shot 200ms position write is the only timer there should ever be.
+    for (const spec of TV_RAILS) if (spec !== TV_RAILS[0]) await observer().see(spec.key);
+    await answerAll();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -956,6 +961,36 @@ describe('/bigscreen home: no polling', () => {
     expect(src).not.toMatch(/\brequestAnimationFrame\s*\(/);
     // The web's TopNav polls this every 15s, forever (spec §9 removes it from the TV).
     expect(src).not.toMatch(/activity\/count|activityService/);
+  });
+
+  it('actually refetches the hung rail when the patience retry is pressed', async () => {
+    // The original guard was `if (!nothingToShow) return`, and nothingToShow requires every
+    // catalog rail to have ANSWERED — impossible while one hangs, i.e. precisely this state.
+    // The button rendered, took focus, and swallowed every press. The shipped test only
+    // asserted that it appeared, which is why that got through.
+    renderHome();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    fetchRailMock.mock.calls.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await settle();
+    expect(fetchedKeys()).toContain('trending');
+    expect(screen.getByRole('button', { name: 'Trying again…' })).toBeInTheDocument();
+  });
+
+  it('does not steal focus from a rail the viewer has moved to', async () => {
+    // autoFocus was written for the nothing-to-show panel, where no rail can hold focus. On
+    // the patience path other rails have usually landed: top-rated sits inside the 600px
+    // lookahead at scrollTop 0. Stealing focus there jumps the page to the top AND cancels
+    // a pending restore AND overwrites the saved position with the recovery row.
+    renderHome();
+    await observer().see('top-rated');
+    await answer('top-rated');
+    arrow('ArrowDown');
+    const parked = active();
+    expect(parked.className).toContain('bs-card');
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(active()).toBe(parked);
   });
 
   it('offers a retry when the first rail hangs, rather than reading Loading for ever', async () => {

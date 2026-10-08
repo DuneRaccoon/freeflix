@@ -86,7 +86,11 @@ const storageName = (key: string) => `bs-focus:${key}`;
 
 // sessionStorage can throw on access (a TV in a restricted mode), so a bad read or
 // write degrades to "no remembered position" instead of taking the screen down.
-function readStored(storageKey: string | undefined): FocusTarget | null {
+//
+// Exported for a screen that loads its rows lazily: the row a saved position points at
+// only fills if the screen fetches it, and the screen must not learn this hook's storage
+// format to find out which one that is.
+export function readStored(storageKey: string | undefined): FocusTarget | null {
   if (!storageKey) return null;
   try {
     const raw = sessionStorage.getItem(storageName(storageKey));

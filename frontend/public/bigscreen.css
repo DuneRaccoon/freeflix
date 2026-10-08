@@ -155,6 +155,8 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   border: 0;
   border-radius: 8px;
   cursor: pointer;
+  /* Home's "Who's watching?" is an <a> wearing this class, and a link underlines itself. */
+  text-decoration: none;
 }
 .bs-btn:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
 .bs-btn--ghost { background: transparent; color: var(--text); border: 1px solid var(--hairline); }
@@ -266,6 +268,16 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  /* The home hero is an <a>. Without these it takes the browser's link blue and underline,
+     and the title and overview inherit both. */
+  color: var(--text);
+  text-decoration: none;
+  /* The art and scrim are absolutely positioned children, and those paint OVER their
+     parent's own outline, so the inset focus ring below was drawn and then covered: the one
+     full-bleed focus stop had no visible focus. Isolating the hero makes it a stacking
+     context, and the z-index: -1 on the two layers below keeps them behind its content and
+     its outline. Found by rendering this in Chromium at 1920x1080, not by reading it. */
+  isolation: isolate;
 }
 /* The hero is one focus stop on the home screen. The ring is INSET, because an outset
    outline on a 1920px-wide full-bleed box is clipped by the viewport on both sides. No
@@ -276,12 +288,14 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-hero__art {
   position: absolute;
+  z-index: -1;
   inset: 0;
   background-size: cover;
   background-position: center top;
 }
 .bs-hero__scrim {
   position: absolute;
+  z-index: -1;
   inset: 0;
   background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.72) 45%, rgba(10, 10, 11, 0.15) 100%);
 }

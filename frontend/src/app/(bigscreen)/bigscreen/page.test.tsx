@@ -946,11 +946,27 @@ describe('/bigscreen home: no polling', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('starts no timer or interval of its own', () => {
+  it('repeats nothing: no interval, and no poll of the activity endpoint', () => {
+    // Deliberately NOT a blanket ban on setTimeout: a one-shot timer is not a poll, and the
+    // panel needs one to offer a retry when a request hangs (apiClient has no timeout). The
+    // properties that matter are pinned above behaviourally — no service call after settle,
+    // and no timer still pending. What is banned here is anything that REPEATS.
     const src = readFileSync(join(process.cwd(), 'src/app/(bigscreen)/bigscreen/page.tsx'), 'utf8');
-    expect(src).not.toMatch(/\bset(Interval|Timeout)\s*\(/);
+    expect(src).not.toMatch(/\bsetInterval\s*\(/);
     expect(src).not.toMatch(/\brequestAnimationFrame\s*\(/);
     // The web's TopNav polls this every 15s, forever (spec §9 removes it from the TV).
     expect(src).not.toMatch(/activity\/count|activityService/);
+  });
+
+  it('offers a retry when the first rail hangs, rather than reading Loading for ever', async () => {
+    // catalogSettled can never become true while a request hangs, so a retry gated only on
+    // it would leave a screen the viewer cannot act on beyond the one link beside it.
+    renderHome();
+    // No `answer(...)`: the first rail is left hanging on purpose.
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });

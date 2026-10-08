@@ -68,6 +68,9 @@ const LOOKAHEAD = '600px 0px';
 const STORAGE_KEY = 'home';
 
 const RECOVERY_ROW = 0;
+/** How long the panel waits before offering a retry it cannot yet justify. `apiClient`
+ *  sets no timeout, so without this a hung first rail reads "Loading…" forever. */
+const LOAD_PATIENCE_MS = 10_000;
 const HERO_ROW = 1;
 const FIRST_RAIL_ROW = 2;
 
@@ -134,12 +137,15 @@ function savedCatalogSpec(): TvRailSpec | null {
 function StatusPanel({
   nothingToShow,
   showRetry,
+  retrying,
   onRetry,
   focusPropsFor,
 }: {
   /** Every rail has answered and none had a card. */
   nothingToShow: boolean;
   showRetry: boolean;
+  /** A retry is in flight; the label says so rather than inviting another press. */
+  retrying: boolean;
   onRetry: () => void;
   focusPropsFor: (row: number, col: number) => FocusProps;
 }) {
@@ -166,7 +172,7 @@ function StatusPanel({
             // A press while a retry is in flight does nothing rather than unmounting the
             // button: an unmounted focused control drops DOM focus to <body>.
             <button type="button" className="bs-btn" autoFocus {...focusPropsFor(RECOVERY_ROW, 0)} onClick={onRetry}>
-              {nothingToShow ? 'Try again' : 'Trying again…'}
+              {retrying ? 'Trying again…' : 'Try again'}
             </button>
           )}
           <Link
@@ -331,7 +337,19 @@ export default function HomePage() {
   // Every catalog rail has answered and none had a card. Profile rails are not waited for:
   // a hung watchlist must not keep "try again" off a screen that has nothing else.
   const nothingToShow = noCards && catalogSettled;
-  const showRetry = nothingToShow || attempts > 0;
+  const [impatient, setImpatient] = useState(false);
+  // ...or the first rail has simply taken too long. `catalogSettled` can never become true
+  // while a request hangs, so waiting for it would leave the panel reading "Loading…" with
+  // no way to act. The retry is offered on patience as well as on proof.
+  const showRetry = nothingToShow || attempts > 0 || impatient;
+  useEffect(() => {
+    if (!leadPending) {
+      setImpatient(false);
+      return;
+    }
+    const timer = setTimeout(() => setImpatient(true), LOAD_PATIENCE_MS);
+    return () => clearTimeout(timer);
+  }, [leadPending, attempts]);
   // The panel holds the hero's place until there is a hero, or a reason there will not be.
   const showPanel = leadPending || noCards;
   const recoveryCount = showPanel ? (showRetry ? 2 : 1) : 0;
@@ -364,6 +382,7 @@ export default function HomePage() {
       <StatusPanel
         nothingToShow={nothingToShow}
         showRetry={showRetry}
+        retrying={attempts > 0 && leadPending}
         onRetry={retry}
         focusPropsFor={grid.focusProps}
       />

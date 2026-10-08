@@ -221,6 +221,11 @@ function isBannedImport(spec: string): boolean {
  * guard still rejects them, deliberately. A type-only edge becomes a value edge in one
  * character — use `RowConfig` as a value, or add any second import — and nothing else here
  * would notice. Being conservative about an edge that cannot be seen is the point.
+ *
+ * And the elision itself is a setting, not a law: `tsconfig.json` has `isolatedModules`
+ * without `verbatimModuleSyntax`, which is why the binding is dropped. Turning
+ * `verbatimModuleSyntax` on — a routine modernisation someone will propose — would make
+ * every one of these edges live with no change to any import anywhere.
  */
 function componentImportsBehind(spec: string, read: (spec: string) => string | null = readAliased): string[] {
   const body = read(spec);

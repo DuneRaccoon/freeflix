@@ -236,8 +236,11 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      is merely inside the scrollport. Without this, a down-move lands the card's bottom
      exactly on the screen edge: the resume bar falls off, the ring is cut, and moving
      UP into a rail hides the rail's own title above the scrollport. The insets cover
-     the rail title plus the ~11px a focused card's 1.06 scale and ring overshoot. */
-  scroll-padding: 100px 0 80px;
+     the rail title plus the ~11px a focused card's 1.06 scale and ring overshoot. 145px,
+     not 100px: a rail with an eyebrow has a 33px taller head, and the track's own 32px
+     top padding sits between the head and the card, so a smaller inset scrolled the
+     eyebrow — or part of the title — back off the top of the screen. */
+  scroll-padding: 145px 0 80px;
 }
 .bs-shell__head {
   padding: var(--safe-y) var(--safe-x) 0;
@@ -253,9 +256,9 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    token as rgba) so the text stays legible with no per-frame effect. */
 .bs-hero {
   position: relative;
-  /* 560px: with the shell head, the first rail's title lands at y~672 and 86% of its
+  /* 560px: with the shell head, the first rail's title lands at y~672 and ~84% of its
      poster art is above the 1080px fold, which is what tells a viewer there is more
-     below. (620px also cleared the fold, at 69% of the art — this is a margin
+     below. (620px also cleared the fold, at ~67% of the art — this is a margin
      improvement, not a fix for a hidden rail. A poster's LABEL only clears the fold at
      a hero of ~470px or less, which costs more artwork than the label is worth.) */
   height: 560px;
@@ -315,8 +318,13 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    The vertical padding is the focus ring's room, not decoration. overflow-x:auto
    makes the track clip vertically too, and a focused card grows 3% about its centre
    and then draws a 4px ring 4px outside that, so a ~475px poster card reaches ~22px
-   past its resting box. Both sides therefore carry 24px; at the 8px this used to
-   have, the top of the ring and the top of the card were cut off. */
+   past its resting box. At the 8px this started with, the top of the ring and the top
+   of the card were cut off; 24px fixed that, and 32px is slack on top of it. Measured
+   clearance at the tallest realistic poster (485px: two-line title, subtitle, badge,
+   progress bar) is 8.96px at 32px and 0.96px at 24px. Note the overshoot is 3% OF THE
+   CARD, and the track grows with the card, so a pixel of extra card height costs only
+   0.03px of clearance — 24px had about one more text line of headroom, not one pixel.
+   The slack is here because nothing tests this and nothing would catch its loss. */
 .bs-rail { margin: 0 0 48px; }
 .bs-rail__head { padding: 0 var(--safe-x); margin: 0 0 16px; }
 .bs-rail__title {
@@ -424,9 +432,8 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-/* One line, always. The track's 24px padding leaves a focused card's ring about 1px of
-   clearance, so a subtitle that wrapped to a second line would clip the ring top and
-   bottom. 22px because the year is how a viewer tells two films of the same name apart.
+/* One line, always: a subtitle that wrapped to a second line would add ~32px of card
+   height, which is about what the track's ring clearance can absorb. 22px because the year is how a viewer tells two films of the same name apart.
    The row is flex so the badge survives truncation: the subtitle text takes the ellipsis
    (min-width: 0 lets it shrink below its content) and the badge never shrinks. `gap` only
    separates siblings, so a badge with no subtitle beside it has no leading space. */
@@ -467,13 +474,10 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 
 /* --- skeletons ------------------------------------------------------------ */
 /* These reserve the ARTWORK box, not the finished card: the label and subtitle below it
-   add 43-121px once a rail resolves, so a rail does shift as it loads. The intersection
+   add 43-125px once a rail resolves, so a rail does shift as it loads. The intersection
    lookahead fetches well before a rail is on screen, so in practice the shift happens
    off-screen. Do not add a shimmer: §9 allows transform and opacity only, and a looping
    animation on a television costs frames for nothing. */
-/* A rail that has not loaded yet occupies its final height, so the layout does not
-   jump when the cards arrive. Flat blocks only: a looping shimmer would cost
-   frames for nothing (spec §9 allows transform and opacity, not a loop). */
 .bs-skel { background: var(--surface-2); border-radius: var(--radius); }
 .bs-skel--poster { flex: 0 0 auto; width: 240px; height: 360px; }
 .bs-skel--wide { flex: 0 0 auto; width: 428px; height: 241px; }

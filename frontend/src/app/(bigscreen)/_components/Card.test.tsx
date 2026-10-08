@@ -111,7 +111,7 @@ describe('Card', () => {
     });
 
     it('is the last thing in the card', () => {
-      // A focused card's ring has ~1px of clearance in the track; nothing may sit below the bar.
+      // The track absorbs about one text line of extra card height; nothing below the bar.
       const { container } = renderCard({ progressPct: 42, subtitle: '1995' });
       expect(container.querySelector('a')!.lastElementChild).toHaveClass('bs-card__bar');
     });

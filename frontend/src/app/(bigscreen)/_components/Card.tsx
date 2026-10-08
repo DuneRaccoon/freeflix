@@ -40,7 +40,7 @@ export interface CardItem {
  * - the badge lives in `.bs-card__sub`: the label is a vertical `-webkit-box`, which
  *   lays children out as blocks and would drop a badge onto its own line;
  * - the subtitle is one line by design and the bar is last: a focused card's ring has
- *   about 1px of clearance inside the rail track, so anything taller gets clipped.
+ *   only about one text line of spare height inside the rail track, so anything taller gets clipped.
  *
  * `memo` is what makes the focus hook's per-cell `FocusProps` worth having: a move
  * re-renders the grid's owner, and only the two cells whose `tabIndex` flipped should
@@ -68,13 +68,15 @@ const ITEM_FIELDS: Record<keyof CardItem, true> = {
   badge: true,
 };
 const ITEM_KEYS = Object.keys(ITEM_FIELDS) as Array<keyof CardItem>;
+// Same trick for FocusProps: a fourth field added there would otherwise be compared by
+// nobody, and the memo would start skipping renders it should do.
+const FOCUS_FIELDS: Record<keyof FocusProps, true> = { tabIndex: true, ref: true, onFocus: true };
+const FOCUS_KEYS = Object.keys(FOCUS_FIELDS) as Array<keyof FocusProps>;
 
 function sameProps(a: CardProps, b: CardProps): boolean {
   if (a.shape !== b.shape) return false;
   const [fa, fb] = [a.focusProps, b.focusProps];
-  if (fa !== fb && (fa.tabIndex !== fb.tabIndex || fa.ref !== fb.ref || fa.onFocus !== fb.onFocus)) {
-    return false;
-  }
+  if (fa !== fb && !FOCUS_KEYS.every((k) => fa[k] === fb[k])) return false;
   return a.item === b.item || ITEM_KEYS.every((k) => a.item[k] === b.item[k]);
 }
 

@@ -208,3 +208,276 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   border-radius: var(--radius);
 }
 .bs-pair-row { display: flex; gap: 48px; align-items: center; flex-wrap: wrap; }
+
+/* ============================================================
+   Stage 4 component vocabulary — the shell, hero, rails, cards, skeletons,
+   profile grid and keypad. Layout contract (spec §8.5): a 1920x1080 design
+   space; nothing interactive or textual outside the safe inset; body text >=24px,
+   titles 40-56px, focus targets >=60px tall. Nothing in this section animates on
+   a loop or asks the GPU for a per-frame effect (spec §9) — a scrim is a gradient
+   and a skeleton is a flat block.
+   ============================================================ */
+
+/* --- app shell --------------------------------------------------------- */
+/* html and body are overflow:hidden, so .bs-shell__scroll is the ONLY thing that
+   scrolls on these screens. The head sits above it and stays put. */
+.bs-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bs-shell__scroll {
+  flex: 1;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding: 0 0 var(--safe-y);
+}
+.bs-shell__head {
+  padding: var(--safe-y) var(--safe-x) 0;
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+}
+
+/* --- hero --------------------------------------------------------------- */
+/* Static on purpose: the web hero's 40s Ken-Burns transform is a full-bleed
+   animated layer, which spec §9 rules out. The artwork arrives as an inline
+   background-image; the scrim is a plain gradient (ink at 0.72 is the --ink
+   token as rgba) so the text stays legible with no per-frame effect. */
+.bs-hero {
+  position: relative;
+  height: 620px;
+  padding: var(--safe-y) var(--safe-x);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.bs-hero__art {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center top;
+}
+.bs-hero__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.72) 45%, rgba(10, 10, 11, 0.15) 100%);
+}
+.bs-hero__body { position: relative; max-width: 1100px; }
+.bs-hero__title {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.bs-hero__meta {
+  font-size: 24px;
+  color: var(--muted);
+  margin: 0 0 16px;
+  display: flex;
+  gap: 16px;
+}
+.bs-hero__overview {
+  font-size: 24px;
+  line-height: 1.45;
+  margin: 0 0 24px;
+  max-width: 900px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- rails --------------------------------------------------------------- */
+/* The track carries the safe inset as padding on BOTH sides. That is what lets the
+   first card rest inside the safe area while scrollIntoView({ inline: 'center' })
+   can still centre it — the focus manager drives all horizontal scrolling through
+   that one call; there is no wheel or drag handler. A TV shows no scrollbar.
+   The vertical padding is the focus ring's room, not decoration. overflow-x:auto
+   makes the track clip vertically too, and a focused card grows 3% about its centre
+   and then draws a 4px ring 4px outside that, so a ~475px poster card reaches ~22px
+   past its resting box. Both sides therefore carry 24px; at the 8px this used to
+   have, the top of the ring and the top of the card were cut off. */
+.bs-rail { margin: 0 0 48px; }
+.bs-rail__head { padding: 0 var(--safe-x); margin: 0 0 16px; }
+.bs-rail__title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  margin: 0;
+}
+.bs-rail__eyebrow {
+  font-size: 20px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+.bs-rail__track {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  padding: 24px var(--safe-x);
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.bs-rail__track::-webkit-scrollbar { display: none; }
+
+/* --- cards --------------------------------------------------------------- */
+/* One focusable element per card, so the ring belongs on the card itself. The
+   ring rule below is the same standing rule as .bs-tile:focus — it is the whole
+   navigation model on a remote, and it applies to .bs-profile:focus and .bs-key:focus
+   too. */
+.bs-card {
+  flex: 0 0 auto;
+  display: block;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-card:focus {
+  outline: var(--focus-ring) solid var(--gold);
+  outline-offset: 4px;
+  transform: scale(1.06);
+}
+.bs-card__art {
+  display: block;
+  width: 100%;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+.bs-card--poster { width: 240px; }          /* 2:3 */
+.bs-card--poster .bs-card__art { height: 360px; }
+.bs-card--wide { width: 428px; }            /* 16:9 */
+.bs-card--wide .bs-card__art { height: 241px; }
+/* The text title-card shown in place of artwork when there is none. It is declared
+   after .bs-card__art on purpose: both are single-class selectors, so source order
+   is what turns that rule's display:block into this one's flex. */
+.bs-card__fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  font-family: var(--font-display);
+  font-size: 28px;
+  text-align: center;
+  color: var(--gold-lite);
+  border: 1px solid var(--hairline);
+}
+.bs-card__label {
+  margin: 12px 0 0;
+  font-size: 22px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bs-card__sub { margin: 4px 0 0; font-size: 20px; color: var(--muted); }
+/* Resume progress; the fill width arrives as an inline style. */
+.bs-card__bar {
+  margin: 8px 0 0;
+  height: 6px;
+  background: var(--hairline);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bs-card__bar span { display: block; height: 100%; background: var(--gold); }
+.bs-card__badge {
+  display: inline-block;
+  margin: 0 0 0 8px;
+  padding: 2px 10px;
+  font-size: 18px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--gold-lite);
+}
+
+/* --- skeletons ------------------------------------------------------------ */
+/* A rail that has not loaded yet occupies its final height, so the layout does not
+   jump when the cards arrive. Flat blocks only: a looping shimmer would cost
+   frames for nothing (spec §9 allows transform and opacity, not a loop). */
+.bs-skel { background: var(--surface-2); border-radius: var(--radius); }
+.bs-skel--poster { flex: 0 0 auto; width: 240px; height: 360px; }
+.bs-skel--wide { flex: 0 0 auto; width: 428px; height: 241px; }
+
+/* --- profile grid and keypad ----------------------------------------------- */
+/* Who's-watching grid and the PIN pad. Profiles carry the same ring and scale as
+   .bs-card:focus. Keys do not scale — they sit in a 16px gutter — so their ring
+   takes the tighter 2px offset. */
+.bs-profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 48px;
+  padding: 0 var(--safe-x);
+}
+.bs-profile {
+  flex: 0 0 auto;
+  width: 240px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-profile:focus {
+  outline: var(--focus-ring) solid var(--gold);
+  outline-offset: 4px;
+  transform: scale(1.06);
+}
+.bs-profile__face {
+  width: 240px;
+  height: 240px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 72px;
+  color: var(--gold-lite);
+  overflow: hidden;
+}
+.bs-profile__face img { width: 100%; height: 100%; object-fit: cover; }
+.bs-profile__name { margin: 16px 0 0; font-size: 28px; text-align: center; }
+.bs-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 120px);
+  gap: 16px;
+  margin: 32px 0;
+}
+.bs-key {
+  min-height: 96px;
+  font-size: 40px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.bs-key:focus { outline: var(--focus-ring) solid var(--gold); outline-offset: 2px; }
+.bs-dots { display: flex; gap: 16px; margin: 24px 0; }
+.bs-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+}
+.bs-dot--on { background: var(--gold); }
+
+/* --- status text ------------------------------------------------------------ */
+/* A single line of state ("Loading…", "Nothing here yet") shared by several screens. */
+.bs-note { padding: 0 var(--safe-x); font-size: 24px; color: var(--muted); }

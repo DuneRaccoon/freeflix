@@ -67,6 +67,18 @@ const FORBIDDEN_CSS = [
   'backdrop-blur',
   'mix-blend',
   'background-blend',
+  // React's inline-style spelling is camelCase (`style={{ backdropFilter: ... }}`), and
+  // the `-webkit-` form is camelCased `Webkit...` with a capital. A kebab-case list
+  // matched none of them — demonstrated by running the predicate. Inline styles are an
+  // established idiom on this surface (Hero's `backgroundImage`, Card's `width`).
+  'backdropFilter',
+  'WebkitBackdropFilter',
+  'mixBlendMode',
+  'backgroundBlendMode',
+  // The blunt catch-all. `style={{ filter: 'blur(6px)' }}` defeats 'filter: blur(' because
+  // the quote sits between the colon and the value; any blur() is a GPU blur regardless of
+  // which property carries it (`filter`, `backdrop-filter`, `-webkit-filter`).
+  'blur(',
   'filter: blur(',
   'filter:blur(',
   'feTurbulence',
@@ -75,6 +87,16 @@ const FORBIDDEN_CSS = [
   'filter:url(',
   'filter="url(',
 ];
+
+/**
+ * KNOWN LIMIT: this is a substring scan, so a name assembled at runtime
+ * (`el.style.setProperty('backdrop' + '-filter', ...)`) is invisible to it. Not chased:
+ * defeating that needs a real evaluator, and the guard's job is to stop the spellings an
+ * author actually writes, not to resist deliberate evasion.
+ */
+function gpuOffences(src: string): string[] {
+  return FORBIDDEN_CSS.filter((f) => src.includes(f));
+}
 
 /** Comments legitimately name the banned constructs; only real code counts. */
 function stripCssComments(css: string): string {
@@ -101,7 +123,8 @@ function walk(dir: string): string[] {
 }
 
 const BIGSCREEN_DIR = join(process.cwd(), 'src/app/(bigscreen)');
-const TV_STYLESHEET = join(process.cwd(), 'public/bigscreen.css');
+const PUBLIC_DIR = join(process.cwd(), 'public');
+const TV_STYLESHEET = join(PUBLIC_DIR, 'bigscreen.css');
 
 /**
  * Does this import specifier escape to the web surface's components?
@@ -170,7 +193,18 @@ function relativeToAlias(id: string, spec: string): string | null {
 }
 
 /**
- * The web-component imports sitting one hop behind `spec`: what the module it names
+ * Everything the TV surface may not import, in one predicate, so the direct and the
+ * one-hop checks cannot drift apart again (the one-hop check used `escapesToComponents`
+ * alone and so let `@/lib/x` -> `framer-motion` / `globals.css` through).
+ * Specifier-based: depth-0 files are scanned as text, but a helper's comments or strings
+ * naming `framer-motion` are not an import.
+ */
+function isBannedImport(spec: string): boolean {
+  return escapesToComponents(spec) || spec.includes('framer-motion') || spec.includes('globals.css');
+}
+
+/**
+ * The banned imports sitting one hop behind `spec`: what the module it names
  * imports that `escapesToComponents` rejects. The reader is injectable so the rule can be
  * exercised against modules that are not on disk.
  *
@@ -190,23 +224,94 @@ function relativeToAlias(id: string, spec: string): string | null {
  */
 function componentImportsBehind(spec: string, read: (spec: string) => string | null = readAliased): string[] {
   const body = read(spec);
-  return body === null ? [] : importSpecifiers(body).filter(escapesToComponents);
+  return body === null ? [] : importSpecifiers(body).filter(isBannedImport);
+}
+
+/** hrefs of every `<link rel="stylesheet">` in a source file, whatever the attribute order. */
+function linkedStylesheets(src: string): string[] {
+  const out: string[] = [];
+  for (const tag of src.match(/<link\b[^>]*>/g) ?? []) {
+    if (!/rel\s*=\s*["']stylesheet["']/.test(tag)) continue;
+    const href = /href\s*=\s*["']([^"']+)["']/.exec(tag);
+    out.push(href ? href[1] : '(dynamic href)');
+  }
+  return out;
 }
 
 describe('TV performance budget (spec §9)', () => {
   it('the TV stylesheet uses no GPU-expensive CSS', () => {
     const css = stripCssComments(readFileSync(TV_STYLESHEET, 'utf8'));
-    const found = FORBIDDEN_CSS.filter((f) => css.includes(f));
+    const found = gpuOffences(css);
     expect(found, `public/bigscreen.css uses ${found.join(', ')}`).toEqual([]);
+  });
+
+  // The hole an author actually falls into: a second stylesheet dropped in public/ and
+  // linked beside the first. (A .css placed UNDER (bigscreen)/ is already scanned by the
+  // components test below, since tvSourceFiles walks every non-test file there — but it
+  // would be processed by PostCSS, itself what this surface's premise forbids, so
+  // public/ is the place it goes.)
+  it('every stylesheet in public/ uses no GPU-expensive CSS', () => {
+    const offences: string[] = [];
+    for (const file of walk(PUBLIC_DIR).filter((f) => f.endsWith('.css'))) {
+      const found = gpuOffences(stripCssComments(readFileSync(file, 'utf8')));
+      if (found.length) offences.push(`${relative(PUBLIC_DIR, file)}: ${found.join(', ')}`);
+    }
+    expect(offences).toEqual([]);
+  });
+
+  it('the layout links exactly one stylesheet, /bigscreen.css, and imports none', () => {
+    const src = readFileSync(join(BIGSCREEN_DIR, 'layout.tsx'), 'utf8');
+    expect(linkedStylesheets(src)).toEqual(['/bigscreen.css']);
+    expect(importSpecifiers(src).filter((s) => /\.css$/.test(s))).toEqual([]);
+  });
+
+  it('linkedStylesheets sees every stylesheet link, in either attribute order', () => {
+    expect(linkedStylesheets('<link rel="stylesheet" href="/a.css" />')).toEqual(['/a.css']);
+    expect(linkedStylesheets('<link href="/b.css" rel="stylesheet"/>')).toEqual(['/b.css']);
+    expect(linkedStylesheets('<link rel="stylesheet" href="/a.css" />\n<link rel="stylesheet" href="/b.css" />')).toEqual(['/a.css', '/b.css']);
+    expect(linkedStylesheets('<link rel="icon" href="/x.ico" />')).toEqual([]);
+  });
+
+  it('flags every spelling of every banned GPU construct', () => {
+    // One case per spelling, so the list cannot be narrowed back without a failure here.
+    // Each runs the REAL gpuOffences. The runtime-concatenation evasion is documented on
+    // gpuOffences as out of reach and is intentionally absent.
+    const cases: Array<[string, string]> = [
+      ['kebab backdrop-filter', '.x { backdrop-filter: blur(10px); }'],
+      ['tailwind backdrop-blur', 'className="backdrop-blur-md"'],
+      ['kebab -webkit-backdrop-filter', '.x { -webkit-backdrop-filter: saturate(2); }'],
+      ['camel backdropFilter', "style={{ backdropFilter: 'saturate(2)' }}"],
+      ['camel WebkitBackdropFilter', "style={{ WebkitBackdropFilter: 'saturate(2)' }}"],
+      ['kebab mix-blend-mode', '.x { mix-blend-mode: overlay; }'],
+      ['camel mixBlendMode', "style={{ mixBlendMode: 'overlay' }}"],
+      ['kebab background-blend-mode', '.x { background-blend-mode: screen; }'],
+      ['camel backgroundBlendMode', "style={{ backgroundBlendMode: 'screen' }}"],
+      ['css filter: blur(', '.x { filter: blur(4px); }'],
+      ['css filter:blur(', '.x{filter:blur(4px)}'],
+      ['quoted inline filter blur', "style={{ filter: 'blur(20px)' }}"],
+      ['bare blur( in -webkit-filter', '.x { -webkit-filter: blur(2px); }'],
+      ['feTurbulence', '<feTurbulence baseFrequency="0.8" />'],
+      ['feGaussianBlur', '<feGaussianBlur stdDeviation="4" />'],
+      ['css filter: url(', '.x { filter: url(#f); }'],
+      ['css filter:url(', '.x{filter:url(#f)}'],
+      ['attribute filter="url(', '<rect filter="url(#f)" />'],
+    ];
+    for (const [name, src] of cases) {
+      expect(gpuOffences(src), `${name} should be flagged: ${src}`).not.toEqual([]);
+    }
+    // Specific entries pinned individually, since a case above could be satisfied by a
+    // different entry (the catch-all `blur(`) and so not prove the named one exists.
+    for (const entry of ['backdropFilter', 'WebkitBackdropFilter', 'mixBlendMode', 'backgroundBlendMode', 'blur(']) {
+      expect(FORBIDDEN_CSS, `${entry} must stay in the list`).toContain(entry);
+    }
+    expect(gpuOffences('.x { color: red; opacity: .5; }')).toEqual([]);
   });
 
   it('the TV components use no GPU-expensive CSS', () => {
     const offences: string[] = [];
     for (const { id, src } of tvSourceFiles()) {
       if (src.includes(OPT_OUT)) continue;
-      for (const f of FORBIDDEN_CSS) {
-        if (src.includes(f)) offences.push(`${id}: ${f}`);
-      }
+      for (const f of gpuOffences(src)) offences.push(`${id}: ${f}`);
     }
     expect(offences).toEqual([]);
   });
@@ -305,6 +410,25 @@ describe('TV performance budget (spec §9)', () => {
       .flatMap(({ src }) => importSpecifiers(src))
       .filter((spec) => spec.startsWith('@/') && readAliased(spec) !== null);
     expect(followed.length).toBeGreaterThan(0);
+  });
+
+  it('one-hop check applies the same rules as the direct one, not a narrower set', () => {
+    // The direct rules ban web components, framer-motion and globals.css; the one-hop check
+    // once filtered by components alone, so a TV file importing a helper that imported
+    // framer-motion or globals.css passed everything. One case per rule.
+    const fake: Record<string, string> = {
+      '@/lib/motion': "import { motion } from 'framer-motion';",
+      '@/lib/styles': "import '@/app/(web)/globals.css';",
+      '@/lib/styles-rel': "import '../app/(web)/globals.css';",
+      '@/lib/comp': "import { X } from '@/components/ui/Modal';",
+      '@/lib/ok': "import { twMerge } from 'tailwind-merge';\n// mentions framer-motion in a comment only",
+    };
+    const read = (spec: string) => fake[spec] ?? null;
+    expect(componentImportsBehind('@/lib/motion', read)).toEqual(['framer-motion']);
+    expect(componentImportsBehind('@/lib/styles', read)).toEqual(['@/app/(web)/globals.css']);
+    expect(componentImportsBehind('@/lib/styles-rel', read)).toEqual(['../app/(web)/globals.css']);
+    expect(componentImportsBehind('@/lib/comp', read)).toEqual(['@/components/ui/Modal']);
+    expect(componentImportsBehind('@/lib/ok', read)).toEqual([]);
   });
 
   it('only the diagnostics page opts out of the checks', () => {

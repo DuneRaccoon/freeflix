@@ -8,7 +8,7 @@ import { parseUtc } from '@/lib/parseUtc';
 import { watchlistItemToCatalogItem } from '@/lib/watchlist/toCatalogItem';
 import type { CardItem } from '../_components/Card';
 import type { RailModel } from '../_components/Rail';
-import { catalogItemToCard } from './rails';
+import { RAIL_CAP, catalogItemToCard } from './rails';
 
 export interface ContinueWatchingDeps {
   /** The selected profile's id. Empty means no profile is selected yet. */
@@ -41,8 +41,29 @@ const MAX_CARDS = 6;
 
 const UP_NEXT = 'Up next';
 
+/**
+ * How long a card's artwork lookup may take before the card is drawn without it.
+ * `apiClient` sets no timeout, and a cold movie detail is a TMDB call and then a torrent
+ * search in sequence (about 35s). Waiting on the slowest of six would leave the whole rail
+ * a skeleton with no focusable cells while five cards were ready to paint; an artless
+ * card is what a failed lookup already produces.
+ */
+const ARTWORK_BUDGET_MS = 2500;
+
+/**
+ * Every rail this file returns says `loading: false` outright. A screen that merges a
+ * result over a loading placeholder with `{ ...placeholder, ...result }` keeps
+ * `loading: true` if the key is merely omitted, and `railCellCount` then reports 0
+ * focusable cells for a full rail: a dead row with nothing erroring anywhere.
+ */
+const settled = (spec: Omit<RailModel, 'items'>, items: CardItem[]): RailModel => ({
+  ...spec,
+  items,
+  loading: false,
+});
+
 /** The profile-scoped endpoints refuse (403/404/423) rather than return nothing. */
-const empty = (spec: Omit<RailModel, 'items'>): RailModel => ({ ...spec, items: [] });
+const empty = (spec: Omit<RailModel, 'items'>): RailModel => settled(spec, []);
 
 interface Candidate {
   /** Whose artwork to look up; null when the title cannot be identified. */
@@ -69,7 +90,7 @@ function resumeHref(torrentId: string, fileIndex: number | null | undefined): st
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
 /** A progress row has no artwork, so ask the title itself. Cosmetic, hence never throws. */
-async function backdropFor(art: NonNullable<Candidate['art']>): Promise<string | null> {
+async function fetchBackdrop(art: NonNullable<Candidate['art']>): Promise<string | null> {
   try {
     const detail =
       art.kind === 'tv'
@@ -79,6 +100,84 @@ async function backdropFor(art: NonNullable<Candidate['art']>): Promise<string |
   } catch {
     return null;
   }
+}
+
+/** The lookup, or null once it has had its budget. Never rejects, never outlives its timer. */
+function backdropFor(art: NonNullable<Candidate['art']>): Promise<string | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ARTWORK_BUDGET_MS);
+    void fetchBackdrop(art).then((url) => {
+      clearTimeout(timer);
+      resolve(url);
+    });
+  });
+}
+
+/**
+ * The card for one progress row, or null when the row offers nothing. Claims the show in
+ * `seenShows` only when it returns that show's card.
+ */
+function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate | null {
+  if (typeof row.movie_id !== 'string' || !row.movie_id) return null;
+
+  const parsed = parseContentId(row.movie_id);
+
+  if (parsed.kind === 'tv') {
+    const { showId, season, episode } = parsed;
+    // A tv id that did not parse has no show to group under; skip rather than guess.
+    if (showId === undefined || season === undefined || episode === undefined) return null;
+    if (seenShows.has(showId)) return null;
+    const title = showNameFromTitle(row.title, showId);
+
+    if (row.completed) {
+      // Claimed BEFORE any older row can be considered, so a finished latest episode is
+      // the show's one card (Up next) instead of an older half-watched episode surfacing
+      // behind it. It needs no torrent: it opens the show screen, not a file.
+      seenShows.add(showId);
+      return {
+        art: { kind: 'tv', tmdbId: showId },
+        card: {
+          // Distinct from the resume card's id, so the two can never be confused.
+          id: `tv:${showId}:up-next`,
+          href: `/bigscreen/show/${showId}`,
+          title,
+          subtitle: null,
+          badge: UP_NEXT,
+          // No progressPct: nothing to resume, and a part-filled bar would be a lie.
+        },
+      };
+    }
+
+    // An unfinished episode with no torrent can never resume, and must not claim the
+    // show: an older episode that still can resume is the better card.
+    if (!row.torrent_id) return null;
+    seenShows.add(showId);
+    return {
+      art: { kind: 'tv', tmdbId: showId },
+      card: {
+        id: `tv:${showId}`,
+        href: resumeHref(row.torrent_id, row.file_index),
+        title,
+        subtitle: `S${pad2(season)} · E${pad2(episode)}`,
+        progressPct: Math.round(row.percentage),
+      },
+    };
+  }
+
+  // A finished film is not "where you left off", and without a torrent it cannot resume.
+  if (row.completed || !row.torrent_id) return null;
+  const tmdbId = tmdbIdFromContentId(row.movie_id);
+  return {
+    art: tmdbId === undefined ? null : { kind: 'movie', tmdbId },
+    card: {
+      id: row.movie_id,
+      href: resumeHref(row.torrent_id, row.file_index),
+      // `||`, not `??`: an empty title would draw a blank label.
+      title: row.title || 'Untitled',
+      subtitle: null,
+      progressPct: Math.round(row.percentage),
+    },
+  };
 }
 
 /**
@@ -107,75 +206,31 @@ export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): P
   if (!userId) return empty(CONTINUE_WATCHING);
   try {
     const rows = (await streamingService.getRecentProgress(userId, FETCH_LIMIT))
-      .filter((row) => row.percentage > 0)
+      .filter((row) => (row?.percentage ?? 0) > 0)
       .sort((a, b) => watchedAt(b) - watchedAt(a));
 
     const candidates: Candidate[] = [];
     const seenShows = new Set<number>();
-
     for (const row of rows) {
       if (candidates.length >= MAX_CARDS) break;
-      if (!row.movie_id) continue;
-
-      const parsed = parseContentId(row.movie_id);
-
-      if (parsed.kind === 'tv') {
-        const { showId, season, episode } = parsed;
-        // A tv id that did not parse has no show to group under; skip rather than guess.
-        if (showId === undefined || season === undefined || episode === undefined) continue;
-        if (seenShows.has(showId)) continue;
-        // An unfinished episode with no torrent can never resume, and must not claim the
-        // show: an older episode that still can resume is the better card.
-        if (!row.completed && !row.torrent_id) continue;
-        // Claim the show BEFORE branching on completed, so a finished latest episode
-        // becomes the show's one card (Up next) instead of an older half-watched episode
-        // surfacing behind it.
-        seenShows.add(showId);
-        const title = showNameFromTitle(row.title, showId);
-        candidates.push({
-          art: { kind: 'tv', tmdbId: showId },
-          card: row.completed
-            ? {
-                // Distinct from the resume card's id, so the two can never be confused.
-                id: `tv:${showId}:up-next`,
-                href: `/bigscreen/show/${showId}`,
-                title,
-                subtitle: null,
-                badge: UP_NEXT,
-                // No progressPct: nothing to resume, and a part-filled bar would be a lie.
-              }
-            : {
-                id: `tv:${showId}`,
-                href: resumeHref(row.torrent_id as string, row.file_index),
-                title,
-                subtitle: `S${pad2(season)} · E${pad2(episode)}`,
-                progressPct: Math.round(row.percentage),
-              },
-        });
-      } else {
-        // A finished film is not "where you left off", and without a torrent it cannot
-        // resume.
-        if (row.completed || !row.torrent_id) continue;
-        const tmdbId = tmdbIdFromContentId(row.movie_id);
-        candidates.push({
-          art: tmdbId === undefined ? null : { kind: 'movie', tmdbId },
-          card: {
-            id: row.movie_id,
-            href: resumeHref(row.torrent_id, row.file_index),
-            title: row.title ?? 'Untitled',
-            subtitle: null,
-            progressPct: Math.round(row.percentage),
-          },
-        });
+      try {
+        const candidate = candidateFor(row, seenShows);
+        if (candidate) candidates.push(candidate);
+      } catch {
+        // One malformed row (a non-string title, say) costs that row, not the rail.
       }
     }
 
+    // Each lookup has its own budget and they run together, so the rail waits for the
+    // slowest ONE of them for at most ARTWORK_BUDGET_MS, not for the slowest to finish.
     const artwork = await Promise.all(
       candidates.map((c) => (c.art ? backdropFor(c.art) : Promise.resolve(null))),
     );
     // Each CardItem is built exactly once, here, so the memoised Card sees stable values.
-    const items: CardItem[] = candidates.map((c, i) => ({ ...c.card, artUrl: artwork[i] }));
-    return { ...CONTINUE_WATCHING, items };
+    return settled(
+      CONTINUE_WATCHING,
+      candidates.map((c, i) => ({ ...c.card, artUrl: artwork[i] })),
+    );
   } catch {
     return empty(CONTINUE_WATCHING);
   }
@@ -188,14 +243,24 @@ export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): P
  * It is a POSTER rail. `watchlistItemToCatalogItem` always nulls `backdrop_url`, so a
  * 16:9 card here would be artless without a detail fetch per item; the stored poster is
  * usually present. `tmdb_id` is a string on a watchlist row, which that mapper turns
- * into a number for the href.
+ * into a number for the href. Capped like the catalog rails: the full list belongs on a
+ * dedicated screen, not in 150 anchors a remote has to cross.
  */
 export async function fetchMyList({ userId }: ContinueWatchingDeps): Promise<RailModel> {
   if (!userId) return empty(MY_LIST);
   try {
-    const saved = await watchlistService.list(userId);
-    const items = saved.map((entry) => catalogItemToCard(watchlistItemToCatalogItem(entry), 'poster'));
-    return { ...MY_LIST, items };
+    const items: CardItem[] = [];
+    for (const entry of await watchlistService.list(userId)) {
+      if (items.length >= RAIL_CAP) break;
+      // `tmdb_id` is a string. A value that is not a positive whole number would make
+      // `Number()` yield NaN (or 0) and the card link to /bigscreen/movie/NaN. The
+      // optional chain makes a null entry fail the same check, so one bad row costs
+      // only itself.
+      const tmdbId = Number(entry?.tmdb_id);
+      if (!Number.isInteger(tmdbId) || tmdbId <= 0) continue;
+      items.push(catalogItemToCard(watchlistItemToCatalogItem(entry), 'poster'));
+    }
+    return settled(MY_LIST, items);
   } catch {
     return empty(MY_LIST);
   }

@@ -6,6 +6,7 @@ vi.mock('@/services/tv', () => ({ tvService: { browse: vi.fn() } }));
 
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
+import { railCellCount } from '../_components/Rail';
 import { TV_RAILS, catalogItemToCard, fetchRail, toRail, type TvRailSpec } from './rails';
 
 const browseMovies = vi.mocked(moviesService.browse);
@@ -133,11 +134,31 @@ describe('toRail', () => {
   it('copies the spec onto the model and is not loading', () => {
     const rail = toRail({ ...SPEC, shape: 'wide' }, movies(1), []);
     expect(rail).toMatchObject({ key: 'trending', title: 'Trending This Week', eyebrow: 'Now', shape: 'wide' });
-    expect(rail.loading).toBeFalsy();
+    expect(rail.loading).toBe(false);
   });
 
   it('is an empty rail when there is nothing to show', () => {
     expect(toRail(SPEC, [], []).items).toEqual([]);
+  });
+
+  it('says loading: false outright, so a merge over a loading placeholder cannot leave it true', () => {
+    // `{ ...placeholder, ...rail }` keeps `loading: true` if the key is merely omitted,
+    // and railCellCount would then report 0 focusable cells for a full rail.
+    const rail = toRail(SPEC, movies(2), shows(2));
+    const placeholder = { key: 'trending', title: 'Trending This Week', shape: 'poster' as const, items: [], loading: true };
+    expect(rail.loading).toBe(false);
+    expect(railCellCount({ ...placeholder, ...rail })).toBe(4);
+  });
+
+  it('drops a null element or an item with no usable tmdb id, and keeps the rest', () => {
+    const broken = [
+      null,
+      item({ tmdb_id: 1, media_type: 'movie' }),
+      { ...item({ tmdb_id: 2, media_type: 'movie' }), tmdb_id: undefined },
+      { ...item({ tmdb_id: 3, media_type: 'movie' }), tmdb_id: NaN },
+    ] as unknown as CatalogItem[];
+    const rail = toRail(SPEC, broken, shows(1));
+    expect(rail.items.map((c) => c.id)).toEqual(['movie:1', 'tv:1']);
   });
 });
 
@@ -236,6 +257,38 @@ describe('fetchRail', () => {
     browseShows.mockResolvedValue(page(shows(1)));
     const rail = await fetchRail(SPEC);
     expect(rail.items.map((c) => c.id)).toEqual(['tv:1']);
+  });
+
+  it('survives a results array with a null in it, costing only that element', async () => {
+    browseMovies.mockResolvedValue(page([null, ...movies(2)] as unknown as CatalogItem[]));
+    browseShows.mockResolvedValue(page(shows(1)));
+    const rail = await fetchRail(SPEC);
+    expect(rail.items.map((c) => c.id)).toEqual(['movie:1', 'tv:1', 'movie:2']);
+  });
+
+  it('survives a results value that is not an array', async () => {
+    browseMovies.mockResolvedValue({ results: { not: 'an array' } } as unknown as CatalogPage);
+    browseShows.mockResolvedValue(page(shows(1)));
+    const rail = await fetchRail(SPEC);
+    expect(rail.items.map((c) => c.id)).toEqual(['tv:1']);
+  });
+
+  it('survives a service that throws before it returns a promise', async () => {
+    browseMovies.mockImplementation(() => {
+      throw new Error('sync boom');
+    });
+    browseShows.mockResolvedValue(page(shows(2)));
+    const rail = await fetchRail(SPEC);
+    expect(rail.items.map((c) => c.id)).toEqual(['tv:1', 'tv:2']);
+  });
+
+  it('says loading: false outright on every path, including both halves failing', async () => {
+    browseMovies.mockResolvedValue(page(movies(1)));
+    browseShows.mockResolvedValue(page(shows(1)));
+    expect((await fetchRail(SPEC)).loading).toBe(false);
+    browseMovies.mockRejectedValue(new Error('502'));
+    browseShows.mockRejectedValue(new Error('502'));
+    expect((await fetchRail(SPEC)).loading).toBe(false);
   });
 
   it('does not call a half the spec leaves out', async () => {

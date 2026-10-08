@@ -90,8 +90,11 @@ export const TV_RAILS: readonly TvRailSpec[] = [
   },
 ];
 
-/** A longer rail is just more D-pad presses to cross. */
-const RAIL_CAP = 20;
+/**
+ * A longer rail is just more D-pad presses to cross. Shared with My List, which would
+ * otherwise be 150 anchors for a 150-title watchlist.
+ */
+export const RAIL_CAP = 20;
 
 export function catalogItemToCard(item: CatalogItem, shape: 'poster' | 'wide'): CardItem {
   return {
@@ -112,15 +115,30 @@ export function catalogItemToCard(item: CatalogItem, shape: 'poster' | 'wide'): 
 }
 
 /**
+ * A row that can become a card that goes somewhere. The arrays come off the wire, so a
+ * null element or an id that is not a number is possible at runtime whatever the types
+ * say; such a row costs itself, not the rail.
+ */
+function isUsable(item: CatalogItem | null | undefined): item is CatalogItem {
+  return !!item && Number.isInteger(item.tmdb_id);
+}
+
+/**
  * Interleave the two halves (movie, show, movie, show, ...) and cap the rail. When one
  * half is shorter, the other carries on alone rather than being cut to match.
+ *
+ * `loading` is an explicit `false`, not an omitted key: a screen that merges a result
+ * over a loading placeholder with `{ ...placeholder, ...result }` would otherwise keep
+ * `loading: true`, and `railCellCount` would report 0 focusable cells for a full rail.
  */
 export function toRail(spec: TvRailSpec, movies: CatalogItem[], shows: CatalogItem[]): RailModel {
+  // Unusable rows go BEFORE the interleave, so a bad row does not shift the alternation.
+  const [m, t] = [movies.filter(isUsable), shows.filter(isUsable)];
   const mixed: CatalogItem[] = [];
-  const longest = Math.max(movies.length, shows.length);
+  const longest = Math.max(m.length, t.length);
   for (let i = 0; i < longest; i++) {
-    if (i < movies.length) mixed.push(movies[i]);
-    if (i < shows.length) mixed.push(shows[i]);
+    if (i < m.length) mixed.push(m[i]);
+    if (i < t.length) mixed.push(t[i]);
   }
   return {
     key: spec.key,
@@ -128,29 +146,39 @@ export function toRail(spec: TvRailSpec, movies: CatalogItem[], shows: CatalogIt
     eyebrow: spec.eyebrow,
     shape: spec.shape,
     items: mixed.slice(0, RAIL_CAP).map((item) => catalogItemToCard(item, spec.shape)),
+    loading: false,
   };
 }
 
 /**
- * One half of a rail, already failure-tolerant: a rejection (or a 200 with no `results`)
- * is an empty half, never an error, so the other half still renders.
+ * One half of a rail, already failure-tolerant: a rejection, a synchronous throw, or a
+ * 200 with no `results` array is an empty half, never an error, so the other half still
+ * renders. The call is made synchronously, so both halves are in flight together.
  */
-function half(call: Promise<CatalogPage> | null): Promise<CatalogItem[]> {
-  if (!call) return Promise.resolve([]);
-  return call.then(
-    (page) => page?.results ?? [],
-    () => [],
-  );
+async function half(call: (() => Promise<CatalogPage>) | null): Promise<CatalogItem[]> {
+  if (!call) return [];
+  try {
+    const page = await call();
+    return Array.isArray(page?.results) ? page.results : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
- * One rail's two calls, concurrent. Never rejects. If BOTH halves fail the rail comes
- * back empty, and `Rail` removes an empty rail rather than drawing a hole.
+ * One rail's two calls, concurrent. Never rejects: if BOTH halves fail, or anything
+ * after them throws, the rail comes back empty, and `Rail` removes an empty rail rather
+ * than drawing a hole.
  */
 export async function fetchRail(spec: TvRailSpec): Promise<RailModel> {
-  const [movies, shows] = await Promise.all([
-    half(spec.movieParams ? moviesService.browse(spec.movieParams) : null),
-    half(spec.tvParams ? tvService.browse(spec.tvParams) : null),
-  ]);
-  return toRail(spec, movies, shows);
+  try {
+    const { movieParams, tvParams } = spec;
+    const [movies, shows] = await Promise.all([
+      half(movieParams ? () => moviesService.browse(movieParams) : null),
+      half(tvParams ? () => tvService.browse(tvParams) : null),
+    ]);
+    return toRail(spec, movies, shows);
+  } catch {
+    return toRail(spec, [], []);
+  }
 }

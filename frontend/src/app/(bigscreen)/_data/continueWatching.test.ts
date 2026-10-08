@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MovieDetail, ShowDetail, StreamingProgress } from '@/types';
 import type { WatchlistItem } from '@/services/watchlist';
 
@@ -11,6 +11,7 @@ import { streamingService } from '@/services/streaming';
 import { watchlistService } from '@/services/watchlist';
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
+import { railCellCount } from '../_components/Rail';
 import { fetchContinueWatching, fetchMyList } from './continueWatching';
 
 const getRecent = vi.mocked(streamingService.getRecentProgress);
@@ -54,6 +55,10 @@ beforeEach(() => {
   getShow.mockResolvedValue({ backdrop_url: null } as ShowDetail);
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('fetchContinueWatching', () => {
   it('asks for the profile\'s 24 most recent rows', async () => {
     getRecent.mockResolvedValue([]);
@@ -69,7 +74,21 @@ describe('fetchContinueWatching', () => {
       title: 'Continue Watching',
       shape: 'wide',
     });
-    expect(rail.loading).toBeFalsy();
+    expect(rail.loading).toBe(false);
+  });
+
+  it('says loading: false outright, so a merge over a loading placeholder cannot leave it true', async () => {
+    // `{ ...placeholder, ...result }` keeps the placeholder's `loading: true` if the
+    // result merely omits the key, and railCellCount then reports 0 focusable cells for
+    // a rail that is full: a dead row with nothing erroring anywhere.
+    getRecent.mockResolvedValue([row({ id: 'a' }), row({ id: 'b', movie_id: 'movie:2', title: 'Two' })]);
+    const rail = await fetchContinueWatching({ userId: 'u1' });
+    const placeholder = { key: 'continue-watching', title: 'Continue Watching', shape: 'wide' as const, items: [], loading: true };
+    expect(railCellCount({ ...placeholder, ...rail })).toBe(2);
+    getRecent.mockRejectedValue(refused(423));
+    const refusedRail = await fetchContinueWatching({ userId: 'u1' });
+    expect(refusedRail.loading).toBe(false);
+    expect({ ...placeholder, ...refusedRail }.loading).toBe(false);
   });
 
   it('reads the content id from movie_id, not content_id', async () => {
@@ -323,6 +342,101 @@ describe('fetchContinueWatching', () => {
     expect((await fetchContinueWatching({ userId: 'u1' })).items).toEqual([]);
   });
 
+  it('does not wait for a lookup that never settles, and the other cards keep their artwork', async () => {
+    // apiClient has no timeout and a cold movie detail can take ~35s. One slow title must
+    // cost that title its artwork, not leave the whole rail a skeleton with no cells.
+    vi.useFakeTimers();
+    getMovie.mockImplementation((id: number) =>
+      id === 1
+        ? new Promise<MovieDetail>(() => {})
+        : Promise.resolve({ backdrop_url: `https://img.test/${id}.jpg` } as MovieDetail),
+    );
+    getRecent.mockResolvedValue([
+      row({ id: 'a', movie_id: 'movie:1', title: 'Stuck', last_watched_at: '2026-10-03T00:00:00' }),
+      row({ id: 'b', movie_id: 'movie:2', title: 'Two', last_watched_at: '2026-10-02T00:00:00' }),
+      row({ id: 'c', movie_id: 'movie:3', title: 'Three', last_watched_at: '2026-10-01T00:00:00' }),
+    ]);
+
+    let done = false;
+    const pending = fetchContinueWatching({ userId: 'u1' }).then((rail) => {
+      done = true;
+      return rail;
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(done).toBe(false); // still inside the budget
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(done).toBe(true); // resolved by 3s although one lookup never will
+
+    const { items } = await pending;
+    expect(items.map((c) => [c.title, c.artUrl])).toEqual([
+      ['Stuck', null],
+      ['Two', 'https://img.test/2.jpg'],
+      ['Three', 'https://img.test/3.jpg'],
+    ]);
+    expect(railCellCount(await pending)).toBe(3);
+  });
+
+  it('leaves no timer behind once every lookup has answered', async () => {
+    vi.useFakeTimers();
+    getRecent.mockResolvedValue([row({ id: 'a' }), row({ id: 'b', movie_id: 'movie:2', title: 'Two' })]);
+    await fetchContinueWatching({ userId: 'u1' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('keeps the other cards\' artwork when one lookup rejects', async () => {
+    getMovie.mockImplementation((id: number) =>
+      id === 1 ? Promise.reject(refused(502)) : Promise.resolve({ backdrop_url: `https://img.test/${id}.jpg` } as MovieDetail),
+    );
+    getRecent.mockResolvedValue([
+      row({ id: 'a', movie_id: 'movie:1', title: 'Broken', last_watched_at: '2026-10-03T00:00:00' }),
+      row({ id: 'b', movie_id: 'movie:2', title: 'Fine', last_watched_at: '2026-10-02T00:00:00' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => [c.title, c.artUrl])).toEqual([
+      ['Broken', null],
+      ['Fine', 'https://img.test/2.jpg'],
+    ]);
+  });
+
+  it('still returns an Up next card, artless, when its show lookup rejects', async () => {
+    getShow.mockRejectedValue(refused(502));
+    getRecent.mockResolvedValue([
+      row({ completed: true, percentage: 100, movie_id: 'tv:1399:s1:e3', title: 'Game of Thrones S01E03' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items).toEqual([
+      {
+        id: 'tv:1399:up-next',
+        href: '/bigscreen/show/1399',
+        title: 'Game of Thrones',
+        subtitle: null,
+        badge: 'Up next',
+        artUrl: null,
+      },
+    ]);
+  });
+
+  it('costs a malformed row only that row, never the rail', async () => {
+    getRecent.mockResolvedValue([
+      null as unknown as StreamingProgress,
+      row({ id: 'num', movie_id: 42 as unknown as string, last_watched_at: '2026-10-09T00:00:00' }),
+      row({ id: 'badtitle', movie_id: 'tv:7:s1:e1', title: 7 as unknown as string, last_watched_at: '2026-10-08T00:00:00' }),
+      row({ id: 'good', movie_id: 'movie:2', title: 'Good', last_watched_at: '2026-10-01T00:00:00' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => c.title)).toEqual(['Good']);
+  });
+
+  it('gives a movie with an empty title the same fallback as one with none', async () => {
+    getRecent.mockResolvedValue([
+      row({ id: 'a', movie_id: 'movie:1', title: '', last_watched_at: '2026-10-02T00:00:00' }),
+      row({ id: 'b', movie_id: 'movie:2', title: null, last_watched_at: '2026-10-01T00:00:00' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => c.title)).toEqual(['Untitled', 'Untitled']);
+  });
+
   it('caps the rail at 6 cards, which also bounds the artwork lookups', async () => {
     getRecent.mockResolvedValue(
       Array.from({ length: 24 }, (_, i) =>
@@ -385,7 +499,7 @@ describe('fetchMyList', () => {
     expect(rail).toMatchObject({ key: 'my-list', title: 'My List', shape: 'poster' });
   });
 
-  it('turns the string tmdb_id into a numeric id and a bigscreen href', async () => {
+  it('links each entry to its bigscreen detail route by media type', async () => {
     listWatchlist.mockResolvedValue([
       entry({ tmdb_id: '603', media_type: 'movie' }),
       entry({ id: 'w2', tmdb_id: '1399', media_type: 'tv', content_id: 'tv:1399', title: 'Game of Thrones', year: 2011 }),
@@ -394,6 +508,51 @@ describe('fetchMyList', () => {
     expect(items.map((c) => c.href)).toEqual(['/bigscreen/movie/603', '/bigscreen/show/1399']);
     expect(items.map((c) => c.id)).toEqual(['movie:603', 'tv:1399']);
     expect(items[1]).toMatchObject({ title: 'Game of Thrones', subtitle: '2011' });
+  });
+
+  it('skips an entry whose tmdb_id is not a number, rather than linking to /NaN', async () => {
+    // This is what actually distinguishes converting the string from interpolating it:
+    // a template literal happily builds /bigscreen/movie/abc.
+    listWatchlist.mockResolvedValue([
+      entry({ id: 'w1', tmdb_id: 'abc', title: 'Alpha' }),
+      entry({ id: 'w2', tmdb_id: '', title: 'Empty' }),
+      entry({ id: 'w3', tmdb_id: '0', title: 'Zero' }),
+      entry({ id: 'w4', tmdb_id: '12.5', title: 'Fraction' }),
+      entry({ id: 'w5', tmdb_id: '603', title: 'Fine' }),
+    ]);
+    const { items } = await fetchMyList({ userId: 'u1' });
+    expect(items.map((c) => c.title)).toEqual(['Fine']);
+    for (const c of items) expect(c.href).not.toMatch(/NaN|undefined/);
+  });
+
+  it('costs a null or malformed entry only that entry', async () => {
+    listWatchlist.mockResolvedValue([
+      null as unknown as WatchlistItem,
+      entry({ id: 'w2', tmdb_id: '2', title: 'Two' }),
+    ]);
+    const { items } = await fetchMyList({ userId: 'u1' });
+    expect(items.map((c) => c.title)).toEqual(['Two']);
+  });
+
+  it('caps the list at 20, counting only the entries that became cards', async () => {
+    listWatchlist.mockResolvedValue([
+      entry({ id: 'bad', tmdb_id: 'abc', title: 'Bad' }),
+      ...Array.from({ length: 30 }, (_, i) => entry({ id: `w${i}`, tmdb_id: String(i + 1), title: `T${i + 1}` })),
+    ]);
+    const { items } = await fetchMyList({ userId: 'u1' });
+    expect(items).toHaveLength(20);
+    expect(items[0].title).toBe('T1');
+    expect(items[19].title).toBe('T20');
+  });
+
+  it('says loading: false outright, including when it is refused', async () => {
+    listWatchlist.mockResolvedValue([entry()]);
+    const rail = await fetchMyList({ userId: 'u1' });
+    expect(rail.loading).toBe(false);
+    const placeholder = { key: 'my-list', title: 'My List', shape: 'poster' as const, items: [], loading: true };
+    expect(railCellCount({ ...placeholder, ...rail })).toBe(1);
+    listWatchlist.mockRejectedValue(refused(403));
+    expect((await fetchMyList({ userId: 'u1' })).loading).toBe(false);
   });
 
   it('uses the stored poster, because a watchlist row has no backdrop', async () => {

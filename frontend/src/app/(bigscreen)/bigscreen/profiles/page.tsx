@@ -7,6 +7,8 @@ import { usersService, type User } from '@/services/users';
 import { getInitials, resolveAvatarSrc } from '@/lib/avatars/resolve';
 import { useFocusGrid } from '../../_focus/useFocusGrid';
 import { useBackKey } from '../../_focus/useBackKey';
+import { chunk } from '../../_data/chunk';
+import { statusOf } from '../../_data/httpStatus';
 import { useTvProfile } from '../../_data/useTvProfile';
 
 /**
@@ -47,12 +49,6 @@ const FALLBACK_LENGTH = 4;
  * it, which a remote cannot recover from.
  */
 const LOAD_PATIENCE_MS = 10_000;
-
-const statusOf = (err: unknown): number | undefined =>
-  (err as { response?: { status?: number } } | null)?.response?.status;
-
-const chunk = <T,>(items: readonly T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
 
 // --- profile grid -----------------------------------------------------------------
 

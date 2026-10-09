@@ -575,6 +575,30 @@ describe('fetchMyList', () => {
     expect(items.map((c) => c.title)).toEqual(['Two']);
   });
 
+  it('skips an entry whose media_type is neither movie nor tv, rather than routing it to /movie', async () => {
+    // `media_type` picks the ROUTE and nothing upstream constrains it: the backend field is
+    // a bare `str` and `@/lib/watchlist/toCatalogItem` CASTS rather than validates (`??`
+    // catches only null and undefined). `catalogItemToCard` then sends anything that is not
+    // 'tv' to /bigscreen/movie/{id}, so the card dead-ends on a 404 — the stage-4 Critical's
+    // shape. The NaN test above does NOT cover this: those rows fail a different clause.
+    listWatchlist.mockResolvedValue([
+      entry({ id: 'w1', tmdb_id: '300', media_type: 'person', title: 'Some Person' }),
+      entry({ id: 'w2', tmdb_id: '5', media_type: 'movie', title: 'Fine' }),
+    ]);
+    const { items } = await fetchMyList({ userId: 'u1' });
+    expect(items.map((c) => c.title)).toEqual(['Fine']);
+    expect(items.map((c) => c.href)).toEqual(['/bigscreen/movie/5']);
+  });
+
+  it('skips an entry with no content_id, which is the only handle removal has', async () => {
+    listWatchlist.mockResolvedValue([
+      entry({ id: 'w1', tmdb_id: '300', content_id: '', title: 'Unremovable' }),
+      entry({ id: 'w2', tmdb_id: '5', title: 'Fine' }),
+    ]);
+    const { items } = await fetchMyList({ userId: 'u1' });
+    expect(items.map((c) => c.title)).toEqual(['Fine']);
+  });
+
   it('caps the list at 20, counting only the entries that became cards', async () => {
     listWatchlist.mockResolvedValue([
       entry({ id: 'bad', tmdb_id: 'abc', title: 'Bad' }),

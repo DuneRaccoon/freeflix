@@ -51,6 +51,20 @@ interface CardProps {
   item: CardItem;
   shape: 'poster' | 'wide';
   focusProps: FocusProps;
+  /**
+   * What OK does INSTEAD of following `item.href`. Omitted, the card is an ordinary link.
+   *
+   * My List's remove mode is the one caller: there, pressing a card takes it off the list.
+   * A per-card remove button was the alternative and is worse on a remote — two focus stops
+   * per card makes Left/Right alternate card, remove, card, remove across a row. The `href`
+   * deliberately STAYS on the element: swapping the element type (to a `<button>`) would
+   * unmount every card the moment the mode flipped, and an unmounted focused element drops
+   * DOM focus to `<body>` with nothing on a remote to bring it back.
+   *
+   * Compared by reference in `sameProps`, so a caller that rebuilds the handler inline on
+   * every render loses the memo for every card on the screen. Cache one per cell.
+   */
+  onActivate?: () => void;
 }
 
 /**
@@ -72,15 +86,30 @@ const ITEM_KEYS = Object.keys(ITEM_FIELDS) as Array<keyof CardItem>;
 // nobody, and the memo would start skipping renders it should do.
 const FOCUS_FIELDS: Record<keyof FocusProps, true> = { tabIndex: true, ref: true, onFocus: true };
 const FOCUS_KEYS = Object.keys(FOCUS_FIELDS) as Array<keyof FocusProps>;
+/**
+ * And the same trick for the props themselves. `item` and `focusProps` are compared field by
+ * field above; every OTHER prop is compared by reference below, read off this record rather
+ * than listed by hand — so a prop added to `CardProps` is a type error here until it is
+ * named, and then it is compared automatically. By reference is the conservative direction:
+ * a future object-valued prop would re-render more often than it must, never less.
+ */
+const PROP_FIELDS: Record<keyof CardProps, true> = {
+  item: true,
+  shape: true,
+  focusProps: true,
+  onActivate: true,
+};
+const BY_VALUE = new Set<keyof CardProps>(['item', 'focusProps']);
+const SCALAR_PROP_KEYS = (Object.keys(PROP_FIELDS) as Array<keyof CardProps>).filter((k) => !BY_VALUE.has(k));
 
 function sameProps(a: CardProps, b: CardProps): boolean {
-  if (a.shape !== b.shape) return false;
+  if (!SCALAR_PROP_KEYS.every((k) => a[k] === b[k])) return false;
   const [fa, fb] = [a.focusProps, b.focusProps];
   if (fa !== fb && !FOCUS_KEYS.every((k) => fa[k] === fb[k])) return false;
   return a.item === b.item || ITEM_KEYS.every((k) => a.item[k] === b.item[k]);
 }
 
-export const Card = memo(function Card({ item, shape, focusProps }: CardProps) {
+export const Card = memo(function Card({ item, shape, focusProps, onActivate }: CardProps) {
   // The URL that failed, not a flag: rails key cells by index, so a refetch can hand
   // this instance a different title, and a sticky "failed" would show it as a text card.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -97,6 +126,17 @@ export const Card = memo(function Card({ item, shape, focusProps }: CardProps) {
       href={item.href}
       className={`bs-card bs-card--${shape}`}
       draggable={false}
+      // `preventDefault` before calling it: next/link's own handler runs this prop FIRST and
+      // then returns early on a prevented event, and the browser's native anchor navigation
+      // is cancelled by the same call. Without it a press would both act and navigate.
+      onClick={
+        onActivate
+          ? (e) => {
+              e.preventDefault();
+              onActivate();
+            }
+          : undefined
+      }
       {...focusProps}
     >
       {showArt ? (

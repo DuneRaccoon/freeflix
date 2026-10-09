@@ -788,3 +788,35 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    focus ring's room — a focused card scales 1.06 and then draws a 4px ring outside that. */
 .bs-search__results { padding: 16px 0 var(--safe-y); }
 .bs-search__row { display: flex; align-items: flex-start; gap: 24px; padding: 16px var(--safe-x); }
+
+/* --- My List: the removable grid ---------------------------------------------- */
+/* Rendered by bigscreen/list/page.tsx. The screen is otherwise built from classes that
+   already existed: .bs-shell + .bs-shell__head + .bs-shell__scroll for the frame,
+   .bs-controls + .bs-inset for the action row (the combination .bs-inset's own comment was
+   written for), .bs-msg for the always-mounted status line, .bs-note for the empty state,
+   .bs-btn (+ .bs-btn--ghost) for the two controls and .bs-card (+ .bs-card--poster) for a
+   title — exactly as home and search already use them.
+   The three rules below are the ones that did not exist. The row geometry is the same as
+   search's results grid (.bs-search__results / .bs-search__row): 6 posters are
+   6*240 + 5*24 = 1560px inside the 1728px the safe area leaves, and the vertical padding is
+   the focus ring's room, since a focused card scales 1.06 and then draws a 4px ring outside
+   that. They are NOT shared with those classes: a `search`-named class on My List would be
+   a naming lie, and renaming search's pair belongs to search's own file. If a third screen
+   wants this grid, that is the moment to extract one neutral name for all three.
+   COMBINING: .bs-list__grid and .bs-list__row are each used alone on their own element.
+   .bs-list__toggle sits beside .bs-btn (it colours the pressed state only) and
+   .bs-list__fail beside .bs-msg (it colours a failure only) — both base-plus-companion, the
+   .bs-card + .bs-card--poster shape, and neither sets geometry the base rule owns. No
+   positional selector: nothing here depends on a card's or a row's position in the DOM. */
+.bs-list__grid { padding: 16px 0 var(--safe-y); }
+.bs-list__row { display: flex; align-items: flex-start; gap: 24px; padding: 16px var(--safe-x); }
+/* The mode is on. Same treatment as .bs-show__season's pressed state, and driven by the same
+   aria-pressed the control already needs in order to be honest about being a toggle.
+   The transparent border is carried in BOTH states (.bs-btn has `border: 0`) so that turning
+   the mode on changes only colour: a border appearing on press would widen the control by
+   2px and nudge the link beside it, which under a 4px focus ring reads as the screen moving.
+   Colour is the least of the four signals anyway — the label becomes "Done", every card
+   gains a Remove badge, and the status line says what a press will now do. */
+.bs-list__toggle { border: 1px solid transparent; }
+.bs-list__toggle[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
+.bs-list__fail { color: var(--danger); }

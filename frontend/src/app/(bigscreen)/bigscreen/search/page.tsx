@@ -9,6 +9,7 @@ import { tvService } from '@/services/tv';
 import { mergeDedupe } from '@/lib/mergeCatalog';
 import { Card } from '../../_components/Card';
 import { Keyboard, KEYBOARD_ROW_COUNTS, type KeyAction } from '../../_components/Keyboard';
+import { chunk } from '../../_data/chunk';
 import { catalogItemToCard } from '../../_data/rails';
 import { useFocusGrid } from '../../_focus/useFocusGrid';
 import { useBackKey } from '../../_focus/useBackKey';
@@ -75,9 +76,6 @@ type Phase =
 function assertNever(x: never): never {
   throw new Error(`Unhandled key action: ${JSON.stringify(x)}`);
 }
-
-const chunk = <T,>(items: readonly T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
 
 /**
  * A row that can become a card that goes somewhere. The arrays come off the wire, so a null

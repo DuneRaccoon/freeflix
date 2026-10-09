@@ -114,5 +114,23 @@ describe('Card memoisation', () => {
       rerender(<Card item={base} shape="poster" focusProps={focus({ onFocus: vi.fn() })} />);
       expect(linkRenders.count).toBeGreaterThan(0);
     });
+
+    it('onActivate', () => {
+      // Compared by reference, so a screen that rebuilds the handler inline on every render
+      // defeats the memo. My List caches one handler per cell for exactly that reason.
+      const { rerender } = mount();
+      rerender(<Card item={base} shape="poster" focusProps={focus()} onActivate={vi.fn()} />);
+      expect(linkRenders.count).toBeGreaterThan(0);
+    });
+  });
+
+  it('skips a re-render when onActivate is the same function', () => {
+    // The whole point of caching the per-cell handlers: in remove mode a D-pad move must
+    // still re-render two cards, not two hundred.
+    const onActivate = vi.fn();
+    const view = render(<Card item={base} shape="poster" focusProps={focus()} onActivate={onActivate} />);
+    linkRenders.count = 0;
+    view.rerender(<Card item={{ ...base }} shape="poster" focusProps={{ tabIndex: -1, ref, onFocus }} onActivate={onActivate} />);
+    expect(linkRenders.count).toBe(0);
   });
 });

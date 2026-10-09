@@ -10,6 +10,7 @@ import { atSize } from '../../../_components/Hero';
 import { PrimaryAction } from '../../../_components/PrimaryAction';
 import { LoadStatus } from '../../../_components/LoadStatus';
 import { TitleScreen } from '../../../_components/TitleScreen';
+import { statusOf } from '../../../_data/httpStatus';
 import { titleStateFor, type TitleState } from '../../../_data/title';
 import { useTvProfile, type TvProfile } from '../../../_data/useTvProfile';
 import { useFocusGrid } from '../../../_focus/useFocusGrid';
@@ -41,9 +42,6 @@ type Load =
   | { phase: 'loading' }
   | { phase: 'failed' }
   | { phase: 'ready'; detail: MovieDetail; state: TitleState };
-
-const statusOf = (err: unknown): number | undefined =>
-  (err as { response?: { status?: number } } | null)?.response?.status;
 
 function eyebrowOf(d: MovieDetail): string | null {
   const parts: string[] = [];

@@ -5,10 +5,11 @@ import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
 import { parseContentId, showNameFromTitle, tmdbIdFromContentId } from '@/lib/contentId';
 import { parseUtc } from '@/lib/parseUtc';
-import { watchlistItemToCatalogItem } from '@/lib/watchlist/toCatalogItem';
 import type { CardItem } from '../_components/Card';
 import type { RailModel } from '../_components/Rail';
+import { statusOf } from './httpStatus';
 import { RAIL_CAP, catalogItemToCard } from './rails';
+import { watchlistCards } from './watchlistRow';
 
 export interface ContinueWatchingDeps {
   /** The selected profile's id. Empty means no profile is selected yet. */
@@ -80,9 +81,6 @@ const settled = (spec: Omit<RailModel, 'items'>, items: CardItem[], locked = fal
 
 /** The profile-scoped endpoints refuse (403/404/423) rather than return nothing. */
 const empty = (spec: Omit<RailModel, 'items'>): ProfileRail => settled(spec, []);
-
-const statusOf = (err: unknown): number | undefined =>
-  (err as { response?: { status?: number } } | null)?.response?.status;
 
 /** An empty rail for a call that threw; `locked` only when the profile's passcode is what stopped it. */
 const refused = (spec: Omit<RailModel, 'items'>, err: unknown): ProfileRail =>
@@ -266,26 +264,18 @@ export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): P
  * The profile's My List rail, newest first as the backend sends it. Resolves to an
  * empty rail, and never rejects, on the same refusals as Continue Watching.
  *
- * It is a POSTER rail. `watchlistItemToCatalogItem` always nulls `backdrop_url`, so a
- * 16:9 card here would be artless without a detail fetch per item; the stored poster is
- * usually present. `tmdb_id` is a string on a watchlist row, which that mapper turns
- * into a number for the href. Capped like the catalog rails: the full list belongs on a
- * dedicated screen, not in 150 anchors a remote has to cross.
+ * It is a POSTER rail, and which rows become cards at all is `watchlistCards`' decision —
+ * shared with `/bigscreen/list`, which draws the same rows uncapped. A row whose
+ * `media_type` is neither `movie` nor `tv` is dropped there rather than routed: it would
+ * otherwise become a card pointing at `/bigscreen/movie/{id}` that dead-ends on a 404.
+ * Capped like the catalog rails: the full list belongs on the dedicated screen, not in 150
+ * anchors a remote has to cross — which is exactly why that screen passes no cap.
  */
 export async function fetchMyList({ userId }: ContinueWatchingDeps): Promise<ProfileRail> {
   if (!userId) return empty(MY_LIST);
   try {
-    const items: CardItem[] = [];
-    for (const entry of await watchlistService.list(userId)) {
-      if (items.length >= RAIL_CAP) break;
-      // `tmdb_id` is a string. A value that is not a positive whole number would make
-      // `Number()` yield NaN (or 0) and the card link to /bigscreen/movie/NaN. The
-      // optional chain makes a null entry fail the same check, so one bad row costs
-      // only itself.
-      const tmdbId = Number(entry?.tmdb_id);
-      if (!Number.isInteger(tmdbId) || tmdbId <= 0) continue;
-      items.push(catalogItemToCard(watchlistItemToCatalogItem(entry), 'poster'));
-    }
+    const rows = await watchlistService.list(userId);
+    const items: CardItem[] = watchlistCards(rows, RAIL_CAP).map((w) => w.card);
     return settled(MY_LIST, items);
   } catch (err) {
     return refused(MY_LIST, err);

@@ -2,6 +2,7 @@ import type { StreamingProgress, TorrentStatus } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { buildContentId } from '@/lib/contentId';
+import { statusOf } from './httpStatus';
 import { watchHref } from './watchHref';
 
 /** What the primary control on a detail screen should do, and say. */
@@ -84,9 +85,6 @@ const QUALITY = '1080p' as const;
 
 /** Past this a film is finished, not resumable. Matches the web's cut-off. */
 const FINISHED_PCT = 95;
-
-const statusOf = (err: unknown): number | undefined =>
-  (err as { response?: { status?: number } } | null)?.response?.status;
 
 const READY = new Set(['finished', 'seeding']);
 // checking/allocating are the first moments of a download that has just been added; leaving

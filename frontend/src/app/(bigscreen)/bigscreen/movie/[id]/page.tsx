@@ -1,0 +1,302 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import type { MovieDetail } from '@/types';
+import { moviesService } from '@/services/movies';
+import { watchlistService } from '@/services/watchlist';
+import { buildContentId } from '@/lib/contentId';
+import { atSize } from '../../../_components/Hero';
+import { PrimaryAction } from '../../../_components/PrimaryAction';
+import { TitleScreen } from '../../../_components/TitleScreen';
+import { titleStateFor, type TitleState } from '../../../_data/title';
+import { useTvProfile, type TvProfile } from '../../../_data/useTvProfile';
+import { useFocusGrid } from '../../../_focus/useFocusGrid';
+import { useBackKey } from '../../../_focus/useBackKey';
+
+/**
+ * /bigscreen/movie/[id] — the movie detail screen.
+ *
+ * TWO CALLS, ONE LOAD. The detail comes from `getDetail(id, { withQualities: false })` and
+ * the title's state from `titleStateFor`. The cheap form matters: the web's equivalent
+ * screen runs three identical server-side torrent searches per load, each up to ~35s cold,
+ * and this surface needs none of them (it asks for 1080p and builds no quality picker).
+ * Consequence: `available_qualities` is `[]` here, so nothing below reads it.
+ *
+ * A FAILED PLAY IS VISIBLE. This surface mounts no toaster, so the web's toast-and-swallow
+ * start helper would fail silently on a television. `PrimaryAction` prints the reason beside
+ * the control instead.
+ *
+ * ONE FOCUS GRID AT A TIME, one component per mutually exclusive state: `LoadStatus` (not
+ * loaded yet, or failed) and `Loaded` each own theirs and the page renders exactly one.
+ * Every state has a focus target, because a remote has no Tab key and no pointer, and a
+ * ringless screen cannot be recovered from. BACK is installed once, here.
+ */
+
+const HOME = '/bigscreen';
+const PROFILES = '/bigscreen/profiles';
+/** How long a load may hang before a retry is offered (`apiClient` sets no timeout). */
+const LOAD_PATIENCE_MS = 10_000;
+
+type Load =
+  | { phase: 'loading' }
+  | { phase: 'failed' }
+  | { phase: 'ready'; detail: MovieDetail; state: TitleState };
+
+const statusOf = (err: unknown): number | undefined =>
+  (err as { response?: { status?: number } } | null)?.response?.status;
+
+function eyebrowOf(d: MovieDetail): string | null {
+  const parts: string[] = [];
+  if (d.year) parts.push(String(d.year));
+  if (d.runtime && d.runtime > 0) {
+    const h = Math.floor(d.runtime / 60);
+    const m = d.runtime % 60;
+    parts.push(h > 0 ? `${h}h ${m}m` : `${m}m`);
+  }
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/**
+ * Not loaded: the wait, and the failure. One component for both, so a retry that moves the
+ * screen from "failed" back to "loading" does not unmount the control the viewer is on.
+ */
+function LoadStatus({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
+  const [waited, setWaited] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  // The patience timer restarts after every press, so a retry that hangs can be retried.
+  const [round, setRound] = useState(0);
+
+  useEffect(() => {
+    setWaited(false);
+    const timer = setTimeout(() => setWaited(true), LOAD_PATIENCE_MS);
+    return () => clearTimeout(timer);
+  }, [round]);
+
+  const showRetry = failed || waited || pressed;
+  const retryable = failed || waited;
+  const grid = useFocusGrid({ rowCounts: [showRetry ? 2 : 1] });
+
+  const press = () => {
+    if (!retryable) return; // the label says "Trying again…"; a press has nothing to add
+    setPressed(true);
+    setRound((r) => r + 1);
+    onRetry();
+  };
+
+  return (
+    <TitleScreen
+      art={null}
+      title={failed ? 'Couldn’t load this movie' : 'Loading…'}
+      overview={null}
+      actions={
+        <>
+          {showRetry && (
+            // autoFocus: this arrives while focus is on Back, and the grid's target (0, 0)
+            // is now this button, so nothing else would move DOM focus onto it.
+            <button type="button" className="bs-btn" autoFocus {...grid.focusProps(0, 0)} onClick={press}>
+              {retryable ? 'Try again' : 'Trying again…'}
+            </button>
+          )}
+          <Link href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...grid.focusProps(0, showRetry ? 1 : 0)}>
+            Back
+          </Link>
+          {failed ? (
+            <p role="alert" className="bs-title__alert">
+              Check that the box is reachable, then try again.
+            </p>
+          ) : (
+            <p role="status" className="bs-title__note">
+              Loading this movie…
+            </p>
+          )}
+        </>
+      }
+    />
+  );
+}
+
+type ListLabel = 'Add to My List' | '✓ In My List' | 'Saving…' | 'Removing…';
+
+/** My List for one movie. Optimistic: the label flips at once and reverts if the call fails. */
+function useMyList(profileId: string | null, detail: MovieDetail) {
+  const [saved, setSaved] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const pendingRef = useRef(false);
+  const touched = useRef(false);
+  const contentId = buildContentId({ kind: 'movie', tmdbId: detail.tmdb_id });
+
+  useEffect(() => {
+    if (!profileId) return;
+    let cancelled = false;
+    watchlistService
+      .list(profileId)
+      .then((rows) => {
+        // A press that beat the list to the screen is newer than it.
+        if (!cancelled && !touched.current) setSaved(rows.some((r) => r.content_id === contentId));
+      })
+      .catch(() => {
+        /* unknown stays "not saved"; adding an existing item answers 409, which counts as saved */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileId, contentId]);
+
+  const toggle = async () => {
+    if (!profileId || pendingRef.current) return;
+    pendingRef.current = true;
+    touched.current = true;
+    const next = !saved;
+    setSaved(next);
+    setPending(true);
+    setFailed(false);
+    try {
+      if (next) {
+        await watchlistService.add(profileId, {
+          content_id: contentId,
+          tmdb_id: String(detail.tmdb_id),
+          media_type: 'movie',
+          title: detail.title,
+          poster_url: detail.poster_url,
+          year: detail.year,
+          vote_average: detail.vote_average,
+        });
+      } else {
+        await watchlistService.remove(profileId, contentId);
+      }
+    } catch (err) {
+      const status = statusOf(err);
+      // Already saved / already gone: the list is what the viewer asked for.
+      if (!((next && status === 409) || (!next && status === 404))) {
+        setSaved(!next);
+        setFailed(true);
+      }
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
+  };
+
+  const label: ListLabel = pending ? (saved ? 'Saving…' : 'Removing…') : saved ? '✓ In My List' : 'Add to My List';
+  return { label, failed, toggle };
+}
+
+function Loaded({
+  detail,
+  state,
+  profile,
+  onRecheck,
+}: {
+  detail: MovieDetail;
+  state: TitleState;
+  profile: TvProfile | null;
+  onRecheck: () => Promise<void>;
+}) {
+  // My List needs a profile; without one the row has one cell, and says so by having one.
+  const grid = useFocusGrid({ rowCounts: [profile ? 2 : 1] });
+  const list = useMyList(profile?.id ?? null, detail);
+
+  return (
+    <TitleScreen
+      art={atSize(detail.backdrop_url, 'w1920')}
+      eyebrow={eyebrowOf(detail)}
+      title={detail.title}
+      overview={detail.overview || null}
+      actions={
+        <>
+          <PrimaryAction
+            action={state.action}
+            request={{ mediaType: 'movie', tmdbId: detail.tmdb_id }}
+            focusProps={grid.focusProps(0, 0)}
+            onRecheck={onRecheck}
+          />
+          {profile && (
+            <div className="bs-title__action">
+              <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(0, 1)} onClick={list.toggle}>
+                {list.label}
+              </button>
+              {list.failed && (
+                <p role="alert" className="bs-title__alert">
+                  Couldn’t update My List. Try again.
+                </p>
+              )}
+            </div>
+          )}
+        </>
+      }
+    />
+  );
+}
+
+export default function MovieDetailPage() {
+  const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const id = Number(params?.id);
+  const { profile, loading: profileLoading, clear } = useTvProfile();
+  const profileId = profile?.id ?? null;
+  const [load, setLoad] = useState<Load>({ phase: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+
+  useBackKey(useCallback(() => router.push(HOME), [router]));
+
+  /** A 423 means the profile is passcode-locked: forget it and send the viewer to pick again. */
+  const sentToPicker = useCallback(
+    (state: TitleState): boolean => {
+      if (!state.locked) return false;
+      clear();
+      router.replace(PROFILES);
+      return true;
+    },
+    [clear, router],
+  );
+
+  useEffect(() => {
+    // The stored profile is read asynchronously; asking before it lands would ask as nobody.
+    if (profileLoading) return;
+    if (!Number.isInteger(id) || id <= 0) {
+      setLoad({ phase: 'failed' });
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      moviesService.getDetail(id, { withQualities: false }),
+      titleStateFor({ mediaType: 'movie', tmdbId: id, userId: profileId }),
+    ])
+      .then(([detail, state]) => {
+        if (cancelled || sentToPicker(state)) return;
+        setLoad({ phase: 'ready', detail, state });
+      })
+      .catch(() => {
+        if (!cancelled) setLoad({ phase: 'failed' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, profileId, profileLoading, attempt, sentToPicker]);
+
+  const retry = () => {
+    setLoad({ phase: 'loading' });
+    setAttempt((a) => a + 1);
+  };
+
+  // Ask again without leaving the screen: the control the viewer is on must not unmount.
+  const recheck = async () => {
+    if (load.phase !== 'ready') return;
+    const detail = load.detail;
+    let state: TitleState;
+    try {
+      state = await titleStateFor({ mediaType: 'movie', tmdbId: id, userId: profileId });
+    } catch {
+      state = { action: { kind: 'blocked', reason: 'Couldn’t reach the box. Check that it is on.' }, locked: false };
+    }
+    if (!sentToPicker(state)) setLoad({ phase: 'ready', detail, state });
+  };
+
+  if (load.phase === 'ready') {
+    return <Loaded detail={load.detail} state={load.state} profile={profile} onRecheck={recheck} />;
+  }
+  return <LoadStatus failed={load.phase === 'failed'} onRetry={retry} />;
+}

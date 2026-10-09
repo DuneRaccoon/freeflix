@@ -620,3 +620,57 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   text-decoration: none;
 }
 .bs-nav__item:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+
+/* --- title detail screens (movie, show) -------------------------------------- */
+/* The frame in _components/TitleScreen. Same recipe as the hero: an inline
+   background-image under a plain gradient scrim, static, no per-frame effect (spec §9).
+   The inset is the body's own padding, so nothing interactive or textual sits outside it.
+   Focus targets are .bs-btn (min-height 60px).
+   COMBINING: every .bs-title__* class is a layout part used ALONE on its own element.
+   .bs-btn (+ .bs-btn--ghost) is the only combination, exactly as home already uses it; do
+   not add a modifier to .bs-btn from this block. */
+.bs-title {
+  position: relative;
+  min-height: 760px;
+  padding: var(--safe-y) var(--safe-x);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  isolation: isolate;
+}
+.bs-title__art {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-size: cover;
+  background-position: center top;
+}
+.bs-title__scrim {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.8) 50%, rgba(10, 10, 11, 0.2) 100%);
+}
+.bs-title__body { position: relative; max-width: 1100px; }
+.bs-title__eyebrow { font-size: 24px; color: var(--muted); margin: 0 0 12px; }
+.bs-title__name {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+.bs-title__overview {
+  font-size: 24px;
+  line-height: 1.45;
+  margin: 0 0 32px;
+  max-width: 900px;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bs-title__actions { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.bs-title__action { display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
+.bs-title__note { font-size: 24px; line-height: 1.4; color: var(--gold-lite); margin: 0; }
+.bs-title__alert { font-size: 24px; line-height: 1.4; color: var(--danger); margin: 0; }
+.bs-title__below { padding: 0 var(--safe-x) var(--safe-y); }

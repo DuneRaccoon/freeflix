@@ -303,10 +303,13 @@ describe('My List screen', () => {
       list.mockRejectedValue(httpError(423));
       render(<MyListPage />);
       await waitFor(() => expect(router.replace).toHaveBeenCalled());
+      // `replace` is called before the locked screen is rendered, and that screen's ring is
+      // placed by a passive effect after it: wait for the screen, then for the ring.
+      await screen.findByText(/profile is locked/i);
       expect(screen.queryByText(/Nothing in My List yet/)).toBeNull();
       expect(cards()).toHaveLength(0);
       // And whatever it is showing while the replace lands still has a ring.
-      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+      await waitFor(() => expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1));
     });
 
     it('says the profile is locked rather than claiming to be loading a list', async () => {
@@ -317,7 +320,10 @@ describe('My List screen', () => {
       list.mockRejectedValue(httpError(423));
       render(<MyListPage />);
       await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/bigscreen/profiles'));
-      expect(screen.getByRole('status')).toHaveTextContent(/locked/i);
+      // The replace is called before the locked screen renders, and its ring is placed by a
+      // passive effect after that. Wait for both before walking the grid.
+      expect(await screen.findByRole('status')).toHaveTextContent(/locked/i);
+      await waitFor(() => expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1));
       expect(screen.queryByText(/Loading this list/)).toBeNull();
       expect(screen.queryByRole('heading', { name: /Loading/ })).toBeNull();
       expectEveryCellReachable('locked');

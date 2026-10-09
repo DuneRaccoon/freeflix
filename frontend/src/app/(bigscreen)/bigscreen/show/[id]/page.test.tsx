@@ -219,7 +219,9 @@ describe('show detail screen', () => {
       fireEvent.click(epButtons()[1]);
       await screen.findByText(/isn.t on the box yet/i);
       expect(router.push).not.toHaveBeenCalled();
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Play' }));
+      // The control is swapped by the render, and DOM focus is restored by a passive effect
+      // after it (the old control unmounted under focus): wait for the focus, not the text.
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Play' })));
     });
 
     it('paused / blocked are shown through the shared control, never navigated', async () => {

@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import type { Episode, SeasonDetail, SeasonSummary, ShowDetail, StreamingProgress } from '@/types';
 import { tvService } from '@/services/tv';
@@ -9,6 +8,7 @@ import { streamingService } from '@/services/streaming';
 import { atSize } from '../../../_components/Hero';
 import { EpisodeList, episodeRowCount } from '../../../_components/EpisodeList';
 import { PrimaryAction } from '../../../_components/PrimaryAction';
+import { LoadStatus } from '../../../_components/LoadStatus';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { titleStateFor, type TitleAction, type TitleState } from '../../../_data/title';
 import { episodeMarks, latestSeasonWatched, nextUnwatched, seasonFinished } from '../../../_data/showProgress';
@@ -118,57 +118,6 @@ async function loadShow(id: number, profileId: string | null): Promise<Opened> {
  * Not loaded: the wait, and the failure. One component for both, so a retry does not unmount
  * the control the viewer is on. (A copy of the movie screen's; a page file cannot export it.)
  */
-function LoadStatus({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
-  const [waited, setWaited] = useState(false);
-  const [pressed, setPressed] = useState(false);
-  const [round, setRound] = useState(0);
-
-  useEffect(() => {
-    setWaited(false);
-    const timer = setTimeout(() => setWaited(true), LOAD_PATIENCE_MS);
-    return () => clearTimeout(timer);
-  }, [round]);
-
-  const showRetry = failed || waited || pressed;
-  const retryable = failed || waited;
-  const grid = useFocusGrid({ rowCounts: [showRetry ? 2 : 1] });
-
-  const press = () => {
-    if (!retryable) return;
-    setPressed(true);
-    setRound((r) => r + 1);
-    onRetry();
-  };
-
-  return (
-    <TitleScreen
-      art={null}
-      title={failed ? 'Couldn’t load this show' : 'Loading…'}
-      overview={null}
-      actions={
-        <>
-          {showRetry && (
-            <button type="button" className="bs-btn" autoFocus {...grid.focusProps(0, 0)} onClick={press}>
-              {retryable ? 'Try again' : 'Trying again…'}
-            </button>
-          )}
-          <Link href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...grid.focusProps(0, showRetry ? 1 : 0)}>
-            Back
-          </Link>
-          {failed ? (
-            <p role="alert" className="bs-title__alert">
-              Check that the box is reachable, then try again.
-            </p>
-          ) : (
-            <p role="status" className="bs-title__note">
-              Loading this show…
-            </p>
-          )}
-        </>
-      }
-    />
-  );
-}
 
 /** The episode row 0 is about. */
 interface Subject {
@@ -534,5 +483,5 @@ export default function ShowDetailPage() {
   if (load.phase === 'ready' && !redirecting) {
     return <Loaded opened={load} profileId={profileId} onLocked={sentToPicker} />;
   }
-  return <LoadStatus failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
+  return <LoadStatus noun="show" patienceMs={LOAD_PATIENCE_MS} failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
 }

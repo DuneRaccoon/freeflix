@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import type { MovieDetail } from '@/types';
 import { moviesService } from '@/services/movies';
@@ -9,6 +8,7 @@ import { watchlistService } from '@/services/watchlist';
 import { buildContentId } from '@/lib/contentId';
 import { atSize } from '../../../_components/Hero';
 import { PrimaryAction } from '../../../_components/PrimaryAction';
+import { LoadStatus } from '../../../_components/LoadStatus';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { titleStateFor, type TitleState } from '../../../_data/title';
 import { useTvProfile, type TvProfile } from '../../../_data/useTvProfile';
@@ -62,60 +62,6 @@ function eyebrowOf(d: MovieDetail): string | null {
  * Not loaded: the wait, and the failure. One component for both, so a retry that moves the
  * screen from "failed" back to "loading" does not unmount the control the viewer is on.
  */
-function LoadStatus({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
-  const [waited, setWaited] = useState(false);
-  const [pressed, setPressed] = useState(false);
-  // The patience timer restarts after every press, so a retry that hangs can be retried.
-  const [round, setRound] = useState(0);
-
-  useEffect(() => {
-    setWaited(false);
-    const timer = setTimeout(() => setWaited(true), LOAD_PATIENCE_MS);
-    return () => clearTimeout(timer);
-  }, [round]);
-
-  const showRetry = failed || waited || pressed;
-  const retryable = failed || waited;
-  const grid = useFocusGrid({ rowCounts: [showRetry ? 2 : 1] });
-
-  const press = () => {
-    if (!retryable) return; // the label says "Trying again…"; a press has nothing to add
-    setPressed(true);
-    setRound((r) => r + 1);
-    onRetry();
-  };
-
-  return (
-    <TitleScreen
-      art={null}
-      title={failed ? 'Couldn’t load this movie' : 'Loading…'}
-      overview={null}
-      actions={
-        <>
-          {showRetry && (
-            // autoFocus: this arrives while focus is on Back, and the grid's target (0, 0)
-            // is now this button, so nothing else would move DOM focus onto it.
-            <button type="button" className="bs-btn" autoFocus {...grid.focusProps(0, 0)} onClick={press}>
-              {retryable ? 'Try again' : 'Trying again…'}
-            </button>
-          )}
-          <Link href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...grid.focusProps(0, showRetry ? 1 : 0)}>
-            Back
-          </Link>
-          {failed ? (
-            <p role="alert" className="bs-title__alert">
-              Check that the box is reachable, then try again.
-            </p>
-          ) : (
-            <p role="status" className="bs-title__note">
-              Loading this movie…
-            </p>
-          )}
-        </>
-      }
-    />
-  );
-}
 
 type ListLabel = 'Add to My List' | '✓ In My List' | 'Saving…' | 'Removing…';
 
@@ -318,5 +264,5 @@ export default function MovieDetailPage() {
   if (load.phase === 'ready' && !redirecting) {
     return <Loaded detail={load.detail} state={load.state} profile={profile} onRecheck={recheck} />;
   }
-  return <LoadStatus failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
+  return <LoadStatus noun="movie" patienceMs={LOAD_PATIENCE_MS} failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
 }

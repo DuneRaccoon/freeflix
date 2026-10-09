@@ -9,6 +9,7 @@ import { buildContentId } from '@/lib/contentId';
 import { atSize } from '../../../_components/Hero';
 import { PrimaryAction } from '../../../_components/PrimaryAction';
 import { LoadStatus } from '../../../_components/LoadStatus';
+import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { statusOf } from '../../../_data/httpStatus';
 import { titleStateFor, type TitleState } from '../../../_data/title';
@@ -252,8 +253,10 @@ export default function MovieDetailPage() {
     if (!sentToPicker(state)) setLoad({ phase: 'ready', detail, state });
   };
 
-  if (load.phase === 'ready' && !redirecting) {
+  // `redirecting` first and on its own: it must not borrow the loading state (see LockedRedirect).
+  if (redirecting) return <LockedRedirect />;
+  if (load.phase === 'ready') {
     return <Loaded detail={load.detail} state={load.state} profile={profile} onRecheck={recheck} />;
   }
-  return <LoadStatus noun="movie" failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
+  return <LoadStatus noun="movie" failed={load.phase === 'failed'} onRetry={retry} />;
 }

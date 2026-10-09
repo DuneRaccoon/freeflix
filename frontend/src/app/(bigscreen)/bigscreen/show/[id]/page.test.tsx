@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { SeasonDetail, ShowDetail, StreamingProgress, Episode } from '@/types';
 import { tvService } from '@/services/tv';
@@ -69,6 +69,10 @@ beforeEach(() => {
   getSeason.mockImplementation(async (_id, n) => season(n, n === 1 ? 3 : 2));
   recent.mockResolvedValue([]);
   stateFor.mockResolvedValue(stateOf({ kind: 'play' }));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('show detail screen', () => {
@@ -448,6 +452,24 @@ describe('show detail screen', () => {
       fireEvent.click(screen.getByRole('button', { name: /try again/i }));
       await waitFor(() => expect(epButtons()).toHaveLength(3));
       expect(getSeason).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('locked profile', () => {
+    it('while the picker loads it says why, offers the two ways out, and never grows a Try again', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      stateFor.mockResolvedValue(stateOf({ kind: 'blocked', reason: 'locked' }, true));
+      render(<ShowPage />);
+      await waitFor(() => expect(router.replace).toHaveBeenCalled());
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('This profile is locked');
+      expect(screen.getByRole('status')).toHaveTextContent(/enter its passcode/i);
+      expect(screen.queryByText(/loading/i)).toBeNull();
+      expect(screen.getByRole('link', { name: 'Who’s watching?' })).toHaveAttribute('href', '/bigscreen/profiles');
+      expect(screen.getByRole('link', { name: 'Back to home' })).toHaveAttribute('href', '/bigscreen');
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(screen.queryByRole('button')).toBeNull();
     });
   });
 

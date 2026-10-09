@@ -244,6 +244,21 @@ describe('movie detail screen', () => {
       expect(clear).toHaveBeenCalledTimes(1);
       expect(screen.queryByText('locked')).toBeNull();
     });
+    it('while the picker loads it says why, offers the two ways out, and never grows a Try again', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      stateFor.mockResolvedValue(stateOf({ kind: 'blocked', reason: 'locked' }, true));
+      render(<MoviePage />);
+      await waitFor(() => expect(router.replace).toHaveBeenCalled());
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('This profile is locked');
+      expect(screen.getByRole('status')).toHaveTextContent(/enter its passcode/i);
+      expect(screen.queryByText(/loading/i)).toBeNull();
+      expect(screen.getByRole('link', { name: 'Who’s watching?' })).toHaveAttribute('href', '/bigscreen/profiles');
+      expect(screen.getByRole('link', { name: 'Back to home' })).toHaveAttribute('href', '/bigscreen');
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(screen.queryByRole('button')).toBeNull();
+    });
     it('a blocked state that is NOT locked leaves the profile alone', async () => {
       await mount({ kind: 'blocked', reason: 'Refused.' });
       expect(clear).not.toHaveBeenCalled();

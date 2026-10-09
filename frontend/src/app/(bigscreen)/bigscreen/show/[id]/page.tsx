@@ -9,6 +9,7 @@ import { atSize } from '../../../_components/Hero';
 import { EpisodeList, episodeRowCount } from '../../../_components/EpisodeList';
 import { PrimaryAction } from '../../../_components/PrimaryAction';
 import { LoadStatus } from '../../../_components/LoadStatus';
+import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { titleStateFor, type TitleAction, type TitleState } from '../../../_data/title';
 import { watchHref } from '../../../_data/watchHref';
@@ -513,8 +514,10 @@ export default function ShowDetailPage() {
     setAttempt((a) => a + 1);
   };
 
-  if (load.phase === 'ready' && !redirecting) {
+  // `redirecting` first and on its own: it must not borrow the loading state (see LockedRedirect).
+  if (redirecting) return <LockedRedirect />;
+  if (load.phase === 'ready') {
     return <Loaded opened={load} profileId={profileId} onLocked={sentToPicker} />;
   }
-  return <LoadStatus noun="show" failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
+  return <LoadStatus noun="show" failed={load.phase === 'failed'} onRetry={retry} />;
 }

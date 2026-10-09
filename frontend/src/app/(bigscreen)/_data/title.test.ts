@@ -10,7 +10,7 @@ vi.mock('@/services/torrents', () => ({
 
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
-import { fileIndexForEpisode, requestTitle, resumeTitle, titleStateFor } from './title';
+import { requestTitle, resumeTitle, titleStateFor } from './title';
 
 const getProgress = vi.mocked(streamingService.getProgressByMovie);
 const getFiles = vi.mocked(streamingService.getFiles);
@@ -582,40 +582,5 @@ describe('requestTitle in-flight guard', () => {
     download.mockResolvedValue(torrent({ id: 'again' }));
     expect(await requestTitle({ mediaType: 'movie', tmdbId: 8 })).toEqual({ ok: true, torrentId: 'again' });
     expect(download).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('fileIndexForEpisode', () => {
-  it('prefers the largest file when a sample claims the same episode', async () => {
-    getFiles.mockResolvedValue([
-      { index: 0, season: 1, episode: 3, size: 30_000_000 },
-      { index: 1, season: 1, episode: 3, size: 2_000_000_000 },
-      { index: 2, season: 1, episode: 3, size: 40_000_000 },
-    ] as VideoFile[]);
-    expect(await fileIndexForEpisode('t1', 1, 3)).toBe(1);
-  });
-  const pack = files([0, 1, 1], [1, 1, 2], [2, 1, 3], [3, 2, 1]);
-  it('returns the index for S1E3 out of a pack', async () => {
-    getFiles.mockResolvedValue(pack);
-    expect(await fileIndexForEpisode('t1', 1, 3)).toBe(2);
-    expect(getFiles).toHaveBeenCalledWith('t1');
-  });
-  it('matches on season as well as episode', async () => {
-    getFiles.mockResolvedValue(pack);
-    expect(await fileIndexForEpisode('t1', 2, 1)).toBe(3);
-  });
-  it('returns file 0 as 0, not null', async () => {
-    getFiles.mockResolvedValue(pack);
-    expect(await fileIndexForEpisode('t1', 1, 1)).toBe(0);
-  });
-  it('returns null for S9E9 rather than guessing', async () => {
-    getFiles.mockResolvedValue(pack);
-    expect(await fileIndexForEpisode('t1', 9, 9)).toBeNull();
-  });
-  it('returns null when getFiles rejects or answers junk', async () => {
-    getFiles.mockRejectedValue(new Error('down'));
-    expect(await fileIndexForEpisode('t1', 1, 1)).toBeNull();
-    getFiles.mockResolvedValue(null as never);
-    expect(await fileIndexForEpisode('t1', 1, 1)).toBeNull();
   });
 });

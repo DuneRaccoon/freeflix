@@ -934,14 +934,30 @@ describe('a 423 anywhere sends the viewer to the picker', () => {
   });
 
   it.each(SCREENS.filter((s) => s.lock))(
-    '$file forgets the profile and replaces to the picker',
+    '$file forgets the profile, replaces to the picker, and never offers a live Play control',
     async (s) => {
       s.lock!();
+      // Wire `clear()` the way the real hook behaves: afterwards the screen sees NOBODY. That is
+      // what re-runs a screen's load as "nobody" (profileId changed), and with the services
+      // answering it would reach `play` unless the screen latched its redirect. The default
+      // fixture hangs every call, which hides this entirely.
+      clear.mockImplementation(() => {
+        vi.mocked(useTvProfile).mockReturnValue({ profile: null, loading: false, select, clear });
+      });
+      vi.mocked(torrentsService.listTorrents).mockResolvedValue([]);
       mountScreen(s);
-      // Never "your list is empty" and never a live Play control: a 423 means passcode-locked,
-      // which is a different fact from "nothing here".
       await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/bigscreen/profiles'));
       expect(clear).toHaveBeenCalled();
+      // Let the re-run (if any) settle before asserting its absence.
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+      // Never "your list is empty" and never a live Play control: a 423 means passcode-locked,
+      // which is a different fact from "nothing here".
+      expect(screen.queryByRole('button', { name: /^Play/ })).toBeNull();
+      // And no wasted re-run as nobody: the first (locked) answer never reaches the torrent list.
+      expect(torrentsService.listTorrents).not.toHaveBeenCalled();
+      if (/movie|show|list/.test(s.file)) expect(document.body.textContent).toMatch(/locked/i);
     },
   );
 });
@@ -1002,16 +1018,13 @@ describe('a card press lands on a screen that accepts the id the card carried', 
   });
 
   it('the route a card takes is decided by the row’s media_type, not by which half it came from', () => {
-    // The mechanism, pinned, because a load-bearing comment misdescribes it.
-    // `bigscreen/search/page.tsx` justifies `_data/rails`' weaker row guard (which checks
-    // `tmdb_id` alone) by saying "each half's `media_type` is implied by which call returned
-    // it". `toRail` does not work that way: `catalogItemToCard` reads `item.media_type` off
-    // the row, so a row in the SHOWS half carrying another kind is routed by the field, and
-    // nothing in the rails guard objects. It is latent today for a different reason than the
-    // comment gives — `providers/catalog.py`'s `normalize_item` sets `media_type` from the
-    // endpoint's own hardcoded mode, so a `tvService.browse` row is always `'tv'` — i.e. the
-    // safety lives on the BACKEND, not in the call-site implication. Asserting the real
-    // mechanism here means a future change to either side has to notice.
+    // The mechanism, pinned. `catalogItemToCard` reads `item.media_type` off the row, so a row
+    // in the SHOWS half that carries another kind is routed by the FIELD, not by which call
+    // returned it. `usableCardIdentity` checks the kind is a known one, so it cannot catch a
+    // valid-but-wrong kind; the safety against that lives on the BACKEND
+    // (`providers/catalog.py`'s `normalize_item` sets `media_type` from the endpoint's own
+    // hardcoded mode, so a `tvService.browse` row is always 'tv'). Asserting the mechanism here
+    // means a change on either side has to notice.
     const rail = toRail(TV_RAILS[0], [], [showRowOf(1399, { media_type: 'movie' as 'tv' })]);
     expect(rail.items.map((i) => i.href)).toEqual(['/bigscreen/movie/1399']);
     // And the field, set correctly, is what sends a show to the show route.

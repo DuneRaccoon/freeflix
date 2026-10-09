@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { watchlistService } from '@/services/watchlist';
 import { Card } from '../../_components/Card';
 import { LoadStatus } from '../../_components/LoadStatus';
+import { LOCKED_NOTE, WAYS_OUT } from '../../_components/LockedRedirect';
 import { chunk } from '../../_data/chunk';
 import { statusOf } from '../../_data/httpStatus';
 import { useTvProfile } from '../../_data/useTvProfile';
@@ -84,18 +85,6 @@ type Load =
 // --- there is no list to show -----------------------------------------------------
 
 /**
- * Both ways on from a screen with no list, in render order. An ARRAY, so the focus count is
- * `WAYS_OUT.length` rather than a hand-written number: this was the one count on the screen
- * not derived from the thing it counts, and both `[3]` and `[1]` in its place failed no test
- * — `[3]` parking the model on a cell no element claims, which leaves NOTHING in the tab
- * order two presses of Right after arriving.
- */
-const WAYS_OUT: readonly { href: string; label: string; ghost?: true }[] = [
-  { href: PROFILES, label: 'Who’s watching?' },
-  { href: HOME, label: 'Back to home', ghost: true },
-];
-
-/**
  * A My List screen with no list behind it: nobody is watching yet, or the profile is locked.
  *
  * Both say something true and then offer the same two ways on, so they share one component.
@@ -135,14 +124,6 @@ function NoList({ note }: { note: string }) {
 }
 
 const NO_PROFILE_NOTE = 'Nobody is watching yet. Choose a profile to see its list.';
-/**
- * Said on the way out, because nothing else in this journey explains itself: the card the
- * viewer pressed has already gone from the screen, the picker is about to appear
- * unannounced, and after unlocking the title is back where it was.
- */
-const LOCKED_NOTE =
-  'This profile is locked. Taking you to “Who’s watching?” so you can enter its passcode.';
-
 // --- the list ---------------------------------------------------------------------
 
 /**

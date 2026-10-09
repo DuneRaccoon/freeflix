@@ -144,7 +144,7 @@ function readSaved(): Restored {
     if (raw) {
       const parsed = JSON.parse(raw) as { q?: unknown; items?: unknown };
       if (typeof parsed?.q === 'string' && parsed.q && Array.isArray(parsed.items)) {
-        return { query, phase: { kind: 'results', q: parsed.q, items: (parsed.items as CatalogItem[]).filter(usableCatalogRow) } };
+        return { query, phase: { kind: 'results', q: parsed.q.slice(0, MAX_QUERY), items: (parsed.items as CatalogItem[]).filter(usableCatalogRow) } };
       }
     }
   } catch {
@@ -205,9 +205,10 @@ export default function SearchPage() {
       return;
     }
     // A search still out, or one that failed, leaves nothing worth coming back to: the
-    // stored rows would describe a query the screen is no longer showing. `idle` is what a
-    // mount with nothing stored looks like, so it must not clear what it was restored FROM.
-    if (phase.kind !== 'idle') removeStored(RESULTS_KEY);
+    // stored rows would describe a query the screen is no longer showing. (Reached only after
+    // mount: a restored mount starts as `results` and returns above, and nothing ever sets
+    // `idle` again, so no condition is needed here.)
+    removeStored(RESULTS_KEY);
   }, [phase]);
 
   /**

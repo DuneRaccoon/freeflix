@@ -48,6 +48,10 @@ export function EpisodeList({
       {episodes.map((e, i) => {
         const mark = marks.get(e.episode_number);
         const busy = busyEpisode === e.episode_number;
+        // Keyed by episode number, against the surface's key-by-index rule, because a season's
+        // list is fetched once into a write-once cache: the array never changes under the
+        // render, so no refetch can re-key the focused cell. Switching seasons reshapes the
+        // grid, and the focus hook's reconciliation re-focuses a clamped cell.
         return (
           <li key={e.episode_number}>
             <button

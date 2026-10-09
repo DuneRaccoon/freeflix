@@ -491,19 +491,3 @@ async function lookupEpisodeFile(torrentId: string, season: number, episode: num
     return { kind: 'unknown' };
   }
 }
-
-/**
- * The file index inside `torrentId` that holds this episode, or null if it is not there (or
- * the file list could not be read). `getFiles` already parses season/episode from each
- * filename, so this is a lookup. Null rather than a guessed index: guessing plays the wrong
- * episode. `titleStateFor` uses the finer-grained lookup so an unreadable pack never reads as
- * "absent"; a screen calling this directly gets the same null for both.
- */
-export async function fileIndexForEpisode(
-  torrentId: string,
-  season: number,
-  episode: number,
-): Promise<number | null> {
-  const found = await lookupEpisodeFile(torrentId, season, episode);
-  return found.kind === 'found' ? found.index : null;
-}

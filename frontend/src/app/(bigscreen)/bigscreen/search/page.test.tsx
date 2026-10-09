@@ -550,6 +550,15 @@ describe('search screen', () => {
       expect(screen.getByText(/7 results for/)).toBeInTheDocument();
     });
 
+    it('clamps a stored results query to the same bound as the typed one', async () => {
+      const long = 'x'.repeat(400);
+      sessionStorage.setItem('bs-search:q', 'x');
+      sessionStorage.setItem('bs-search:results', JSON.stringify({ q: long, items: SEVEN }));
+      render(<SearchPage />);
+      const line = await screen.findByText(/results for/);
+      expect(line.textContent!.length).toBeLessThan(150);
+    });
+
     it('brings the ring back to the cell it was left on', async () => {
       const ring = await leaveFromAResult();
       render(<SearchPage />);

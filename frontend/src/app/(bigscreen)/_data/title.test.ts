@@ -5,17 +5,19 @@ vi.mock('@/services/streaming', () => ({
   streamingService: { getProgressByMovie: vi.fn(), getFiles: vi.fn() },
 }));
 vi.mock('@/services/torrents', () => ({
-  torrentsService: { listTorrents: vi.fn(), downloadCatalogMovie: vi.fn() },
+  torrentsService: { listTorrents: vi.fn(), downloadCatalogMovie: vi.fn(), getTorrentStatus: vi.fn(), performTorrentAction: vi.fn() },
 }));
 
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
-import { fileIndexForEpisode, requestTitle, titleStateFor } from './title';
+import { fileIndexForEpisode, requestTitle, resumeTitle, titleStateFor } from './title';
 
 const getProgress = vi.mocked(streamingService.getProgressByMovie);
 const getFiles = vi.mocked(streamingService.getFiles);
 const list = vi.mocked(torrentsService.listTorrents);
 const download = vi.mocked(torrentsService.downloadCatalogMovie);
+const getStatus = vi.mocked(torrentsService.getTorrentStatus);
+const act = vi.mocked(torrentsService.performTorrentAction);
 
 function torrent(o: Partial<TorrentStatus> = {}): TorrentStatus {
   return {
@@ -69,6 +71,7 @@ beforeEach(() => {
   getProgress.mockResolvedValue(null);
   list.mockResolvedValue([]);
   getFiles.mockResolvedValue([]);
+  getStatus.mockResolvedValue(null);
 });
 
 describe('titleStateFor: progress', () => {
@@ -236,8 +239,13 @@ describe('titleStateFor: state mapping', () => {
     expect(a.kind === 'blocked' && a.reason.length > 0).toBe(true);
   });
 
-  it('an unrelated state (error) is play', async () => {
-    list.mockResolvedValue([torrent({ state: 'error' } as never)]);
+  it.each(['paused', 'stopped', 'error'])('%s is paused: resumable, never Play', async (state) => {
+    list.mockResolvedValue([torrent({ state } as never)]);
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'paused', torrentId: 't1' });
+  });
+
+  it('an unknown state offers play', async () => {
+    list.mockResolvedValue([torrent({ state: 'mystery' } as never)]);
     expect((await titleStateFor(movie)).action).toEqual({ kind: 'play' });
   });
 
@@ -245,6 +253,69 @@ describe('titleStateFor: state mapping', () => {
     // chosen_quality is None on every poll; a row carrying only `quality` must still match.
     list.mockResolvedValue([torrent({ quality: '720p', chosen_quality: undefined })]);
     expect((await titleStateFor(movie)).action.kind).toBe('open');
+  });
+});
+
+const legacy = (o: Partial<TorrentStatus> = {}) =>
+  torrent({ tmdb_id: null, media_type: null, season: null, episode: null, ...o });
+
+describe('titleStateFor: progress names the torrent (legacy rows)', () => {
+  it('resumes a torrent whose four identity fields are all NULL', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'old', current_time: 300 }));
+    getStatus.mockResolvedValue(legacy({ id: 'old' }));
+    list.mockResolvedValue([legacy({ id: 'old' })]); // identity match finds nothing
+    const state = await titleStateFor(movie);
+    expect(getStatus).toHaveBeenCalledWith('old');
+    expect(state.action).toEqual({ kind: 'resume', href: '/bigscreen/watch/old', atSeconds: 300 });
+  });
+
+  it('resolves a legacy pack episode through the saved file index without a lookup', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'old', file_index: 4, movie_id: 'tv:1399:s1:e5' }));
+    getStatus.mockResolvedValue(legacy({ id: 'old' }));
+    const state = await titleStateFor(ep(1, 5));
+    expect(state.action).toMatchObject({ kind: 'resume', href: '/bigscreen/watch/old?file=4' });
+    expect(getFiles).not.toHaveBeenCalled();
+  });
+
+  it('a legacy torrent still downloading is preparing, not play', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'old' }));
+    getStatus.mockResolvedValue(legacy({ id: 'old', state: 'downloading', progress: 40 } as never));
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'preparing', torrentId: 'old', progress: 40 });
+  });
+
+  it('a legacy paused torrent is paused', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'old' }));
+    getStatus.mockResolvedValue(legacy({ id: 'old', state: 'paused' } as never));
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'paused', torrentId: 'old' });
+  });
+
+  it('a vanished torrent (status call rejects) falls back to the identity match', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'gone' }));
+    getStatus.mockRejectedValue(httpError(404));
+    list.mockResolvedValue([torrent({ id: 'other' })]);
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'open', href: '/bigscreen/watch/other' });
+  });
+
+  it('does not ask for the torrent when progress is not resumable', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'old', percentage: 99 }));
+    await titleStateFor(movie);
+    expect(getStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('resumeTitle', () => {
+  it('sends resume for the torrent', async () => {
+    act.mockResolvedValue({ success: true });
+    expect(await resumeTitle('t1')).toEqual({ ok: true });
+    expect(act).toHaveBeenCalledWith('t1', 'resume');
+  });
+  it('turns failures into readable reasons and never rejects', async () => {
+    act.mockRejectedValue(httpError(404));
+    const gone = await resumeTitle('t1');
+    expect(!gone.ok && gone.reason).toMatch(/no longer/i);
+    act.mockRejectedValue(new Error('x'));
+    const other = await resumeTitle('t1');
+    expect(!other.ok && other.reason).toMatch(/try again/i);
   });
 });
 

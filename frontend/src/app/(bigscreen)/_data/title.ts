@@ -9,6 +9,7 @@ export type TitleAction =
   | { kind: 'resume'; href: string; atSeconds: number } // progress exists and is resumable
   | { kind: 'open'; href: string } // downloaded, no progress
   | { kind: 'preparing'; torrentId: string; progress: number } // already downloading
+  | { kind: 'paused'; torrentId: string } // a download exists but is not running
   | { kind: 'blocked'; reason: string }; // the box refused it
 
 export interface TitleState {
@@ -44,6 +45,12 @@ const PREPARING = new Set([
   'checking_fastresume',
   'allocating',
 ]);
+
+// A torrent that exists but is not running. `resume_torrent` re-adds a paused, stopped OR
+// errored torrent from its resume data and rechecks what is on disk, so all three continue
+// where they stopped. Offering Play instead would restart a half-downloaded film from nothing
+// (and mint a second torrent) on a Raspberry Pi.
+const PAUSED = new Set(['paused', 'stopped', 'error']);
 
 const watchHref = (torrentId: string, fileIndex?: number | null): string =>
   // `!= null`, not truthiness: file 0 is the first file of a season pack.
@@ -120,6 +127,38 @@ async function readyAction(
   return null;
 }
 
+/** The action for a torrent that is not ready to watch, or null when its state offers none. */
+function unreadyAction(row: TorrentStatus): TitleAction | null {
+  if (PREPARING.has(row.state)) {
+    return { kind: 'preparing', torrentId: row.id, progress: Number(row.progress) || 0 };
+  }
+  if (PAUSED.has(row.state)) return { kind: 'paused', torrentId: row.id };
+  if (row.state === 'blocked') {
+    return { kind: 'blocked', reason: row.block_reason || 'The box could not start this title.' };
+  }
+  return null;
+}
+
+/**
+ * The torrent the progress row names, fetched directly. The row is what ties this content id
+ * to that torrent, so no identity match is needed (or wanted): a torrent downloaded before the
+ * identity columns existed has all four NULL and `sync_columns` never backfills them. Null when
+ * the torrent is gone or its state offers nothing, and the caller falls back to identity.
+ */
+async function actionFromProgress(
+  progress: StreamingProgress & { torrent_id: string },
+  ref: TitleRef,
+): Promise<TitleAction | null> {
+  try {
+    const row = await torrentsService.getTorrentStatus(progress.torrent_id);
+    if (!row || typeof row.id !== 'string') return null;
+    if (READY.has(row.state)) return await readyAction([row], ref, progress);
+    return unreadyAction(row);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Ask what already exists before anyone is offered Play. `POST /torrents/download` mints a
  * fresh uuid4 and `add_torrent` does no magnet or infohash dedupe, so every Play press
@@ -155,6 +194,11 @@ export async function titleStateFor(args: TitleRef & { userId: string | null }):
       }
     }
 
+    if (resumable(progress)) {
+      const action = await actionFromProgress(progress, ref);
+      if (action) return { locked: false, action };
+    }
+
     let all: TorrentStatus[] = [];
     try {
       const listed = await torrentsService.listTorrents();
@@ -177,19 +221,9 @@ export async function titleStateFor(args: TitleRef & { userId: string | null }):
       const action = await readyAction(ready, ref, resumable(progress) ? progress : null);
       if (action) return { locked: false, action };
     }
-    const preparing = matches.find((r) => PREPARING.has(r.state));
-    if (preparing) {
-      return {
-        locked: false,
-        action: { kind: 'preparing', torrentId: preparing.id, progress: Number(preparing.progress) || 0 },
-      };
-    }
-    const blocked = matches.find((r) => r.state === 'blocked');
-    if (blocked) {
-      return {
-        locked: false,
-        action: { kind: 'blocked', reason: blocked.block_reason || 'The box could not start this title.' },
-      };
+    for (const row of matches) {
+      const action = unreadyAction(row);
+      if (action) return { locked: false, action };
     }
     return { locked: false, action: { kind: 'play' } };
   } catch {
@@ -215,6 +249,26 @@ function reasonFor(err: unknown): string {
     return 'The box is busy with other downloads. Try again in a few minutes.';
   }
   return "Couldn't start this title. Try again.";
+}
+
+/** Resume a paused download. Same result shape as `requestTitle`. */
+export async function resumeTitle(
+  torrentId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    await torrentsService.performTorrentAction(torrentId, 'resume');
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      reason:
+        statusOf(err) === 404
+          ? 'That download is no longer on the box.'
+          : (err as { request?: unknown } | null)?.request && statusOf(err) === undefined
+            ? "Couldn't reach the box. Check that it is on."
+            : "Couldn't resume this download. Try again.",
+    };
+  }
 }
 
 /**

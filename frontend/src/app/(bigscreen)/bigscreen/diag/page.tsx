@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 
 /**
  * /bigscreen/diag — the stage-3 gate, and afterwards a permanent field tool.
@@ -21,6 +22,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *
  * Runs unauthenticated, so browse it with AUTH_ENABLED=false set temporarily on the
  * backend (revert immediately afterwards).
+ *
+ * IT CLAIMS NO BACK KEY, AND THAT IS WHY IT CARRIES ITS OWN WAY OUT. Every other screen on
+ * this surface installs `useBackKey`; this one must not. Reading what the remote's Back
+ * actually sends is the key log's whole purpose, and a handler that navigated home would
+ * take the viewer off the screen before they could read the line it had just logged. But
+ * leaving Back to the browser means it walks history, and history can lead out of
+ * `(bigscreen)` — which a remote cannot type its way back from. So the exit is the one the
+ * profile keypad already uses for the same reason: an on-screen, focusable control, "a way
+ * out that does not depend on the remote's own Back key being recognised" (`KEY_ROWS`).
+ * It is FIRST in the document, because this screen mounts no focus grid — whether the set's
+ * D-pad moves native focus at all is one of the things it is here to find out — so native
+ * focus order is the only navigation it has, and an exit after six tiles, a key log and a
+ * video is not an exit.
  *
  * @allow-legacy-probes — this file names expensive and post-Chromium-87 CSS and JS
  * features on
@@ -220,6 +234,12 @@ export default function BigScreenDiagnostics() {
 
   return (
     <div className="bs-page">
+      {/* First focus stop on the page, deliberately: see the note at the top of this file. */}
+      <div className="bs-controls">
+        <Link href="/bigscreen" className="bs-btn bs-btn--ghost" draggable={false}>
+          Back to home
+        </Link>
+      </div>
       <h1>Freeflix — big-screen diagnostics</h1>
 
       <div className={verdictClass}>

@@ -7,7 +7,15 @@ vi.mock('@/services/tv', () => ({ tvService: { browse: vi.fn() } }));
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
 import { railCellCount } from '../_components/Rail';
-import { TV_RAILS, catalogItemToCard, fetchRail, toRail, type TvRailSpec } from './rails';
+import {
+  TV_RAILS,
+  catalogItemToCard,
+  fetchRail,
+  toRail,
+  usableCardIdentity,
+  usableCatalogRow,
+  type TvRailSpec,
+} from './rails';
 
 const browseMovies = vi.mocked(moviesService.browse);
 const browseShows = vi.mocked(tvService.browse);
@@ -159,6 +167,66 @@ describe('toRail', () => {
     ] as unknown as CatalogItem[];
     const rail = toRail(SPEC, broken, shows(1));
     expect(rail.items.map((c) => c.id)).toEqual(['movie:1', 'tv:1']);
+  });
+
+  it('drops a row whose media_type is neither movie nor tv, rather than routing it to /movie', () => {
+    // `catalogItemToCard` sends anything that is not exactly 'tv' to /bigscreen/movie/{id},
+    // so a row of another kind becomes a card that dead-ends on a 404 — the stage-4
+    // Critical's shape. Latent on this path (see `usableCardIdentity`'s comment: the backend
+    // sets the field from the endpoint's own mode), which is why the clause was missing here
+    // and present on the two screens that merge halves.
+    const junk = [
+      { ...item({ tmdb_id: 300, media_type: 'movie' }), media_type: 'person' },
+      item({ tmdb_id: 5, media_type: 'movie' }),
+    ] as unknown as CatalogItem[];
+    expect(toRail(SPEC, junk, []).items.map((c) => c.href)).toEqual(['/bigscreen/movie/5']);
+  });
+
+  it('drops a row whose tmdb id is zero or negative, rather than routing it to /movie/0', () => {
+    const junk = [
+      item({ tmdb_id: 0, media_type: 'movie' }),
+      item({ tmdb_id: -3, media_type: 'movie' }),
+      item({ tmdb_id: 5, media_type: 'movie' }),
+    ];
+    expect(toRail(SPEC, junk, []).items.map((c) => c.href)).toEqual(['/bigscreen/movie/5']);
+  });
+});
+
+describe('usableCardIdentity: the one statement of "this row can become a card that goes somewhere"', () => {
+  // THE PROOF THAT STRENGTHENING THIS DROPS NOTHING LEGITIMATE, which is the thing a stricter
+  // shared predicate has to earn. Every catalog row on this surface comes from
+  // `providers/catalog.py`'s `normalize_item`, whose `media_type` is
+  // `"tv" if media_type == "tv" else "movie"` over the endpoint's own hardcoded `mode` — a
+  // closed binary, never a free string. So a row off either endpoint always satisfies the
+  // clause, and asserting that here is what stops someone "fixing" a drop that cannot happen.
+  it('keeps every row the catalog endpoints can actually produce', () => {
+    const asTheBackendSendsThem = [...movies(30), ...shows(30)];
+    for (const row of asTheBackendSendsThem) {
+      expect(usableCatalogRow(row), `${row.media_type}:${row.tmdb_id}`).toBe(true);
+    }
+    // And none of them is lost on the way through the rail.
+    const rail = toRail({ ...SPEC }, movies(10), shows(10));
+    expect(rail.items).toHaveLength(20);
+  });
+
+  it('is the same rule however the row reached it', () => {
+    // `watchlistRow` reaches it with a Number()-converted string id; the rails and search
+    // paths reach it with a number straight off the wire. One rule, three call sites.
+    expect(usableCardIdentity(603, 'movie')).toBe(true);
+    expect(usableCardIdentity(1399, 'tv')).toBe(true);
+    expect(usableCardIdentity(Number('603'), 'movie')).toBe(true);
+    expect(usableCardIdentity(Number('abc'), 'movie')).toBe(false);
+    expect(usableCardIdentity(603, 'person')).toBe(false);
+    expect(usableCardIdentity(603, undefined)).toBe(false);
+    expect(usableCardIdentity(603, null)).toBe(false);
+    expect(usableCardIdentity(0, 'movie')).toBe(false);
+    expect(usableCardIdentity(-1, 'movie')).toBe(false);
+    expect(usableCardIdentity(12.5, 'movie')).toBe(false);
+  });
+
+  it('answers false for a null row instead of throwing on it', () => {
+    expect(usableCatalogRow(null)).toBe(false);
+    expect(usableCatalogRow(undefined)).toBe(false);
   });
 });
 

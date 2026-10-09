@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type { CatalogItem } from '@/types';
 import type { CardItem } from '../_components/Card';
 import { TV_RAILS, fetchRail, toRail, type CatalogRail } from '../_data/rails';
@@ -28,7 +28,9 @@ const profileHook = vi.mocked(useTvProfile);
 
 /** Everything a remote, a Tab key or a screen reader could stop on. */
 const FOCUS_STOPS = 'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]';
-const SAVED_KEY = 'bs-focus:home';
+const SAVED_KEY = 'bs-focus:home:v2';
+/** The key the build before the nav row used. Never read by this build. */
+const LEGACY_KEY = 'bs-focus:home';
 
 // --- fixtures -----------------------------------------------------------------------
 
@@ -113,6 +115,11 @@ const fetchedKeys = () => fetchRailMock.mock.calls.map(([spec]) => spec.key);
 const wrapperOf = (key: string) => document.querySelector(`[data-rail="${key}"]`) as HTMLElement;
 const railTitles = () => [...document.querySelectorAll('.bs-rail__title')].map((h) => h.textContent);
 const stopsIn = (el: Element) => el.querySelectorAll(FOCUS_STOPS);
+/** The recovery panel's link; the nav row has one of the same name, so scope to the panel. */
+// Scoped to the panel deliberately. The nav row's equivalent is labelled "Switch profile"
+// so the two no longer collide by name, but scoping keeps this helper honest if either
+// label changes again.
+const panelWho = () => within(document.querySelector('.bs-controls') as HTMLElement).getByRole('link', { name: 'Who’s watching?' });
 const active = () => document.activeElement as HTMLElement;
 
 // --- a controllable IntersectionObserver ---------------------------------------------
@@ -220,8 +227,8 @@ describe('/bigscreen home: progressive paint', () => {
       expect(stopsIn(wrapper), spec.key).toHaveLength(0);
       expect(wrapper.querySelector('section')).toHaveAttribute('aria-busy', 'true');
     }
-    // The hero and the three trending cards are the only stops on the screen.
-    expect(stopsIn(document.body)).toHaveLength(4);
+    // The hero, the four nav links and the three trending cards are the only stops on the screen.
+    expect(stopsIn(document.body)).toHaveLength(8);
   });
 
   it('keeps every rail’s title on screen while it is a skeleton, in lineup order', async () => {
@@ -338,6 +345,7 @@ describe('/bigscreen home: no rail holds the screen', () => {
     // Trending is still out, so the hero's place is held by the status panel, at the hero's size.
     expect(document.querySelector('.bs-hero')).toHaveTextContent('Loading…');
     // And the rail that landed is reachable: a hung first rail must not strand the rest.
+    arrow('ArrowDown'); // the nav row is the next stop below the panel
     arrow('ArrowDown');
     expect(active().closest('[data-rail]')).toBe(wrapperOf('new'));
   });
@@ -346,7 +354,7 @@ describe('/bigscreen home: no rail holds the screen', () => {
     // Left alone, the grid focuses the first populated row, which is whichever rail won the
     // race, and the page scrolls down to it before the hero has been drawn.
     renderHome();
-    const link = screen.getByRole('link', { name: 'Who’s watching?' });
+    const link = panelWho();
     vi.mocked(Element.prototype.scrollIntoView).mockClear();
     await observer().see('new');
     await answer('new', 4);
@@ -359,7 +367,7 @@ describe('/bigscreen home: no rail holds the screen', () => {
   it('keeps focus at the top when a profile rail beats the first rail to the screen', async () => {
     useProfile(BEN);
     renderHome();
-    const link = screen.getByRole('link', { name: 'Who’s watching?' });
+    const link = panelWho();
     await act(async () => { listAnswer.current.resolve(profileRail('my-list', 'My List', 3)); });
     expect(railTitles()).toContain('My List');
     expect(active()).toBe(link);
@@ -371,6 +379,7 @@ describe('/bigscreen home: no rail holds the screen', () => {
     renderHome();
     await observer().see('new');
     await answer('new', 4);
+    arrow('ArrowDown'); // nav
     arrow('ArrowDown');
     const focused = active();
     expect(focused.closest('[data-rail]')).toBe(wrapperOf('new'));
@@ -399,7 +408,8 @@ describe('/bigscreen home: no rail holds the screen', () => {
     await act(async () => { railAnswers.get('top-rated')!.resolve({ ...catalogRail('top-rated', 0) }); });
     await answer('new', 2);
     expect(railTitles()).not.toContain('Top Rated');
-    arrow('ArrowDown'); // hero -> trending
+    arrow('ArrowDown'); // hero -> nav
+    arrow('ArrowDown'); // nav -> trending
     arrow('ArrowDown'); // trending -> new, over the empty top-rated
     expect(active().closest('[data-rail]')).toBe(wrapperOf('new'));
   });
@@ -526,7 +536,8 @@ describe('/bigscreen home: the profile’s rails', () => {
     renderHome();
     await answer('trending');
     await act(async () => { continueAnswer.current.resolve(profileRail('continue-watching', 'Continue Watching', 3)); });
-    arrow('ArrowDown'); // hero -> trending
+    arrow('ArrowDown'); // hero -> nav
+    arrow('ArrowDown'); // nav -> trending
     arrow('ArrowDown'); // trending -> continue watching
     expect(active().closest('[data-rail]')).toBe(wrapperOf('continue-watching'));
     expect(active()).toHaveClass('bs-card--wide');
@@ -661,7 +672,7 @@ describe('/bigscreen home: never nothing to focus', () => {
   it('has a focus stop, and focus on it, on the very first paint', () => {
     renderHome();
     expect(hasFocusStop()).toBe(true);
-    const link = screen.getByRole('link', { name: 'Who’s watching?' });
+    const link = panelWho();
     expect(link).toHaveAttribute('href', '/bigscreen/profiles');
     expect(active()).toBe(link);
     expect(drawn()).toContain('Loading…');
@@ -671,16 +682,16 @@ describe('/bigscreen home: never nothing to focus', () => {
     renderHome();
     await settle();
     await settle();
-    expect(active()).toBe(screen.getByRole('link', { name: 'Who’s watching?' }));
+    expect(active()).toBe(panelWho());
   });
 
   it('has it with no profile selected, and with one', () => {
     renderHome();
-    expect(screen.getByRole('link', { name: 'Who’s watching?' })).toBeInTheDocument();
+    expect(panelWho()).toBeInTheDocument();
     useProfile(BEN);
     document.body.innerHTML = '';
     renderHome();
-    expect(screen.getByRole('link', { name: 'Who’s watching?' })).toBeInTheDocument();
+    expect(panelWho()).toBeInTheDocument();
   });
 
   it('never claims there is nothing to show while a rail is still out', async () => {
@@ -693,20 +704,22 @@ describe('/bigscreen home: never nothing to focus', () => {
 
   it('hands focus to the content when it arrives, rather than leaving it on <body>', async () => {
     renderHome();
-    expect(active()).toBe(screen.getByRole('link', { name: 'Who’s watching?' }));
+    expect(active()).toBe(panelWho());
     await answer('trending');
-    expect(screen.queryByRole('link', { name: 'Who’s watching?' })).toBeNull();
+    expect(document.querySelector('.bs-controls')).toBeNull();
     expect(active()).not.toBe(document.body);
     expect(active()).toBe(document.querySelector('.bs-hero'));
     expect(drawn()).not.toContain('Loading…');
   });
 
-  it('hands focus to the first populated rail when the first rail has nothing but another does', async () => {
+  it('hands focus to the nav row when the first rail has nothing but another does, one Down from content', async () => {
     renderHome();
     await observer().see('top-rated');
     await answer('trending', 0);
     await answer('top-rated', 3);
     expect(document.querySelector('.bs-hero')).toBeNull();
+    expect(active()).toBe(screen.getByRole('link', { name: 'Search' }));
+    arrow('ArrowDown');
     expect(active().closest('[data-rail]')).toBe(wrapperOf('top-rated'));
     expect(drawn()).not.toContain('Nothing to show');
   });
@@ -726,13 +739,13 @@ describe('/bigscreen home: never nothing to focus', () => {
       expect(screen.getByRole('heading', { name: 'Nothing to show right now' })).toBeInTheDocument();
       expect(screen.getByRole('alert')).toHaveTextContent(/could not load any titles/i);
       expect(active()).toBe(screen.getByRole('button', { name: 'Try again' }));
-      expect(stopsIn(document.body)).toHaveLength(2);
+      expect(stopsIn(document.querySelector('.bs-controls')!)).toHaveLength(2);
     });
 
     it('moves between the two with Left and Right', async () => {
       await everythingEmpty();
       arrow('ArrowRight');
-      expect(active()).toBe(screen.getByRole('link', { name: 'Who’s watching?' }));
+      expect(active()).toBe(panelWho());
       arrow('ArrowLeft');
       expect(active()).toBe(screen.getByRole('button', { name: 'Try again' }));
     });
@@ -808,9 +821,20 @@ describe('/bigscreen home: never nothing to focus', () => {
 
 describe('/bigscreen home: returning to where the viewer was', () => {
   const save = (row: number, col: number) => sessionStorage.setItem(SAVED_KEY, JSON.stringify({ row, col }));
-  // Row 0 is the recovery row, 1 the hero, then the lineup: trending, continue watching,
+  // Row 0 is the recovery row, 1 the hero, 2 the nav row, then the lineup: trending, continue watching,
   // my list, top-rated, new, action, drama, comedy, sci-fi.
-  const ROW_OF = (index: number) => 2 + index;
+  const ROW_OF = (index: number) => 3 + index;
+
+  it('returns to the nav item the viewer left from, without waiting for a rail', () => {
+    // Nav is always populated, so a saved row-2 position is adopted on the first effect
+    // run rather than held pending. That is what makes coming back from Search or
+    // Diagnostics land where you were, and nothing pinned it.
+    save(2, 1); // "My List"
+    renderHome();
+    expect(active()).toHaveTextContent('My List');
+    // And it does not pull a rail in on the way: nav is not part of the lineup.
+    expect(fetchedKeys()).toEqual(['trending']);
+  });
 
   it('fetches a saved rail that is far below the lookahead, without scrolling to it first', () => {
     save(ROW_OF(6), 1); // genre-drama
@@ -857,6 +881,27 @@ describe('/bigscreen home: returning to where the viewer was', () => {
     sessionStorage.setItem(SAVED_KEY, '{"row":"x"}');
     renderHome();
     expect(fetchedKeys()).toEqual(['trending', 'trending']);
+  });
+
+  it('discards a position saved under the old row layout instead of misreading it', async () => {
+    // The previous build's rows: 0 recovery, 1 hero, 2.. rails. {row: 8} was genre-drama
+    // there (lineup index 6). Read under this layout it would be lineup index 5 (action).
+    sessionStorage.setItem(LEGACY_KEY, JSON.stringify({ row: 8, col: 1 }));
+    renderHome();
+    expect(fetchedKeys()).toEqual(['trending']); // neither rail was fetched on its behalf
+    await answer('trending');
+    await observer().see('genre-action');
+    await answer('genre-action', 3);
+    await observer().see('genre-drama');
+    await answer('genre-drama', 3);
+    expect(active()).toBe(document.querySelector('.bs-hero'));
+    expect(JSON.parse(sessionStorage.getItem(LEGACY_KEY)!)).toEqual({ row: 8, col: 1 });
+  });
+
+  it('does not let the old key’s row index fetch the wrong rail', () => {
+    sessionStorage.setItem(LEGACY_KEY, JSON.stringify({ row: 8, col: 0 }));
+    renderHome();
+    expect(fetchedKeys()).not.toContain('genre-action');
   });
 
   it('keeps a rail’s row the same whether or not the profile rails have anything', async () => {
@@ -987,6 +1032,7 @@ describe('/bigscreen home: no polling', () => {
     renderHome();
     await observer().see('top-rated');
     await answer('top-rated');
+    arrow('ArrowDown'); // nav
     arrow('ArrowDown');
     const parked = active();
     expect(parked.className).toContain('bs-card');
@@ -1039,7 +1085,7 @@ describe('/bigscreen home: the retry', () => {
       // The link slides from column 0 to 1 as the button takes column 0, and the grid's
       // target (0, 0) does not change, so nothing but autoFocus puts DOM focus on the new cell.
       renderHome();
-      const link = screen.getByRole('link', { name: 'Who’s watching?' });
+      const link = panelWho();
       expect(active()).toBe(link);
       await advance(PATIENCE);
       expect(active()).toBe(tryAgain());
@@ -1268,5 +1314,65 @@ describe('/bigscreen home: Back', () => {
     await answer('trending');
     unmount();
     expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+  });
+});
+
+describe('/bigscreen home: the nav row', () => {
+  const navLinks = () => [...document.querySelectorAll<HTMLElement>('.bs-nav__item')];
+
+  it('is rendered with all four targets once home is up', async () => {
+    renderHome();
+    await answer('trending');
+    expect(navLinks().map((l) => l.textContent)).toEqual(['Search', 'My List', 'Switch profile', 'Diagnostics']);
+  });
+
+  it('leaves the hero with focus on mount', async () => {
+    renderHome();
+    await answer('trending');
+    expect(active()).toBe(document.querySelector('.bs-hero'));
+  });
+
+  it('is one Down from the hero, walkable left to right, and one Down from there is a rail', async () => {
+    renderHome();
+    await answer('trending');
+    arrow('ArrowDown');
+    expect(active()).toBe(navLinks()[0]);
+    arrow('ArrowRight'); arrow('ArrowRight'); arrow('ArrowRight');
+    expect(active()).toBe(navLinks()[3]);
+    arrow('ArrowRight'); // the end of the row: stays
+    expect(active()).toBe(navLinks()[3]);
+    arrow('ArrowDown');
+    expect(active().closest('[data-rail]')).toBe(wrapperOf('trending'));
+    arrow('ArrowUp');
+    expect(navLinks()).toContain(active());
+    arrow('ArrowUp');
+    expect(active()).toBe(document.querySelector('.bs-hero'));
+  });
+
+  it('is counted in the grid: every cell it draws is reachable and none is a dead press', async () => {
+    renderHome();
+    await answer('trending');
+    arrow('ArrowDown');
+    for (let i = 0; i < navLinks().length; i++) {
+      expect(active()).toBe(navLinks()[i]);
+      arrow('ArrowRight');
+    }
+  });
+
+  it('is a place to land while the first rail is still out, behind the recovery row', () => {
+    renderHome();
+    // Focus starts on the recovery panel, not on nav.
+    expect(active()).toBe(panelWho());
+    expect(navLinks().includes(active())).toBe(false);
+  });
+
+  it('saves its position under the new key', async () => {
+    vi.useFakeTimers();
+    renderHome();
+    await answer('trending');
+    arrow('ArrowDown');
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(JSON.parse(sessionStorage.getItem(SAVED_KEY)!)).toEqual({ row: 2, col: 0 });
+    expect(sessionStorage.getItem(LEGACY_KEY)).toBeNull();
   });
 });

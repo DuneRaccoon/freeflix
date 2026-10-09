@@ -306,6 +306,14 @@ describe('TV performance budget (spec §9)', () => {
     expect(found, `public/bigscreen.css uses ${found.join(', ')}`).toEqual([]);
   });
 
+  it('the TV stylesheet has no positional selector (:last-child and friends)', () => {
+    // Two positional rules have shipped in this hand-authored file, each deciding something
+    // by where an element sits instead of what it is. Comments are stripped first: the
+    // stylesheet's own comments explain why such a rule is banned.
+    const css = stripCssComments(readFileSync(TV_STYLESHEET, 'utf8'));
+    expect(css).not.toMatch(/:(?:last|first|nth-last|nth|only)-(?:child|of-type)/);
+  });
+
   // The hole an author actually falls into: a second stylesheet dropped in public/ and
   // linked beside the first. (A .css placed UNDER (bigscreen)/ is already scanned by the
   // components test below, since tvSourceFiles walks every non-test file there — but it

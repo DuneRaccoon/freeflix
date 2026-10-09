@@ -22,10 +22,15 @@ const focus = (over: Partial<FocusProps> = {}): FocusProps => ({
 
 function renderCard(
   over: Partial<CardItem> = {},
-  props: { shape?: 'poster' | 'wide'; focusProps?: FocusProps } = {},
+  props: { shape?: 'poster' | 'wide'; focusProps?: FocusProps; onActivate?: () => void } = {},
 ) {
   return render(
-    <Card item={item(over)} shape={props.shape ?? 'poster'} focusProps={props.focusProps ?? focus()} />,
+    <Card
+      item={item(over)}
+      shape={props.shape ?? 'poster'}
+      focusProps={props.focusProps ?? focus()}
+      onActivate={props.onActivate}
+    />,
   );
 }
 
@@ -243,6 +248,44 @@ describe('Card', () => {
     it('renders no empty subtitle line when there is neither subtitle nor badge', () => {
       const { container } = renderCard({ subtitle: null });
       expect(container.querySelector('.bs-card__sub')).toBeNull();
+    });
+  });
+
+  describe('onActivate: OK does something other than follow the href', () => {
+    // My List's remove mode needs a card press to REMOVE the title instead of opening it.
+    // A per-card remove button was the alternative and is worse on a remote: two focus
+    // stops per card means Left/Right alternates card, remove, card, remove across a row.
+
+    it('is not given, so the card is an ordinary link', () => {
+      const { container } = renderCard();
+      const link = container.querySelector('a') as HTMLAnchorElement;
+      expect(link.getAttribute('href')).toBe('/bigscreen/movie/1');
+      // Nothing is intercepting the press.
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+      link.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('is called on a press, instead of the href being followed', () => {
+      const onActivate = vi.fn();
+      const { container } = renderCard({}, { onActivate });
+      const link = container.querySelector('a') as HTMLAnchorElement;
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+      link.dispatchEvent(event);
+      expect(onActivate).toHaveBeenCalledTimes(1);
+      // next/link's own handler returns early on a prevented event, and so does the
+      // browser's native anchor navigation. Without this the press would BOTH remove the
+      // title and navigate to its detail screen.
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('keeps the href on the element, so the card stays one focus stop either way', () => {
+      // The href is deliberately NOT dropped in remove mode: swapping the element (to a
+      // <button>, say) would unmount every card when the mode flips, and an unmounted
+      // focused element drops DOM focus to <body> with nothing on a remote to recover it.
+      const { container } = renderCard({}, { onActivate: vi.fn() });
+      expect(container.querySelectorAll(FOCUS_STOPS)).toHaveLength(1);
+      expect(container.querySelector('a')).toHaveAttribute('href', '/bigscreen/movie/1');
     });
   });
 });

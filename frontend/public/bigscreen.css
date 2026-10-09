@@ -258,11 +258,13 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    token as rgba) so the text stays legible with no per-frame effect. */
 .bs-hero {
   position: relative;
-  /* 560px: with the shell head, the first rail's title lands at y~672 and ~84% of its
-     poster art is above the 1080px fold, which is what tells a viewer there is more
-     below. (620px also cleared the fold, at ~67% of the art — this is a margin
-     improvement, not a fix for a hidden rail. A poster's LABEL only clears the fold at
-     a hero of ~470px or less, which costs more artwork than the label is worth.) */
+  /* 560px. Measured before the nav row existed: the first rail's title landed at y~672
+     with ~84% of its poster art above the 1080px fold. The nav row (`.bs-nav`) now sits
+     between them and costs ~92px, so the art top is ~870 and roughly 58% of a poster
+     shows. Deliberately not compensated: the cue that there is more below is weaker but
+     still unmistakable at half a poster, and buying it back means a ~470px hero, which
+     the earlier measurement rejected as costing more artwork than it returns. Re-judge
+     this composition on the television rather than from the arithmetic. */
   height: 560px;
   padding: var(--safe-y) var(--safe-x);
   display: flex;
@@ -593,3 +595,228 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 /* --- status text ------------------------------------------------------------ */
 /* A single line of state ("Loading…", "Nothing here yet") shared by several screens. */
 .bs-note { padding: 0 var(--safe-x); font-size: 24px; color: var(--muted); }
+
+/* --- home nav row ------------------------------------------------------------ */
+/* The links home would otherwise have no route to. One focus row between the hero and
+   the rails. .bs-nav__item is SELF-CONTAINED: it is never combined with .bs-btn, so no
+   later single-class rule can fight it. The inset is the row's own padding. */
+.bs-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 24px var(--safe-x) 8px;
+}
+.bs-nav__item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 60px;
+  padding: 14px 28px;
+  font-size: 24px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  text-decoration: none;
+}
+.bs-nav__item:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+
+/* --- title detail screens (movie, show) -------------------------------------- */
+/* The frame in _components/TitleScreen. Same recipe as the hero: an inline
+   background-image under a plain gradient scrim, static, no per-frame effect (spec §9).
+   The inset is the body's own padding, so nothing interactive or textual sits outside it.
+   Focus targets are .bs-btn (min-height 60px).
+   COMBINING: every .bs-title__* class is a layout part used ALONE on its own element.
+   .bs-btn (+ .bs-btn--ghost) is the only combination, exactly as home already uses it; do
+   not add a modifier to .bs-btn from this block. */
+.bs-title {
+  position: relative;
+  min-height: 760px;
+  padding: var(--safe-y) var(--safe-x);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  isolation: isolate;
+}
+.bs-title__art {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-size: cover;
+  background-position: center top;
+}
+.bs-title__scrim {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.8) 50%, rgba(10, 10, 11, 0.2) 100%);
+}
+.bs-title__body { position: relative; max-width: 1100px; }
+.bs-title__eyebrow { font-size: 24px; color: var(--muted); margin: 0 0 12px; }
+.bs-title__name {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+.bs-title__overview {
+  font-size: 24px;
+  line-height: 1.45;
+  margin: 0 0 32px;
+  max-width: 900px;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bs-title__actions { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.bs-title__action { display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
+.bs-title__note { font-size: 24px; line-height: 1.4; color: var(--gold-lite); margin: 0; }
+.bs-title__alert { font-size: 24px; line-height: 1.4; color: var(--danger); margin: 0; }
+.bs-title__below { padding: 0 var(--safe-x) var(--safe-y); }
+
+/* --- show detail: season picker + episode list --------------------------------- */
+/* Rendered by bigscreen/show/[id]/page.tsx and _components/EpisodeList. Every cell here is
+   a focus target of at least 60px, drawn with :focus like the rest of the surface; the
+   inset is the .bs-title__below padding, so nothing interactive sits outside it. Prose is
+   24px, the small tokens (runtime, marker) 22px.
+   COMBINING: every class below is SELF-CONTAINED and used ALONE on its own element; none is
+   ever combined with .bs-btn or with another class here. The selected season is an
+   ATTRIBUTE selector on the same element (aria-pressed), not a modifier class, so no later
+   single-class rule can override it. The only combinations on this screen are the existing
+   .bs-btn (+ .bs-btn--ghost). */
+.bs-show__subject { font-size: 24px; line-height: 1.4; color: var(--text); margin: 0; }
+.bs-show__status { font-size: 24px; line-height: 1.4; color: var(--muted); margin: 0; }
+.bs-show__seasons { display: flex; flex-wrap: wrap; gap: 24px; padding: 8px 0 24px; }
+.bs-show__season {
+  min-height: 60px;
+  padding: 14px 28px;
+  font-size: 24px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.bs-show__season[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
+.bs-show__season:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+.bs-show__panel { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; padding-bottom: 24px; }
+.bs-eps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.bs-ep {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  min-height: 72px;
+  padding: 14px 28px;
+  font-size: 24px;
+  font-family: var(--font-ui);
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.bs-ep:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+.bs-ep__num { min-width: 48px; color: var(--gold); }
+.bs-ep__name { flex: 1; }
+.bs-ep__meta { font-size: 22px; color: var(--muted); }
+.bs-ep__mark { font-size: 22px; color: var(--gold-lite); }
+
+/* --- search: the D-pad keyboard and the results grid --------------------------- */
+/* Rendered by bigscreen/search/page.tsx and _components/Keyboard. Every cell is a focus
+   target of at least 60px drawn with :focus, and the insets are these containers' own
+   padding, so nothing interactive or textual sits outside the safe area.
+   Row widths: 7 letter keys are 7*120 + 6*16 = 936px and the digit row is 10*120 + 9*16 =
+   1344px, both inside the 1728px the safe area leaves. The rows do not wrap, because the
+   focus model counts one row per container.
+   COMBINING: every class in this block is used ALONE on its own element, except the one
+   modifier pair .bs-kb__key + .bs-kb__key--word, which widens the word keys (Space, Delete,
+   Clear) — the same base-plus-modifier shape as .bs-card + .bs-card--poster. The variant
+   comes from KeyDef, so NO positional selector decides which keys are wide: a
+   `.bs-kb__row:last-child` rule would silently move its effect the moment a row was
+   appended, and a test asserts no such rule exists. The other combinations on this screen
+   are the existing .bs-btn (+ .bs-btn--ghost) on the two action controls and .bs-card
+   (+ .bs-card--poster) on a result, exactly as home already uses them; do not add a
+   modifier to .bs-btn from here. */
+.bs-kb { padding: 24px var(--safe-x) 8px; display: flex; flex-direction: column; gap: 16px; }
+.bs-kb__row { display: flex; gap: 16px; }
+.bs-kb__key {
+  flex: 0 0 auto;
+  width: 120px;
+  min-height: 84px;
+  /* A key is a token the viewer recognises, not prose, so the 20px tier applies (spec §8.5
+     as amended). 32px because a single glyph at ten feet is all this cell has to say. */
+  font-size: 32px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+/* Space, Delete and Clear are words, not glyphs: they need room and a smaller face. Driven
+   by KeyDef's `variant`, so this is a modifier on the key itself and not a rule that counts
+   rows. It sets no min-height: the 84px above is the focus-target floor for every key. */
+.bs-kb__key--word { width: auto; min-width: 184px; font-size: 24px; }
+.bs-kb__key:focus { outline: var(--focus-ring) solid var(--gold); outline-offset: 2px; }
+
+/* The typed query, in the head so it stays on screen while focus moves down into the
+   results. It is a read-only display node, NOT an <input>: a real input would take DOM
+   focus from the roving-tabindex grid and webOS would raise its own IME panel over the app. */
+.bs-search__query {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  color: var(--gold-lite);
+  letter-spacing: 2px;
+  /* 40px x 1.45 line-height: the head keeps its height whether the hint (24px) or the query
+     is showing, so the keyboard below does not jump under the viewer's focus ring on the
+     first keystroke. */
+  min-height: 58px;
+  word-break: break-all;
+}
+.bs-search__hint { font-family: var(--font-ui); font-size: 24px; color: var(--muted); letter-spacing: normal; }
+.bs-search__actions { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px var(--safe-x) 0; }
+.bs-search__status { padding: 16px var(--safe-x) 0; font-size: 24px; line-height: 1.4; color: var(--muted); margin: 0; }
+.bs-search__alert { padding: 16px var(--safe-x) 0; font-size: 24px; line-height: 1.4; color: var(--danger); margin: 0; }
+/* A vertical grid, not a rail: a search answers up to two pages and the viewer scans down
+   it. One container per row, no wrap, for the same count contract as the keyboard.
+   6 posters are 6*240 + 5*24 = 1560px inside the safe area. The vertical padding is the
+   focus ring's room — a focused card scales 1.06 and then draws a 4px ring outside that. */
+.bs-search__results { padding: 16px 0 var(--safe-y); }
+.bs-search__row { display: flex; align-items: flex-start; gap: 24px; padding: 16px var(--safe-x); }
+
+/* --- My List: the removable grid ---------------------------------------------- */
+/* Rendered by bigscreen/list/page.tsx. The screen is otherwise built from classes that
+   already existed: .bs-shell + .bs-shell__head + .bs-shell__scroll for the frame,
+   .bs-controls + .bs-inset for the action row (the combination .bs-inset's own comment was
+   written for), .bs-msg for the always-mounted status line, .bs-note for the empty state,
+   .bs-btn (+ .bs-btn--ghost) for the two controls and .bs-card (+ .bs-card--poster) for a
+   title — exactly as home and search already use them.
+   The three rules below are the ones that did not exist. The row geometry is the same as
+   search's results grid (.bs-search__results / .bs-search__row): 6 posters are
+   6*240 + 5*24 = 1560px inside the 1728px the safe area leaves, and the vertical padding is
+   the focus ring's room, since a focused card scales 1.06 and then draws a 4px ring outside
+   that. They are NOT shared with those classes: a `search`-named class on My List would be
+   a naming lie, and renaming search's pair belongs to search's own file. If a third screen
+   wants this grid, that is the moment to extract one neutral name for all three.
+   COMBINING: .bs-list__grid and .bs-list__row are each used alone on their own element.
+   .bs-list__toggle sits beside .bs-btn (it colours the pressed state only) and
+   .bs-list__fail beside .bs-msg (it colours a failure only) — both base-plus-companion, the
+   .bs-card + .bs-card--poster shape, and neither sets geometry the base rule owns. No
+   positional selector: nothing here depends on a card's or a row's position in the DOM. */
+.bs-list__grid { padding: 16px 0 var(--safe-y); }
+.bs-list__row { display: flex; align-items: flex-start; gap: 24px; padding: 16px var(--safe-x); }
+/* The mode is on. Same treatment as .bs-show__season's pressed state, and driven by the same
+   aria-pressed the control already needs in order to be honest about being a toggle.
+   The transparent border is carried in BOTH states (.bs-btn has `border: 0`) so that turning
+   the mode on changes only colour: a border appearing on press would widen the control by
+   2px and nudge the link beside it, which under a 4px focus ring reads as the screen moving.
+   Colour is the least of the four signals anyway — the label becomes "Done", every card
+   gains a Remove badge, and the status line says what a press will now do. */
+.bs-list__toggle { border: 1px solid transparent; }
+.bs-list__toggle[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
+.bs-list__fail { color: var(--danger); }

@@ -77,6 +77,11 @@ class Torrent(Model):
             eta=meta_data.get('eta'),
             error_message=self.error_message,
             block_reason=self.block_reason,
+            # Nullable columns: rows written before they existed read back as None.
+            tmdb_id=self.tmdb_id,
+            media_type=self.media_type,
+            season=self.season,
+            episode=self.episode,
         )
     
     def update_from_status(self, status: TorrentStatus, db: Session = None) -> None:

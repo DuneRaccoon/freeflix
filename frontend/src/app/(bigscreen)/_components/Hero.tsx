@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { backgroundImageFor } from './css';
 import type { CatalogItem } from '@/types';
 import type { FocusProps } from '../_focus/useFocusGrid';
 
@@ -51,8 +52,8 @@ export function Hero({
   const art = atSize(item.backdrop_url, 'w1920');
   const inner = (
     <>
-      {/* JSON.stringify quotes and escapes the URL, so a stray quote or paren in it cannot end the url(). */}
-      {art && <div className="bs-hero__art" style={{ backgroundImage: `url(${JSON.stringify(art)})` }} aria-hidden="true" />}
+      {/* backgroundImageFor quotes and escapes the URL, so a stray quote or paren in it cannot end the url(). */}
+      {art && <div className="bs-hero__art" style={{ backgroundImage: backgroundImageFor(art) }} aria-hidden="true" />}
       <div className="bs-hero__scrim" aria-hidden="true" />
       <div className="bs-hero__body">
         <h2 className="bs-hero__title">{item.title}</h2>

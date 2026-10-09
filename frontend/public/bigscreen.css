@@ -593,3 +593,28 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 /* --- status text ------------------------------------------------------------ */
 /* A single line of state ("Loading…", "Nothing here yet") shared by several screens. */
 .bs-note { padding: 0 var(--safe-x); font-size: 24px; color: var(--muted); }
+
+/* --- home nav row ------------------------------------------------------------ */
+/* The links home would otherwise have no route to. One focus row between the hero and
+   the rails. .bs-nav__item is SELF-CONTAINED: it is never combined with .bs-btn, so no
+   later single-class rule can fight it. The inset is the row's own padding. */
+.bs-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 24px var(--safe-x) 8px;
+}
+.bs-nav__item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 60px;
+  padding: 14px 28px;
+  font-size: 24px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  text-decoration: none;
+}
+.bs-nav__item:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }

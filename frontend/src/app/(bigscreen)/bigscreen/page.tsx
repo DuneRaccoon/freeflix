@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { CatalogItem } from '@/types';
 import { Hero } from '../_components/Hero';
+import { NAV_TARGETS, NavRow } from '../_components/NavRow';
 import { Rail, railCellCount, type RailModel } from '../_components/Rail';
 import { readStored, useFocusGrid, type FocusProps } from '../_focus/useFocusGrid';
 import { useBackKey } from '../_focus/useBackKey';
@@ -35,7 +36,10 @@ import { useTvProfile } from '../_data/useTvProfile';
  * rail. And nothing here sets `loading` back to true on a rail that has items: `Rail` lets
  * loading win over items, so a refetch would blank the rail and teleport focus.
  *
- * THE GRID. Row 0 is the recovery row, row 1 the hero, rows 2.. the rails in lineup order.
+ * THE GRID. Row 0 is the recovery row, row 1 the hero, row 2 the nav row, rows 3.. the rails in
+ * lineup order. The nav row is always populated, so it is the fallback when there is neither a
+ * panel nor a hero (the first rail came back empty but another did): focus then starts on nav,
+ * one Down from content, rather than being dead.
  * Every count comes from `railCellCount`, never `items.length`. Continue Watching and My
  * List own fixed slots straight after trending whether or not they have anything, so a row
  * index means the same rail on every visit and the saved `home` position cannot slide onto a
@@ -79,15 +83,25 @@ const stayOnHome = () => {};
 /** Fetch a rail this far before it scrolls into view: a screenful and a bit at 1080p. */
 const LOOKAHEAD = '600px 0px';
 
-/** `useFocusGrid`'s key, and the one `savedCatalogSpec` asks it about. */
-const STORAGE_KEY = 'home';
+/**
+ * `useFocusGrid`'s key, and the one `savedCatalogSpec` asks it about.
+ *
+ * `:v2` BECAUSE THE NAV ROW SHIFTED EVERY RAIL DOWN ONE. A position saved by the build
+ * before it (under plain `home`) names a row that now holds the NEXT rail up, and a viewer
+ * returning from a detail screen would land one rail too high with no sign anything was
+ * wrong. A new key means an old position is never read: it is discarded, not misread.
+ * Change the row layout again and this must change with it.
+ */
+const STORAGE_KEY = 'home:v2';
 
 const RECOVERY_ROW = 0;
 /** How long the panel waits before offering a retry it cannot yet justify. `apiClient`
  *  sets no timeout, so without this a hung first rail reads "Loading…" forever. */
 const LOAD_PATIENCE_MS = 10_000;
 const HERO_ROW = 1;
-const FIRST_RAIL_ROW = 2;
+/** Directly under the hero, so Down from the hero reaches it and the hero still opens first. */
+const NAV_ROW = 2;
+const FIRST_RAIL_ROW = 3;
 
 const CONTINUE_ID = 'continue-watching';
 const LIST_ID = 'my-list';
@@ -421,7 +435,7 @@ export default function HomePage() {
   }, [showPanel, retryState]);
 
   const grid = useFocusGrid({
-    rowCounts: [recoveryCount, heroItem ? 1 : 0, ...rails.map(railCellCount)],
+    rowCounts: [recoveryCount, heroItem ? 1 : 0, NAV_TARGETS.length, ...rails.map(railCellCount)],
     storageKey: STORAGE_KEY,
   });
 
@@ -473,6 +487,7 @@ export default function HomePage() {
       </header>
       <div className="bs-shell__scroll" ref={scrollerRef}>
         {top}
+        <NavRow row={NAV_ROW} focusPropsFor={grid.focusProps} />
         {LINEUP.map((slot, i) => (
           // The observer watches this wrapper, not the rail: `Rail` renders nothing at all
           // for an empty rail, and an element with no box has no position to approach.

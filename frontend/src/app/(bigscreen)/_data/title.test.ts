@@ -363,10 +363,17 @@ describe('titleStateFor: never rejects', () => {
     ['rejects', () => getFiles.mockRejectedValue(new Error('down'))],
     ['answers empty', () => getFiles.mockResolvedValue([])],
     ['answers junk', () => getFiles.mockResolvedValue(null as never)],
-  ])('a downloaded pack whose getFiles %s opens the pack, never play', async (_n, setup) => {
+  ])('a downloaded pack whose getFiles %s opens the pack, never play, and SAYS it is unresolved', async (_n, setup) => {
     list.mockResolvedValue([torrent({ id: 'pack', media_type: 'tv', tmdb_id: 1399, season: 1, episode: null })]);
     setup();
-    expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'open', href: '/bigscreen/watch/pack' });
+    // `episodeUnresolved` is what lets the screen admit it could not pinpoint the episode.
+    // Without it the only options are to play the wrong episode silently or to offer Play
+    // and mint a duplicate of a season already on disk — both worse than saying so.
+    expect((await titleStateFor(ep(1, 3))).action).toEqual({
+      kind: 'open',
+      href: '/bigscreen/watch/pack',
+      episodeUnresolved: true,
+    });
   });
 
   it('the legacy progress path (file_index null, episode NULL) also survives a failed lookup', async () => {

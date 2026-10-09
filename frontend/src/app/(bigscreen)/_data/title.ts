@@ -7,7 +7,18 @@ import { buildContentId } from '@/lib/contentId';
 export type TitleAction =
   | { kind: 'play' } // nothing exists yet
   | { kind: 'resume'; href: string; atSeconds: number } // progress exists and is resumable
-  | { kind: 'open'; href: string } // downloaded, no progress
+  | {
+      kind: 'open';
+      href: string;
+      /**
+       * The title is here, but the episode could not be pinpointed inside a season pack —
+       * the file list was unreadable, not missing the episode. The href therefore has no
+       * `?file=`, so it plays the pack's default file, which may be the wrong episode. The
+       * screen MUST say so rather than navigating silently: offering the wrong episode
+       * without a word is the same defect class as a control whose label lies.
+       */
+      episodeUnresolved?: boolean;
+    } // downloaded, no progress
   | { kind: 'preparing'; torrentId: string; progress: number } // already downloading
   | { kind: 'paused'; torrentId: string } // a download exists but is not running
   | { kind: 'blocked'; reason: string }; // the box refused it
@@ -101,18 +112,24 @@ function resumable(p: StreamingProgress | null): p is StreamingProgress & { torr
  * offering Play would start a second multi-GB download to fetch something already there,
  * so an unreadable pack opens without `?file=` instead.
  */
+/** Third answer from a pack lookup: the pack is here, but which file is unknown. */
+const UNRESOLVED = 'unresolved' as const;
+
 async function fileFor(
   row: TorrentStatus,
   ref: TitleRef,
   saved: number | null | undefined,
-): Promise<number | null | undefined> {
+): Promise<number | null | undefined | typeof UNRESOLVED> {
   if (saved != null) return saved;
   const isPackLookup =
     ref.mediaType === 'tv' && ref.season !== undefined && ref.episode !== undefined && row.episode == null;
   if (!isPackLookup) return null;
   const found = await lookupEpisodeFile(row.id, ref.season as number, ref.episode as number);
   if (found.kind === 'found') return found.index;
-  return found.kind === 'absent' ? undefined : null;
+  // 'absent' -> undefined, i.e. this pack genuinely lacks the episode, so try the next row.
+  // 'unknown' -> UNRESOLVED, a distinct third answer: the pack is here and we cannot say
+  // which file, which the screen has to disclose.
+  return found.kind === 'absent' ? undefined : UNRESOLVED;
 }
 
 /**
@@ -135,10 +152,13 @@ async function readyAction(
       const named = !!progress && row.id === progress.torrent_id;
       const file = await fileFor(row, ref, named ? progress.file_index : null);
       if (file === undefined) continue; // the pack was listed and does not hold this episode
-      const href = watchHref(row.id, file);
+      const unresolved = file === UNRESOLVED;
+      const href = watchHref(row.id, unresolved ? null : file);
       return named && canResume
         ? { kind: 'resume', href, atSeconds: Number(progress.current_time) || 0 }
-        : { kind: 'open', href };
+        : unresolved
+          ? { kind: 'open', href, episodeUnresolved: true }
+          : { kind: 'open', href };
     } catch {
       // One bad row costs that row.
     }

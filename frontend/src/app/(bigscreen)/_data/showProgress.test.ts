@@ -12,19 +12,19 @@ describe('episodeMarks', () => {
     row('tv:7:s1:e2', { percentage: 40 }),
     row('tv:7:s1:e3', { percentage: 0 }),
     row('tv:7:s2:e1', { completed: true }),
-    row('tv:8:s1:e1', { completed: true }),
+    row('tv:8:s1:e3', { completed: true }),
     row('movie:7', { completed: true }),
     row('tv:7', { completed: true }),
   ];
   it('marks only this show and this season', () => {
     const m = episodeMarks(rows, 7, 1);
-    expect([...m.entries()]).toEqual([[1, 'watched'], [2, 'started']]);
+    expect([...m.entries()]).toEqual([[1, 'watched'], [2, 'started']]); // tv:8's e3 must not leak in
   });
   it('reads a different season independently', () => {
     expect([...episodeMarks(rows, 7, 2).entries()]).toEqual([[1, 'watched']]);
   });
   it('lets a completed row win over a started duplicate', () => {
-    const m = episodeMarks([row('tv:7:s1:e1', { percentage: 30 }), row('tv:7:s1:e1', { completed: true })], 7, 1);
+    const m = episodeMarks([row('tv:7:s1:e1', { completed: true }), row('tv:7:s1:e1', { percentage: 30 })], 7, 1);
     expect(m.get(1)).toBe('watched');
   });
 });

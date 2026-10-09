@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { SeasonDetail, ShowDetail, StreamingProgress, Episode } from '@/types';
 import { tvService } from '@/services/tv';
 import { streamingService } from '@/services/streaming';
@@ -18,6 +18,8 @@ const getShow = vi.mocked(tvService.getShow);
 const getSeason = vi.mocked(tvService.getSeason);
 const recent = vi.mocked(streamingService.getRecentProgress);
 const stateFor = vi.mocked(titleStateFor);
+const request = vi.mocked(requestTitle);
+const resume = vi.mocked(resumeTitle);
 const profileHook = vi.mocked(useTvProfile);
 const clear = vi.fn();
 
@@ -53,7 +55,7 @@ async function mount() {
   const view = render(<ShowPage />);
   await screen.findByRole('heading', { level: 1, name: 'Thrones Like' });
   // the default control's own lookup must land before a test presses anything
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Checking…' })).toBeNull());
+  await waitFor(() => expect(screen.queryByText('Checking this episode…')).toBeNull());
   return view;
 }
 const epButtons = () => screen.queryAllByRole('button', { name: /^\d+\s/ });
@@ -298,7 +300,79 @@ describe('show detail screen', () => {
     });
   });
 
+  describe('the default control is honest while it is still being worked out', () => {
+    it('keeps the label "Back to home" (it only goes home) and says the lookup in a status line', async () => {
+      const d = deferred<ReturnType<typeof stateOf>>();
+      stateFor.mockReturnValue(d.promise);
+      render(<ShowPage />);
+      const home = await screen.findByRole('button', { name: 'Back to home' });
+      await screen.findByText('Checking this episode…');
+      expect(screen.queryByRole('button', { name: /checking/i })).toBeNull();
+      fireEvent.click(home);
+      expect(router.push).toHaveBeenCalledWith('/bigscreen');
+      await act(async () => d.resolve(stateOf({ kind: 'play' })));
+    });
+  });
+
+  describe('a season pack never plays its default file (episode 1) for another episode', () => {
+    it('preparing with a fileIndex navigates with ?file=, from an episode press and from the default control', async () => {
+      stateFor.mockResolvedValue(stateOf({ kind: 'preparing', torrentId: 'pk', progress: 20, fileIndex: 4 }));
+      await mount();
+      fireEvent.click(await screen.findByRole('button', { name: 'Preparing… 20%' }));
+      expect(router.push).toHaveBeenLastCalledWith('/bigscreen/watch/pk?file=4');
+      fireEvent.click(epButtons()[1]);
+      await waitFor(() => expect(router.push).toHaveBeenCalledTimes(2));
+      expect(router.push).toHaveBeenLastCalledWith('/bigscreen/watch/pk?file=4');
+    });
+
+    it('resuming a paused pack goes to the episode file', async () => {
+      stateFor.mockResolvedValue(stateOf({ kind: 'paused', torrentId: 'pk', fileIndex: 3 }));
+      resume.mockResolvedValue({ ok: true });
+      await mount();
+      fireEvent.click(await screen.findByRole('button', { name: 'Resume download' }));
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=3'));
+    });
+
+    it('resuming a paused pack whose files are unknown re-asks instead of navigating', async () => {
+      stateFor.mockResolvedValueOnce(stateOf({ kind: 'paused', torrentId: 'pk', fileUnknown: true }));
+      resume.mockResolvedValue({ ok: true });
+      await mount();
+      stateFor.mockResolvedValue(stateOf({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/pk' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Resume download' }));
+      expect(await screen.findByRole('note')).toHaveTextContent(/may be a different episode/i);
+      expect(router.push).not.toHaveBeenCalled();
+    });
+
+    it('a Play the box satisfies with a located pack file goes to ?file=', async () => {
+      request.mockResolvedValue({ ok: true, torrentId: 'pk', fileIndex: 6 });
+      await mount();
+      fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=6'));
+    });
+
+    it('a Play satisfied by a pack whose files are unreadable re-asks and discloses, never navigates', async () => {
+      request.mockResolvedValue({ ok: true, torrentId: 'pk', unresolved: true });
+      await mount();
+      stateFor.mockResolvedValue(stateOf({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/pk' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+      expect(await screen.findByRole('note')).toHaveTextContent(/may be a different episode/i);
+      expect(router.push).not.toHaveBeenCalled();
+    });
+  });
+
   describe('nothing left to watch', () => {
+    it('does not claim it while an earlier season still has an unwatched episode', async () => {
+      // S2 (the last season) finished; S1 was never watched. Landing on S2 requires history there.
+      recent.mockResolvedValue([prog('tv:1399:s2:e2', { completed: true }), prog('tv:1399:s2:e1', { completed: true })]);
+      await mount();
+      await screen.findByText(/nothing left to watch/i); // only season 2 has been seen so far
+      fireEvent.click(seasonBtn(1)); // now season 1 is seen, and nothing in it is watched
+      await waitFor(() => expect(epButtons()).toHaveLength(3));
+      fireEvent.click(seasonBtn(2));
+      await screen.findByText(/finished season 2\. pick another season/i);
+      expect(screen.queryByText(/nothing left to watch/i)).toBeNull();
+    });
+
     const watchedAll = (s: number, n: number) =>
       Array.from({ length: n }, (_, i) => prog(`tv:1399:s${s}:e${n - i}`, { completed: true }));
 
@@ -356,6 +430,12 @@ describe('show detail screen', () => {
       expect(document.activeElement).toBe(seasonBtn(1));
     });
 
+    it('a season whose episodes array is missing reads as empty instead of crashing the screen', async () => {
+      getSeason.mockResolvedValue({ season_number: 1, name: 'Season 1', overview: null } as unknown as SeasonDetail);
+      await mount();
+      await screen.findByText(/no episodes listed/i);
+    });
+
     it('a season that fails to load can be retried', async () => {
       getSeason.mockRejectedValueOnce(new Error('boom'));
       await mount();
@@ -396,4 +476,3 @@ describe('show detail screen', () => {
     await screen.findByRole('button', { name: 'Open' });
   });
 });
-void within; void requestTitle; void resumeTitle;

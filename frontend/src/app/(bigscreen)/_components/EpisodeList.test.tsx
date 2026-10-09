@@ -15,6 +15,11 @@ describe('EpisodeList', () => {
     expect(screen.getAllByRole('button')).toHaveLength(2);
     expect(screen.getByRole('button', { name: /1.*Name 1.*42m/ })).toBeInTheDocument();
   });
+  it('draws no runtime (and no bare "m") when TMDB has none', () => {
+    render(<EpisodeList episodes={[ep(1, { runtime: null }), ep(2, { runtime: 0 })]} marks={new Map()} loading={false} firstRow={2} focusProps={fp()} onPress={() => {}} busyEpisode={null} />);
+    for (const b of screen.getAllByRole('button')) expect(b.textContent).not.toMatch(/m$/);
+    expect(document.querySelector('.bs-ep__meta')).toBeNull();
+  });
   it('falls back to "Episode N" when TMDB has no title', () => {
     render(<EpisodeList episodes={[ep(4, { name: '' })]} marks={new Map()} loading={false} firstRow={2} focusProps={fp()} onPress={() => {}} busyEpisode={null} />);
     expect(screen.getByRole('button', { name: /Episode 4/ })).toBeInTheDocument();
@@ -45,7 +50,9 @@ describe('EpisodeList', () => {
     const onPress = vi.fn();
     render(<EpisodeList episodes={[ep(1), ep(2)]} marks={new Map()} loading={false} firstRow={2} focusProps={fp()} onPress={onPress} busyEpisode={2} />);
     fireEvent.click(screen.getByRole('button', { name: /Name 1/ }));
-    expect(onPress).toHaveBeenCalledWith(expect.objectContaining({ episode_number: 1 }));
+    expect(onPress).toHaveBeenLastCalledWith(expect.objectContaining({ episode_number: 1 }));
+    fireEvent.click(screen.getByRole('button', { name: /Name 2/ }));
+    expect(onPress).toHaveBeenLastCalledWith(expect.objectContaining({ episode_number: 2 }));
     expect(screen.getByRole('button', { name: /Name 2.*Checking/ })).toHaveAttribute('aria-busy', 'true');
   });
 });

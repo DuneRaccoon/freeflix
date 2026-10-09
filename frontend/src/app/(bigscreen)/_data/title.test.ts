@@ -192,12 +192,47 @@ describe('titleStateFor: matching torrents', () => {
     expect((await titleStateFor(ep(1, 9))).action).toEqual({ kind: 'play' });
   });
 
-  it('a pack that is still downloading is preparing for an episode inside it', async () => {
-    list.mockResolvedValue([
-      torrent({ id: 'pack', media_type: 'tv', tmdb_id: 1399, season: 1, episode: null, state: 'downloading', progress: 30 } as never),
-    ]);
-    expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'preparing', torrentId: 'pack', progress: 30 });
-    expect(getFiles).not.toHaveBeenCalled();
+  describe('a pack that is still downloading (streams while it downloads)', () => {
+    const downloading = (state = 'downloading') =>
+      list.mockResolvedValue([
+        torrent({ id: 'pack', media_type: 'tv', tmdb_id: 1399, season: 1, episode: null, state, progress: 30 } as never),
+      ]);
+
+    it('is preparing WITH the file of the episode inside it, so it never plays the default file', async () => {
+      downloading();
+      getFiles.mockResolvedValue(files([0, 1, 1], [1, 1, 2], [2, 1, 3]));
+      expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'preparing', torrentId: 'pack', progress: 30, fileIndex: 2 });
+    });
+    it('file 0 is a real index', async () => {
+      downloading();
+      getFiles.mockResolvedValue(files([0, 1, 1]));
+      expect((await titleStateFor(ep(1, 1))).action).toEqual({ kind: 'preparing', torrentId: 'pack', progress: 30, fileIndex: 0 });
+    });
+    it('an unreadable file list is unresolvedEpisode (disclosed), never a silent default-file preparing', async () => {
+      downloading();
+      getFiles.mockRejectedValue(new Error('no metadata yet'));
+      expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/pack' });
+    });
+    it('a pack that was listed and lacks the episode does not cover it: Play', async () => {
+      downloading();
+      getFiles.mockResolvedValue(files([0, 1, 1]));
+      expect((await titleStateFor(ep(1, 9))).action).toEqual({ kind: 'play' });
+    });
+    it('a paused pack carries the file so resuming lands on the episode', async () => {
+      downloading('paused');
+      getFiles.mockResolvedValue(files([0, 1, 1], [4, 1, 2]));
+      expect((await titleStateFor(ep(1, 2))).action).toEqual({ kind: 'paused', torrentId: 'pack', fileIndex: 4 });
+    });
+    it('a paused pack with an unreadable list stays paused and says the file is unknown', async () => {
+      downloading('paused');
+      getFiles.mockRejectedValue(new Error('x'));
+      expect((await titleStateFor(ep(1, 2))).action).toEqual({ kind: 'paused', torrentId: 'pack', fileUnknown: true });
+    });
+    it('a single-episode torrent needs no file lookup', async () => {
+      list.mockResolvedValue([torrent({ id: 'e', media_type: 'tv', tmdb_id: 1399, season: 1, episode: 3, state: 'downloading', progress: 5 } as never)]);
+      expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'preparing', torrentId: 'e', progress: 5 });
+      expect(getFiles).not.toHaveBeenCalled();
+    });
   });
 
   it('an exact single-episode row opens without a file lookup', async () => {
@@ -422,7 +457,7 @@ describe('titleStateFor: never rejects', () => {
 
 describe('requestTitle', () => {
   it('posts once at 1080p with the media identity and returns the new id', async () => {
-    download.mockResolvedValue(torrent({ id: 'new' }));
+    download.mockResolvedValue(torrent({ id: 'new', media_type: 'tv', season: 1, episode: 3 }));
     expect(await requestTitle({ mediaType: 'tv', tmdbId: 1399, season: 1, episode: 3 })).toEqual({
       ok: true,
       torrentId: 'new',
@@ -435,6 +470,17 @@ describe('requestTitle', () => {
       season: 1,
       episode: 3,
     });
+  });
+
+  it('a pack answer is resolved to the episode file', async () => {
+    download.mockResolvedValue(torrent({ id: 'pk', media_type: 'tv', season: 1, episode: null }));
+    getFiles.mockResolvedValue(files([0, 1, 1], [3, 1, 2]));
+    expect(await requestTitle({ mediaType: 'tv', tmdbId: 1399, season: 1, episode: 2 })).toEqual({ ok: true, torrentId: 'pk', fileIndex: 3 });
+  });
+  it('a pack answer whose files cannot be read is flagged unresolved, not passed off as resolved', async () => {
+    download.mockResolvedValue(torrent({ id: 'pk', media_type: 'tv', season: 1, episode: null }));
+    getFiles.mockRejectedValue(new Error('x'));
+    expect(await requestTitle({ mediaType: 'tv', tmdbId: 1399, season: 1, episode: 2 })).toEqual({ ok: true, torrentId: 'pk', unresolved: true });
   });
 
   it('a movie request sends no season or episode', async () => {

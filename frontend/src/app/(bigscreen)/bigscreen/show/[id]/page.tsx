@@ -11,6 +11,7 @@ import { PrimaryAction } from '../../../_components/PrimaryAction';
 import { LoadStatus } from '../../../_components/LoadStatus';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { titleStateFor, type TitleAction, type TitleState } from '../../../_data/title';
+import { watchHref } from '../../../_data/watchHref';
 import { episodeMarks, latestSeasonWatched, nextUnwatched, seasonFinished } from '../../../_data/showProgress';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useFocusGrid } from '../../../_focus/useFocusGrid';
@@ -52,8 +53,12 @@ import { useBackKey } from '../../../_focus/useBackKey';
 
 const HOME = '/bigscreen';
 const PROFILES = '/bigscreen/profiles';
-const LOAD_PATIENCE_MS = 10_000;
-/** How much watch history to read for the markers. The backend returns newest first. */
+/**
+ * How much watch history to read for the markers. The backend returns newest first. 500 is
+ * far larger than the 24 rows Continue Watching reads, which is what makes it correct rather
+ * than arbitrary: an "Up next" card can only point here for a show whose latest row is among
+ * the newest 24, so this screen can always see that history.
+ */
 const HISTORY_LIMIT = 500;
 
 interface Opened {
@@ -69,6 +74,10 @@ type Load = { phase: 'loading' } | { phase: 'failed' } | ({ phase: 'ready' } & O
 
 const regularSeasons = (show: ShowDetail): SeasonSummary[] =>
   (Array.isArray(show.seasons) ? show.seasons : []).filter((s) => s.season_number > 0);
+
+/** A season whose `episodes` is missing reads as having none, here and in the render path. */
+const episodesOf = (d: SeasonDetail | undefined): readonly Episode[] =>
+  Array.isArray(d?.episodes) ? (d as SeasonDetail).episodes : [];
 
 function eyebrowOf(show: ShowDetail, seasonCount: number): string | null {
   const parts: string[] = [];
@@ -99,7 +108,7 @@ async function loadShow(id: number, profileId: string | null): Promise<Opened> {
     }
     const here = seasons.get(open);
     // The viewer finished that season: land on the next one rather than on a finished list.
-    if (here && seasonFinished(here.episodes, episodeMarks(history, id, open))) {
+    if (here && seasonFinished(episodesOf(here), episodeMarks(history, id, open))) {
       const next = regular.find((s) => s.season_number > (open as number));
       if (next) {
         try {
@@ -114,11 +123,6 @@ async function loadShow(id: number, profileId: string | null): Promise<Opened> {
   return { show, history, seasons, open, openFailed };
 }
 
-/**
- * Not loaded: the wait, and the failure. One component for both, so a retry does not unmount
- * the control the viewer is on. (A copy of the movie screen's; a page file cannot export it.)
- */
-
 /** The episode row 0 is about. */
 interface Subject {
   season: number;
@@ -127,16 +131,30 @@ interface Subject {
   action: TitleAction;
 }
 
-/** Where an answer sends the viewer straight away, or null when it needs a decision first. */
-function watchHref(action: TitleAction): string | null {
+function assertNever(x: never): never {
+  throw new Error(`Unhandled title action: ${JSON.stringify(x)}`);
+}
+
+/**
+ * Where an answer sends the viewer straight away, or null when it needs a decision first.
+ * Exhaustive on purpose: a new `TitleAction` kind must fail the type check here, not fall
+ * through to "needs a decision".
+ */
+function placeToWatch(action: TitleAction): string | null {
   switch (action.kind) {
     case 'open':
     case 'resume':
       return action.href;
     case 'preparing':
-      return `/bigscreen/watch/${action.torrentId}`;
-    default:
+      // `fileIndex` is what keeps a season pack off its default file (episode 1).
+      return watchHref(action.torrentId, action.fileIndex);
+    case 'play':
+    case 'paused':
+    case 'unresolvedEpisode':
+    case 'blocked':
       return null;
+    default:
+      return assertNever(action);
   }
 }
 
@@ -186,6 +204,10 @@ function Loaded({
     async (n: number) => {
       if (cache.current.has(n) || inFlight.current.has(n)) return;
       inFlight.current.add(n);
+      // Synchronous, before the first await, and it must stay so: dropping a season from the
+      // failed set commits an intermediate grid shape ([1, N], no status row) so focus
+      // reconciles off the "Try again" row that is about to vanish. Without it the screen can
+      // be left with DOM focus on an unmounted button and no ring.
       setFailedSeasons((f) => {
         if (!f.has(n)) return f;
         const next = new Set(f);
@@ -212,13 +234,20 @@ function Loaded({
   const entry = open !== null ? cache.current.get(open) : undefined;
   const failed = open !== null && !entry && failedSeasons.has(open);
   const loading = open !== null && !entry && !failed;
-  const episodes: readonly Episode[] = entry?.episodes ?? [];
+  const episodes: readonly Episode[] = episodesOf(entry);
   const marks = useMemo(
     () => (open === null ? new Map() : episodeMarks(history, tmdbId, open)),
     [history, tmdbId, open],
   );
   const finished = !!entry && open !== null && seasonFinished(episodes, marks);
   const laterSeason = open !== null && seasons.some((s) => s.season_number > open);
+  // "Nothing left" is only claimed when no season we have SEEN still has an unwatched episode
+  // (someone who jumped in late, or watched out of order, has earlier ones). A season not
+  // fetched yet is unseen, so this can only ever under-claim.
+  const unwatchedElsewhere = seasons.some((s) => {
+    const d = cache.current.get(s.season_number);
+    return !!d && !seasonFinished(episodesOf(d), episodeMarks(history, tmdbId, s.season_number)) && episodesOf(d).length > 0;
+  });
 
   // Row 0's default subject: the first episode of the open season that is not finished.
   useEffect(() => {
@@ -227,7 +256,7 @@ function Loaded({
       setPending(false);
       return;
     }
-    const target = nextUnwatched(entry.episodes, marks);
+    const target = nextUnwatched(episodesOf(entry), marks);
     if (!target) {
       setSubject(null);
       setPending(false);
@@ -288,7 +317,7 @@ function Loaded({
     if (!alive.current) return;
     setBusyEpisode(null);
     if (onLocked(state)) return;
-    const href = watchHref(state.action);
+    const href = placeToWatch(state.action);
     if (href) {
       router.push(href);
       return;
@@ -320,7 +349,7 @@ function Loaded({
 
   let note: string | null = null;
   if (finished) {
-    note = laterSeason
+    note = laterSeason || unwatchedElsewhere
       ? `You’ve finished Season ${open}. Pick another season below.`
       : 'You’re all caught up. Nothing left to watch.';
   }
@@ -345,13 +374,14 @@ function Loaded({
     </>
   ) : (
     <>
-      {note && (
+      {(note ?? (pending ? 'Checking this episode…' : null)) && (
         <p role="status" className="bs-show__status">
-          {note}
+          {note ?? 'Checking this episode…'}
         </p>
       )}
+      {/* The label never changes: this control only ever goes home, so it must not say anything else. */}
       <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(0, 0)} onClick={goHome}>
-        {pending ? 'Checking…' : 'Back to home'}
+        Back to home
       </button>
     </>
   );
@@ -483,5 +513,5 @@ export default function ShowDetailPage() {
   if (load.phase === 'ready' && !redirecting) {
     return <Loaded opened={load} profileId={profileId} onLocked={sentToPicker} />;
   }
-  return <LoadStatus noun="show" patienceMs={LOAD_PATIENCE_MS} failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
+  return <LoadStatus noun="show" failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
 }

@@ -108,4 +108,33 @@ describe('season packs', () => {
     fireEvent.click(epButtons()[1]);
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=9'));
   });
+
+  describe('a pack that is STILL DOWNLOADING (its normal state for hours)', () => {
+    beforeEach(() => {
+      vi.mocked(torrentsService.listTorrents).mockResolvedValue([pack({ state: 'downloading', progress: 30 } as never)]);
+    });
+
+    it('pressing episode 2 goes to that episode\'s file, not the default file', async () => {
+      vi.mocked(streamingService.getFiles).mockResolvedValue([file(0, 2, 1), file(7, 2, 2), file(8, 2, 3)]);
+      await mountAndSettle();
+      fireEvent.click(epButtons()[1]);
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=7'));
+      expect(router.push).not.toHaveBeenCalledWith('/bigscreen/watch/pk');
+    });
+
+    it('the default control for the next episode also carries its file', async () => {
+      vi.mocked(streamingService.getFiles).mockResolvedValue([file(0, 2, 1), file(7, 2, 2)]);
+      await mountAndSettle();
+      fireEvent.click(await screen.findByRole('button', { name: /Preparing/ }));
+      expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=0');
+    });
+
+    it('with no readable file list it discloses instead of navigating to the default file', async () => {
+      vi.mocked(streamingService.getFiles).mockRejectedValue(new Error('no metadata'));
+      await mountAndSettle();
+      fireEvent.click(epButtons()[1]);
+      expect(await screen.findByRole('note')).toHaveTextContent(/may be a different episode/i);
+      expect(router.push).not.toHaveBeenCalled();
+    });
+  });
 });

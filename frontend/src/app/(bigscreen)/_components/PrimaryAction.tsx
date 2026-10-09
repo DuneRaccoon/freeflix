@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { requestTitle, resumeTitle, type TitleAction } from '../_data/title';
+import { watchHref } from '../_data/watchHref';
 import type { FocusProps } from '../_focus/useFocusGrid';
 
 /**
@@ -25,8 +26,6 @@ import type { FocusProps } from '../_focus/useFocusGrid';
  * explained. A failure prints its reason beside the control and leaves it usable. There is
  * no toaster on this surface, so nothing here may route an error to one.
  */
-
-const WATCH = '/bigscreen/watch';
 
 function assertNever(x: never): never {
   throw new Error(`Unhandled title action: ${JSON.stringify(x)}`);
@@ -65,7 +64,8 @@ export function describeAction(action: TitleAction, busy: Busy = null): ActionVi
     case 'preparing':
       return {
         label: `Preparing… ${Math.round(Number(action.progress) || 0)}%`,
-        href: `${WATCH}/${action.torrentId}`,
+        // A pack plays its default file without `?file=`, i.e. episode 1.
+        href: watchHref(action.torrentId, action.fileIndex),
       };
     case 'paused':
       return { label: busy === 'resuming' ? 'Resuming…' : 'Resume download' };
@@ -115,7 +115,10 @@ export function PrimaryAction({
 
   const run = async (
     kind: Exclude<Busy, null>,
-    work: () => Promise<{ ok: true; torrentId: string } | { ok: false; reason: string; maybeCreated?: boolean }>,
+    work: () => Promise<
+      | { ok: true; torrentId: string; fileIndex?: number; unresolved?: boolean }
+      | { ok: false; reason: string; maybeCreated?: boolean }
+    >,
   ) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -126,8 +129,16 @@ export function PrimaryAction({
     // take tens of seconds): the viewer has left, so do not pull them to the player later.
     if (!alive.current) return;
     if (result.ok) {
+      if (result.unresolved) {
+        // The torrent exists but it is a season pack and which file is this episode could not
+        // be read. Navigating would play its default file (episode 1) without a word, so
+        // re-ask instead: the answer is `unresolvedEpisode` (disclosed) or, now that metadata
+        // may have landed, a resolved file.
+        await recheckThenRearm();
+        return;
+      }
       // Stay "busy" through the navigation: the label keeps saying what is happening.
-      router.push(`${WATCH}/${result.torrentId}`);
+      router.push(watchHref(result.torrentId, result.fileIndex));
       return;
     }
     setFailure({ kind: action.kind, reason: result.reason });
@@ -138,14 +149,22 @@ export function PrimaryAction({
       // Re-ask what the title is first. If it is now `preparing` the screen shows that; if it
       // is still `play`, the control is re-armed below. Pressing Play blind here is how a
       // second multi-GB download gets minted on a box that allows two.
-      setBusy('checking');
-      try {
-        await onRecheck();
-      } catch {
-        /* the recheck reports its own failure as `blocked`; fall through and re-arm */
-      }
-      if (!alive.current) return;
+      await recheckThenRearm();
+      return;
     }
+    busyRef.current = false;
+    setBusy(null);
+  };
+
+  /** Re-ask what the title is, then re-arm the control (unless the screen is gone). */
+  const recheckThenRearm = async () => {
+    setBusy('checking');
+    try {
+      await onRecheck();
+    } catch {
+      /* the recheck reports its own failure as `blocked`; fall through and re-arm */
+    }
+    if (!alive.current) return;
     busyRef.current = false;
     setBusy(null);
   };
@@ -155,10 +174,10 @@ export function PrimaryAction({
       case 'play':
         return run('starting', () => requestTitle(request));
       case 'paused': {
-        const id = action.torrentId;
+        const { torrentId: id, fileIndex, fileUnknown } = action;
         return run('resuming', async () => {
           const r = await resumeTitle(id);
-          return r.ok ? { ok: true as const, torrentId: id } : r;
+          return r.ok ? { ok: true as const, torrentId: id, fileIndex, unresolved: !!fileUnknown } : r;
         });
       }
       case 'blocked': {

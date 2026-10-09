@@ -2,14 +2,19 @@ import type { StreamingProgress, TorrentStatus } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { buildContentId } from '@/lib/contentId';
+import { watchHref } from './watchHref';
 
 /** What the primary control on a detail screen should do, and say. */
 export type TitleAction =
   | { kind: 'play' } // nothing exists yet
   | { kind: 'resume'; href: string; atSeconds: number } // progress exists and is resumable
   | { kind: 'open'; href: string } // downloaded, no progress
-  | { kind: 'preparing'; torrentId: string; progress: number } // already downloading
-  | { kind: 'paused'; torrentId: string } // a download exists but is not running
+  // Already downloading. `fileIndex` is set when the torrent is a season pack and the episode
+  // asked for was located in it: without it a pack plays its DEFAULT file, i.e. episode 1.
+  | { kind: 'preparing'; torrentId: string; progress: number; fileIndex?: number }
+  // A download exists but is not running. `fileUnknown`: a pack whose file list could not be
+  // read, so resuming must re-ask which file before anything is played.
+  | { kind: 'paused'; torrentId: string; fileIndex?: number; fileUnknown?: true }
   | {
       /**
        * The season is here, but WHICH FILE holds this episode could not be determined —
@@ -46,7 +51,14 @@ interface TitleRef {
 
 /** The television asks for 1080p everywhere (spec §7.3); there is no picker on this surface. */
 type RequestResult =
-  | { ok: true; torrentId: string }
+  | {
+      ok: true;
+      torrentId: string;
+      /** A pack the episode was located in. */
+      fileIndex?: number;
+      /** The box answered with a season pack, and which file is the episode could not be read. */
+      unresolved?: true;
+    }
   | {
       ok: false;
       reason: string;
@@ -89,10 +101,6 @@ const PREPARING = new Set([
 // where they stopped. Offering Play instead would restart a half-downloaded film from nothing
 // (and mint a second torrent) on a Raspberry Pi.
 const PAUSED = new Set(['paused', 'stopped', 'error']);
-
-const watchHref = (torrentId: string, fileIndex?: number | null): string =>
-  // `!= null`, not truthiness: file 0 is the first file of a season pack.
-  fileIndex != null ? `/bigscreen/watch/${torrentId}?file=${fileIndex}` : `/bigscreen/watch/${torrentId}`;
 
 /**
  * Does this torrent row cover the title? Identity fields only: `movie_title` is free text
@@ -191,16 +199,46 @@ const isKnownUnready = (row: TorrentStatus): boolean =>
   PREPARING.has(row.state) || PAUSED.has(row.state) || row.state === 'blocked';
 
 /**
- * The action for a torrent that is not ready to watch. Total: an unknown or NULL state on a
- * row that matched is still a torrent that exists, so it reads as `preparing`. Only an
- * unmatched title may reach `play`.
+ * The action for a torrent that is not ready to watch. A matched row is a torrent that exists,
+ * so an unknown or NULL state reads as `preparing`; only an unmatched title may reach `play`.
+ *
+ * A SEASON PACK IS WATCHABLE WHILE IT DOWNLOADS (streaming from in-progress torrents is the
+ * point of this service), and for hours that is its normal state, so the episode's file is
+ * resolved here exactly as for a ready pack. Without it `preparing` would navigate with no
+ * `?file=` and the pack's default file, episode 1, would play for any episode asked.
+ * - found: `preparing`/`paused` carry `fileIndex`.
+ * - unreadable: a downloading pack becomes `unresolvedEpisode` (the screen must disclose it);
+ *   a paused one stays `paused` with `fileUnknown`, because the right control is still
+ *   "Resume download" and the screen re-asks once it is running.
+ * - absent (listed, and lacks the episode): null, this row does not cover the episode.
  */
-function unreadyAction(row: TorrentStatus): TitleAction {
-  if (PAUSED.has(row.state)) return { kind: 'paused', torrentId: row.id };
+async function unreadyAction(
+  row: TorrentStatus,
+  ref: TitleRef,
+  saved?: number | null,
+): Promise<TitleAction | null> {
   if (row.state === 'blocked') {
     return { kind: 'blocked', reason: row.block_reason || 'The box could not start this title.' };
   }
-  return { kind: 'preparing', torrentId: row.id, progress: Number(row.progress) || 0 };
+  const file = await fileFor(row, ref, saved);
+  if (file === undefined) return null;
+  const unresolved = file === UNRESOLVED;
+  const index = unresolved ? null : file;
+  if (PAUSED.has(row.state)) {
+    return {
+      kind: 'paused',
+      torrentId: row.id,
+      ...(index != null ? { fileIndex: index } : {}),
+      ...(unresolved ? { fileUnknown: true as const } : {}),
+    };
+  }
+  if (unresolved) return { kind: 'unresolvedEpisode', href: watchHref(row.id, null) };
+  return {
+    kind: 'preparing',
+    torrentId: row.id,
+    progress: Number(row.progress) || 0,
+    ...(index != null ? { fileIndex: index } : {}),
+  };
 }
 
 /**
@@ -222,7 +260,7 @@ async function actionFromProgress(
     const row = await torrentsService.getTorrentStatus(progress.torrent_id);
     if (!row || typeof row.id !== 'string') return null;
     if (READY.has(row.state)) return await readyAction([row], ref, progress, canResume);
-    return unreadyAction(row);
+    return await unreadyAction(row, ref, progress.file_index);
   } catch {
     return null;
   }
@@ -302,8 +340,15 @@ export async function titleStateFor(args: TitleRef & { userId: string | null }):
     // A ready row that reached here was a pack without this episode; it says nothing more.
     // Known states first, then any other matched row: it exists, so it is never Play.
     const live = matches.filter((r) => !READY.has(r.state));
-    const row = live.find(isKnownUnready) ?? live[0];
-    if (row) return { locked: false, action: unreadyAction(row) };
+    for (const row of [...live.filter(isKnownUnready), ...live.filter((r) => !isKnownUnready(r))]) {
+      try {
+        const saved = named(progress) && progress.torrent_id === row.id ? progress.file_index : null;
+        const action = await unreadyAction(row, ref, saved);
+        if (action) return { locked: false, action };
+      } catch {
+        // One bad row costs that row.
+      }
+    }
     return { locked: false, action: { kind: 'play' } };
   } catch {
     return { locked: false, action: { kind: 'play' } };
@@ -400,6 +445,13 @@ async function startDownload(args: {
     const id = status?.id;
     // A 2xx with no usable id: the server answered, so something may well exist.
     if (typeof id !== 'string' || !id) return { ok: false, reason: "Couldn't start this title. Try again.", maybeCreated: true };
+    // The backend may satisfy an episode with a season pack (a row with no episode of its
+    // own); that plays its default file unless the episode's file is located.
+    if (args.mediaType === 'tv' && args.season !== undefined && args.episode !== undefined && status.episode == null) {
+      const found = await lookupEpisodeFile(id, args.season, args.episode);
+      if (found.kind === 'found') return { ok: true, torrentId: id, fileIndex: found.index };
+      return { ok: true, torrentId: id, unresolved: true };
+    }
     return { ok: true, torrentId: id };
   } catch (err) {
     const status = statusOf(err);

@@ -29,6 +29,12 @@ describe('describeAction', () => {
     expect(Boolean(v.href)).toBe(isLink);
   });
 
+  it('a pack preparing carries its file into the href (file 0 included); without one it has none', () => {
+    expect(describeAction({ kind: 'preparing', torrentId: 't', progress: 1, fileIndex: 4 }).href).toBe('/bigscreen/watch/t?file=4');
+    expect(describeAction({ kind: 'preparing', torrentId: 't', progress: 1, fileIndex: 0 }).href).toBe('/bigscreen/watch/t?file=0');
+    expect(describeAction({ kind: 'preparing', torrentId: 't', progress: 1 }).href).toBe('/bigscreen/watch/t');
+  });
+
   it('only unresolvedEpisode carries the disclosure', () => {
     for (const [action] of cases) {
       expect(describeAction(action).note).toBe(action.kind === 'unresolvedEpisode' ? UNRESOLVED_NOTE : undefined);

@@ -36,8 +36,6 @@ import { useBackKey } from '../../../_focus/useBackKey';
 
 const HOME = '/bigscreen';
 const PROFILES = '/bigscreen/profiles';
-/** How long a load may hang before a retry is offered (`apiClient` sets no timeout). */
-const LOAD_PATIENCE_MS = 10_000;
 
 type Load =
   | { phase: 'loading' }
@@ -57,11 +55,6 @@ function eyebrowOf(d: MovieDetail): string | null {
   }
   return parts.length ? parts.join(' · ') : null;
 }
-
-/**
- * Not loaded: the wait, and the failure. One component for both, so a retry that moves the
- * screen from "failed" back to "loading" does not unmount the control the viewer is on.
- */
 
 type ListLabel = 'Add to My List' | '✓ In My List' | 'Saving…' | 'Removing…';
 
@@ -264,5 +257,5 @@ export default function MovieDetailPage() {
   if (load.phase === 'ready' && !redirecting) {
     return <Loaded detail={load.detail} state={load.state} profile={profile} onRecheck={recheck} />;
   }
-  return <LoadStatus noun="movie" patienceMs={LOAD_PATIENCE_MS} failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
+  return <LoadStatus noun="movie" failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
 }

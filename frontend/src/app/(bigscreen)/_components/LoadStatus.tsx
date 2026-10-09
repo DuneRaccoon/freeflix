@@ -7,6 +7,9 @@ import { TitleScreen } from './TitleScreen';
 
 const HOME = '/bigscreen';
 
+/** How long a load may hang before a retry is offered (`apiClient` sets no timeout). */
+export const LOAD_PATIENCE_MS = 10_000;
+
 /**
  * The loading and failed states both detail screens share.
  *
@@ -30,12 +33,12 @@ export function LoadStatus({
   onRetry,
   /** "movie" or "show": the only thing that differed between the two copies. */
   noun,
-  patienceMs,
+  patienceMs = LOAD_PATIENCE_MS,
 }: {
   failed: boolean;
   onRetry: () => void;
   noun: string;
-  patienceMs: number;
+  patienceMs?: number;
 }) {
   const [waited, setWaited] = useState(false);
   const [pressed, setPressed] = useState(false);

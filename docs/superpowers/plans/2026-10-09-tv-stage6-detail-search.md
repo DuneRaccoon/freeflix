@@ -203,6 +203,11 @@ export function fileIndexForEpisode(
 **`titleStateFor` rules, in order:**
 1. If `userId` is set, ask `streamingService.getProgressByMovie(userId, buildContentId(...))`. A **423** means passcode-locked: resolve `{ locked: true }` immediately and let the screen redirect. A row with a null `torrent_id` can never resume (the FK is `ON DELETE SET NULL`) — ignore it. A row past ~95% is finished, not resumable.
 2. Ask `torrentsService.listTorrents()` and look for a row matching this title on the **new identity fields** — `tmdb_id` plus `media_type`, and for tv also `season`/`episode` where the row carries them. Do **not** match on `movie_title`: it is free text, and a season pack's title does not name an episode.
+   Three contract notes, each from the Task 1 review and each able to produce a wrong answer:
+   - **A season pack is `season: N, episode: null`.** Read that as "this season is covered", *not* "episode unknown". An episode press inside that season should match the pack and then resolve a `file_index` (below), rather than concluding nothing exists and minting a second torrent for one episode.
+   - **A NULL `season`/`episode` is not proof of a movie.** Always pair the check with `media_type`.
+   - **`media_type` can lie on a legacy row.** `torrent/manager.py:726` writes `getattr(movie, "media_type", "movie")`, so a caller that omitted it stored a TV torrent as `"movie"`. `POST /torrents/download` always sets it, so this is latent rather than live — but prefer a match that requires `tmdb_id` AND `media_type` to agree, and treat a disagreement as "no match" rather than guessing.
+   - **Do not read `chosen_quality` from `/list` or `/status`.** `to_status()` omits it, so it is set only on the `POST /download` response and is `None` on every later poll. Use `quality`, which is the stored (post-downgrade) value.
 3. Map state → action: `downloading`/`downloading_metadata`/`queued` → `preparing`; `finished`/`seeding` → `open` (or `resume` if step 1 found progress); `blocked` → `blocked` with the row's `block_reason`; otherwise → `play`.
 4. Every call is individually failure-tolerant and the function **resolves, never rejects**. A dead `listTorrents` must degrade to `play`, not to a broken screen.
 

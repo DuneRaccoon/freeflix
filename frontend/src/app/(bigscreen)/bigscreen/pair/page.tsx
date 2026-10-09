@@ -16,14 +16,18 @@ const MIN_RESTART_MS = 2_000;
 const MAX_EXPIRED_RESTARTS = 5;
 
 /** The single waiting-state control; see PairPage. */
-function NewCodeControl({ onPress }: { onPress: () => void }) {
+function NewCodeControl({ onPress, busy }: { onPress: () => void; busy: boolean }) {
   // Own grid, mounted only while waiting: the failure states use autoFocus buttons, and a
   // second live grid would be inert (see useFocusGrid OWNERSHIP).
   const grid = useFocusGrid({ rowCounts: [1] });
   return (
     <div className="bs-controls">
+      {/* The label follows the request, because `begin()` refuses a second call while one is
+          in flight. A button reading "Get a new code" that does nothing is a lie on screen;
+          one reading "Getting a code…" is the truth, and the press is correctly a no-op
+          because that is already what it is doing. Same shape as home's retry. */}
       <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(0, 0)} onClick={onPress}>
-        Get a new code
+        {busy ? 'Getting a code…' : 'Get a new code'}
       </button>
     </div>
   );
@@ -56,6 +60,10 @@ export default function PairPage() {
   const [qr, setQr] = useState<string | null>(null);
 
   const inFlight = useRef(false);
+  // A rendered mirror of `inFlight`, purely so the control's label can tell the truth:
+  // a ref cannot drive a render, and `!start` is also true during an expiry restart's
+  // backoff wait, when a press DOES do something.
+  const [requesting, setRequesting] = useState(false);
   const failures = useRef(0);
   const expiredRuns = useRef(0);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -66,6 +74,7 @@ export default function PairPage() {
     // orphan one server-side.
     if (inFlight.current) return;
     inFlight.current = true;
+    setRequesting(true);
     failures.current = 0;
     if (!isRestart) expiredRuns.current = 0;
     setPhase('starting');
@@ -79,6 +88,7 @@ export default function PairPage() {
       setPhase('unreachable');
     } finally {
       inFlight.current = false;
+      setRequesting(false);
     }
   }, []);
 
@@ -88,6 +98,11 @@ export default function PairPage() {
     void begin();
   }, [begin]);
 
+  // Claimed and deliberately inert, for the same reason as home (see its `stayOnHome`):
+  // handed to the browser it walks history to home, which 401s and bounces straight back
+  // here — minting a fresh pairing and orphaning the old one out of the household-wide
+  // rate bucket. STAGE 10 OWES THIS A REAL ANSWER: inside the webOS shell, Back on the
+  // first screen is how a viewer expects to leave, and only the shell can exit cleanly.
   useBackKey(() => {});
 
   useEffect(() => {
@@ -237,9 +252,12 @@ export default function PairPage() {
           )}
         </div>
       ) : (
-        <p>Getting a code…</p>
+        // While the request is out, the button below carries that message and holds the
+        // focus ring, so saying it twice is just noise. The other way to be here is an
+        // expiry restart's backoff wait, where a press skips the wait.
+        !requesting && <p>A new code is on its way…</p>
       )}
-      <NewCodeControl onPress={newCode} />
+      <NewCodeControl onPress={newCode} busy={requesting} />
     </main>
   );
 }

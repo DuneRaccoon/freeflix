@@ -205,15 +205,18 @@ describe('/bigscreen/pair', () => {
   });
 
   describe('something is always focused (no Tab, no pointer on a remote)', () => {
-    const newCode = () => screen.getByRole('button', { name: /get a new code/i });
+    const newCode = () => screen.getByRole('button', { name: /get(ting)? a (new )?code/i });
     const mocked = (f: unknown) => f as ReturnType<typeof vi.fn>;
 
-    it('focuses a control while "Getting a code…" is showing', async () => {
+    it('focuses a control while the first code is still being fetched', async () => {
       mocked(devicesService.start).mockReturnValue(new Promise(() => {}));
       render(<PairPage />);
       await act(async () => {});
-      expect(screen.getByText(/getting a code/i)).toBeInTheDocument();
-      expect(document.activeElement).toBe(newCode());
+      // The button reports the request rather than offering an action it would refuse:
+      // begin() ignores a press while one is in flight, so "Get a new code" would be a lie.
+      const control = screen.getByRole('button', { name: /getting a code/i });
+      expect(document.activeElement).toBe(control);
+      expect(screen.queryByRole('button', { name: /^get a new code$/i })).toBeNull();
     });
 
     it('focuses a control while the code and QR are showing', async () => {
@@ -270,8 +273,9 @@ describe('/bigscreen/pair', () => {
       render(<PairPage />);
       await screen.findByText('BCDF-GHJK');
       await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
-      await screen.findByText(/getting a code/i);
-      fireEvent.click(newCode());
+      await screen.findByText(/a new code is on its way/i);
+      // Not in flight here, only waiting out the backoff — so this press really does skip it.
+      fireEvent.click(screen.getByRole('button', { name: /^get a new code$/i }));
       await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
       expect(start).toHaveBeenCalledTimes(2);
     });

@@ -35,6 +35,12 @@ describe('describeAction', () => {
     expect(describeAction({ kind: 'preparing', torrentId: 't', progress: 1 }).href).toBe('/bigscreen/watch/t');
   });
 
+  it('a preparing pack whose file is unknown has NO href: a bare url plays episode 1', () => {
+    const v = describeAction({ kind: 'preparing', torrentId: 't', progress: 3, fileUnknown: true });
+    expect(v.href).toBeUndefined();
+    expect(v.label).toBe('Preparing… 3%');
+  });
+
   it('only unresolvedEpisode carries the disclosure', () => {
     for (const [action] of cases) {
       expect(describeAction(action).note).toBe(action.kind === 'unresolvedEpisode' ? UNRESOLVED_NOTE : undefined);

@@ -365,7 +365,7 @@ describe('show detail screen', () => {
       // S2 (the last season) finished; S1 was never watched. Landing on S2 requires history there.
       recent.mockResolvedValue([prog('tv:1399:s2:e2', { completed: true }), prog('tv:1399:s2:e1', { completed: true })]);
       await mount();
-      await screen.findByText(/nothing left to watch/i); // only season 2 has been seen so far
+      await screen.findByText(/finished season 2\. pick another season/i); // season 1 unseen: hedged
       fireEvent.click(seasonBtn(1)); // now season 1 is seen, and nothing in it is watched
       await waitFor(() => expect(epButtons()).toHaveLength(3));
       fireEvent.click(seasonBtn(2));
@@ -376,9 +376,14 @@ describe('show detail screen', () => {
     const watchedAll = (s: number, n: number) =>
       Array.from({ length: n }, (_, i) => prog(`tv:1399:s${s}:e${n - i}`, { completed: true }));
 
-    it('the last episode of the last season finished: reads as finished, no Play', async () => {
-      recent.mockResolvedValue(watchedAll(2, 2));
+    it('the last episode of the last season finished, every season seen: reads as finished, no Play', async () => {
+      recent.mockResolvedValue([...watchedAll(2, 2), ...watchedAll(1, 3)]);
       await mount();
+      await screen.findByText(/finished season 2/i); // season 1 not fetched yet: hedged, not absolute
+      expect(screen.queryByText(/nothing left to watch/i)).toBeNull();
+      fireEvent.click(seasonBtn(1));
+      await screen.findByText(/finished season 1/i);
+      fireEvent.click(seasonBtn(2));
       await screen.findByText(/nothing left to watch/i);
       expect(screen.queryByRole('button', { name: /^(Play|Open|Resume)/ })).toBeNull();
       expect(stateFor).not.toHaveBeenCalled();

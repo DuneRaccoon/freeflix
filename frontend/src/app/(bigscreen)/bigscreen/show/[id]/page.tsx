@@ -146,8 +146,9 @@ function placeToWatch(action: TitleAction): string | null {
     case 'resume':
       return action.href;
     case 'preparing':
-      // `fileIndex` is what keeps a season pack off its default file (episode 1).
-      return watchHref(action.torrentId, action.fileIndex);
+      // `fileIndex` is what keeps a season pack off its default file (episode 1); with the file
+      // unknown there is nowhere safe to go yet, so the control (which re-asks) decides.
+      return action.fileUnknown ? null : watchHref(action.torrentId, action.fileIndex);
     case 'play':
     case 'paused':
     case 'unresolvedEpisode':
@@ -241,9 +242,11 @@ function Loaded({
   );
   const finished = !!entry && open !== null && seasonFinished(episodes, marks);
   const laterSeason = open !== null && seasons.some((s) => s.season_number > open);
-  // "Nothing left" is only claimed when no season we have SEEN still has an unwatched episode
-  // (someone who jumped in late, or watched out of order, has earlier ones). A season not
-  // fetched yet is unseen, so this can only ever under-claim.
+  // "Nothing left" is the absolute claim Continue Watching's "Up next" defers to, so it is made
+  // only on complete data: EVERY regular season fetched, none with an unwatched episode
+  // (someone who jumped in late, or watched out of order, has earlier ones). Otherwise the
+  // hedged "Pick another season" wording; hedging costs nothing.
+  const unseenSeason = seasons.some((s) => !cache.current.has(s.season_number));
   const unwatchedElsewhere = seasons.some((s) => {
     const d = cache.current.get(s.season_number);
     return !!d && !seasonFinished(episodesOf(d), episodeMarks(history, tmdbId, s.season_number)) && episodesOf(d).length > 0;
@@ -349,7 +352,7 @@ function Loaded({
 
   let note: string | null = null;
   if (finished) {
-    note = laterSeason || unwatchedElsewhere
+    note = laterSeason || unwatchedElsewhere || unseenSeason
       ? `You’ve finished Season ${open}. Pick another season below.`
       : 'You’re all caught up. Nothing left to watch.';
   }

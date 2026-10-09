@@ -63,9 +63,11 @@ export function describeAction(action: TitleAction, busy: Busy = null): ActionVi
       return { label: 'Open', href: action.href };
     case 'preparing':
       return {
-        label: `Preparing… ${Math.round(Number(action.progress) || 0)}%`,
-        // A pack plays its default file without `?file=`, i.e. episode 1.
-        href: watchHref(action.torrentId, action.fileIndex),
+        label:
+          busy === 'checking' ? 'Checking…' : `Preparing… ${Math.round(Number(action.progress) || 0)}%`,
+        // No href when the pack's file is unknown: a bare URL plays its default file, i.e.
+        // episode 1. A press re-asks instead (see `press`).
+        href: action.fileUnknown ? undefined : watchHref(action.torrentId, action.fileIndex),
       };
     case 'paused':
       return { label: busy === 'resuming' ? 'Resuming…' : 'Resume download' };
@@ -189,9 +191,19 @@ export function PrimaryAction({
           setBusy(null);
         });
       }
+      case 'preparing':
+        if (action.fileUnknown) {
+          if (busyRef.current) return;
+          busyRef.current = true;
+          setBusy('checking');
+          return onRecheck().finally(() => {
+            busyRef.current = false;
+            setBusy(null);
+          });
+        }
+      // falls through: a preparing torrent with a known (or irrelevant) file navigates
       case 'resume':
       case 'open':
-      case 'preparing':
       case 'unresolvedEpisode':
         // A BUTTON that navigates, not an <a>. The blocked kind is a button, and a recheck
         // can turn it into one of these; swapping the element type would unmount the focused

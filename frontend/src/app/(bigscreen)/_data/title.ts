@@ -11,7 +11,11 @@ export type TitleAction =
   | { kind: 'open'; href: string } // downloaded, no progress
   // Already downloading. `fileIndex` is set when the torrent is a season pack and the episode
   // asked for was located in it: without it a pack plays its DEFAULT file, i.e. episode 1.
-  | { kind: 'preparing'; torrentId: string; progress: number; fileIndex?: number }
+  // `fileUnknown`: a pack whose file list could not be read (a torrent still fetching its
+  // metadata has none, by design). It is NOT inferable from a missing `fileIndex`: a movie and
+  // a single-episode torrent lack one too, and navigating bare is correct for those. When set,
+  // a screen must re-ask instead of navigating, or the pack's default file (episode 1) plays.
+  | { kind: 'preparing'; torrentId: string; progress: number; fileIndex?: number; fileUnknown?: true }
   // A download exists but is not running. `fileUnknown`: a pack whose file list could not be
   // read, so resuming must re-ask which file before anything is played.
   | { kind: 'paused'; torrentId: string; fileIndex?: number; fileUnknown?: true }
@@ -207,9 +211,9 @@ const isKnownUnready = (row: TorrentStatus): boolean =>
  * resolved here exactly as for a ready pack. Without it `preparing` would navigate with no
  * `?file=` and the pack's default file, episode 1, would play for any episode asked.
  * - found: `preparing`/`paused` carry `fileIndex`.
- * - unreadable: a downloading pack becomes `unresolvedEpisode` (the screen must disclose it);
- *   a paused one stays `paused` with `fileUnknown`, because the right control is still
- *   "Resume download" and the screen re-asks once it is running.
+ * - unreadable: `preparing` / `paused` with `fileUnknown`. The honest answer for a torrent that
+ *   has no metadata yet is still "Preparing…", not "Play anyway"; the screen re-asks on press.
+ *   (`unresolvedEpisode` is for a READY pack whose file we still cannot name.)
  * - absent (listed, and lacks the episode): null, this row does not cover the episode.
  */
 async function unreadyAction(
@@ -232,12 +236,12 @@ async function unreadyAction(
       ...(unresolved ? { fileUnknown: true as const } : {}),
     };
   }
-  if (unresolved) return { kind: 'unresolvedEpisode', href: watchHref(row.id, null) };
   return {
     kind: 'preparing',
     torrentId: row.id,
     progress: Number(row.progress) || 0,
     ...(index != null ? { fileIndex: index } : {}),
+    ...(unresolved ? { fileUnknown: true as const } : {}),
   };
 }
 

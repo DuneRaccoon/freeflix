@@ -208,11 +208,14 @@ describe('titleStateFor: matching torrents', () => {
       getFiles.mockResolvedValue(files([0, 1, 1]));
       expect((await titleStateFor(ep(1, 1))).action).toEqual({ kind: 'preparing', torrentId: 'pack', progress: 30, fileIndex: 0 });
     });
-    it('an unreadable file list is unresolvedEpisode (disclosed), never a silent default-file preparing', async () => {
-      downloading();
-      getFiles.mockRejectedValue(new Error('no metadata yet'));
-      expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/pack' });
-    });
+    it.each(['downloading', 'downloading_metadata', 'queued'])(
+      'an unreadable file list on a %s pack is still preparing, flagged fileUnknown (never Play anyway)',
+      async (state) => {
+        downloading(state);
+        getFiles.mockRejectedValue(new Error('no metadata yet'));
+        expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'preparing', torrentId: 'pack', progress: 30, fileUnknown: true });
+      },
+    );
     it('a pack that was listed and lacks the episode does not cover it: Play', async () => {
       downloading();
       getFiles.mockResolvedValue(files([0, 1, 1]));

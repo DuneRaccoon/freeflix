@@ -129,12 +129,21 @@ describe('season packs', () => {
       expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=0');
     });
 
-    it('with no readable file list it discloses instead of navigating to the default file', async () => {
+    it('with no readable file list (no metadata yet) it says Preparing and never navigates to the default file', async () => {
+      vi.mocked(torrentsService.listTorrents).mockResolvedValue([pack({ state: 'downloading_metadata', progress: 0 } as never)]);
       vi.mocked(streamingService.getFiles).mockRejectedValue(new Error('no metadata'));
       await mountAndSettle();
       fireEvent.click(epButtons()[1]);
-      expect(await screen.findByRole('note')).toHaveTextContent(/may be a different episode/i);
+      const ctl = await screen.findByRole('button', { name: 'Preparing… 0%' });
+      expect(screen.queryByRole('note')).toBeNull();
+      expect(screen.queryByRole('button', { name: /anyway/i })).toBeNull();
+      fireEvent.click(ctl); // re-asks; the metadata has not landed, so still no navigation
+      await screen.findByRole('button', { name: 'Preparing… 0%' });
       expect(router.push).not.toHaveBeenCalled();
+      // metadata lands: the next ask resolves the file and the same press now goes to it
+      vi.mocked(streamingService.getFiles).mockResolvedValue([file(0, 2, 1), file(5, 2, 2)]);
+      fireEvent.click(epButtons()[1]);
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=5'));
     });
   });
 });

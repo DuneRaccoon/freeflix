@@ -110,3 +110,21 @@ def test_list_endpoint_includes_identity_keys_for_old_rows(client):
     items = client.get("/api/v1/torrents/list").json()
     assert len(items) == 1
     assert all(k in items[0] and items[0][k] is None for k in KEYS)
+
+
+def test_list_endpoint_carries_a_populated_row(client):
+    # /list is the endpoint the television's detail screen asks "is this already
+    # downloading?" before it offers Play, so it is the one that most needs a POPULATED
+    # assertion. The all-None test above passes whether or not to_status() passes the
+    # fields through, i.e. it cannot fail on the real defect.
+    client.fake.rows["pack"] = _row(
+        tmdb_id=1399, media_type="tv", season=2, episode=None
+    ).to_status()
+    items = client.get("/api/v1/torrents/list").json()
+    assert len(items) == 1
+    assert items[0]["tmdb_id"] == 1399
+    assert items[0]["media_type"] == "tv"
+    # A season pack identifies its season with no episode: "this season is covered",
+    # not "episode unknown". The detail screen has to read it that way.
+    assert items[0]["season"] == 2
+    assert items[0]["episode"] is None

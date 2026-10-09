@@ -10,7 +10,7 @@ describe('NavRow', () => {
     expect(NAV_TARGETS.map((t) => [t.label, t.href])).toEqual([
       ['Search', '/bigscreen/search'],
       ['My List', '/bigscreen/list'],
-      ['Who’s watching?', '/bigscreen/profiles'],
+      ['Switch profile', '/bigscreen/profiles'],
       ['Diagnostics', '/bigscreen/diag'],
     ]);
   });

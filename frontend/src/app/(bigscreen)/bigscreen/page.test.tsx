@@ -116,6 +116,9 @@ const wrapperOf = (key: string) => document.querySelector(`[data-rail="${key}"]`
 const railTitles = () => [...document.querySelectorAll('.bs-rail__title')].map((h) => h.textContent);
 const stopsIn = (el: Element) => el.querySelectorAll(FOCUS_STOPS);
 /** The recovery panel's link; the nav row has one of the same name, so scope to the panel. */
+// Scoped to the panel deliberately. The nav row's equivalent is labelled "Switch profile"
+// so the two no longer collide by name, but scoping keeps this helper honest if either
+// label changes again.
 const panelWho = () => within(document.querySelector('.bs-controls') as HTMLElement).getByRole('link', { name: 'Who’s watching?' });
 const active = () => document.activeElement as HTMLElement;
 
@@ -1309,7 +1312,7 @@ describe('/bigscreen home: the nav row', () => {
   it('is rendered with all four targets once home is up', async () => {
     renderHome();
     await answer('trending');
-    expect(navLinks().map((l) => l.textContent)).toEqual(['Search', 'My List', 'Who’s watching?', 'Diagnostics']);
+    expect(navLinks().map((l) => l.textContent)).toEqual(['Search', 'My List', 'Switch profile', 'Diagnostics']);
   });
 
   it('leaves the hero with focus on mount', async () => {

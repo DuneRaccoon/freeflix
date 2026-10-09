@@ -11,14 +11,14 @@ export interface NavTarget {
  * Where a viewer can go from home. Search and My List are built by later tasks; until then
  * their links land on the catch-all screen, which says so.
  *
- * "Who’s watching?" and Diagnostics are here because nothing else on a healthy home links
+ * "Switch profile" and Diagnostics are here because nothing else on a healthy home links
  * to them (the picker's only other link is in the recovery panel), and a remote cannot type
  * a URL.
  */
 export const NAV_TARGETS: readonly NavTarget[] = [
   { href: '/bigscreen/search', label: 'Search' },
   { href: '/bigscreen/list', label: 'My List' },
-  { href: '/bigscreen/profiles', label: 'Who’s watching?' },
+  { href: '/bigscreen/profiles', label: 'Switch profile' },
   { href: '/bigscreen/diag', label: 'Diagnostics' },
 ];
 

@@ -79,7 +79,8 @@ describe('titleStateFor: progress', () => {
     getProgress.mockRejectedValue(httpError(423));
     const state = await titleStateFor(movie);
     expect(state.locked).toBe(true);
-    expect(state.action).toEqual({ kind: 'play' });
+    // Not play: a consumer that forgets `locked` must still be unable to mint.
+    expect(state.action.kind).toBe('blocked');
     expect(list).not.toHaveBeenCalled();
     expect(getFiles).not.toHaveBeenCalled();
   });
@@ -244,9 +245,14 @@ describe('titleStateFor: state mapping', () => {
     expect((await titleStateFor(movie)).action).toEqual({ kind: 'paused', torrentId: 't1' });
   });
 
-  it('an unknown state offers play', async () => {
-    list.mockResolvedValue([torrent({ state: 'mystery' } as never)]);
-    expect((await titleStateFor(movie)).action).toEqual({ kind: 'play' });
+  it.each(['mystery', undefined, null])('an unknown state (%s) on a matched row is preparing, never play', async (state) => {
+    list.mockResolvedValue([torrent({ state, progress: 7 } as never)]);
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'preparing', torrentId: 't1', progress: 7 });
+  });
+
+  it('a known unready row wins over an unknown-state row', async () => {
+    list.mockResolvedValue([torrent({ id: 'u', state: 'mystery' } as never), torrent({ id: 'p', state: 'paused' } as never)]);
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'paused', torrentId: 'p' });
   });
 
   it('never exposes chosen_quality: the stored quality is what matters (contract note 4)', async () => {
@@ -296,8 +302,25 @@ describe('titleStateFor: progress names the torrent (legacy rows)', () => {
     expect((await titleStateFor(movie)).action).toEqual({ kind: 'open', href: '/bigscreen/watch/other' });
   });
 
-  it('does not ask for the torrent when progress is not resumable', async () => {
+  it.each([
+    ['finished (past 95%)', { percentage: 99 }],
+    ['completed', { completed: true, percentage: 40 }],
+    ['opened at 0%', { percentage: 0 }],
+  ])('a %s film on a legacy NULL-identity torrent opens, not play', async (_n, over) => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'old', ...over }));
+    getStatus.mockResolvedValue(legacy({ id: 'old' }));
+    list.mockResolvedValue([legacy({ id: 'old' })]);
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'open', href: '/bigscreen/watch/old' });
+  });
+
+  it('a non-resumable progress row whose torrent is paused is paused', async () => {
     getProgress.mockResolvedValue(progress({ torrent_id: 'old', percentage: 99 }));
+    getStatus.mockResolvedValue(legacy({ id: 'old', state: 'paused' } as never));
+    expect((await titleStateFor(movie)).action).toEqual({ kind: 'paused', torrentId: 'old' });
+  });
+
+  it('a progress row with no torrent_id never asks for one', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: null }));
     await titleStateFor(movie);
     expect(getStatus).not.toHaveBeenCalled();
   });
@@ -312,7 +335,8 @@ describe('resumeTitle', () => {
   it('turns failures into readable reasons and never rejects', async () => {
     act.mockRejectedValue(httpError(404));
     const gone = await resumeTitle('t1');
-    expect(!gone.ok && gone.reason).toMatch(/no longer/i);
+    expect(!gone.ok && gone.reason).toMatch(/may have been removed/i);
+    expect(!gone.ok && gone.reason).not.toMatch(/no longer on the box/i);
     act.mockRejectedValue(new Error('x'));
     const other = await resumeTitle('t1');
     expect(!other.ok && other.reason).toMatch(/try again/i);
@@ -335,10 +359,21 @@ describe('titleStateFor: never rejects', () => {
     expect((await titleStateFor(movie)).action.kind).toBe('open');
   });
 
-  it('getFiles rejecting on a pack yields play rather than a throw', async () => {
-    list.mockResolvedValue([torrent({ media_type: 'tv', tmdb_id: 1399, season: 1, episode: null })]);
+  it.each([
+    ['rejects', () => getFiles.mockRejectedValue(new Error('down'))],
+    ['answers empty', () => getFiles.mockResolvedValue([])],
+    ['answers junk', () => getFiles.mockResolvedValue(null as never)],
+  ])('a downloaded pack whose getFiles %s opens the pack, never play', async (_n, setup) => {
+    list.mockResolvedValue([torrent({ id: 'pack', media_type: 'tv', tmdb_id: 1399, season: 1, episode: null })]);
+    setup();
+    expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'open', href: '/bigscreen/watch/pack' });
+  });
+
+  it('the legacy progress path (file_index null, episode NULL) also survives a failed lookup', async () => {
+    getProgress.mockResolvedValue(progress({ torrent_id: 'old', file_index: null, movie_id: 'tv:1399:s1:e3' }));
+    getStatus.mockResolvedValue(legacy({ id: 'old' }));
     getFiles.mockRejectedValue(new Error('down'));
-    expect((await titleStateFor(ep(1, 3))).action).toEqual({ kind: 'play' });
+    expect((await titleStateFor(ep(1, 3))).action).toMatchObject({ kind: 'resume', href: '/bigscreen/watch/old' });
   });
 
   it('a synchronous throw from a service still resolves', async () => {
@@ -412,7 +447,44 @@ describe('requestTitle', () => {
   });
 });
 
+describe('requestTitle in-flight guard', () => {
+  it('a second press for the same title joins the first request', async () => {
+    let finish!: (v: TorrentStatus) => void;
+    download.mockReturnValue(new Promise((r) => (finish = r)));
+    const a = requestTitle({ mediaType: 'movie', tmdbId: 603 });
+    const b = requestTitle({ mediaType: 'movie', tmdbId: 603 });
+    expect(download).toHaveBeenCalledTimes(1);
+    finish(torrent({ id: 'one' }));
+    expect(await a).toEqual({ ok: true, torrentId: 'one' });
+    expect(await b).toEqual({ ok: true, torrentId: 'one' });
+  });
+
+  it('a movie and an episode of the same tmdb_id do not collide', async () => {
+    download.mockReturnValue(new Promise(() => {}));
+    void requestTitle({ mediaType: 'movie', tmdbId: 5 });
+    void requestTitle({ mediaType: 'tv', tmdbId: 5, season: 1, episode: 1 });
+    void requestTitle({ mediaType: 'tv', tmdbId: 5, season: 1, episode: 2 });
+    expect(download).toHaveBeenCalledTimes(3);
+  });
+
+  it('the guard releases after a failure, so a retry posts again', async () => {
+    download.mockRejectedValueOnce(httpError(500));
+    expect((await requestTitle({ mediaType: 'movie', tmdbId: 8 })).ok).toBe(false);
+    download.mockResolvedValue(torrent({ id: 'again' }));
+    expect(await requestTitle({ mediaType: 'movie', tmdbId: 8 })).toEqual({ ok: true, torrentId: 'again' });
+    expect(download).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('fileIndexForEpisode', () => {
+  it('prefers the largest file when a sample claims the same episode', async () => {
+    getFiles.mockResolvedValue([
+      { index: 0, season: 1, episode: 3, size: 30_000_000 },
+      { index: 1, season: 1, episode: 3, size: 2_000_000_000 },
+      { index: 2, season: 1, episode: 3, size: 40_000_000 },
+    ] as VideoFile[]);
+    expect(await fileIndexForEpisode('t1', 1, 3)).toBe(1);
+  });
   const pack = files([0, 1, 1], [1, 1, 2], [2, 1, 3], [3, 2, 1]);
   it('returns the index for S1E3 out of a pack', async () => {
     getFiles.mockResolvedValue(pack);

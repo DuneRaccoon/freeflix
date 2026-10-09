@@ -26,6 +26,12 @@ interface TitleRef {
 }
 
 /** The television asks for 1080p everywhere (spec §7.3); there is no picker on this surface. */
+type RequestResult = { ok: true; torrentId: string } | { ok: false; reason: string };
+
+const inFlight = new Map<string, Promise<RequestResult>>();
+
+const LOCKED_REASON = 'This profile is locked. Enter its passcode to continue.';
+
 const QUALITY = '1080p' as const;
 
 /** Past this a film is finished, not resumable. Matches the web's cut-off. */
@@ -87,25 +93,38 @@ function resumable(p: StreamingProgress | null): p is StreamingProgress & { torr
 }
 
 /**
- * The file inside a ready torrent to open, or `undefined` when the episode is not in it.
- * `null` means "no file param needed" (a movie, or a single-episode torrent).
+ * The file to open inside a ready torrent. `null` means "no file param": a movie, a
+ * single-episode torrent, or a pack whose file list could not be read. `undefined` means the
+ * pack was listed and genuinely does not hold this episode.
+ *
+ * A failed or empty lookup is UNKNOWN, not absent. The torrent is on disk either way, and
+ * offering Play would start a second multi-GB download to fetch something already there,
+ * so an unreadable pack opens without `?file=` instead.
  */
 async function fileFor(
   row: TorrentStatus,
   ref: TitleRef,
   saved: number | null | undefined,
 ): Promise<number | null | undefined> {
-  const isPackLookup = ref.mediaType === 'tv' && ref.season !== undefined && ref.episode !== undefined && row.episode == null;
   if (saved != null) return saved;
+  const isPackLookup =
+    ref.mediaType === 'tv' && ref.season !== undefined && ref.episode !== undefined && row.episode == null;
   if (!isPackLookup) return null;
-  const index = await fileIndexForEpisode(row.id, ref.season as number, ref.episode as number);
-  return index === null ? undefined : index;
+  const found = await lookupEpisodeFile(row.id, ref.season as number, ref.episode as number);
+  if (found.kind === 'found') return found.index;
+  return found.kind === 'absent' ? undefined : null;
 }
 
+/**
+ * `progress` is the row naming a torrent (any row with a torrent_id); `canResume` says whether
+ * it is still mid-watch. A finished or barely-started row still finds its torrent, so it opens
+ * rather than re-downloads: the finished rule picks the verb, not whether to look.
+ */
 async function readyAction(
   rows: TorrentStatus[],
   ref: TitleRef,
   progress: (StreamingProgress & { torrent_id: string }) | null,
+  canResume: boolean,
 ): Promise<TitleAction | null> {
   // The torrent the viewer was already watching goes first.
   const ordered = [...rows].sort(
@@ -113,11 +132,11 @@ async function readyAction(
   );
   for (const row of ordered) {
     try {
-      const resuming = !!progress && row.id === progress.torrent_id;
-      const file = await fileFor(row, ref, resuming ? progress.file_index : null);
-      if (file === undefined) continue; // the pack does not hold this episode
+      const named = !!progress && row.id === progress.torrent_id;
+      const file = await fileFor(row, ref, named ? progress.file_index : null);
+      if (file === undefined) continue; // the pack was listed and does not hold this episode
       const href = watchHref(row.id, file);
-      return resuming
+      return named && canResume
         ? { kind: 'resume', href, atSeconds: Number(progress.current_time) || 0 }
         : { kind: 'open', href };
     } catch {
@@ -127,36 +146,50 @@ async function readyAction(
   return null;
 }
 
-/** The action for a torrent that is not ready to watch, or null when its state offers none. */
-function unreadyAction(row: TorrentStatus): TitleAction | null {
-  if (PREPARING.has(row.state)) {
-    return { kind: 'preparing', torrentId: row.id, progress: Number(row.progress) || 0 };
-  }
+const isKnownUnready = (row: TorrentStatus): boolean =>
+  PREPARING.has(row.state) || PAUSED.has(row.state) || row.state === 'blocked';
+
+/**
+ * The action for a torrent that is not ready to watch. Total: an unknown or NULL state on a
+ * row that matched is still a torrent that exists, so it reads as `preparing`. Only an
+ * unmatched title may reach `play`.
+ */
+function unreadyAction(row: TorrentStatus): TitleAction {
   if (PAUSED.has(row.state)) return { kind: 'paused', torrentId: row.id };
   if (row.state === 'blocked') {
     return { kind: 'blocked', reason: row.block_reason || 'The box could not start this title.' };
   }
-  return null;
+  return { kind: 'preparing', torrentId: row.id, progress: Number(row.progress) || 0 };
 }
 
 /**
  * The torrent the progress row names, fetched directly. The row is what ties this content id
  * to that torrent, so no identity match is needed (or wanted): a torrent downloaded before the
  * identity columns existed has all four NULL and `sync_columns` never backfills them. Null when
- * the torrent is gone or its state offers nothing, and the caller falls back to identity.
+ * the torrent is gone, and the caller falls back to identity.
+ *
+ * Runs for ANY progress row that names a torrent, not only a resumable one: a film finished
+ * (or opened at 0%) before the identity columns existed would otherwise be unfindable and
+ * offered Play, re-downloading what is on disk.
  */
 async function actionFromProgress(
   progress: StreamingProgress & { torrent_id: string },
   ref: TitleRef,
+  canResume: boolean,
 ): Promise<TitleAction | null> {
   try {
     const row = await torrentsService.getTorrentStatus(progress.torrent_id);
     if (!row || typeof row.id !== 'string') return null;
-    if (READY.has(row.state)) return await readyAction([row], ref, progress);
+    if (READY.has(row.state)) return await readyAction([row], ref, progress, canResume);
     return unreadyAction(row);
   } catch {
     return null;
   }
+}
+
+/** A progress row that names a torrent. */
+function named(p: StreamingProgress | null): p is StreamingProgress & { torrent_id: string } {
+  return !!p && typeof p.torrent_id === 'string' && p.torrent_id !== '';
 }
 
 /**
@@ -189,13 +222,17 @@ export async function titleStateFor(args: TitleRef & { userId: string | null }):
           }),
         );
       } catch (err) {
-        if (statusOf(err) === 423) return { locked: true, action: { kind: 'play' } };
+        if (statusOf(err) === 423) {
+          // Never `play`: a consumer that forgets to check `locked` must not be able to mint.
+          return { locked: true, action: { kind: 'blocked', reason: LOCKED_REASON } };
+        }
         // Any other failure just means there is nothing to resume from.
       }
     }
 
-    if (resumable(progress)) {
-      const action = await actionFromProgress(progress, ref);
+    const canResume = resumable(progress);
+    if (named(progress)) {
+      const action = await actionFromProgress(progress, ref, canResume);
       if (action) return { locked: false, action };
     }
 
@@ -218,13 +255,14 @@ export async function titleStateFor(args: TitleRef & { userId: string | null }):
 
     const ready = matches.filter((r) => READY.has(r.state));
     if (ready.length) {
-      const action = await readyAction(ready, ref, resumable(progress) ? progress : null);
+      const action = await readyAction(ready, ref, named(progress) ? progress : null, canResume);
       if (action) return { locked: false, action };
     }
-    for (const row of matches) {
-      const action = unreadyAction(row);
-      if (action) return { locked: false, action };
-    }
+    // A ready row that reached here was a pack without this episode; it says nothing more.
+    // Known states first, then any other matched row: it exists, so it is never Play.
+    const live = matches.filter((r) => !READY.has(r.state));
+    const row = live.find(isKnownUnready) ?? live[0];
+    if (row) return { locked: false, action: unreadyAction(row) };
     return { locked: false, action: { kind: 'play' } };
   } catch {
     return { locked: false, action: { kind: 'play' } };
@@ -251,7 +289,14 @@ function reasonFor(err: unknown): string {
   return "Couldn't start this title. Try again.";
 }
 
-/** Resume a paused download. Same result shape as `requestTitle`. */
+/**
+ * Resume a paused download. Same result shape as `requestTitle`.
+ *
+ * For the screen: a paused row that errored at add time (a bad magnet) fails `resume` again.
+ * Surface the `reason` and keep the title recoverable (back to the detail screen, still
+ * pressable) rather than looping on a paused state forever. The 404 is ambiguous on the wire:
+ * the endpoint answers it both for "not found" and for "action failed".
+ */
 export async function resumeTitle(
   torrentId: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -263,7 +308,7 @@ export async function resumeTitle(
       ok: false,
       reason:
         statusOf(err) === 404
-          ? 'That download is no longer on the box.'
+          ? "The box couldn't resume that download. It may have been removed."
           : (err as { request?: unknown } | null)?.request && statusOf(err) === undefined
             ? "Couldn't reach the box. Check that it is on."
             : "Couldn't resume this download. Try again.",
@@ -276,12 +321,31 @@ export async function resumeTitle(
  * Deliberately not `handleCatalogStreamingStart`: it swallows the error into a toast, and
  * this surface mounts no toaster, so a failed Play would be silent on the television.
  */
-export async function requestTitle(args: {
+export function requestTitle(args: {
   mediaType: 'movie' | 'tv';
   tmdbId: number;
   season?: number;
   episode?: number;
-}): Promise<{ ok: true; torrentId: string } | { ok: false; reason: string }> {
+}): Promise<RequestResult> {
+  // POST /download runs a provider search before it answers, and titleStateFor still says
+  // `play` for that whole window. A second OK press must join the first request, not mint a
+  // second torrent (the ARM build allows two downloads).
+  const key = `${args.mediaType}:${args.tmdbId}:${args.season ?? ''}:${args.episode ?? ''}`;
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+  const started = startDownload(args).finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, started);
+  return started;
+}
+
+async function startDownload(args: {
+  mediaType: 'movie' | 'tv';
+  tmdbId: number;
+  season?: number;
+  episode?: number;
+}): Promise<RequestResult> {
   if (args.mediaType === 'tv' && args.season === undefined) {
     return { ok: false, reason: "Couldn't start this title. Try again." };
   }
@@ -300,22 +364,39 @@ export async function requestTitle(args: {
   }
 }
 
+type EpisodeLookup = { kind: 'found'; index: number } | { kind: 'absent' } | { kind: 'unknown' };
+
 /**
- * The file index inside `torrentId` that holds this episode, or null if it is not there.
- * `getFiles` already parses season/episode from each filename, so this is a lookup. Null
- * rather than a guessed index: guessing plays the wrong episode.
+ * Failure and absence are different facts. `absent` means the file list was read, was not
+ * empty, and has no such episode. A rejected call or an empty list is `unknown`: the list may
+ * simply not be ready, and "unknown" must never justify a new download.
+ */
+async function lookupEpisodeFile(torrentId: string, season: number, episode: number): Promise<EpisodeLookup> {
+  try {
+    const files = await streamingService.getFiles(torrentId);
+    if (!Array.isArray(files) || files.length === 0) return { kind: 'unknown' };
+    // Packs often ship a sample next to the episode; the biggest match is the episode.
+    const hits = files.filter((f) => f?.season === season && f?.episode === episode && Number.isInteger(f.index));
+    if (!hits.length) return { kind: 'absent' };
+    const best = hits.reduce((a, b) => ((Number(b.size) || 0) > (Number(a.size) || 0) ? b : a));
+    return { kind: 'found', index: best.index };
+  } catch {
+    return { kind: 'unknown' };
+  }
+}
+
+/**
+ * The file index inside `torrentId` that holds this episode, or null if it is not there (or
+ * the file list could not be read). `getFiles` already parses season/episode from each
+ * filename, so this is a lookup. Null rather than a guessed index: guessing plays the wrong
+ * episode. `titleStateFor` uses the finer-grained lookup so an unreadable pack never reads as
+ * "absent"; a screen calling this directly gets the same null for both.
  */
 export async function fileIndexForEpisode(
   torrentId: string,
   season: number,
   episode: number,
 ): Promise<number | null> {
-  try {
-    const files = await streamingService.getFiles(torrentId);
-    if (!Array.isArray(files)) return null;
-    const hit = files.find((f) => f?.season === season && f?.episode === episode);
-    return hit && Number.isInteger(hit.index) ? hit.index : null;
-  } catch {
-    return null;
-  }
+  const found = await lookupEpisodeFile(torrentId, season, episode);
+  return found.kind === 'found' ? found.index : null;
 }

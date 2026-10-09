@@ -358,6 +358,17 @@ class TorrentStatus(BaseModel):
     block_reason: Optional[str] = None   # set when state == 'blocked' (content guard)
     chosen_quality: Optional[str] = None  # quality actually selected (after any downgrade)
 
+    # Media identity, straight off the indexed columns the torrent row already carries
+    # (database/models/torrents.py). Exposed so a client can tell "already downloading"
+    # from "never requested" instead of minting a duplicate: POST /torrents/download
+    # mints a fresh uuid4 and add_torrent does no magnet or infohash dedupe, so every
+    # press of Play creates another torrent. All four are Optional because rows written
+    # before these columns existed have them NULL.
+    tmdb_id: Optional[int] = None
+    media_type: Optional[str] = None
+    season: Optional[int] = None
+    episode: Optional[int] = None
+
 
 class TorrentRequest(BaseModel):
     tmdb_id: int

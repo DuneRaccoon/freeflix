@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { backgroundImageFor } from './Hero';
+
 /**
  * The frame both detail screens (movie, show) share: a full-bleed backdrop under a scrim,
  * the title block, then the actions row, then whatever the screen puts below.
@@ -34,7 +36,7 @@ export function TitleScreen({
     <div className="bs-shell">
       <div className="bs-shell__scroll">
         <section className="bs-title">
-          {art && <div className="bs-title__art" style={{ backgroundImage: `url(${JSON.stringify(art)})` }} aria-hidden="true" />}
+          {art && <div className="bs-title__art" style={{ backgroundImage: backgroundImageFor(art) }} aria-hidden="true" />}
           <div className="bs-title__scrim" aria-hidden="true" />
           <div className="bs-title__body">
             {eyebrow ? <p className="bs-title__eyebrow">{eyebrow}</p> : null}

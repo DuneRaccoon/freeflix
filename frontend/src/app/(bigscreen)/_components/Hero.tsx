@@ -16,6 +16,19 @@ import type { FocusProps } from '../_focus/useFocusGrid';
  * 1920-wide box regardless of what is behind it. Cheaper to delete the footgun than to
  * document it. (TMDB does serve `w1920`: a 1280x720 file becomes 1920x1080.)
  */
+/**
+ * The inline `background-image` value for a URL.
+ *
+ * Extracted and exported ONLY so the quoting is testable. jsdom normalises an inline
+ * background-image, so an assertion made through a rendered component passes whether or not
+ * the value is quoted — a review found the test that claimed to check this could not fail.
+ * The quoting matters: an unquoted `url(...)` ends at the first `)` or whitespace, so a
+ * filename containing either would break out of the declaration.
+ */
+export function backgroundImageFor(url: string): string {
+  return `url(${JSON.stringify(url)})`;
+}
+
 export function atSize(url: string | null | undefined, size: 'w1920'): string | null {
   if (!url) return null;
   // Both the host and the `/t/p/` prefix are required, so a URL this does not understand is
@@ -52,7 +65,7 @@ export function Hero({
   const inner = (
     <>
       {/* JSON.stringify quotes and escapes the URL, so a stray quote or paren in it cannot end the url(). */}
-      {art && <div className="bs-hero__art" style={{ backgroundImage: `url(${JSON.stringify(art)})` }} aria-hidden="true" />}
+      {art && <div className="bs-hero__art" style={{ backgroundImage: backgroundImageFor(art) }} aria-hidden="true" />}
       <div className="bs-hero__scrim" aria-hidden="true" />
       <div className="bs-hero__body">
         <h2 className="bs-hero__title">{item.title}</h2>

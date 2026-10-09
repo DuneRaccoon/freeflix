@@ -10,7 +10,7 @@ import { mergeDedupe } from '@/lib/mergeCatalog';
 import { Card } from '../../_components/Card';
 import { Keyboard, KEYBOARD_ROW_COUNTS, type KeyAction } from '../../_components/Keyboard';
 import { chunk } from '../../_data/chunk';
-import { catalogItemToCard } from '../../_data/rails';
+import { catalogItemToCard, usableCatalogRow } from '../../_data/rails';
 import { useFocusGrid } from '../../_focus/useFocusGrid';
 import { useBackKey } from '../../_focus/useBackKey';
 
@@ -75,25 +75,6 @@ type Phase =
 
 function assertNever(x: never): never {
   throw new Error(`Unhandled key action: ${JSON.stringify(x)}`);
-}
-
-/**
- * A row that can become a card that goes somewhere. The arrays come off the wire, so a null
- * element or an id that is not a number is possible at runtime whatever the types say, and
- * `catalogItemToCard` would turn one into a link to `/bigscreen/movie/NaN`.
- *
- * `media_type` is checked because that is what picks the ROUTE: `catalogItemToCard` sends
- * anything that is not `'tv'` to `/bigscreen/movie/{id}`, so a row of some other kind
- * becomes a card that dead-ends — the stage-4 Critical's exact shape.
- *
- * This is NOT the same predicate as `_data/rails`' own guard, which checks `tmdb_id` alone.
- * That is correct there and would be wrong here: a rail fetches the movie endpoint and the
- * tv endpoint separately, so each half's `media_type` is implied by which call returned it,
- * whereas search is the only place on this surface where the two merge into one list. Do
- * not dedupe the two onto the weaker predicate.
- */
-function isUsable(item: CatalogItem | null | undefined): item is CatalogItem {
-  return !!item && Number.isInteger(item.tmdb_id) && (item.media_type === 'movie' || item.media_type === 'tv');
 }
 
 /**
@@ -163,7 +144,7 @@ function readSaved(): Restored {
     if (raw) {
       const parsed = JSON.parse(raw) as { q?: unknown; items?: unknown };
       if (typeof parsed?.q === 'string' && parsed.q && Array.isArray(parsed.items)) {
-        return { query, phase: { kind: 'results', q: parsed.q, items: (parsed.items as CatalogItem[]).filter(isUsable) } };
+        return { query, phase: { kind: 'results', q: parsed.q, items: (parsed.items as CatalogItem[]).filter(usableCatalogRow) } };
       }
     }
   } catch {
@@ -183,8 +164,14 @@ function pageOf(settled: PromiseSettledResult<CatalogPage>): CatalogPage | null 
   if (settled.status !== 'fulfilled') return null;
   const value = settled.value;
   if (!Array.isArray(value?.results)) return null;
-  // Filtered BEFORE the merge: `mergeDedupe` reads `media_type` and `tmdb_id` off every row.
-  return { ...value, results: value.results.filter(isUsable) };
+  // Filtered BEFORE the merge, with the surface's one row guard (`_data/rails`): `mergeDedupe`
+  // reads `media_type` and `tmdb_id` off every row, and `catalogItemToCard` turns a bad one
+  // into a card that dead-ends. SEARCH IS WHY THAT GUARD CHECKS `media_type`: it is the only
+  // place on this surface where the movie half and the tv half merge into one list, so it is
+  // the only place a wrong-kind row can be seen to be routed by its own field rather than by
+  // the endpoint it came from. The clause's full rationale, and the backend reason it is
+  // latent everywhere else, are on `usableCardIdentity`.
+  return { ...value, results: value.results.filter(usableCatalogRow) };
 }
 
 export default function SearchPage() {

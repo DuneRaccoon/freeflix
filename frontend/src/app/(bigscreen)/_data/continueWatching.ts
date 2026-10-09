@@ -9,6 +9,7 @@ import type { CardItem } from '../_components/Card';
 import type { RailModel } from '../_components/Rail';
 import { statusOf } from './httpStatus';
 import { RAIL_CAP, catalogItemToCard } from './rails';
+import { watchHref } from './watchHref';
 import { watchlistCards } from './watchlistRow';
 
 export interface ContinueWatchingDeps {
@@ -97,17 +98,6 @@ function watchedAt(row: StreamingProgress): number {
   return parseUtc(row.last_watched_at)?.getTime() ?? 0;
 }
 
-/**
- * Where OK resumes. Built here, and NOT with `resumeUrlFor` from `@/lib/contentId`,
- * which answers `/streaming/{id}`: a (web) route that would navigate the television out
- * of its own root layout.
- */
-function resumeHref(torrentId: string, fileIndex: number | null | undefined): string {
-  const base = `/bigscreen/watch/${torrentId}`;
-  // `!= null`, not truthiness: file 0 is the first file of a season pack.
-  return fileIndex != null ? `${base}?file=${fileIndex}` : base;
-}
-
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
 /** A progress row has no artwork, so ask the title itself. Cosmetic, hence never throws. */
@@ -179,7 +169,7 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
       art: { kind: 'tv', tmdbId: showId },
       card: {
         id: `tv:${showId}`,
-        href: resumeHref(row.torrent_id, row.file_index),
+        href: watchHref(row.torrent_id, row.file_index),
         title,
         subtitle: `S${pad2(season)} · E${pad2(episode)}`,
         progressPct: Math.round(row.percentage),
@@ -194,7 +184,7 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
     art: tmdbId === undefined ? null : { kind: 'movie', tmdbId },
     card: {
       id: row.movie_id,
-      href: resumeHref(row.torrent_id, row.file_index),
+      href: watchHref(row.torrent_id, row.file_index),
       // `||`, not `??`: an empty title would draw a blank label.
       title: row.title || 'Untitled',
       subtitle: null,

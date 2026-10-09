@@ -507,13 +507,15 @@ const SCREENS: readonly ScreenCase[] = [
     path: '/bigscreen/diag',
     params: {},
     Page: DiagPage,
-    // The field instrument, and the ONE screen on this surface that claims no Back. Nothing
-    // in its source says why, and its own key log would still see the press either way
-    // (`preventDefault` does not stop another `window` listener), so the consequence is the
-    // hazard every other screen's comment names: Back here is handed to the browser, which
-    // walks history and can leave `(bigscreen)` — which a remote cannot type its way back
-    // from. Recorded as a FINDING, not a decision; left as it is, since this task may not
-    // touch production code.
+    // The field instrument, and the ONE screen on this surface that claims no Back — now
+    // deliberately, with the reason in its own source. Reading what the remote's Back sends
+    // is the key log's whole purpose, and a handler that navigated home would take the
+    // viewer off the screen before they could read the line it had just logged. Handing Back
+    // to the browser still has the consequence every other screen's comment names (it walks
+    // history, and history can leave `(bigscreen)`), so the exit this screen relies on is an
+    // on-screen, focusable "Back to home" — the profile keypad's answer to the same problem.
+    // Its own `page.test.tsx` asserts that control exists and is the FIRST focus stop, since
+    // this page mounts no focus grid and native order is all it has.
     back: 'not-claimed',
     lock: null,
   },

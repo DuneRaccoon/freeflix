@@ -1,7 +1,7 @@
 import type { WatchlistItem } from '@/services/watchlist';
 import { watchlistItemToCatalogItem } from '@/lib/watchlist/toCatalogItem';
 import type { CardItem } from '../_components/Card';
-import { catalogItemToCard } from './rails';
+import { catalogItemToCard, usableCardIdentity } from './rails';
 
 /**
  * A watchlist row, as the television draws it and as it removes it.
@@ -21,35 +21,40 @@ export interface WatchlistCard {
 /**
  * A watchlist row that can become a card that goes somewhere, and that can be removed again.
  *
- * Three ways a row off the wire cannot, each verified against the chain rather than assumed:
+ * The card half of the rule is **not restated here**: it is `usableCardIdentity` in
+ * `_data/rails`, the one statement of it on this surface, and that is where the reasoning
+ * about `tmdb_id` and `media_type` lives. A watchlist row needs its own entry point for two
+ * reasons that are about the row's shape, not about the rule:
  *
- * - **`tmdb_id` is a STRING on a watchlist row.** A value that is not a positive whole
- *   number makes `Number()` yield `NaN` (or 0) and the card link to `/bigscreen/movie/NaN`.
+ * - **`tmdb_id` is a STRING on a watchlist row**, so the values are converted before the
+ *   shared rule sees them. A value that is not a positive whole number makes `Number()`
+ *   yield `NaN` (or 0) and the card link to `/bigscreen/movie/NaN`.
  *
- * - **`media_type` is what picks the ROUTE, and nothing upstream constrains it.**
- *   `WatchlistItemCreate.media_type` is a bare `str` on the backend (`backend/app/models.py`,
- *   the `# "movie" | "tv"` comment beside it enforces nothing), and
- *   `@/lib/watchlist/toCatalogItem`'s `(item.media_type as 'movie' | 'tv') ?? 'movie'` is a
- *   **cast, not a validation** — `??` catches only `null` and `undefined`, so `'person'` or
- *   a typo passes straight through. `catalogItemToCard` then sends anything that is not
- *   exactly `'tv'` to `/bigscreen/movie/{tmdb_id}`, whose `getDetail` 404s: a card the viewer
- *   pressed that dead-ends, which is the stage-4 Critical's exact shape. That mapper is
- *   deliberately NOT changed — it is shared with the web surface, and dropping a bad row is
- *   a caller's decision, not the mapper's.
+ * - **`media_type` is read off the ROW, deliberately, and not through
+ *   `watchlistItemToCatalogItem`.** That mapper's
+ *   `(item.media_type as 'movie' | 'tv') ?? 'movie'` is a **cast, not a validation**, and its
+ *   `??` would turn a missing kind into `'movie'` — so normalising first and checking
+ *   afterwards would silently accept exactly the rows this drops. Nothing upstream constrains
+ *   the field either: `WatchlistItemCreate.media_type` is a bare `str` on the backend
+ *   (`backend/app/models.py`; the `# "movie" | "tv"` comment beside it enforces nothing), so
+ *   unlike a catalog row this one has no server-side normalisation behind it. The mapper is
+ *   deliberately NOT changed — it is shared with the web surface, and dropping a bad row is a
+ *   caller's decision, not the mapper's.
+ *
+ * And one clause of its own, because only a watchlist row can be removed:
  *
  * - **`content_id` is the only handle removal has.** A row without one would draw a card
  *   whose press in remove mode could only `DELETE .../undefined`; it is dropped rather than
  *   shown as a title that cannot be taken off the list. (`watchlist.content_id` is
- *   `nullable=False`, so this is defence against a malformed response, not a live case.)
+ *   `nullable=False` and `WatchlistItemResponse.content_id` is required, so this is defence
+ *   against a malformed response, not a live case.)
  *
  * Each bad row costs itself, never the list.
  */
 export function usableWatchlistRow(entry: WatchlistItem | null | undefined): entry is WatchlistItem {
   if (!entry) return false;
-  const tmdbId = Number(entry.tmdb_id);
-  if (!Number.isInteger(tmdbId) || tmdbId <= 0) return false;
   if (typeof entry.content_id !== 'string' || !entry.content_id) return false;
-  return entry.media_type === 'movie' || entry.media_type === 'tv';
+  return usableCardIdentity(Number(entry.tmdb_id), entry.media_type);
 }
 
 /**

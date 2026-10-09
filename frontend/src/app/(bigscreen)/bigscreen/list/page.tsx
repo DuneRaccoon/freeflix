@@ -63,39 +63,85 @@ const FOCUS_KEY = 'list';
 /** What every card says while the mode is on. */
 const REMOVE_BADGE = 'Remove';
 
+/**
+ * The longest title this screen will quote back in a message. `.bs-msg` holds exactly one
+ * line's height so the rows below it do not move when a message appears — which on a remote
+ * reads as the screen shifting under you — and the failure note shares that line with the
+ * hint that says what a press does. Worst case at this bound is ~121 characters, about
+ * 1390px at the 24px UI face, inside the 1728px the safe area leaves.
+ */
+const TITLE_IN_MESSAGE = 40;
+
+const clip = (title: string): string =>
+  title.length > TITLE_IN_MESSAGE ? `${title.slice(0, TITLE_IN_MESSAGE).trimEnd()}…` : title;
+
 type Load =
   | { phase: 'loading' }
   | { phase: 'failed' }
   | { phase: 'noProfile' }
   | { phase: 'ready'; rows: WatchlistCard[]; userId: string; loadId: number };
 
-// --- nobody is watching -----------------------------------------------------------
+// --- there is no list to show -----------------------------------------------------
 
 /**
- * No profile is selected, which is not the same as an empty list and must not read like
- * one. `useTvProfile` only remembers a choice; it is the profiles screen that makes one.
+ * Both ways on from a screen with no list, in render order. An ARRAY, so the focus count is
+ * `WAYS_OUT.length` rather than a hand-written number: this was the one count on the screen
+ * not derived from the thing it counts, and both `[3]` and `[1]` in its place failed no test
+ * — `[3]` parking the model on a cell no element claims, which leaves NOTHING in the tab
+ * order two presses of Right after arriving.
  */
-function NoProfile() {
-  const grid = useFocusGrid({ rowCounts: [2] });
+const WAYS_OUT: readonly { href: string; label: string; ghost?: true }[] = [
+  { href: PROFILES, label: 'Who’s watching?' },
+  { href: HOME, label: 'Back to home', ghost: true },
+];
+
+/**
+ * A My List screen with no list behind it: nobody is watching yet, or the profile is locked.
+ *
+ * Both say something true and then offer the same two ways on, so they share one component.
+ * Neither may read as an empty list, and neither offers a retry — there is nothing to retry,
+ * and a control that is inert in the only state that renders it is a defect this project has
+ * now shipped twice. The locked case in particular replaced a borrowed loading state that
+ * said "Loading this list…" of a list it had already given up on, and then grew a `Try again`
+ * after ten seconds whose handler the load effect refused.
+ */
+function NoList({ note }: { note: string }) {
+  const grid = useFocusGrid({ rowCounts: [WAYS_OUT.length] });
   return (
     <main className="bs-shell">
       <header className="bs-shell__head">
         <h1>My List</h1>
       </header>
       <div className="bs-shell__scroll">
-        <p className="bs-note">Nobody is watching yet. Choose a profile to see its list.</p>
+        <p role="status" className="bs-note">
+          {note}
+        </p>
         <div className="bs-controls bs-inset">
-          <Link href={PROFILES} className="bs-btn" draggable={false} {...grid.focusProps(0, 0)}>
-            Who’s watching?
-          </Link>
-          <Link href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...grid.focusProps(0, 1)}>
-            Back to home
-          </Link>
+          {WAYS_OUT.map((way, c) => (
+            <Link
+              key={way.href}
+              href={way.href}
+              className={way.ghost ? 'bs-btn bs-btn--ghost' : 'bs-btn'}
+              draggable={false}
+              {...grid.focusProps(0, c)}
+            >
+              {way.label}
+            </Link>
+          ))}
         </div>
       </div>
     </main>
   );
 }
+
+const NO_PROFILE_NOTE = 'Nobody is watching yet. Choose a profile to see its list.';
+/**
+ * Said on the way out, because nothing else in this journey explains itself: the card the
+ * viewer pressed has already gone from the screen, the picker is about to appear
+ * unannounced, and after unlocking the title is back where it was.
+ */
+const LOCKED_NOTE =
+  'This profile is locked. Taking you to “Who’s watching?” so you can enter its passcode.';
 
 // --- the list ---------------------------------------------------------------------
 
@@ -136,6 +182,9 @@ function ListGrid({
   // Read by the removal handlers, which are cached per cell and therefore outlive the
   // render that created them. Positional, like the cells: the handler for cell 3 removes
   // whatever is at index 3 NOW, which is the card the viewer can see under the ring.
+  // A LAYOUT effect so the ref is current before any event can read it; making it passive
+  // fails no test, because `remove` is only ever called from an event handler and effects
+  // have flushed by then. Reasoned, not proven.
   const itemsRef = useRef(items);
   useLayoutEffect(() => {
     itemsRef.current = items;
@@ -152,7 +201,7 @@ function ListGrid({
   }, []);
 
   /**
-   * Was the most recent key press a repeat?
+   * Which key is being held down right now, if any.
    *
    * A held key auto-repeats, and in remove mode every repeat would take another title off
    * the list — a DIFFERENT one each time, because the cards shift up under the ring. There
@@ -160,25 +209,44 @@ function ListGrid({
    * repeat for the same reason ("Back is an escalation"); this is the same rule for the one
    * press on this surface that destroys something.
    *
-   * It latches the latest keydown rather than one named key: what this remote sends for OK
-   * is no better known than what it sends for Back, and the question asked here — "is a key
-   * being held down right now?" — needs no name. `keyup` clears it so a pointer press that
-   * follows a held arrow is not refused. The refusal is silent on purpose: the viewer's one
-   * intended press was already honoured, and only its echoes are dropped.
+   * It identifies the key by `e.key` falling back to `e.keyCode`, the way `useBackKey` reads
+   * both, because what this remote sends for OK is no better known than what it sends for
+   * Back. The question itself needs no name — "is a key being held down?" — but the RELEASE
+   * does: clearing on any `keyup` meant that releasing some unrelated key mid-hold ended the
+   * latch and let the next repeat through.
+   *
+   * THREE THINGS CLEAR IT, because a latch that can only refuse is the safe direction right
+   * up until it sticks. A keydown that is not a repeat clears it (so a discrete OK is never
+   * refused); the matching keyup clears it; and `blur` / `visibilitychange` clear it, because
+   * a keyup that never arrives — focus lost, the app backgrounded, a dropped IR repeat —
+   * would otherwise latch it indefinitely. That matters because a magic-remote POINTER press
+   * produces a click with no keydown of its own, so it inherits whatever the last keydown
+   * left: without these, removal could stop working silently until a reload.
+   *
+   * The refusal is silent on purpose: the viewer's one intended press was already honoured,
+   * and only its echoes are dropped.
    */
-  const heldKey = useRef(false);
+  const heldKey = useRef<string | null>(null);
   useEffect(() => {
+    const nameOf = (e: KeyboardEvent) => e.key || String(e.keyCode);
     const down = (e: KeyboardEvent) => {
-      heldKey.current = e.repeat;
+      heldKey.current = e.repeat ? nameOf(e) : null;
     };
-    const up = () => {
-      heldKey.current = false;
+    const up = (e: KeyboardEvent) => {
+      if (heldKey.current === nameOf(e)) heldKey.current = null;
+    };
+    const release = () => {
+      heldKey.current = null;
     };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
+    window.addEventListener('blur', release);
+    document.addEventListener('visibilitychange', release);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', release);
+      document.removeEventListener('visibilitychange', release);
     };
   }, []);
 
@@ -207,7 +275,7 @@ function ListGrid({
    */
   const remove = useCallback(
     async (flat: number) => {
-      if (heldKey.current) return;
+      if (heldKey.current !== null) return;
       const target = itemsRef.current[flat];
       if (!target) return;
       const { contentId } = target;
@@ -237,7 +305,7 @@ function ListGrid({
           next.splice(Math.min(flat, next.length), 0, target);
           return next;
         });
-        setNote(`Couldn’t remove “${target.card.title}”. Try again.`);
+        setNote(`Couldn’t remove “${clip(target.card.title)}”. Try again.`);
       }
     },
     [userId, onLocked],
@@ -248,8 +316,12 @@ function ListGrid({
    *
    * `Card` compares `onActivate` by reference, so a handler rebuilt inline would lose the
    * memo for every card on the screen and make a single D-pad move re-render up to 200 of
-   * them. Same cache shape as the focus hook's own per-cell props, invalidated only if
-   * `remove`'s identity changes.
+   * them. Same cache shape as the focus hook's own per-cell props.
+   *
+   * The invalidation below DEFENDS A CASE NO TEST REACHES, and deleting it fails nothing:
+   * `remove` is a `useCallback` over `userId` and `onLocked`, both stable for the life of
+   * this component, so a cached handler cannot be holding a stale one today. It is kept
+   * because the cache's correctness depends on that staying true, which nothing enforces.
    */
   const activators = useRef<{ fn: typeof remove; byIndex: Map<number, () => void> }>({
     fn: remove,
@@ -296,7 +368,10 @@ function ListGrid({
    * refreshes its row counts first, so `setFocus` is clamped against the NEW shape, and the
    * hook's reconciliation (a passive effect) then finds focus already on a valid cell and
    * leaves it alone. `focused` is still the pre-removal target at this point, which is
-   * exactly the slot being asked about.
+   * exactly the slot being asked about. Being a LAYOUT effect rather than a passive one is
+   * reasoned, not proven: as a passive effect the hook's reconciliation simply runs first and
+   * this corrects it to the same cell, so the destination is identical and only the number of
+   * focus moves differs. Making it passive fails no test.
    */
   const cardCount = items.length;
   const previousCardCount = useRef(cardCount);
@@ -305,10 +380,16 @@ function ListGrid({
     previousCardCount.current = cardCount;
     if (cardCount >= was) return; // only a shrink can strand the ring
     if (cardCount === 0) {
+      // The mode goes off with the last card. `actionCellsFor(0)` unmounts the toggle, so a
+      // mode left on would have the status line telling the viewer to press a `Done` that is
+      // not on the page — with no <button> anywhere for the ring to reach. Off is also the
+      // right state if the removal then FAILS and the title comes back: a press opens it
+      // rather than deleting it, and the missing badge says which it will be.
+      setRemoving(false);
       // The toggle went with the last card, so (0, 0) is the way home: the empty state's
-      // own focus target. Removing this branch fails NO test — the hook's own fallback
-      // reaches the same cell — and it stays for two reasons that are not coverage: it
-      // says the target outright instead of inheriting a fallback, and it keeps the
+      // own focus target. Removing just this `setFocus` fails NO test — the hook's own
+      // fallback reaches the same cell — and it stays for two reasons that are not coverage:
+      // it says the target outright instead of inheriting a fallback, and it keeps the
       // arithmetic below away from a `cardCount - 1` of -1, which only happens to work.
       setFocus({ row: 0, col: 0 });
       return;
@@ -320,11 +401,17 @@ function ListGrid({
     setFocus({ row: FIRST_CARD_ROW + Math.floor(next / PER_ROW), col: next % PER_ROW });
   }, [cardCount, focused, setFocus]);
 
+  // While the mode is on, a failure is ADDED to the hint rather than replacing it: the
+  // status line is the one line a viewer is most likely to read, and in remove mode it is the
+  // line that says a press DELETES. Both fit on one line because the quoted title is clipped
+  // (see TITLE_IN_MESSAGE) — `.bs-msg` holds one line's height so the rows below do not move
+  // when a message appears.
   const hint = removing
-    ? 'Press a title to remove it from My List. Press Done when you have finished.'
+    ? 'Press a title to remove it. Press Done to finish.'
     : items.length > 0
       ? `${items.length} ${items.length === 1 ? 'title' : 'titles'}. Press one to open it.`
       : '';
+  const message = note ? (removing ? `${note} ${hint}` : note) : hint;
 
   return (
     // .bs-shell, not .bs-page: every group below carries its own safe inset, and html and
@@ -338,7 +425,7 @@ function ListGrid({
             the rows below do not jump when a message appears, which on a remote reads as the
             screen moving under you. */}
         <p role="status" className={note ? 'bs-msg bs-list__fail' : 'bs-msg'}>
-          {note ?? hint}
+          {message}
         </p>
         <div className="bs-controls bs-inset">
           {actions.map((cell, c) =>
@@ -464,11 +551,16 @@ export default function MyListPage() {
     setAttempt((a) => a + 1);
   };
 
-  if (!redirecting && load.phase === 'noProfile') return <NoProfile />;
-  if (!redirecting && load.phase === 'ready') {
+  // `redirecting` first and on its own: it is the one state that must not borrow any of the
+  // others. Reusing `LoadStatus` here claimed to be loading a list this screen had already
+  // given up on, and after ten seconds offered a `Try again` that the load effect refuses
+  // (it returns early on `redirecting`), so the label cycled forever and nothing was asked.
+  if (redirecting) return <NoList note={LOCKED_NOTE} />;
+  if (load.phase === 'noProfile') return <NoList note={NO_PROFILE_NOTE} />;
+  if (load.phase === 'ready') {
     return (
       <ListGrid key={load.loadId} rows={load.rows} userId={load.userId} onLocked={sentToPicker} />
     );
   }
-  return <LoadStatus noun="list" failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
+  return <LoadStatus noun="list" failed={load.phase === 'failed'} onRetry={retry} />;
 }

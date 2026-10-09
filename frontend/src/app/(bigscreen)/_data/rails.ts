@@ -129,12 +129,48 @@ export function catalogItemToCard(item: CatalogItem, shape: 'poster' | 'wide'): 
 }
 
 /**
- * A row that can become a card that goes somewhere. The arrays come off the wire, so a
- * null element or an id that is not a number is possible at runtime whatever the types
- * say; such a row costs itself, not the rail.
+ * THE ONE STATEMENT of "this row can become a card that goes somewhere", in terms of the two
+ * fields `catalogItemToCard` builds an href out of. Everything on this surface that turns a
+ * row into a card goes through it: the rails here, the search results, and the watchlist
+ * (which reaches it with a `Number()`-converted string id, so it takes the values rather than
+ * the row). The rule was stated three times at three different strictnesses before this, and
+ * the weakest statement was the one a "dedupe these" refactor would have reached for.
+ *
+ * - **`tmdb_id` must be a positive whole number.** The arrays come off the wire, so a null
+ *   element or an id that is not a number is possible at runtime whatever the types say, and
+ *   `catalogItemToCard` would interpolate it into `/bigscreen/movie/NaN`. `0` and negatives
+ *   are not TMDB ids either, and `/bigscreen/movie/0` 404s just as surely.
+ *
+ * - **`media_type` must be exactly `movie` or `tv`, because that is what picks the ROUTE.**
+ *   `catalogItemToCard` sends anything that is not exactly `'tv'` to
+ *   `/bigscreen/movie/{tmdb_id}`, so a row of some other kind becomes a card the viewer
+ *   presses that dead-ends on a 404 — the stage-4 Critical's exact shape.
+ *
+ * WHY THAT SECOND CLAUSE IS LATENT ON THE RAILS PATH, stated correctly because the comment it
+ * replaces was wrong in the dangerous direction. The old argument was that "a rail fetches
+ * the movie endpoint and the tv endpoint separately, so each half's `media_type` is implied
+ * by which call returned it". `toRail` does not work that way: `catalogItemToCard` reads
+ * `item.media_type` off the **row**, not off which of the two array arguments it arrived in,
+ * so a wrong-kind row in the `shows` half is routed by the field and nothing here would
+ * object. The real safety is on the **backend**: `backend/app/providers/catalog.py`'s
+ * `normalize_item` sets `media_type="tv" if media_type == "tv" else "movie"` from the
+ * endpoint's own hardcoded `mode`, so a catalog row is always one of the two. That is also
+ * the proof that strengthening this guard drops nothing legitimate — pinned by a test — and
+ * it is why the clause is cheap to keep here even though only search, where the two halves
+ * merge into one list, can see it fire.
+ *
+ * Note what it still cannot catch: a row whose kind is the *other* valid one (a `'movie'` row
+ * in the shows half) is usable, and routes by its field. Only the backend's normalisation
+ * prevents that, and `journeys.test.tsx` pins the mechanism.
  */
-function isUsable(item: CatalogItem | null | undefined): item is CatalogItem {
-  return !!item && Number.isInteger(item.tmdb_id);
+export function usableCardIdentity(tmdbId: unknown, mediaType: unknown): boolean {
+  if (!Number.isInteger(tmdbId) || (tmdbId as number) <= 0) return false;
+  return mediaType === 'movie' || mediaType === 'tv';
+}
+
+/** `usableCardIdentity` for a catalog row. A bad row costs itself, not the rail. */
+export function usableCatalogRow(item: CatalogItem | null | undefined): item is CatalogItem {
+  return !!item && usableCardIdentity(item.tmdb_id, item.media_type);
 }
 
 /**
@@ -147,7 +183,7 @@ function isUsable(item: CatalogItem | null | undefined): item is CatalogItem {
  */
 export function toRail(spec: TvRailSpec, movies: CatalogItem[], shows: CatalogItem[]): CatalogRail {
   // Unusable rows go BEFORE the interleave, so a bad row does not shift the alternation.
-  const [m, t] = [movies.filter(isUsable), shows.filter(isUsable)];
+  const [m, t] = [movies.filter(usableCatalogRow), shows.filter(usableCatalogRow)];
   const mixed: CatalogItem[] = [];
   const longest = Math.max(m.length, t.length);
   for (let i = 0; i < longest; i++) {

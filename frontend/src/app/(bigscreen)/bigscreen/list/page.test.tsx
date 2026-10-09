@@ -249,6 +249,15 @@ describe('My List screen', () => {
       expect(cardTitles()).toEqual(['Fine']);
     });
 
+    it('drops a row with no content_id, which is the only handle removal has', async () => {
+      // A card that could only ever DELETE .../undefined is worse than one fewer card.
+      await mount([
+        entry({ id: 'w1', tmdb_id: '300', content_id: '', title: 'Unremovable' }),
+        entry({ id: 'w2', tmdb_id: '5', title: 'Fine' }),
+      ]);
+      expect(cardTitles()).toEqual(['Fine']);
+    });
+
     it('keeps a focus target while it is loading', async () => {
       list.mockReturnValue(new Promise(() => {}));
       render(<MyListPage />);
@@ -295,9 +304,53 @@ describe('My List screen', () => {
       render(<MyListPage />);
       await waitFor(() => expect(router.replace).toHaveBeenCalled());
       expect(screen.queryByText(/Nothing in My List yet/)).toBeNull();
-      expect(screen.queryByRole('heading', { level: 1, name: 'My List' })).toBeNull();
+      expect(cards()).toHaveLength(0);
       // And whatever it is showing while the replace lands still has a ring.
       expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+
+    it('says the profile is locked rather than claiming to be loading a list', async () => {
+      // The screen a viewer actually looks at while the replace is in flight. Borrowing the
+      // loading state said "Loading this list…" of a list it had already given up on — and
+      // on the removal path the viewer has been sitting here watching a card disappear, so
+      // this is the one chance to say why any of it happened.
+      list.mockRejectedValue(httpError(423));
+      render(<MyListPage />);
+      await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/bigscreen/profiles'));
+      expect(screen.getByRole('status')).toHaveTextContent(/locked/i);
+      expect(screen.queryByText(/Loading this list/)).toBeNull();
+      expect(screen.queryByRole('heading', { name: /Loading/ })).toBeNull();
+      expectEveryCellReachable('locked');
+    });
+
+    it('offers no retry while it is leaving, inert or otherwise', async () => {
+      // The borrowed loading state grew a "Try again" after 10s whose handler the load
+      // effect refused (it returns early on `redirecting`), so the label cycled
+      // Try again -> Trying again… -> Try again forever and nothing was ever requested.
+      // That is "a control that is inert in the only state that renders it", which this
+      // project has now shipped twice.
+      vi.useFakeTimers();
+      list.mockRejectedValue(httpError(423));
+      render(<MyListPage />);
+      await act(async () => {});
+      expect(router.replace).toHaveBeenCalledWith('/bigscreen/profiles');
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(list).toHaveBeenCalledTimes(1);
+      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+
+    it('offers the picker and the way home, so the viewer is not only told', async () => {
+      list.mockRejectedValue(httpError(423));
+      render(<MyListPage />);
+      await waitFor(() => expect(router.replace).toHaveBeenCalled());
+      expect(screen.getByRole('link', { name: /Who’s watching/ })).toHaveAttribute(
+        'href',
+        '/bigscreen/profiles',
+      );
+      expect(screen.getByRole('link', { name: 'Back to home' })).toHaveAttribute('href', '/bigscreen');
     });
 
     it('sends the viewer to the picker when a REMOVAL answers 423', async () => {
@@ -320,6 +373,11 @@ describe('My List screen', () => {
       expect(screen.queryByText(/Nothing in My List yet/)).toBeNull();
       expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
       expect(document.activeElement).toBe(picker);
+      // The one count on this screen that is not derived from an array the render maps, so
+      // the only one a walk has to carry: declared `[2]` by hand against two links. With
+      // `[3]`, two presses of Right park the model on a cell no element claims and NOTHING
+      // is in the tab order — the invariant this whole surface is built on.
+      expectEveryCellReachable('no profile');
     });
 
     it('waits for the stored profile rather than asking as nobody', async () => {
@@ -377,6 +435,37 @@ describe('My List screen', () => {
       expect(removeItem).not.toHaveBeenCalled();
     });
 
+    it('turns itself off when the last title goes, so it cannot name a Done that is gone', async () => {
+      // The terminal state of this screen's one destructive journey. `actionCellsFor(0)`
+      // unmounts the toggle, so a hint still keyed on the mode would instruct the viewer to
+      // press a Done that is not on the page — with no <button> anywhere for the ring to
+      // reach, only "Back to home". The surface's rule is that a control whose press would
+      // be refused must say so; naming a control that has been withdrawn breaks it in the
+      // mirror direction.
+      await mount(manyRows(1));
+      await enterRemoveMode();
+      await pressCard(cards()[0]);
+      expect(cards()).toHaveLength(0);
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(screen.getByRole('status').textContent).not.toMatch(/Done/);
+      expect(screen.getByText(/Nothing in My List yet/)).toBeInTheDocument();
+    });
+
+    it('stays off when the last removal fails and the title comes back', async () => {
+      // The mode went off with the last card; a revert must not quietly turn it back on.
+      // Off is the safe direction: a press opens the title instead of deleting it, and the
+      // missing badge says which it will be.
+      removeItem.mockRejectedValue(httpError(500));
+      await mount(manyRows(1));
+      await enterRemoveMode();
+      await pressCard(cards()[0]);
+      expect(cardTitles()).toEqual(['Film 1']);
+      expect(badges()).toEqual([null]);
+      expect(modeToggle()).toHaveTextContent('Remove items');
+      await pressCard(cards()[0]);
+      expect(removeItem).toHaveBeenCalledTimes(1);
+    });
+
     it('does not survive leaving the screen', async () => {
       // Arriving in a mode where OK deletes, because of something done on a previous
       // visit, is the ambush this guards against. Nothing about the mode is persisted.
@@ -416,6 +505,44 @@ describe('My List screen', () => {
       expect(router.replace).not.toHaveBeenCalled();
     });
 
+    it('keeps saying what a press will do while reporting a failure', async () => {
+      // The status line is the one line a viewer is most likely to read, and in remove mode
+      // it is the line that says a press DELETES. Replacing it with the failure left the
+      // surviving cards' behaviour stated only by their badges.
+      removeItem.mockRejectedValue(httpError(500));
+      await mount(manyRows(3));
+      await enterRemoveMode();
+      await pressCard(cards()[1]);
+      const status = screen.getByRole('status').textContent ?? '';
+      expect(status).toMatch(/Couldn’t remove/);
+      expect(status).toMatch(/remove it/);
+      expect(modeToggle()).toHaveTextContent('Done');
+    });
+
+    it('bounds the title it quotes, so the status line cannot wrap under the ring', async () => {
+      // .bs-msg holds one line's height precisely so the rows below do not move when a
+      // message appears. The note and the hint now share that line, so an unbounded title
+      // could push it to two and shift the action row under the viewer's ring.
+      removeItem.mockRejectedValue(httpError(500));
+      await mount([
+        entry({
+          id: 'w1',
+          tmdb_id: '120',
+          content_id: 'movie:120',
+          title: 'The Lord of the Rings: The Fellowship of the Ring Extended Edition',
+        }),
+      ]);
+      await enterRemoveMode();
+      await pressCard(cards()[0]);
+      const status = screen.getByRole('status').textContent ?? '';
+      // The bound itself is not asserted by value — the point is that one exists, that it
+      // keeps enough of the title to recognise, and that it closes the quote honestly.
+      expect(status).toMatch(/Couldn’t remove “The Lord of the Rings/);
+      expect(status).toMatch(/…”\. Try again\./);
+      expect(status).not.toMatch(/Extended Edition/);
+      expect(status.length).toBeLessThan(140);
+    });
+
     it('treats a 404 as success: the title is already gone, which is what was asked for', async () => {
       // Settled by `bigscreen/movie/[id]/page.tsx`, which treats 409-on-add and
       // 404-on-remove the same way: the list is what the viewer asked for.
@@ -439,6 +566,60 @@ describe('My List screen', () => {
       // And the next discrete press works.
       await pressCard(cards()[0]);
       expect(removeItem).toHaveBeenCalledTimes(1);
+    });
+
+    describe('the held-key latch', () => {
+      it('releases on the keyup for the key that was held', async () => {
+        // Keyed on the held key's own identity, not on "any keyup": a release of some
+        // unrelated key used to clear the latch mid-hold, which let the next repeat through.
+        await mount(manyRows(3));
+        await enterRemoveMode();
+        fireEvent.keyDown(window, { key: 'Enter', repeat: true });
+        fireEvent.keyUp(window, { key: 'ArrowRight' });
+        await act(async () => {
+          fireEvent.click(cards()[0]);
+        });
+        expect(removeItem, 'an unrelated keyup must not end the hold').not.toHaveBeenCalled();
+        fireEvent.keyUp(window, { key: 'Enter' });
+        await act(async () => {
+          fireEvent.click(cards()[0]);
+        });
+        expect(removeItem).toHaveBeenCalledTimes(1);
+      });
+
+      it('releases when the window loses focus, so a lost keyup cannot wedge removal shut', async () => {
+        // A pointer press produces a click with no keydown of its own, so it inherits
+        // whatever the last keydown left. A keyup that never arrives — focus loss, the app
+        // backgrounded, a dropped IR repeat — would otherwise latch it indefinitely and
+        // removal would stop working silently until a reload.
+        await mount(manyRows(2));
+        await enterRemoveMode();
+        fireEvent.keyDown(window, { key: 'ArrowRight', repeat: true });
+        await act(async () => {
+          fireEvent.click(cards()[0]);
+        });
+        expect(removeItem).not.toHaveBeenCalled();
+        fireEvent.blur(window);
+        await act(async () => {
+          fireEvent.click(cards()[0]);
+        });
+        expect(removeItem).toHaveBeenCalledTimes(1);
+      });
+
+      it('releases when the page is hidden and shown again', async () => {
+        await mount(manyRows(2));
+        await enterRemoveMode();
+        fireEvent.keyDown(window, { key: 'ArrowRight', repeat: true });
+        await act(async () => {
+          fireEvent.click(cards()[0]);
+        });
+        expect(removeItem).not.toHaveBeenCalled();
+        fireEvent(document, new Event('visibilitychange'));
+        await act(async () => {
+          fireEvent.click(cards()[0]);
+        });
+        expect(removeItem).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('removes the title that is under the ring after the list has shifted', async () => {
@@ -545,6 +726,19 @@ describe('My List screen', () => {
       expect(cards()).toHaveLength(6);
       expect(cells()).toHaveLength(2 + 6);
       expectEveryCellReachable('after a removal');
+    });
+
+    it('holds the count contract at the size this screen exists for', async () => {
+      // The endpoint answers at most 200 rows and this screen is the only place they all
+      // appear. 200 cards are 34 rows of six, and the walk above runs on seven — so this is
+      // the assertion that would notice a cap or a virtualisation sneaking in, where the
+      // declared counts and the rendered cells would part company at scale.
+      await mount(manyRows(200));
+      expect(cards()).toHaveLength(200);
+      expect(rowContainers()).toHaveLength(34);
+      expect(cells()).toHaveLength(2 + 200);
+      expect(stops()).toHaveLength(cells().length);
+      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
     });
 
     it('opens with the ring on the first action, not on a card', async () => {

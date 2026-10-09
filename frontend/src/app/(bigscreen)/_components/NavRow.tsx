@@ -34,7 +34,7 @@ export function NavRow({
   focusPropsFor: (row: number, col: number) => FocusProps;
 }) {
   return (
-    <nav className="bs-nav" aria-label="Freeflix">
+    <nav className="bs-nav" aria-label="Browse">
       {NAV_TARGETS.map((t, col) => (
         <Link key={t.href} href={t.href} className="bs-nav__item" draggable={false} {...focusPropsFor(row, col)}>
           {t.label}

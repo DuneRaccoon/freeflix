@@ -825,6 +825,17 @@ describe('/bigscreen home: returning to where the viewer was', () => {
   // my list, top-rated, new, action, drama, comedy, sci-fi.
   const ROW_OF = (index: number) => 3 + index;
 
+  it('returns to the nav item the viewer left from, without waiting for a rail', () => {
+    // Nav is always populated, so a saved row-2 position is adopted on the first effect
+    // run rather than held pending. That is what makes coming back from Search or
+    // Diagnostics land where you were, and nothing pinned it.
+    save(2, 1); // "My List"
+    renderHome();
+    expect(active()).toHaveTextContent('My List');
+    // And it does not pull a rail in on the way: nav is not part of the lineup.
+    expect(fetchedKeys()).toEqual(['trending']);
+  });
+
   it('fetches a saved rail that is far below the lookahead, without scrolling to it first', () => {
     save(ROW_OF(6), 1); // genre-drama
     renderHome();

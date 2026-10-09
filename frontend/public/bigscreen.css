@@ -258,11 +258,13 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    token as rgba) so the text stays legible with no per-frame effect. */
 .bs-hero {
   position: relative;
-  /* 560px: with the shell head, the first rail's title lands at y~672 and ~84% of its
-     poster art is above the 1080px fold, which is what tells a viewer there is more
-     below. (620px also cleared the fold, at ~67% of the art — this is a margin
-     improvement, not a fix for a hidden rail. A poster's LABEL only clears the fold at
-     a hero of ~470px or less, which costs more artwork than the label is worth.) */
+  /* 560px. Measured before the nav row existed: the first rail's title landed at y~672
+     with ~84% of its poster art above the 1080px fold. The nav row (`.bs-nav`) now sits
+     between them and costs ~92px, so the art top is ~870 and roughly 58% of a poster
+     shows. Deliberately not compensated: the cue that there is more below is weaker but
+     still unmistakable at half a poster, and buying it back means a ~470px hero, which
+     the earlier measurement rejected as costing more artwork than it returns. Re-judge
+     this composition on the television rather than from the arithmetic. */
   height: 560px;
   padding: var(--safe-y) var(--safe-x);
   display: flex;

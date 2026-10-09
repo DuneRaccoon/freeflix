@@ -42,14 +42,14 @@ import { useTvProfile } from '../_data/useTvProfile';
  * one Down from content, rather than being dead.
  * Every count comes from `railCellCount`, never `items.length`. Continue Watching and My
  * List own fixed slots straight after trending whether or not they have anything, so a row
- * index means the same rail on every visit and the saved `home` position cannot slide onto a
+ * index means the same rail on every visit and the saved `home:v2` position cannot slide onto a
  * neighbour when a watch history appears.
  *
  * NOTHING MAY BE LEFT WITHOUT A FOCUS STOP, AND FOCUS STARTS AT THE TOP. There is no Tab key
  * and no pointer on this device, so a screen with nothing focusable cannot be recovered
  * from. Until the first rail has answered, and for as long as no rail has a card (first
  * paint, everything failed), the hero's slot shows a status panel whose controls are row 0.
- * Row 0 is populated for exactly that long, which also pins focus to the top of the screen:
+ * Row 0 is populated for exactly that long, which also keeps first-paint focus at the top:
  * the grid puts focus on the first populated row, so a rail that beats the first rail to the
  * screen (a profile rail, or one inside the lookahead) would otherwise take focus and scroll
  * the page down to itself before the hero had been drawn. When the first rail answers, row 0

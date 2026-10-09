@@ -7,21 +7,29 @@ import { buildContentId } from '@/lib/contentId';
 export type TitleAction =
   | { kind: 'play' } // nothing exists yet
   | { kind: 'resume'; href: string; atSeconds: number } // progress exists and is resumable
-  | {
-      kind: 'open';
-      href: string;
-      /**
-       * The title is here, but the episode could not be pinpointed inside a season pack —
-       * the file list was unreadable, not missing the episode. The href therefore has no
-       * `?file=`, so it plays the pack's default file, which may be the wrong episode. The
-       * screen MUST say so rather than navigating silently: offering the wrong episode
-       * without a word is the same defect class as a control whose label lies.
-       */
-      episodeUnresolved?: boolean;
-    } // downloaded, no progress
+  | { kind: 'open'; href: string } // downloaded, no progress
   | { kind: 'preparing'; torrentId: string; progress: number } // already downloading
   | { kind: 'paused'; torrentId: string } // a download exists but is not running
-  | { kind: 'blocked'; reason: string }; // the box refused it
+  | {
+      /**
+       * The season is here, but WHICH FILE holds this episode could not be determined —
+       * the file list was unreadable, not missing the episode. The href therefore carries
+       * no `?file=`, so it plays the pack's default file, which may be the wrong episode.
+       *
+       * Its own kind rather than a flag on `open`/`resume`, deliberately: an optional
+       * boolean compiles fine when a screen forgets it, and the first version of this DID
+       * forget it on `resume` — so a mid-watch viewer was resumed at their timestamp into
+       * possibly the wrong episode and told nothing. A kind cannot be ignored by omission.
+       * The screen MUST disclose it; playing something other than what was asked for,
+       * without a word, is the same defect class as a control whose label lies.
+       */
+      kind: 'unresolvedEpisode';
+      href: string;
+      /** Set when the viewer was mid-watch, so the screen can still offer to resume. */
+      atSeconds?: number;
+    }
+  /** The box refused it, or the profile is passcode-locked (see `TitleState.locked`). */
+  | { kind: 'blocked'; reason: string };
 
 export interface TitleState {
   action: TitleAction;
@@ -103,6 +111,9 @@ function resumable(p: StreamingProgress | null): p is StreamingProgress & { torr
   return pct > 0 && pct < FINISHED_PCT;
 }
 
+/** Third answer from a pack lookup: the pack is here, but which file is unknown. */
+const UNRESOLVED = 'unresolved' as const;
+
 /**
  * The file to open inside a ready torrent. `null` means "no file param": a movie, a
  * single-episode torrent, or a pack whose file list could not be read. `undefined` means the
@@ -112,9 +123,6 @@ function resumable(p: StreamingProgress | null): p is StreamingProgress & { torr
  * offering Play would start a second multi-GB download to fetch something already there,
  * so an unreadable pack opens without `?file=` instead.
  */
-/** Third answer from a pack lookup: the pack is here, but which file is unknown. */
-const UNRESOLVED = 'unresolved' as const;
-
 async function fileFor(
   row: TorrentStatus,
   ref: TitleRef,
@@ -154,11 +162,11 @@ async function readyAction(
       if (file === undefined) continue; // the pack was listed and does not hold this episode
       const unresolved = file === UNRESOLVED;
       const href = watchHref(row.id, unresolved ? null : file);
-      return named && canResume
-        ? { kind: 'resume', href, atSeconds: Number(progress.current_time) || 0 }
-        : unresolved
-          ? { kind: 'open', href, episodeUnresolved: true }
-          : { kind: 'open', href };
+      const atSeconds = named && canResume ? Number(progress.current_time) || 0 : undefined;
+      // Unresolved wins over both verbs: being resumed into the wrong episode is no more
+      // acceptable than opening into it.
+      if (unresolved) return { kind: 'unresolvedEpisode', href, ...(atSeconds === undefined ? {} : { atSeconds }) };
+      return atSeconds === undefined ? { kind: 'open', href } : { kind: 'resume', href, atSeconds };
     } catch {
       // One bad row costs that row.
     }
@@ -388,8 +396,10 @@ type EpisodeLookup = { kind: 'found'; index: number } | { kind: 'absent' } | { k
 
 /**
  * Failure and absence are different facts. `absent` means the file list was read, was not
- * empty, and has no such episode. A rejected call or an empty list is `unknown`: the list may
- * simply not be ready, and "unknown" must never justify a new download.
+ * empty, HAS AT LEAST ONE LABELLED FILE, and still has no such episode. A rejected call, an
+ * empty list, or a list in which nothing parsed is `unknown`: the list may simply not be
+ * ready, or the pack may be named unconventionally. "unknown" must never justify a new
+ * download.
  */
 async function lookupEpisodeFile(torrentId: string, season: number, episode: number): Promise<EpisodeLookup> {
   try {
@@ -397,7 +407,15 @@ async function lookupEpisodeFile(torrentId: string, season: number, episode: num
     if (!Array.isArray(files) || files.length === 0) return { kind: 'unknown' };
     // Packs often ship a sample next to the episode; the biggest match is the episode.
     const hits = files.filter((f) => f?.season === season && f?.episode === episode && Number.isInteger(f.index));
-    if (!hits.length) return { kind: 'absent' };
+    if (!hits.length) {
+      // No match — but is this season really missing the episode, or did none of the names
+      // parse? `/files` derives season/episode from the FILENAME, so an unconventionally
+      // named pack yields null for every file. Calling that "absent" would offer Play and
+      // re-download a season already on disk, which is the whole defect this module exists
+      // to prevent. If nothing in the list is labelled at all, we simply cannot tell.
+      const anyLabelled = files.some((f) => f?.season != null || f?.episode != null);
+      return anyLabelled ? { kind: 'absent' } : { kind: 'unknown' };
+    }
     const best = hits.reduce((a, b) => ((Number(b.size) || 0) > (Number(a.size) || 0) ? b : a));
     return { kind: 'found', index: best.index };
   } catch {

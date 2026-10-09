@@ -370,17 +370,46 @@ describe('titleStateFor: never rejects', () => {
     // Without it the only options are to play the wrong episode silently or to offer Play
     // and mint a duplicate of a season already on disk — both worse than saying so.
     expect((await titleStateFor(ep(1, 3))).action).toEqual({
-      kind: 'open',
+      kind: 'unresolvedEpisode',
       href: '/bigscreen/watch/pack',
-      episodeUnresolved: true,
     });
   });
 
-  it('the legacy progress path (file_index null, episode NULL) also survives a failed lookup', async () => {
+  it('a MID-WATCH viewer is told the episode is unresolved too, not quietly resumed', async () => {
+    // This is the gap the first version of the flag left: it sat on `open` only, so a
+    // mid-watch legacy row returned `resume` with no ?file= and no disclosure — the viewer
+    // was dropped back at their timestamp into possibly the wrong episode, told nothing.
+    // The old assertion used toMatchObject({kind:'resume'}) and so enshrined it.
     getProgress.mockResolvedValue(progress({ torrent_id: 'old', file_index: null, movie_id: 'tv:1399:s1:e3' }));
     getStatus.mockResolvedValue(legacy({ id: 'old' }));
     getFiles.mockRejectedValue(new Error('down'));
-    expect((await titleStateFor(ep(1, 3))).action).toMatchObject({ kind: 'resume', href: '/bigscreen/watch/old' });
+    const action = (await titleStateFor(ep(1, 3))).action;
+    expect(action.kind).toBe('unresolvedEpisode');
+    // The timestamp survives, so the screen can still offer to pick up where they were.
+    expect(action).toEqual({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/old', atSeconds: 600 });
+  });
+
+  it('a pack whose filenames do not parse at all is unknown, not absent', async () => {
+    // /files derives season/episode from the FILENAME, so an unconventionally named pack
+    // yields null for every file. Reading that as "absent" would offer Play and
+    // re-download a season already on disk.
+    list.mockResolvedValue([torrent({ id: 'pack', media_type: 'tv', tmdb_id: 1399, season: 1, episode: null })]);
+    getFiles.mockResolvedValue([
+      { index: 0, name: 'disc1_track3.mkv', size: 900, season: null, episode: null },
+      { index: 1, name: 'disc1_track4.mkv', size: 950, season: null, episode: null },
+    ] as never);
+    expect((await titleStateFor(ep(1, 3))).action).toEqual({
+      kind: 'unresolvedEpisode',
+      href: '/bigscreen/watch/pack',
+    });
+  });
+
+  it('a pack that IS labelled and lacks the episode is absent, so Play is right', async () => {
+    list.mockResolvedValue([torrent({ id: 'pack', media_type: 'tv', tmdb_id: 1399, season: 1, episode: null })]);
+    getFiles.mockResolvedValue([
+      { index: 0, name: 'S01E01.mkv', size: 900, season: 1, episode: 1 },
+    ] as never);
+    expect((await titleStateFor(ep(1, 9))).action).toEqual({ kind: 'play' });
   });
 
   it('a synchronous throw from a service still resolves', async () => {

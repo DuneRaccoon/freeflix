@@ -674,3 +674,53 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-title__note { font-size: 24px; line-height: 1.4; color: var(--gold-lite); margin: 0; }
 .bs-title__alert { font-size: 24px; line-height: 1.4; color: var(--danger); margin: 0; }
 .bs-title__below { padding: 0 var(--safe-x) var(--safe-y); }
+
+/* --- show detail: season picker + episode list --------------------------------- */
+/* Rendered by bigscreen/show/[id]/page.tsx and _components/EpisodeList. Every cell here is
+   a focus target of at least 60px, drawn with :focus like the rest of the surface; the
+   inset is the .bs-title__below padding, so nothing interactive sits outside it. Prose is
+   24px, the small tokens (runtime, marker) 22px.
+   COMBINING: every class below is SELF-CONTAINED and used ALONE on its own element; none is
+   ever combined with .bs-btn or with another class here. The selected season is an
+   ATTRIBUTE selector on the same element (aria-pressed), not a modifier class, so no later
+   single-class rule can override it. The only combinations on this screen are the existing
+   .bs-btn (+ .bs-btn--ghost). */
+.bs-show__subject { font-size: 24px; line-height: 1.4; color: var(--text); margin: 0; }
+.bs-show__status { font-size: 24px; line-height: 1.4; color: var(--muted); margin: 0; }
+.bs-show__seasons { display: flex; flex-wrap: wrap; gap: 24px; padding: 8px 0 24px; }
+.bs-show__season {
+  min-height: 60px;
+  padding: 14px 28px;
+  font-size: 24px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.bs-show__season[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
+.bs-show__season:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+.bs-show__panel { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; padding-bottom: 24px; }
+.bs-eps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.bs-ep {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  min-height: 72px;
+  padding: 14px 28px;
+  font-size: 24px;
+  font-family: var(--font-ui);
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.bs-ep:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+.bs-ep__num { min-width: 48px; color: var(--gold); }
+.bs-ep__name { flex: 1; }
+.bs-ep__meta { font-size: 22px; color: var(--muted); }
+.bs-ep__mark { font-size: 22px; color: var(--gold-lite); }

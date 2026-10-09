@@ -724,3 +724,64 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-ep__name { flex: 1; }
 .bs-ep__meta { font-size: 22px; color: var(--muted); }
 .bs-ep__mark { font-size: 22px; color: var(--gold-lite); }
+
+/* --- search: the D-pad keyboard and the results grid --------------------------- */
+/* Rendered by bigscreen/search/page.tsx and _components/Keyboard. Every cell is a focus
+   target of at least 60px drawn with :focus, and the insets are these containers' own
+   padding, so nothing interactive or textual sits outside the safe area.
+   Row widths: 7 letter keys are 7*120 + 6*16 = 984px and the digit row is 10*120 + 9*16 =
+   1344px, both inside the 1728px the safe area leaves. The rows do not wrap, because the
+   focus model counts one row per container.
+   COMBINING: every class in this block is SELF-CONTAINED and used ALONE on its own element.
+   The only combinations on this screen are the existing .bs-btn (+ .bs-btn--ghost) on the
+   two action controls and .bs-card (+ .bs-card--poster) on a result, exactly as home
+   already uses them; do not add a modifier to .bs-btn from here. The one compound selector
+   below is `.bs-kb__row:last-child .bs-kb__key`, which widens the word keys (Space, Delete,
+   Clear). It is positional rather than a modifier class because KeyDef carries no variant
+   field — so appending a seventh keyboard row would move that rule's effect, and the row
+   that wants it must stay last. */
+.bs-kb { padding: 24px var(--safe-x) 8px; display: flex; flex-direction: column; gap: 16px; }
+.bs-kb__row { display: flex; gap: 16px; }
+.bs-kb__key {
+  flex: 0 0 auto;
+  width: 120px;
+  min-height: 84px;
+  /* A key is a token the viewer recognises, not prose, so the 20px tier applies (spec §8.5
+     as amended). 32px because a single glyph at ten feet is all this cell has to say. */
+  font-size: 32px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+/* Space, Delete and Clear are words, not glyphs: they need room and a smaller face. */
+.bs-kb__row:last-child .bs-kb__key { width: auto; min-width: 184px; font-size: 24px; }
+.bs-kb__key:focus { outline: var(--focus-ring) solid var(--gold); outline-offset: 2px; }
+
+/* The typed query, in the head so it stays on screen while focus moves down into the
+   results. It is a read-only display node, NOT an <input>: a real input would take DOM
+   focus from the roving-tabindex grid and webOS would raise its own IME panel over the app. */
+.bs-search__query {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  color: var(--gold-lite);
+  letter-spacing: 2px;
+  /* 40px x 1.45 line-height: the head keeps its height whether the hint (24px) or the query
+     is showing, so the keyboard below does not jump under the viewer's focus ring on the
+     first keystroke. */
+  min-height: 58px;
+  word-break: break-all;
+}
+.bs-search__hint { font-family: var(--font-ui); font-size: 24px; color: var(--muted); letter-spacing: normal; }
+.bs-search__actions { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px var(--safe-x) 0; }
+.bs-search__status { padding: 16px var(--safe-x) 0; font-size: 24px; line-height: 1.4; color: var(--muted); margin: 0; }
+.bs-search__alert { padding: 16px var(--safe-x) 0; font-size: 24px; line-height: 1.4; color: var(--danger); margin: 0; }
+/* A vertical grid, not a rail: a search answers up to two pages and the viewer scans down
+   it. One container per row, no wrap, for the same count contract as the keyboard.
+   6 posters are 6*240 + 5*24 = 1560px inside the safe area. The vertical padding is the
+   focus ring's room — a focused card scales 1.06 and then draws a 4px ring outside that. */
+.bs-search__results { padding: 16px 0 var(--safe-y); }
+.bs-search__row { display: flex; align-items: flex-start; gap: 24px; padding: 16px var(--safe-x); }

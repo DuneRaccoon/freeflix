@@ -111,18 +111,20 @@ describe('movie detail screen', () => {
       await mount({ kind: 'play' });
       expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
     });
-    it('resume -> link with the timestamp', async () => {
+    it('resume -> button with the timestamp, which goes to the watch screen', async () => {
       await mount({ kind: 'resume', href: '/bigscreen/watch/t1', atSeconds: 3725 });
-      const link = screen.getByRole('link', { name: 'Resume from 1:02:05' });
-      expect(link).toHaveAttribute('href', '/bigscreen/watch/t1');
+      fireEvent.click(screen.getByRole('button', { name: 'Resume from 1:02:05' }));
+      expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/t1');
     });
     it('open -> Open link', async () => {
       await mount({ kind: 'open', href: '/bigscreen/watch/t2' });
-      expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/bigscreen/watch/t2');
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+      expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/t2');
     });
-    it('preparing -> a link to the watch screen, labelled with progress', async () => {
+    it('preparing -> a button to the watch screen, labelled with progress', async () => {
       await mount({ kind: 'preparing', torrentId: 't3', progress: 41.6 });
-      expect(screen.getByRole('link', { name: 'Preparing… 42%' })).toHaveAttribute('href', '/bigscreen/watch/t3');
+      fireEvent.click(screen.getByRole('button', { name: 'Preparing… 42%' }));
+      expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/t3');
     });
     it('paused -> Resume download button', async () => {
       await mount({ kind: 'paused', torrentId: 't4' });
@@ -130,12 +132,13 @@ describe('movie detail screen', () => {
     });
     it('unresolvedEpisode -> says it may be the wrong episode, in words', async () => {
       await mount({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/t5', atSeconds: 90 });
-      expect(screen.getByRole('link', { name: 'Resume from 1:30 anyway' })).toHaveAttribute('href', '/bigscreen/watch/t5');
+      fireEvent.click(screen.getByRole('button', { name: 'Resume from 1:30 anyway' }));
+      expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/t5');
       expect(screen.getByRole('note')).toHaveTextContent(/may be a different episode/i);
     });
     it('unresolvedEpisode without progress -> Play anyway, still disclosed', async () => {
       await mount({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/t5' });
-      expect(screen.getByRole('link', { name: 'Play anyway' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Play anyway' })).toBeInTheDocument();
       expect(screen.getByRole('note')).toBeInTheDocument();
     });
     it('blocked -> the reason on screen and a control to check again', async () => {
@@ -151,9 +154,8 @@ describe('movie detail screen', () => {
       ] as TitleAction[]) {
         resume.mockResolvedValue({ ok: true });
         const { unmount } = await mount(action);
-        // A link's press is the browser navigating; only buttons run our code.
         const control = document.querySelector('.bs-title__action .bs-btn')!;
-        if (control.tagName === 'BUTTON') await act(async () => { fireEvent.click(control); });
+        await act(async () => { fireEvent.click(control); });
         unmount();
       }
       expect(request).not.toHaveBeenCalled();
@@ -192,7 +194,7 @@ describe('movie detail screen', () => {
     });
 
     it('a failed Play prints its reason beside the control and the control still works', async () => {
-      request.mockResolvedValueOnce({ ok: false, reason: 'No seeders for this title.' });
+      request.mockResolvedValueOnce({ ok: false, reason: 'No seeders for this title.', maybeCreated: false });
       await mount();
       await act(async () => { fireEvent.click(primary()); });
       expect(screen.getByRole('alert')).toHaveTextContent('No seeders for this title.');
@@ -339,8 +341,13 @@ describe('movie detail screen', () => {
       await act(async () => { vi.advanceTimersByTime(10_000); });
       const retry = screen.getByRole('button', { name: 'Try again' });
       // Two stops now, and arrow keys reach both.
+      const back = screen.getByRole('link', { name: 'Back' });
+      // Retry took column 0 and Back moved to column 1: Right lands on Back, Left returns.
+      expect(document.activeElement).toBe(retry);
       fireEvent.keyDown(window, { key: 'ArrowRight' });
-      expect(document.activeElement).not.toBeNull();
+      expect(document.activeElement).toBe(back);
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(document.activeElement).toBe(retry);
       getDetail.mockResolvedValue(detail());
       await act(async () => { fireEvent.click(retry); });
       expect(getDetail).toHaveBeenCalledTimes(2);
@@ -362,6 +369,123 @@ describe('movie detail screen', () => {
       stateFor.mockRejectedValue(new Error('boom'));
       render(<MoviePage />);
       expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    });
+  });
+
+  describe('ambiguous failure (the backend may have added the torrent)', () => {
+    it('re-asks what the title is before re-arming Play, and shows preparing if it exists', async () => {
+      request.mockResolvedValue({ ok: false, reason: 'Couldn’t reach the box.', maybeCreated: true });
+      await mount();
+      stateFor.mockResolvedValue(stateOf({ kind: 'preparing', torrentId: 'made', progress: 3 }));
+      await act(async () => { fireEvent.click(primary()); });
+      expect(stateFor).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('button', { name: 'Preparing… 3%' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Play' })).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-arms Play, with the reason, when the recheck still says play', async () => {
+      request.mockResolvedValue({ ok: false, reason: 'Couldn’t reach the box.', maybeCreated: true });
+      await mount();
+      await act(async () => { fireEvent.click(primary()); });
+      expect(stateFor).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t reach the box.');
+      expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
+    });
+
+    it('says Checking… while it re-asks, and ignores presses', async () => {
+      request.mockResolvedValue({ ok: false, reason: 'x', maybeCreated: true });
+      await mount();
+      const d = deferred<ReturnType<typeof stateOf>>();
+      stateFor.mockReturnValue(d.promise);
+      await act(async () => { fireEvent.click(primary()); });
+      expect(screen.getByRole('button', { name: 'Checking…' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Checking…' }));
+      expect(request).toHaveBeenCalledTimes(1);
+      await act(async () => { d.resolve(stateOf({ kind: 'play' })); });
+    });
+
+    it('a refusal that created nothing (404/409) re-arms Play at once, no recheck', async () => {
+      request.mockResolvedValue({ ok: false, reason: 'No sources found.', maybeCreated: false });
+      await mount();
+      await act(async () => { fireEvent.click(primary()); });
+      expect(stateFor).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
+    });
+  });
+
+  describe('Back during an in-flight Play', () => {
+    it('does not navigate to the player when the request lands after the viewer left', async () => {
+      const d = deferred<{ ok: true; torrentId: string }>();
+      request.mockReturnValue(d.promise);
+      const view = await mount();
+      fireEvent.click(primary());
+      view.unmount();
+      await act(async () => { d.resolve({ ok: true, torrentId: 'late' }); });
+      expect(router.push).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('focus survives a blocked recheck', () => {
+    it.each<[TitleAction, string]>([
+      [{ kind: 'open', href: '/w/1' }, 'Open'],
+      [{ kind: 'resume', href: '/w/1', atSeconds: 60 }, 'Resume from 1:00'],
+      [{ kind: 'preparing', torrentId: 't', progress: 1 }, 'Preparing… 1%'],
+      [{ kind: 'unresolvedEpisode', href: '/w/1' }, 'Play anyway'],
+      [{ kind: 'play' }, 'Play'],
+    ])('blocked -> %j keeps DOM focus on the control', async (next, label) => {
+      await mount({ kind: 'blocked', reason: 'Nope.' });
+      await waitFor(() => expect(document.activeElement).toBe(primary()));
+      stateFor.mockResolvedValue(stateOf(next));
+      await act(async () => { fireEvent.click(primary()); });
+      const control = screen.getByRole('button', { name: label });
+      expect(document.activeElement).toBe(control);
+      expect(document.activeElement).not.toBe(document.body);
+    });
+  });
+
+  describe('no profile', () => {
+    it('has one cell and no My List control', async () => {
+      profileHook.mockReturnValue({ profile: null, loading: false, select: vi.fn(), clear });
+      await mount();
+      expect(screen.queryByRole('button', { name: /my list/i })).toBeNull();
+      expect(wl.list).not.toHaveBeenCalled();
+      expect(stateFor).toHaveBeenCalledWith({ mediaType: 'movie', tmdbId: 603, userId: null });
+      await waitFor(() => expect(document.activeElement).toBe(primary()));
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(primary());
+    });
+  });
+
+  describe('locked profile never shows Play', () => {
+    it('does not paint a live Play control when clear() re-runs the load as nobody', async () => {
+      stateFor.mockImplementation(async ({ userId }) =>
+        userId ? stateOf({ kind: 'blocked', reason: 'locked' }, true) : stateOf({ kind: 'play' }),
+      );
+      let current: ReturnType<typeof useTvProfile> = profileHook();
+      clear.mockImplementation(() => {
+        current = { ...current, profile: null };
+        profileHook.mockReturnValue(current);
+      });
+      const view = render(<MoviePage />);
+      await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/bigscreen/profiles'));
+      view.rerender(<MoviePage />);
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.queryByRole('button', { name: 'Play' })).toBeNull();
+      expect(stateFor).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('My List removal', () => {
+    it('counts a 404 on remove as success', async () => {
+      wl.list.mockResolvedValue([{ content_id: 'movie:603' } as never]);
+      await mount();
+      await screen.findByRole('button', { name: '✓ In My List' });
+      wl.remove.mockRejectedValue(httpError(404));
+      await act(async () => { fireEvent.click(listBtn()); });
+      expect(screen.getByRole('button', { name: 'Add to My List' })).toBeInTheDocument();
+      expect(screen.queryByText(/couldn.t update my list/i)).toBeNull();
     });
   });
 });

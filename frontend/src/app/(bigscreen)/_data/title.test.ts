@@ -483,6 +483,30 @@ describe('requestTitle', () => {
   });
 });
 
+describe('requestTitle maybeCreated', () => {
+  const maybe = async (err: unknown) => {
+    download.mockRejectedValue(err);
+    const r = await requestTitle({ mediaType: 'movie', tmdbId: 603 });
+    return r.ok ? null : r.maybeCreated;
+  };
+  it('404 and 409 refused before anything was added', async () => {
+    expect(await maybe(httpError(404, 'No torrents found'))).toBe(false);
+    expect(await maybe(httpError(409))).toBe(false);
+  });
+  it('a 5xx may have arrived after the torrent was added', async () => {
+    expect(await maybe(httpError(500, 'x'))).toBe(true);
+    expect(await maybe(httpError(503))).toBe(true);
+  });
+  it('no status at all (dropped connection) is ambiguous', async () => {
+    expect(await maybe({ request: {}, message: 'Network Error' })).toBe(true);
+  });
+  it('a 2xx with no id is ambiguous', async () => {
+    download.mockResolvedValue({} as never);
+    const r = await requestTitle({ mediaType: 'movie', tmdbId: 604 });
+    expect(!r.ok && r.maybeCreated).toBe(true);
+  });
+});
+
 describe('requestTitle in-flight guard', () => {
   it('a second press for the same title joins the first request', async () => {
     let finish!: (v: TorrentStatus) => void;

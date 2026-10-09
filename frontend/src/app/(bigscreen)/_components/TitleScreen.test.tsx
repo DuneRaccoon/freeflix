@@ -23,11 +23,11 @@ describe('TitleScreen', () => {
     expect(container.querySelector('.bs-title__eyebrow')).toBeNull();
   });
 
-  it('draws the art as an inline background-image, quoted, as given (already w1920)', () => {
+  it('draws the art as an inline background-image, as given (jsdom normalises quoting, so quoting itself is not asserted) (already w1920)', () => {
     const { container } = render(<TitleScreen art={ART} title="Dune" overview={null} actions={null} />);
     const art = container.querySelector<HTMLElement>('.bs-title__art');
     expect(art).not.toBeNull();
-    expect(art!.style.backgroundImage).toContain('w1920/back.jpg');
+    expect(art!.style.backgroundImage).toBe(`url("${ART}")`);
     expect(art).toHaveAttribute('aria-hidden', 'true');
   });
 

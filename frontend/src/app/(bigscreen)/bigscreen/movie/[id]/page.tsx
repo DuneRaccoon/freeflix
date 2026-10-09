@@ -239,6 +239,10 @@ export default function MovieDetailPage() {
   const profileId = profile?.id ?? null;
   const [load, setLoad] = useState<Load>({ phase: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  // Latched once a lock sends the viewer to the picker. `clear()` changes `profileId`, which
+  // would re-run the load as "nobody" and could paint a live Play control before the
+  // replace lands; a locked profile never gets one.
+  const [redirecting, setRedirecting] = useState(false);
 
   useBackKey(useCallback(() => router.push(HOME), [router]));
 
@@ -246,6 +250,7 @@ export default function MovieDetailPage() {
   const sentToPicker = useCallback(
     (state: TitleState): boolean => {
       if (!state.locked) return false;
+      setRedirecting(true);
       clear();
       router.replace(PROFILES);
       return true;
@@ -255,7 +260,7 @@ export default function MovieDetailPage() {
 
   useEffect(() => {
     // The stored profile is read asynchronously; asking before it lands would ask as nobody.
-    if (profileLoading) return;
+    if (profileLoading || redirecting) return;
     if (!Number.isInteger(id) || id <= 0) {
       setLoad({ phase: 'failed' });
       return;
@@ -275,7 +280,7 @@ export default function MovieDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, profileId, profileLoading, attempt, sentToPicker]);
+  }, [id, profileId, profileLoading, redirecting, attempt, sentToPicker]);
 
   const retry = () => {
     setLoad({ phase: 'loading' });
@@ -295,8 +300,8 @@ export default function MovieDetailPage() {
     if (!sentToPicker(state)) setLoad({ phase: 'ready', detail, state });
   };
 
-  if (load.phase === 'ready') {
+  if (load.phase === 'ready' && !redirecting) {
     return <Loaded detail={load.detail} state={load.state} profile={profile} onRecheck={recheck} />;
   }
-  return <LoadStatus failed={load.phase === 'failed'} onRetry={retry} />;
+  return <LoadStatus failed={load.phase === 'failed' && !redirecting} onRetry={retry} />;
 }

@@ -45,7 +45,20 @@ interface TitleRef {
 }
 
 /** The television asks for 1080p everywhere (spec §7.3); there is no picker on this surface. */
-type RequestResult = { ok: true; torrentId: string } | { ok: false; reason: string };
+type RequestResult =
+  | { ok: true; torrentId: string }
+  | {
+      ok: false;
+      reason: string;
+      /**
+       * The failure does not rule out that a torrent was created. The backend adds the
+       * torrent and THEN looks its status up, so a 5xx, or a dropped connection with no status
+       * at all, can arrive after the download exists. A 404 or 409 is a refusal before
+       * anything was added. A screen must re-ask `titleStateFor` before offering Play again
+       * when this is set, or a second press mints a second multi-GB download.
+       */
+      maybeCreated: boolean;
+    };
 
 const inFlight = new Map<string, Promise<RequestResult>>();
 
@@ -375,7 +388,7 @@ async function startDownload(args: {
   episode?: number;
 }): Promise<RequestResult> {
   if (args.mediaType === 'tv' && args.season === undefined) {
-    return { ok: false, reason: "Couldn't start this title. Try again." };
+    return { ok: false, reason: "Couldn't start this title. Try again.", maybeCreated: false };
   }
   try {
     const status = await torrentsService.downloadCatalogMovie({
@@ -385,10 +398,12 @@ async function startDownload(args: {
       ...(args.mediaType === 'tv' ? { season: args.season, episode: args.episode } : {}),
     });
     const id = status?.id;
-    if (typeof id !== 'string' || !id) return { ok: false, reason: "Couldn't start this title. Try again." };
+    // A 2xx with no usable id: the server answered, so something may well exist.
+    if (typeof id !== 'string' || !id) return { ok: false, reason: "Couldn't start this title. Try again.", maybeCreated: true };
     return { ok: true, torrentId: id };
   } catch (err) {
-    return { ok: false, reason: reasonFor(err) };
+    const status = statusOf(err);
+    return { ok: false, reason: reasonFor(err), maybeCreated: status === undefined || status >= 500 };
   }
 }
 

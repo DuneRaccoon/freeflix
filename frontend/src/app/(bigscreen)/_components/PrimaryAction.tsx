@@ -1,6 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { requestTitle, resumeTitle, type TitleAction } from '../_data/title';
 import type { FocusProps } from '../_focus/useFocusGrid';
@@ -53,12 +52,12 @@ export interface ActionView {
 }
 
 export const UNRESOLVED_NOTE =
-  'Couldn’t tell which file holds this episode. This plays the first file in the season, which may be a different episode.';
+  'Couldn’t tell which file holds this episode. This plays a file from the season, which may be a different episode.';
 
 export function describeAction(action: TitleAction, busy: Busy = null): ActionView {
   switch (action.kind) {
     case 'play':
-      return { label: busy === 'starting' ? 'Starting…' : 'Play' };
+      return { label: busy === 'starting' ? 'Starting…' : busy === 'checking' ? 'Checking…' : 'Play' };
     case 'resume':
       return { label: `Resume from ${formatResumeTime(action.atSeconds)}`, href: action.href };
     case 'open':
@@ -98,28 +97,57 @@ export function PrimaryAction({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<Busy>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  // The failure is remembered with the kind it happened under, and shown only while the
+  // screen is still on that kind: a recheck that finds the title `preparing` must not leave
+  // "Couldn't reach the box" printed beside a control that is now doing something else.
+  const [failure, setFailure] = useState<{ kind: TitleAction['kind']; reason: string } | null>(null);
   const busyRef = useRef(false);
+  // Set in the effect so StrictMode's second mount revives it (same shape as the picker).
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const view = describeAction(action, busy);
 
   const run = async (
     kind: Exclude<Busy, null>,
-    work: () => Promise<{ ok: true; torrentId: string } | { ok: false; reason: string }>,
+    work: () => Promise<{ ok: true; torrentId: string } | { ok: false; reason: string; maybeCreated?: boolean }>,
   ) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(kind);
     setFailure(null);
     const result = await work();
+    // Back was pressed while the request was out (the POST runs a provider search, which can
+    // take tens of seconds): the viewer has left, so do not pull them to the player later.
+    if (!alive.current) return;
     if (result.ok) {
       // Stay "busy" through the navigation: the label keeps saying what is happening.
       router.push(`${WATCH}/${result.torrentId}`);
       return;
     }
+    setFailure({ kind: action.kind, reason: result.reason });
+    if (result.maybeCreated) {
+      // AMBIGUOUS FAILURE. The backend adds the torrent and THEN looks its status up, so a
+      // 5xx or a dropped connection can arrive after the download exists. A 404/409 is a
+      // refusal before anything was added, so those may re-arm Play at once; this may not.
+      // Re-ask what the title is first. If it is now `preparing` the screen shows that; if it
+      // is still `play`, the control is re-armed below. Pressing Play blind here is how a
+      // second multi-GB download gets minted on a box that allows two.
+      setBusy('checking');
+      try {
+        await onRecheck();
+      } catch {
+        /* the recheck reports its own failure as `blocked`; fall through and re-arm */
+      }
+      if (!alive.current) return;
+    }
     busyRef.current = false;
     setBusy(null);
-    setFailure(result.reason);
   };
 
   const press = () => {
@@ -146,25 +174,23 @@ export function PrimaryAction({
       case 'open':
       case 'preparing':
       case 'unresolvedEpisode':
-        return; // links; the browser navigates
+        // A BUTTON that navigates, not an <a>. The blocked kind is a button, and a recheck
+        // can turn it into one of these; swapping the element type would unmount the focused
+        // control and drop DOM focus to <body> with no ring until the next arrow press.
+        if (view.href) router.push(view.href);
+        return;
       default:
         return assertNever(action);
     }
   };
 
-  const message = action.kind === 'blocked' ? action.reason : failure;
+  const message = action.kind === 'blocked' ? action.reason : failure?.kind === action.kind ? failure.reason : null;
 
   return (
     <div className="bs-title__action">
-      {view.href ? (
-        <Link href={view.href} className="bs-btn" draggable={false} {...focusProps}>
-          {view.label}
-        </Link>
-      ) : (
-        <button type="button" className="bs-btn" aria-busy={busy !== null} {...focusProps} onClick={press}>
-          {view.label}
-        </button>
-      )}
+      <button type="button" className="bs-btn" aria-busy={busy !== null} {...focusProps} onClick={press}>
+        {view.label}
+      </button>
       {view.note && (
         <p role="note" className="bs-title__note">
           {view.note}

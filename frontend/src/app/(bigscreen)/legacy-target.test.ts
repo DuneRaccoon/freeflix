@@ -95,12 +95,68 @@ const FORBIDDEN_CSS = [
  * author actually writes, not to resist deliberate evasion.
  */
 function gpuOffences(src: string): string[] {
-  return FORBIDDEN_CSS.filter((f) => src.includes(f));
+  // `blur(` is in the list to catch CSS (`filter: blur(`, `'blur(20px)'`), but the DOM method
+  // `el.blur()` spells the same five characters. On a D-pad surface a `previous.blur()` during
+  // a focus handover is ordinary code, not a GPU filter. A method call is `.blur(` with a
+  // dot in front; no CSS function is ever written that way.
+  const code = src.replace(/\.blur\s*\(/g, '.');
+  return FORBIDDEN_CSS.filter((f) => code.includes(f));
 }
 
 /** Comments legitimately name the banned constructs; only real code counts. */
 function stripCssComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/**
+ * Strip `//` and `/* *\/` comments from TS/TSX so the scan sees code only. The guard exists to
+ * catch code; documentation that quotes a rule (`never filter: blur(20px) here`) is a good
+ * thing, and a violation hidden in a comment does not render.
+ *
+ * A small scanner rather than a regex, because `//` also appears inside strings (`'http://x'`)
+ * and a regex that stripped from there would delete real code, hiding a violation after it.
+ * Quotes `'` and `"` end at a newline, which also contains JSX text (`<p>Can't</p>`, an
+ * apostrophe that is not a string): the damage is one line, and in the safe direction (a
+ * comment on that line gets scanned, never code skipped). Template literals span lines.
+ * Not handled: regex literals and `${}` nesting; neither occurs in this surface.
+ *
+ * Only the GPU scan uses this. The OPT_OUT marker (it lives in a JSDoc block) and the
+ * framer-motion / globals.css checks read the RAW source on purpose.
+ */
+function stripSourceComments(src: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < src.length) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (quote) {
+      out += c;
+      if (c === '\\' && i + 1 < src.length) {
+        out += n;
+        i += 2;
+        continue;
+      }
+      if (c === quote || (c === '\n' && quote !== '`')) quote = null;
+      i++;
+    } else if (c === '/' && n === '*') {
+      const end = src.indexOf('*/', i + 2);
+      i = end === -1 ? src.length : end + 2;
+      out += ' ';
+    } else if (c === '/' && n === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+    } else {
+      if (c === "'" || c === '"' || c === '`') quote = c;
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+/** What the TV-source GPU scan runs: comments removed, then the same predicate as the CSS. */
+function tvGpuOffences(src: string): string[] {
+  return gpuOffences(stripSourceComments(src));
 }
 
 /**
@@ -312,11 +368,52 @@ describe('TV performance budget (spec §9)', () => {
     expect(gpuOffences('.x { color: red; opacity: .5; }')).toEqual([]);
   });
 
+  it('allows the DOM method el.blur(), which is not a CSS blur', () => {
+    for (const src of ['el.blur();', 'previous?.blur()', 'document.activeElement.blur ()', 'a.b.blur(  )']) {
+      expect(tvGpuOffences(src), src).toEqual([]);
+    }
+    // ...without opening a hole: the CSS spellings still fail beside it.
+    expect(tvGpuOffences("el.blur(); const s = { filter: 'blur(20px)' };")).not.toEqual([]);
+    expect(tvGpuOffences('.x { -webkit-filter: blur(2px); }')).not.toEqual([]);
+  });
+
+  it('does not count a banned construct that a comment merely quotes', () => {
+    const quoted = [
+      '/* never filter: blur(20px) here */',
+      '// never filter: blur(20px) here',
+      '/**\n * No backdrop-filter, no mix-blend-mode, no feTurbulence.\n */\nexport const a = 1;',
+      'const a = 1; // not backdropFilter',
+    ];
+    for (const src of quoted) expect(tvGpuOffences(src), src).toEqual([]);
+  });
+
+  it('still fails real code, including code sharing a line or a string with comment syntax', () => {
+    const real = [
+      "<div style={{ filter: 'blur(20px)' }} />",
+      "const s = { filter: 'blur(20px)' }; // trailing note",
+      "/* note */ const s = { backdropFilter: 'x' };",
+      "const u = 'http://x.test'; const s = { filter: 'blur(4px)' };",
+      "const u = \"//\"; const s = { mixBlendMode: 'screen' };",
+      'const t = `// not a comment ${1}`; const s = { filter: "blur(2px)" };',
+    ];
+    for (const src of real) expect(tvGpuOffences(src), src).not.toEqual([]);
+    // A block comment that never closes swallows the rest rather than hanging.
+    expect(tvGpuOffences('/* unterminated filter: blur(1px)')).toEqual([]);
+  });
+
+  it('the opt-out marker and the import checks still read raw source, comments included', () => {
+    // The marker lives in a JSDoc block; stripping would make the diag page lose its exemption.
+    const diag = tvSourceFiles().find(({ id }) => id === 'bigscreen/diag/page.tsx');
+    expect(diag, 'diag page present').toBeDefined();
+    expect(diag!.src.includes(OPT_OUT)).toBe(true);
+    expect(stripSourceComments(diag!.src).includes(OPT_OUT)).toBe(false);
+  });
+
   it('the TV components use no GPU-expensive CSS', () => {
     const offences: string[] = [];
     for (const { id, src } of tvSourceFiles()) {
       if (src.includes(OPT_OUT)) continue;
-      for (const f of gpuOffences(src)) offences.push(`${id}: ${f}`);
+      for (const f of tvGpuOffences(src)) offences.push(`${id}: ${f}`);
     }
     expect(offences).toEqual([]);
   });

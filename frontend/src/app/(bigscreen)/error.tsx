@@ -24,6 +24,13 @@ import { useBackKey } from './_focus/useBackKey';
  * the same URL would not reset the boundary), and cannot walk history out of `(bigscreen)`
  * the way the set's native Back would.
  *
+ * THE CONTROLS SIT ABOVE THE MESSAGE. `.bs-error` is its own scroller and `<pre>` is unclamped,
+ * so a long `error.message` overflows. `useFocusGrid` focuses with `scrollIntoView`, and
+ * focusing a control BELOW a tall message would scroll the heading and the explanation out
+ * of view, the very text this screen exists to show. (The original fix was
+ * `focus({ preventScroll: true })`, which the hook no longer allows.) Above it, focusing
+ * cannot move the message.
+ *
  * Nested inside (bigscreen)/layout.tsx, so bigscreen.css is already linked and
  * this file adds no styles of its own. It stays inside the TV performance budget,
  * same as everything else here; legacy-target.test.ts enforces it.
@@ -49,12 +56,9 @@ export default function BigScreenError({
       <p>
         Freeflix hit an error while drawing this screen. Press OK to reload, which fetches
         everything again. Try again only re-draws, which helps if the fault was passing.
-        Back returns to Home.
+        Back returns to Home. If it keeps failing, read the message below and use the web app
+        on a phone or computer in the meantime.
       </p>
-      <pre>
-        {error.message ? error.message : 'No message was provided.'}
-        {error.digest ? '\ndigest: ' + error.digest : ''}
-      </pre>
       <div className="bs-controls">
         {/* Reload is FIRST, and therefore the one focus lands on. `reset()` only re-renders
             the same tree, so a deterministic render fault throws again and the first control
@@ -77,6 +81,10 @@ export default function BigScreenError({
           Try again
         </button>
       </div>
+      <pre>
+        {error.message ? error.message : 'No message was provided.'}
+        {error.digest ? '\ndigest: ' + error.digest : ''}
+      </pre>
     </div>
   );
 }

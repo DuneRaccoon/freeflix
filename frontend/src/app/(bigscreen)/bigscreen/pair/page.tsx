@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { devicesService, type DeviceStart } from '@/services/devices';
+import { useFocusGrid } from '../../_focus/useFocusGrid';
+import { useBackKey } from '../../_focus/useBackKey';
 
 type Phase = 'starting' | 'ready' | 'denied' | 'unreachable';
 
@@ -13,12 +15,40 @@ const MAX_BACKOFF_MS = 30_000;
 const MIN_RESTART_MS = 2_000;
 const MAX_EXPIRED_RESTARTS = 5;
 
+/** The single waiting-state control; see PairPage. */
+function NewCodeControl({ onPress }: { onPress: () => void }) {
+  // Own grid, mounted only while waiting: the failure states use autoFocus buttons, and a
+  // second live grid would be inert (see useFocusGrid OWNERSHIP).
+  const grid = useFocusGrid({ rowCounts: [1] });
+  return (
+    <div className="bs-controls">
+      <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(0, 0)} onClick={onPress}>
+        Get a new code
+      </button>
+    </div>
+  );
+}
+
 /**
  * /bigscreen/pair — the television's side of device pairing.
  *
  * Starts a pairing, shows the code, and polls until a signed-in phone approves it at
  * /link. This page must never depend on api-client's 401 interceptor to recover: that
  * interceptor deliberately leaves /bigscreen/pair alone.
+ *
+ * A REMOTE NEEDS SOMETHING FOCUSED. Every state has a focus target: the two failure states
+ * their "Try again", and the two waiting states (getting a code, showing it) a "Get a new
+ * code" control. It is the one thing a stuck viewer actually wants: the code that is
+ * on screen is one they cannot read, scan or type, or it is about to lapse. There is no
+ * useful "home" to offer while unpaired (home 401s and bounces straight back here), so a
+ * navigation link would be a trap. The control sits in ONE place in the tree across the
+ * waiting states, so pressing it (which blanks the code) does not unmount the focused
+ * element and drop focus to <body>.
+ *
+ * BACK is claimed and does nothing. Left unclaimed, the set's native Back walks history to
+ * home, which 401s and `location.replace`s back here: the viewer sees a flash, and a fresh
+ * pairing is minted and the old one orphaned out of a household-wide rate bucket. There is
+ * nowhere to go back to, so the honest response is to stay put.
  */
 export default function PairPage() {
   const [phase, setPhase] = useState<Phase>('starting');
@@ -51,6 +81,14 @@ export default function PairPage() {
       inFlight.current = false;
     }
   }, []);
+
+  // Pressing it during an expiry restart's wait must not leave that timer to mint a second one.
+  const newCode = useCallback(() => {
+    if (restartTimer.current) clearTimeout(restartTimer.current);
+    void begin();
+  }, [begin]);
+
+  useBackKey(() => {});
 
   useEffect(() => {
     void begin();
@@ -182,30 +220,26 @@ export default function PairPage() {
     );
   }
 
-  if (!start) {
-    return (
-      <main className="bs-page bs-pair">
-        <h1>Sign in to Freeflix</h1>
-        <p>Getting a code…</p>
-      </main>
-    );
-  }
-
   return (
     <main className="bs-page bs-pair">
       <h1>Sign in to Freeflix</h1>
-      <div className="bs-pair-row">
-        <div>
-          <p>On your phone, open</p>
-          <p className="bs-pair-url">{linkUrl}</p>
-          <p>and enter this code</p>
-          <div className="bs-code">{start.user_code}</div>
+      {start ? (
+        <div className="bs-pair-row">
+          <div>
+            <p>On your phone, open</p>
+            <p className="bs-pair-url">{linkUrl}</p>
+            <p>and enter this code</p>
+            <div className="bs-code">{start.user_code}</div>
+          </div>
+          {qr && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="bs-qr" src={qr} alt="QR code for the sign-in page" />
+          )}
         </div>
-        {qr && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img className="bs-qr" src={qr} alt="QR code for the sign-in page" />
-        )}
-      </div>
+      ) : (
+        <p>Getting a code…</p>
+      )}
+      <NewCodeControl onPress={newCode} />
     </main>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act, within } from '@testing-library/react';
+import { render, screen, waitFor, act, within, fireEvent } from '@testing-library/react';
 import PairPage from './page';
 
 vi.mock('@/services/devices', () => ({
@@ -31,6 +31,8 @@ const START = {
 describe('/bigscreen/pair', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     toDataURL.mockResolvedValue('data:image/png;base64,AAA');
     (devicesService.start as ReturnType<typeof vi.fn>).mockResolvedValue(START);
@@ -200,5 +202,108 @@ describe('/bigscreen/pair', () => {
     expect(await screen.findByText(/no longer sign in/i)).toBeInTheDocument();
     expect(screen.queryByText(/declined|on your phone/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  describe('something is always focused (no Tab, no pointer on a remote)', () => {
+    const newCode = () => screen.getByRole('button', { name: /get a new code/i });
+    const mocked = (f: unknown) => f as ReturnType<typeof vi.fn>;
+
+    it('focuses a control while "Getting a code…" is showing', async () => {
+      mocked(devicesService.start).mockReturnValue(new Promise(() => {}));
+      render(<PairPage />);
+      await act(async () => {});
+      expect(screen.getByText(/getting a code/i)).toBeInTheDocument();
+      expect(document.activeElement).toBe(newCode());
+    });
+
+    it('focuses a control while the code and QR are showing', async () => {
+      render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      await waitFor(() => expect(screen.getByAltText(/qr code/i)).toBeInTheDocument());
+      expect(document.activeElement).toBe(newCode());
+    });
+
+    it('focuses Try again when unreachable and when denied', async () => {
+      mocked(devicesService.start).mockRejectedValue(new Error('down'));
+      const first = render(<PairPage />);
+      await screen.findByText(/can.t reach/i);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: /try again/i }));
+      first.unmount();
+
+      mocked(devicesService.start).mockResolvedValue(START);
+      mocked(devicesService.poll).mockResolvedValue('denied');
+      render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+      await screen.findByText(/no longer sign in/i);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: /try again/i }));
+    });
+
+    it('keeps focus when the control is pressed and the code blanks and returns', async () => {
+      const start = mocked(devicesService.start);
+      render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      start.mockReset();
+      start.mockReturnValue(new Promise(() => {}));
+      const btn = newCode();
+      fireEvent.click(btn);
+      await act(async () => {});
+      expect(screen.queryByText('BCDF-GHJK')).not.toBeInTheDocument();
+      expect(newCode()).toBe(btn);
+      expect(document.activeElement).toBe(btn);
+    });
+
+    it('Get a new code asks for a fresh pairing and shows it', async () => {
+      const start = mocked(devicesService.start);
+      render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      start.mockResolvedValue({ ...START, device_code: 'dc-2', user_code: 'WXYZ-QRST' });
+      fireEvent.click(newCode());
+      expect(await screen.findByText('WXYZ-QRST')).toBeInTheDocument();
+      expect(start).toHaveBeenCalledTimes(2);
+      expect(document.activeElement).toBe(newCode());
+    });
+
+    it('pressing it during an expiry restart wait does not mint a second pairing later', async () => {
+      const start = mocked(devicesService.start);
+      mocked(devicesService.poll).mockResolvedValueOnce('expired').mockResolvedValue('pending');
+      render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+      await screen.findByText(/getting a code/i);
+      fireEvent.click(newCode());
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      expect(start).toHaveBeenCalledTimes(2);
+    });
+
+    it('has exactly one focus stop per waiting state', async () => {
+      const stops = 'a[href], button, input, select, textarea, summary, [tabindex="0"]';
+      const { container } = render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      expect(container.querySelectorAll(stops)).toHaveLength(1);
+    });
+
+    it.each([
+      ['461', { key: 'Unidentified', keyCode: 461 }],
+      ['Escape', { key: 'Escape' }],
+    ])('Back (%s) is claimed and does nothing: no history walk, no new pairing', async (_n, init) => {
+      const back = vi.spyOn(window.history, 'back');
+      render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      const polls = mocked(devicesService.poll).mock.calls.length;
+      let notPrevented = true;
+      await act(async () => { notPrevented = fireEvent.keyDown(window, init); });
+      expect(notPrevented).toBe(false);
+      expect(back).not.toHaveBeenCalled();
+      expect(devicesService.start).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('BCDF-GHJK')).toBeInTheDocument();
+      expect(mocked(devicesService.poll).mock.calls.length).toBe(polls);
+    });
+
+    it('does not claim a key that is not Back or an arrow', async () => {
+      render(<PairPage />);
+      await screen.findByText('BCDF-GHJK');
+      expect(fireEvent.keyDown(window, { key: 'a', keyCode: 65 })).toBe(true);
+    });
   });
 });

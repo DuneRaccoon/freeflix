@@ -5,7 +5,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import NotBuiltYetPage from './page';
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => router }));
+const params = vi.hoisted(() => ({ current: { rest: ['movie', '123'] } as { rest?: string | string[] } }));
+vi.mock('next/navigation', () => ({ useRouter: () => router, useParams: () => params.current }));
 
 const FOCUS_STOPS = 'a[href], button, input, select, textarea, summary, [tabindex="0"], [contenteditable]';
 const settle = () => act(async () => {});
@@ -15,6 +16,7 @@ describe('/bigscreen/[...rest]', () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
+    params.current = { rest: ['movie', '123'] };
   });
 
   it('is honest that the screen is not built yet, and does not call it an error', async () => {
@@ -72,5 +74,28 @@ describe('/bigscreen/[...rest]', () => {
       expect(existsSync(join(dir, route, 'page.tsx')), route).toBe(true);
     }
     expect(existsSync(join(dir, 'page.tsx'))).toBe(true);
+  });
+
+  it.each([
+    [['profile'], '/bigscreen/profile'],
+    [['movie', '123'], '/bigscreen/movie/123'],
+    [['a%20b', 'c'], '/bigscreen/a b/c'],
+    [['bad%E0%A4%A'], '/bigscreen/bad%E0%A4%A'],
+    [undefined, '/bigscreen'],
+  ])('shows the path that was attempted (%j)', async (rest, shown) => {
+    params.current = { rest };
+    const { container } = render(<NotBuiltYetPage />);
+    await settle();
+    expect(container.textContent).toContain(`Looked for ${shown}`);
+    // Still honest and calm, and still exactly one focus stop.
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(container.querySelectorAll(FOCUS_STOPS)).toHaveLength(1);
+  });
+
+  it('renders the path as text, not markup', async () => {
+    params.current = { rest: ['<img src=x>'] };
+    const { container } = render(<NotBuiltYetPage />);
+    await settle();
+    expect(container.querySelector('img')).toBeNull();
   });
 });

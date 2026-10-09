@@ -83,4 +83,21 @@ describe('(bigscreen)/error.tsx', () => {
     expect(screen.getByText(/boom/)).toBeInTheDocument();
     expect(screen.getByText(/digest: abc/)).toBeInTheDocument();
   });
+
+  it('puts the controls before the message in document order, so focusing them cannot scroll it away', () => {
+    const { container } = renderIt();
+    const pre = container.querySelector('pre')!;
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(container.firstElementChild!.firstElementChild).toBe(heading);
+    for (const b of [reload(), retry()]) {
+      expect(b.compareDocumentPosition(pre) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(heading.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('tells a viewer whose Reload keeps failing to read the message and use the web app', () => {
+    renderIt();
+    expect(screen.getByText(/keeps failing/i)).toHaveTextContent(/message below/i);
+    expect(screen.getByText(/keeps failing/i)).toHaveTextContent(/web app/i);
+  });
 });

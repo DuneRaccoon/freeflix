@@ -155,6 +155,8 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   border: 0;
   border-radius: 8px;
   cursor: pointer;
+  /* Home's "Who's watching?" is an <a> wearing this class, and a link underlines itself. */
+  text-decoration: none;
 }
 .bs-btn:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
 .bs-btn--ghost { background: transparent; color: var(--text); border: 1px solid var(--hairline); }
@@ -208,3 +210,386 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   border-radius: var(--radius);
 }
 .bs-pair-row { display: flex; gap: 48px; align-items: center; flex-wrap: wrap; }
+
+/* ============================================================
+   Stage 4 component vocabulary — the shell, hero, rails, cards, skeletons,
+   profile grid and keypad. Layout contract (spec §8.5): a 1920x1080 design
+   space; nothing interactive or textual outside the safe inset; body text >=24px,
+   titles 40-56px, focus targets >=60px tall. Nothing in this section animates on
+   a loop or asks the GPU for a per-frame effect (spec §9) — a scrim is a gradient
+   and a skeleton is a flat block.
+   ============================================================ */
+
+/* --- app shell --------------------------------------------------------- */
+/* html and body are overflow:hidden, so .bs-shell__scroll is the ONLY thing that
+   scrolls on these screens. The head sits above it and stays put. */
+.bs-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bs-shell__scroll {
+  flex: 1;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding: 0 0 var(--safe-y);
+  /* The focus manager scrolls with `block: 'nearest'`, which stops the moment the box
+     is merely inside the scrollport. Without this, a down-move lands the card's bottom
+     exactly on the screen edge: the resume bar falls off, the ring is cut, and moving
+     UP into a rail hides the rail's own title above the scrollport. The insets cover
+     the rail title plus the ~11px a focused card's 1.06 scale and ring overshoot. 145px,
+     not 100px: a rail with an eyebrow has a 33px taller head, and the track's own 32px
+     top padding sits between the head and the card, so a smaller inset scrolled the
+     eyebrow — or part of the title — back off the top of the screen. */
+  scroll-padding: 145px 0 80px;
+}
+.bs-shell__head {
+  padding: var(--safe-y) var(--safe-x) 0;
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+}
+
+/* --- hero --------------------------------------------------------------- */
+/* Static on purpose: the web hero's 40s Ken-Burns transform is a full-bleed
+   animated layer, which spec §9 rules out. The artwork arrives as an inline
+   background-image; the scrim is a plain gradient (ink at 0.72 is the --ink
+   token as rgba) so the text stays legible with no per-frame effect. */
+.bs-hero {
+  position: relative;
+  /* 560px: with the shell head, the first rail's title lands at y~672 and ~84% of its
+     poster art is above the 1080px fold, which is what tells a viewer there is more
+     below. (620px also cleared the fold, at ~67% of the art — this is a margin
+     improvement, not a fix for a hidden rail. A poster's LABEL only clears the fold at
+     a hero of ~470px or less, which costs more artwork than the label is worth.) */
+  height: 560px;
+  padding: var(--safe-y) var(--safe-x);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  /* The home hero is an <a>. Without these it takes the browser's link blue and underline,
+     and the title and overview inherit both. */
+  color: var(--text);
+  text-decoration: none;
+  /* The art and scrim are absolutely positioned children, and those paint OVER their
+     parent's own outline, so the inset focus ring below was drawn and then covered: the one
+     full-bleed focus stop had no visible focus. Isolating the hero makes it a stacking
+     context, and the z-index: -1 on the two layers below keeps them behind its content and
+     its outline. Found by rendering this in Chromium at 1920x1080, not by reading it. */
+  isolation: isolate;
+}
+/* The hero is one focus stop on the home screen. The ring is INSET, because an outset
+   outline on a 1920px-wide full-bleed box is clipped by the viewport on both sides. No
+   scale either: scaling a full-bleed element would show the page background behind it. */
+.bs-hero:focus {
+  outline: var(--focus-ring) solid var(--gold);
+  outline-offset: -4px;
+}
+.bs-hero__art {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-size: cover;
+  background-position: center top;
+}
+.bs-hero__scrim {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.72) 45%, rgba(10, 10, 11, 0.15) 100%);
+}
+.bs-hero__body { position: relative; max-width: 1100px; }
+.bs-hero__title {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.bs-hero__meta {
+  font-size: 24px;
+  color: var(--muted);
+  margin: 0 0 16px;
+  display: flex;
+  gap: 16px;
+}
+.bs-hero__overview {
+  font-size: 24px;
+  line-height: 1.45;
+  margin: 0 0 24px;
+  max-width: 900px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- rails --------------------------------------------------------------- */
+/* The track carries the safe inset as padding on BOTH sides. That is what lets the
+   first card rest inside the safe area while scrollIntoView({ inline: 'center' })
+   can still centre it — the focus manager drives all horizontal scrolling through
+   that one call; there is no wheel or drag handler. A TV shows no scrollbar.
+   The vertical padding is the focus ring's room, not decoration. overflow-x:auto
+   makes the track clip vertically too, and a focused card grows 3% about its centre
+   and then draws a 4px ring 4px outside that, so a ~475px poster card reaches ~22px
+   past its resting box. At the 8px this started with, the top of the ring and the top
+   of the card were cut off; 24px fixed that, and 32px is slack on top of it. Measured
+   clearance at the tallest realistic poster (485px: two-line title, subtitle, badge,
+   progress bar) is 8.96px at 32px and 0.96px at 24px. Note the overshoot is 3% OF THE
+   CARD, and the track grows with the card, so a pixel of extra card height costs only
+   0.03px of clearance — 24px had about one more text line of headroom, not one pixel.
+   The slack is here because nothing tests this and nothing would catch its loss. */
+.bs-rail { margin: 0 0 48px; }
+.bs-rail__head { padding: 0 var(--safe-x); margin: 0 0 16px; }
+.bs-rail__title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  margin: 0;
+}
+.bs-rail__eyebrow {
+  font-size: 20px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+.bs-rail__track {
+  display: flex;
+  /* Without this a card with no subtitle is stretched to the tallest card in the rail,
+     so its focus ring surrounds ~120px of empty space. */
+  align-items: flex-start;
+  gap: 24px;
+  overflow-x: auto;
+  /* 32px: see the block comment above this rule for the measured clearance. */
+  padding: 32px var(--safe-x);
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.bs-rail__track::-webkit-scrollbar { display: none; }
+
+/* --- cards --------------------------------------------------------------- */
+/* One focusable element per card, so the ring belongs on the card itself. The
+   ring rule below is the same standing rule as .bs-tile:focus — it is the whole
+   navigation model on a remote, and it applies to .bs-profile:focus and .bs-key:focus
+   too. */
+.bs-card {
+  flex: 0 0 auto;
+  display: block;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-card:focus {
+  outline: var(--focus-ring) solid var(--gold);
+  outline-offset: 4px;
+  transform: scale(1.06);
+}
+.bs-card__art {
+  display: block;
+  width: 100%;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+.bs-card--poster { width: 240px; }          /* 2:3 */
+.bs-card--poster .bs-card__art { height: 360px; }
+.bs-card--wide { width: 428px; }            /* 16:9 */
+.bs-card--wide .bs-card__art { height: 241px; }
+/* The text title-card shown in place of artwork when there is none. It is declared
+   after .bs-card__art on purpose: both are single-class selectors, so source order
+   is what turns that rule's display:block into this one's flex. */
+.bs-card__fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: 28px;
+  text-align: center;
+  color: var(--gold-lite);
+  border: 1px solid var(--hairline);
+}
+/* The title sits in its own element because a flex container cannot line-clamp its own
+   text. The line-height is fixed so the clamp is arithmetic: a wide card's box is 207px
+   inside its padding (5 lines of 35px), a poster's is 326px (9 lines). Past that the title
+   ends in an ellipsis instead of spilling out of the card. */
+.bs-card__fallback-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.bs-card--poster .bs-card__fallback-text { -webkit-line-clamp: 9; }
+.bs-card__label {
+  margin: 12px 0 0;
+  /* 24px, the body floor: this is the title of the thing the viewer is choosing, read
+     from ten feet away. The metadata below it may be smaller; this may not. */
+  font-size: 24px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* One line, always: a subtitle that wrapped to a second line would add ~32px of card
+   height, which is about what the track's ring clearance can absorb. 22px because the year is how a viewer tells two films of the same name apart.
+   The row is flex so the badge survives truncation: the subtitle text takes the ellipsis
+   (min-width: 0 lets it shrink below its content) and the badge never shrinks. `gap` only
+   separates siblings, so a badge with no subtitle beside it has no leading space. */
+.bs-card__sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+  font-size: 22px;
+  color: var(--muted);
+}
+.bs-card__subtext {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Resume progress; the fill width arrives as an inline style. */
+.bs-card__bar {
+  display: block;
+  margin: 8px 0 0;
+  height: 6px;
+  background: var(--hairline);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bs-card__bar span { display: block; height: 100%; background: var(--gold); }
+.bs-card__badge {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 2px 10px;
+  font-size: 20px;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--gold-lite);
+}
+
+/* --- skeletons ------------------------------------------------------------ */
+/* Do not add a shimmer: §9 allows transform and opacity only, and a looping animation on a
+   television costs frames for nothing. What each skeleton reserves is said below. */
+.bs-skel { background: var(--surface-2); border-radius: var(--radius); }
+/* These reserve the WHOLE card, not just its art box: a poster card with a two-line title
+   and a year measures ~470px and a wide resume card ~365px. Reserving only the art meant
+   every rail grew ~115px as it resolved, and with six lazy rails that is ~700px of
+   cumulative shift under the viewer. Erring slightly small is better than slightly large:
+   a short card leaves a gap, a tall one pushes the next rail off the fold. */
+.bs-skel--poster { flex: 0 0 auto; width: 240px; height: 470px; }
+.bs-skel--wide { flex: 0 0 auto; width: 428px; height: 365px; }
+
+/* --- profile grid and keypad ----------------------------------------------- */
+/* Who's-watching grid and the PIN pad. Profiles carry the same ring and scale as
+   .bs-card:focus. Keys do not scale — they sit in a 16px gutter — so their ring
+   takes the tighter 2px offset. */
+/* The vertical padding is the focus ring's room, for the same reason .bs-rail__track
+   carries it: a focused tile scales and draws its ring outside itself, and a row sitting
+   flush against the scroller's edge has the ring clipped. Measured in a 1920x1080
+   Chromium render of this stylesheet. */
+/* nowrap, never wrap: the page chunks profiles into rows of six and gives each row its own
+   container, and the focus model's rows ARE those containers. A container that re-flowed on
+   a narrow viewport would draw one row on two lines, so Right would land on a tile on the
+   next line and Down would skip a visual line. Six tiles are 6*240 + 5*48 = 1680px, plus
+   the two insets = 1872px: they fit the 1920px design space, and on anything narrower the
+   row scrolls sideways rather than lying about where its tiles are. */
+.bs-profiles {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 48px;
+  padding: 24px var(--safe-x);
+}
+.bs-profile {
+  flex: 0 0 auto;
+  width: 240px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-profile:focus {
+  outline: var(--focus-ring) solid var(--gold);
+  outline-offset: 4px;
+  transform: scale(1.06);
+}
+.bs-profile__face {
+  width: 240px;
+  height: 240px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 72px;
+  color: var(--gold-lite);
+  overflow: hidden;
+}
+.bs-profile__face img { width: 100%; height: 100%; object-fit: cover; }
+/* display:block because this is a <span>: without it the margin is ignored. */
+.bs-profile__name { display: block; margin: 16px 0 0; font-size: 28px; text-align: center; }
+/* A status or error line for a screen. Mount it ABOVE the group it speaks for and keep it
+   mounted: min-height holds one line so the layout does not jump when a message appears,
+   which on a remote reads as the screen moving under you, and above is the one place a
+   scrolling grid cannot push it off the bottom of the viewport. */
+.bs-msg {
+  padding: 0 var(--safe-x);
+  margin: 8px 0 0;
+  min-height: 1.45em;
+}
+/* The safe inset and nothing else, for a group that has its own margins: .bs-controls, which
+   .bs-msg would fight (both are one-class rules and .bs-msg comes later, so it would win the
+   margin and put a button 8px under the line above it). */
+.bs-inset { padding: 0 var(--safe-x); }
+/* Inset like .bs-profiles: §8.5 puts no interactive element outside the safe area, and
+   nothing guards that, so each group that can be mounted full-bleed carries its own. */
+.bs-keypad {
+  padding: 0 var(--safe-x);
+  display: grid;
+  grid-template-columns: repeat(3, 120px);
+  gap: 16px;
+  margin: 32px 0;
+}
+.bs-key {
+  min-height: 96px;
+  font-size: 40px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.bs-key:focus { outline: var(--focus-ring) solid var(--gold); outline-offset: 2px; }
+.bs-dots {
+  padding: 0 var(--safe-x); display: flex; gap: 16px; margin: 24px 0; }
+.bs-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+}
+.bs-dot--on { background: var(--gold); }
+
+/* --- status text ------------------------------------------------------------ */
+/* A single line of state ("Loading…", "Nothing here yet") shared by several screens. */
+.bs-note { padding: 0 var(--safe-x); font-size: 24px; color: var(--muted); }

@@ -103,7 +103,16 @@ export default function BigScreenDiagnostics() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const line = `key=${JSON.stringify(e.key)} keyCode=${e.keyCode} code=${e.code || '-'}`;
+      // The nav hooks (useFocusGrid, useBackKey) ignore any press with alt/ctrl/meta set, and
+      // useBackKey acts once on e.repeat, so those fields decide whether the D-pad works at
+      // all. Printed only when set, to keep the line short at ten feet: no `mods=` means
+      // none held, no `REPEAT` means a fresh press. shift is shown too, though nothing
+      // rejects it.
+      const mods = [e.altKey && 'alt', e.ctrlKey && 'ctrl', e.metaKey && 'meta', e.shiftKey && 'shift'].filter(Boolean);
+      const line =
+        `key=${JSON.stringify(e.key)} keyCode=${e.keyCode} code=${e.code || '-'}` +
+        (mods.length ? ` mods=${mods.join('+')}` : '') +
+        (e.repeat ? ' REPEAT' : '');
       setKeys((prev) => [line, ...prev].slice(0, 12));
     }
     window.addEventListener('keydown', onKey);
@@ -271,7 +280,7 @@ export default function BigScreenDiagnostics() {
       </div>
 
       <h2>Remote key codes</h2>
-      <p>Press Back, Play, Pause, Rewind, Fast-Forward and the arrows. Back should report keyCode 461.</p>
+      <p>Press Back, Play, Pause, Rewind, Fast-Forward and the arrows. Back should report keyCode 461. A line also shows <code>mods=…</code> if any modifier flag is set and <code>REPEAT</code> if the press is an auto-repeat; if the arrows show a mods flag other than shift, the D-pad is inert on every screen.</p>
       <div className="bs-keylog">
         {keys.length === 0 ? <div style={{ color: 'var(--muted)' }}>waiting for a key…</div>
           : keys.map((k, i) => <div key={`${k}-${i}`}>{k}</div>)}

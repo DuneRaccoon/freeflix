@@ -607,9 +607,40 @@ replace the control surface entirely.
 
 ### 8.1 Focus library
 
-`@noriginmedia/norigin-spatial-navigation` — hooks-based, in production on webOS/Tizen/Vizio. **Its
-React 19 peer range is unverified and is task one.** Fallback: a hand-rolled roving-tabindex manager
-(~150 lines), genuinely viable because we own every component on this surface.
+~~`@noriginmedia/norigin-spatial-navigation`~~ **Decided during stage 4: hand-rolled, and the
+library was rejected on its merits rather than on compatibility.**
+
+*(This row read: "`@noriginmedia/norigin-spatial-navigation` — hooks-based, in production on
+webOS/Tizen/Vizio. **Its React 19 peer range is unverified and is task one.** Fallback: a
+hand-rolled roving-tabindex manager (~150 lines), genuinely viable because we own every component
+on this surface."*
+
+**The compatibility question was answered and it is a non-issue**: version 3.3.0 declares
+`react: ">=16.8.0"` (on its `-react` sub-package rather than the installed meta-package), which
+React 19.0.0 satisfies with no peer conflict. So the "task one" spike was unnecessary and the §12
+risk row below is void.
+
+**It lost on three design facts instead**, each read out of its `dist/index.mjs`:
+
+1. It installs its **own `window` keydown listener and calls `preventDefault` + `stopPropagation`
+   on every arrow and Enter** unless `shouldUseNativeEvents: true`. §8.3 requires the opposite:
+   arrows must seek only when the transport bar holds focus, and must not be claimed globally.
+   Opting out of its event handling leaves us handling events ourselves, which is the thing the
+   dependency was supposed to provide.
+2. Without `shouldFocusDOMNode: true` it **never moves real DOM focus** — it tracks focus in its own
+   store. Every focus style on this surface is a CSS `:focus` selector, and `bigscreen.css` calls
+   the ring "the whole navigation model on a remote". Its default mode silently turns that off.
+3. It has **no concept of a Back key**, so webOS `461` needs a hand-written `window` listener
+   whatever else is used.
+
+A strict rail grid also does not need geometric nearest-neighbour search. Explicit row and column
+indices are more predictable, and they are what make the load-bearing rule expressible: **vertical
+movement skips any row with zero focusable items**, because every catalog call in this codebase is
+`.catch(() => emptyPage)` and a still-loading or empty rail is the normal case. Landing focus on a
+skeleton is unrecoverable on a device with no Tab key and no pointer.
+
+The implementation is `(bigscreen)/_focus/` — a pure model plus a `useFocusGrid` hook — built in
+`docs/superpowers/plans/2026-10-09-tv-stage4-navigation.md`.
 
 ### 8.2 Rules
 
@@ -645,6 +676,28 @@ UI half-works — a trap. Build for the D-pad; treat the pointer as a bonus.
 1920×1080 CSS pixels regardless of panel resolution. Safe-area inset **96px horizontal, 54px
 vertical** (5%); no interactive element or text outside it. Body text ≥24px, titles 40–56px, focus
 targets ≥60px tall.
+
+*(Added during stage 4, because "body text ≥24px" turned out to be under-specified the first time
+a real card was styled, and **restated once more after the first version of this amendment
+contradicted the stylesheet it was written to govern**.* The useful distinction is not two tiers
+but three, by **how** a viewer takes the text in:
+
+| Tier | Floor | What belongs | Shipped |
+| --- | --- | --- | --- |
+| **Read** — prose a viewer parses to decide | **≥ 24px** | a card's title, a hero's overview, any sentence | `.bs-card__label` 24px, `.bs-hero__overview` 24px |
+| **Glanced** — a short token recognised by shape and position, not read word by word | **≥ 20px** | a year, a short status pill ("Up next"), an episode label | `.bs-card__sub` 22px, `.bs-card__badge` 20px |
+| **Decorative** — carries no information the screen does not carry elsewhere | **≥ 20px** | the uppercase letter-spaced eyebrow over a rail, whose 40px title holds the meaning | `.bs-rail__eyebrow` 20px |
+
+A card's **title takes the Read floor**: it is the name of the thing being chosen, from ten feet.
+A year and a pill do **not** — which an earlier draft of this paragraph got exactly backwards by
+saying they "do not qualify", a reading that would have required 24px for both and which nothing
+in the implementation ever followed. They are decision *information* (a year is how a viewer tells
+two films of the same name apart; the pill changes what pressing OK does), and that is why stage 4
+moved them **up**, from 20px and 18px. But they are four characters in a fixed position, not prose:
+a viewer recognises them without reading them. Hence 20px rather than 24px.
+
+When in doubt the test is not "is this small text" but **"does the viewer have to read it, or only
+notice it"**.)*
 
 ---
 
@@ -748,7 +801,7 @@ targets ≥60px tall.
 | ~~MKV does not direct-play / MKV seeking hits the `Cues`/`SeekHead` defect~~ **Partly resolved** | — | *(Updated after the 2026-10-07 playback run.* **MKV direct play: retired.** A real 1080p H.264 Matroska file with a DDP5.1 track direct-played on the set, and seeking **within downloaded regions** worked — no `Cues`/`SeekHead` symptom on this file. Note the file was muxed once (`-FLUX`), which §3.2 says is the less-affected case, so the defect is retired for files like this one, not proven absent. **HEVC: not retired, and not measured.** The tested file is H.264. Accepted on documentation by owner decision: LG's AV table lists HEVC Main/Main10 for webOS **22** and this set is webOS **25**, two platform versions newer, so its table is at least as permissive. **That is an accepted risk with a rationale, not a result.** If it fails in the field the lever is torrent selection (§7.2); an HLS remux is unavailable on a Pi.) |
 | **Seeking past the download point into a not-yet-downloaded region** | **Unknown — still open** | *(Added after the 2026-10-07 run, which did **not** cover it.* The title under test was at ~26% and the far seek was never attempted, nor was the "Probe far seek (HTTP)" readout taken. The stage-1 first-chunk precheck and the `503` + `Retry-After` response exist and have unit tests, but **have never been observed from the TV**, and a `<video>` element reports only `MediaError.code`, so the status is unobservable there without the probe. Mitigations as designed: the available-bytes seek boundary (§7.4) prevents the seek rather than handling it, and stage 7 must make the player honour the 503. **Settle this with the HTTP probe before stage 7 ships.**) |
 | Pi cannot sustain 1080p off a partial torrent to the TV | ~~Medium~~ **Lowered — one successful observation** | *(Updated after the 2026-10-07 run.* 1080p H.264 streamed to the TV **from a torrent still downloading at ~26%**, played and scrubbed. That is one title, one session, no duration or rebuffer count recorded — it is evidence the path works, not a throughput measurement. Mitigations unchanged: 1080p default; available-bytes seek boundary; the ARM cap limiting concurrent downloads to 2.) |
-| `norigin-spatial-navigation` rejects React 19 | Medium | Hand-rolled focus manager fallback, scoped as task one. |
+| ~~`norigin-spatial-navigation` rejects React 19~~ **Void — it accepts React 19** | — | *(Settled during stage 4: 3.3.0 declares `react: ">=16.8.0"`, which React 19.0.0 satisfies. The library was still rejected, but for its global arrow `preventDefault`, its need for `shouldFocusDOMNode` to move real focus at all, and its absence of any Back concept — see §8.1. The hand-rolled manager shipped as a deliberate choice, not as a fallback.)* |
 | Dev Mode lapses and the tile vanishes | Certain, ~every 41 days | Browser-bookmark fallback is a documented deliverable; renewal routine noted in the README. |
 | Subtitle coverage disappoints (embedded-only releases) | High | Stated up front. Sidecar-only is v1; embedded extraction is out of scope. |
 | Two root layouts regress a web route | Low | Mechanical move; the existing ~85 colocated tests plus a route-by-route smoke pass. |
@@ -787,7 +840,7 @@ phase). Stages 1–3 are the first plan, because stage 3 can invalidate everythi
 | 2 | Two root layouts; empty `/bigscreen` + `bigscreen.css` skeleton | Smallest thing loadable on the TV |
 | 3 | **Load it in the TV's built-in browser.** Verify CSS, direct play, seek, AC3 | The gate. Stop and re-plan if this fails. **Complete.** Engine/rendering half run 2026-10-06 → **"Proceed, simplified"**: everything rendered, engine is Chromium 120, so the engine-driven CSS/JS bans and the `browserslist: ["chrome 87"]` pin were dropped. Playback half run 2026-10-07: **MKV direct play, DDP5.1 audio, streaming from a torrent at ~26% and seeking inside downloaded regions all passed**; **seeking past the download point, the far-seek HTTP probe, HEVC decode and DTS-at-1080p were not tested**. Full record: `docs/superpowers/plans/2026-09-22-webos-tv-stage3-results.md`. Stages 4–10 are otherwise unchanged. |
 | 4 | Focus manager (+ React 19 check), rails, cards, home | The bulk of the UI. *(Justification narrowed after the stage-3 gate — this stage used to be argued partly from the Chromium-87 CSS problem, i.e. that the web UI could not render on the TV at all. It renders fine. What stage 4 is now for is **D-pad navigation** — the web UI's browse surface has no focus management — it never calls `scrollIntoView` or `.focus()`, and a `PosterCard` has four focus stops — and **10-foot legibility**: type scale, safe-area insets, a visible focus ring. The "it works perfectly on the TV" observation was made through the **Magic Remote, which is a pointer** (§8.4), so it says nothing about either. This is a materially smaller job than this spec originally assumed.)* |
-| 5 | Device pairing: backend, `/link`, `/bigscreen/pair` | Unblocks using it without a keyboard |
+| 5 | Device pairing: backend, `/link`, `/bigscreen/pair` | Unblocks using it without a keyboard. **Complete — merged 2026-10-07 (merge commit `529c44c`, 22 commits, plan `docs/superpowers/plans/2026-10-07-tv-device-pairing.md`), and verified end to end on the television on 2026-10-09: the TV showed the code and QR, the phone scanned and approved, and the approval was reflected back on the TV screen.** One honest limitation shipped with it: `_DEVICE_START_LIMIT` sits on a single global unkeyable bucket (per-IP keying is impossible while `/api/*` is proxied by the Next.js server), so a burst of ~241 starts in 15 minutes still locks every television out of pairing for the window. |
 | 6 | Detail screens, season/episode picker, search keyboard, my list | Completes "watch + request" |
 | 7 | TV player: controls, 461, seek boundary, 401 handling | Depends on 1 and 5 |
 | 8 | Codec-aware selection + `webos22` profile + 4K opt-in | Needs a real player to validate against. Also carries three things the stage-3 gate left unmeasured: **HEVC decode**, **DTS at 1080p**, and **which AV table the profile is derived from** (the device is webOS 25, the name says 22 — see §7.2). |

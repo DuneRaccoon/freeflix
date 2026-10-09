@@ -34,27 +34,40 @@ export interface KeyDef {
   /** React key; also the label for a character cell. */
   id: string;
   label: string;
+  /**
+   * How wide the key is drawn: a single glyph, or a word (Space, Delete, Clear) that needs
+   * room. It is a field rather than a CSS position (`.bs-kb__row:last-child .bs-kb__key`)
+   * because a positional rule silently moves which keys are wide the moment a row is
+   * appended — a pattern this stylesheet had already eliminated once.
+   */
+  variant: 'glyph' | 'word';
   action: KeyAction;
 }
 
 /**
  * Alphabetical, not QWERTY: a viewer scanning for a letter with a D-pad reads the alphabet,
  * and QWERTY only pays off for ten fingers. Row widths (7/7/7/5/10/3) all fit the 1728px
- * inside the safe area at the 120px key width in the stylesheet.
+ * inside the safe area at the 120px key width in the stylesheet — the widest is the digit
+ * row at 10*120 + 9*16 = 1344px.
  */
 const LETTER_ROWS = ['ABCDEFG', 'HIJKLMN', 'OPQRSTU', 'VWXYZ'] as const;
 const DIGITS = '0123456789';
 
-const charKey = (ch: string): KeyDef => ({ id: ch, label: ch, action: { kind: 'char', char: ch } });
+const charKey = (ch: string): KeyDef => ({
+  id: ch,
+  label: ch,
+  variant: 'glyph',
+  action: { kind: 'char', char: ch },
+});
 
 export const KEY_ROWS: readonly (readonly KeyDef[])[] = [
   ...LETTER_ROWS.map((row) => [...row].map(charKey)),
   [...DIGITS].map(charKey),
   [
     // A space is just a character; the screen trims the query before it searches.
-    { id: 'space', label: 'Space', action: { kind: 'char', char: ' ' } },
-    { id: 'delete', label: 'Delete', action: { kind: 'delete' } },
-    { id: 'clear', label: 'Clear', action: { kind: 'clear' } },
+    { id: 'space', label: 'Space', variant: 'word', action: { kind: 'char', char: ' ' } },
+    { id: 'delete', label: 'Delete', variant: 'word', action: { kind: 'delete' } },
+    { id: 'clear', label: 'Clear', variant: 'word', action: { kind: 'clear' } },
   ],
 ];
 
@@ -81,7 +94,7 @@ export function Keyboard({
             <button
               key={k.id}
               type="button"
-              className="bs-kb__key"
+              className={`bs-kb__key bs-kb__key--${k.variant}`}
               {...focusProps(rowOffset + r, c)}
               onClick={() => onPress(k.action)}
             >

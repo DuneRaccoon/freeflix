@@ -17,6 +17,32 @@ describe('Keyboard', () => {
     expect(KEYBOARD_ROW_COUNTS.every((n) => n > 0)).toBe(true);
   });
 
+  it('marks a word key as a word key, so no CSS rule has to count rows', () => {
+    // The variant replaces a `.bs-kb__row:last-child .bs-kb__key` positional selector. A
+    // positional rule means appending a row silently moves which keys are wide — and this
+    // stylesheet had already eliminated that pattern once. Derived from the label, so a new
+    // key cannot be added with the wrong variant.
+    for (const row of KEY_ROWS) {
+      for (const k of row) {
+        expect(k.variant, k.id).toBe(k.label.length === 1 ? 'glyph' : 'word');
+      }
+    }
+    expect(KEY_ROWS.flat().filter((k) => k.variant === 'word').map((k) => k.label)).toEqual([
+      'Space',
+      'Delete',
+      'Clear',
+    ]);
+  });
+
+  it('puts each key’s variant on the key as a modifier class', () => {
+    render(<Keyboard rowOffset={0} focusProps={props} onPress={() => {}} />);
+    const defs = KEY_ROWS.flat();
+    keys().forEach((el, i) => {
+      expect(el, defs[i].id).toHaveClass('bs-kb__key');
+      expect(el, defs[i].id).toHaveClass(`bs-kb__key--${defs[i].variant}`);
+    });
+  });
+
   it('renders one container per declared row, with exactly that many cells', () => {
     const { container } = render(<Keyboard rowOffset={0} focusProps={props} onPress={() => {}} />);
     const rows = container.querySelectorAll('.bs-kb__row');
@@ -104,11 +130,36 @@ describe('Keyboard', () => {
     const src = readFileSync('src/app/(bigscreen)/_components/Keyboard.tsx', 'utf8');
     expect(src, 'must not call useFocusGrid').not.toMatch(/useFocusGrid\s*\(/);
     expect(src, 'must not call useBackKey').not.toMatch(/useBackKey\s*\(/);
-    // The only thing it takes from _focus is the FocusProps TYPE, so there is no value
-    // binding here that could become a second live grid.
-    const froms = [...src.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
-    expect(froms).toEqual(['../_focus/useFocusGrid']);
-    expect(src).toMatch(/import\s+type\s*\{\s*FocusProps\s*\}\s*from\s*'\.\.\/_focus\/useFocusGrid'/);
+    // Everything it takes from `_focus` is type-only, so no value binding here could become
+    // a second live grid. Asserted as "every _focus import is type-only" rather than by
+    // freezing the whole import list: this file is free to import anything else (`memo`
+    // from react, say) without that being a focus-ownership question.
+    // `[^;]*?` and a line-anchored `import`, so one statement's clause cannot run into the
+    // next one's path (`import { memo } from 'react';` followed by the type import below
+    // read as a single non-type import otherwise — the first version of this did).
+    const focusImports = [...src.matchAll(/^import\s+([^;]*?)from\s+'(\.\.\/_focus\/[^']*)'/gm)];
+    expect(focusImports.length, 'imports something from _focus').toBeGreaterThan(0);
+    /** `import type { X } from` and `import { type X } from` are both type-only. */
+    const isTypeOnly = (clause: string): boolean => {
+      const c = clause.trim();
+      if (c.startsWith('type')) return true;
+      const named = /^\{([^}]*)\}$/.exec(c);
+      return (
+        !!named &&
+        named[1]
+          .split(',')
+          .filter((s) => s.trim())
+          .every((s) => /^type\s/.test(s.trim()))
+      );
+    };
+    for (const [, clause, spec] of focusImports) {
+      expect(isTypeOnly(clause), `${spec} must be a type-only import, not \`${clause.trim()}\``).toBe(true);
+    }
+    // And the one thing it needs from there is the props type. Asserted on the specifier
+    // list, not on one spelling of the statement: `import type { X }` and
+    // `import { type X }` are both fine, and the loop above is what rules out a value.
+    expect(focusImports.map(([, , spec]) => spec)).toEqual(['../_focus/useFocusGrid']);
+    expect(src).toMatch(/FocusProps/);
   });
 
   it('draws keys inside the safe inset, at a size a remote can hit from ten feet', () => {
@@ -120,6 +171,17 @@ describe('Keyboard', () => {
     expect(Number(/min-height:\s*(\d+)px/.exec(key)![1])).toBeGreaterThanOrEqual(60);
     // A key is a token the viewer recognises, not prose: the 20px tier (§8.5 as amended).
     expect(Number(/font-size:\s*(\d+)px/.exec(key)![1])).toBeGreaterThanOrEqual(20);
+    // The word keys get their own block (a modifier class, not a positional selector), and
+    // it may not drop below the same floor. Its own rule, so the regex above cannot read it
+    // by accident.
+    const word = /\.bs-kb__key--word\s*\{([^}]*)\}/.exec(css)![1];
+    expect(Number(/font-size:\s*(\d+)px/.exec(word)![1])).toBeGreaterThanOrEqual(20);
+    expect(word, 'a word key sets no min-height of its own').not.toMatch(/min-height:/);
+    // No positional rule may decide which keys are wide. Comments stripped first: the
+    // stylesheet's own comment explains why such a rule is banned, and naming it there is
+    // the point.
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(code).not.toMatch(/\.bs-kb__row:(last|first|nth)[^{]*\{/);
     // The focus ring is the whole navigation model on a remote.
     expect(css).toMatch(/\.bs-kb__key:focus\s*\{[^}]*outline:/);
   });

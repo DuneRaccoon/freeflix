@@ -190,6 +190,22 @@ describe('search screen', () => {
     expect(tvSearch.mock.calls).toEqual([['BAT', 1]]);
   });
 
+  it('caps the query, and says so rather than ignoring the press', () => {
+    render(<SearchPage />);
+    // Far more presses than the cap, held on one key. The cap itself is not asserted by
+    // value: the point is that it exists, that it is well beyond any real title, and that
+    // the press that meets it is answered.
+    const a = key('A');
+    for (let i = 0; i < 80; i++) fireEvent.click(a);
+    const capped = queryText()!.length;
+    expect(capped).toBeGreaterThan(20);
+    expect(capped, 'the query must stop growing').toBeLessThan(80);
+    expect(screen.getByText(/as long as the search can get/)).toBeInTheDocument();
+    // And the cap is not a dead end: Delete makes room again.
+    fireEvent.click(key('Delete'));
+    expect(queryText()).toHaveLength(capped - 1);
+  });
+
   it('refuses an empty query out loud, and asks nothing', async () => {
     render(<SearchPage />);
     await pressSearch();
@@ -239,6 +255,46 @@ describe('search screen', () => {
     });
   });
 
+  describe('a repeat press for a search that is already out', () => {
+    it('is refused out loud, not doubled', async () => {
+      // Re-submitting the SAME query renders a byte-identical status line, so nothing on
+      // screen would change while two more TMDB-backed requests went out — on the very
+      // search the viewer is waiting for. The empty-query press already refuses out loud.
+      const slow = deferred<CatalogPage>();
+      movieSearch.mockReturnValueOnce(slow.promise);
+      tvSearch.mockResolvedValueOnce(page([]));
+      render(<SearchPage />);
+      typeIn('AB');
+      await pressSearch();
+      expect(movieSearch).toHaveBeenCalledTimes(1);
+
+      await pressSearch();
+      expect(movieSearch).toHaveBeenCalledTimes(1);
+      expect(tvSearch).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(/Still searching/)).toBeInTheDocument();
+
+      // Once it has been answered, the same query may be asked again.
+      await act(async () => {
+        slow.resolve(page([]));
+      });
+      await pressSearch();
+      expect(movieSearch).toHaveBeenCalledTimes(2);
+    });
+
+    it('still searches when the query has changed since that press', async () => {
+      const slow = deferred<CatalogPage>();
+      movieSearch.mockReturnValueOnce(slow.promise);
+      tvSearch.mockResolvedValueOnce(page([]));
+      render(<SearchPage />);
+      typeIn('A');
+      await pressSearch();
+      typeIn('B');
+      await pressSearch();
+      expect(movieSearch.mock.calls.map((c) => c[0])).toEqual(['A', 'AB']);
+      expect(screen.queryByText(/Still searching/)).toBeNull();
+    });
+  });
+
   describe('results', () => {
     it('merges both halves, dedupes them and sorts by popularity', async () => {
       movieSearch.mockResolvedValue(
@@ -258,6 +314,7 @@ describe('search screen', () => {
       typeIn('A');
       await pressSearch();
       expect(cardTitles()).toEqual(['Hot Show', 'Mid Movie', 'Dull Movie']);
+      expect(screen.getByText(/^3 results for/)).toBeInTheDocument();
       // A second copy of the merge is how the two drift apart; this reuses the web's.
       const src = readFileSync('src/app/(bigscreen)/bigscreen/search/page.tsx', 'utf8');
       expect(src).toMatch(/mergeDedupe[\s\S]*from '@\/lib\/mergeCatalog'/);
@@ -273,6 +330,32 @@ describe('search screen', () => {
         '/bigscreen/show/1399',
         '/bigscreen/movie/272',
       ]);
+    });
+
+    it('counts a single result in the singular', async () => {
+      movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'Only One' })]));
+      render(<SearchPage />);
+      typeIn('A');
+      await pressSearch();
+      expect(screen.getByText(/^1 result for/)).toBeInTheDocument();
+    });
+
+    it('drops a row whose media_type is neither movie nor tv, rather than routing it to /movie', async () => {
+      // `catalogItemToCard` routes anything that is not 'tv' to /bigscreen/movie/{id}, so a
+      // row of some other kind would become a card that dead-ends — the stage-4 Critical's
+      // exact shape. The NaN/null test below does NOT cover this: those rows are caught by
+      // the other clauses of the guard.
+      movieSearch.mockResolvedValue(
+        page([
+          item({ tmdb_id: 300, title: 'Some Person', media_type: 'person' as CatalogItem['media_type'] }),
+          item({ tmdb_id: 5, title: 'Fine', popularity: 3 }),
+        ]),
+      );
+      render(<SearchPage />);
+      typeIn('B');
+      await pressSearch();
+      expect(cardTitles()).toEqual(['Fine']);
+      expect(cards().map((c) => c.getAttribute('href'))).toEqual(['/bigscreen/movie/5']);
     });
 
     it('drops a row that could not become a card, rather than linking to NaN', async () => {
@@ -423,6 +506,101 @@ describe('search screen', () => {
         slow.resolve(page([item({ tmdb_id: 1, title: 'Too Late' })]));
       });
       expect(document.querySelector('.bs-card')).toBeNull();
+    });
+  });
+
+  describe('coming back to the screen', () => {
+    /**
+     * Type, search, land the ring on a result, then leave. This is what a viewer does to
+     * open a title: the detail screens' Back is `router.push('/bigscreen')`, so coming back
+     * here is a fresh mount, and a 13-character title is about 30 D-pad presses to retype.
+     */
+    const SEVEN = Array.from({ length: 7 }, (_, i) =>
+      item({ tmdb_id: i + 1, title: `Film ${i + 1}`, popularity: 100 - i }),
+    );
+    async function leaveFromAResult() {
+      movieSearch.mockResolvedValue(page(SEVEN));
+      const view = render(<SearchPage />);
+      typeIn('BATMAN');
+      await pressSearch();
+      await waitFor(() => expect(cards()).toHaveLength(7));
+      for (let i = 0; i < 10; i++) arrow('ArrowDown');
+      arrow('ArrowRight');
+      const ring = document.activeElement?.textContent ?? null;
+      expect(ring, 'the ring must be on a result before we leave').toMatch(/Film/);
+      view.unmount();
+      vi.clearAllMocks();
+      movieSearch.mockResolvedValue(page(SEVEN));
+      tvSearch.mockResolvedValue(page([]));
+      return ring;
+    }
+
+    it('brings the query back', async () => {
+      await leaveFromAResult();
+      render(<SearchPage />);
+      expect(queryText()).toBe('BATMAN');
+    });
+
+    it('brings the results back without asking for them again', async () => {
+      await leaveFromAResult();
+      render(<SearchPage />);
+      expect(cardTitles()).toEqual(SEVEN.map((i) => i.title));
+      expect(movieSearch, 'restored, not refetched').not.toHaveBeenCalled();
+      expect(tvSearch).not.toHaveBeenCalled();
+      expect(screen.getByText(/7 results for/)).toBeInTheDocument();
+    });
+
+    it('brings the ring back to the cell it was left on', async () => {
+      const ring = await leaveFromAResult();
+      render(<SearchPage />);
+      expect(document.activeElement?.textContent).toBe(ring);
+      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+
+    it('forgets the results once the viewer searches for something else', async () => {
+      // The stored rows would otherwise describe a query the screen is no longer showing.
+      await leaveFromAResult();
+      const slow = deferred<CatalogPage>();
+      movieSearch.mockReturnValueOnce(slow.promise);
+      tvSearch.mockReturnValueOnce(new Promise(() => {}));
+      const view = render(<SearchPage />);
+      fireEvent.click(key('Clear'));
+      typeIn('JOKER');
+      await pressSearch();
+      view.unmount();
+      render(<SearchPage />);
+      expect(queryText()).toBe('JOKER');
+      expect(cards()).toHaveLength(0);
+    });
+
+    it('renders and searches when sessionStorage is unavailable', async () => {
+      // It throws on access on a TV in a restricted mode, and comes back empty in a private
+      // window. Every read and write is wrapped, so the screen must simply work without it.
+      const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+      const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+      try {
+        movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'Still Works' })]));
+        render(<SearchPage />);
+        expect(document.activeElement).toBe(key('A'));
+        typeIn('AB');
+        expect(queryText()).toBe('AB');
+        await pressSearch();
+        expect(cardTitles()).toEqual(['Still Works']);
+      } finally {
+        get.mockRestore();
+        set.mockRestore();
+      }
+    });
+
+    it('ignores a stored record that is not a search', async () => {
+      sessionStorage.setItem('bs-search:results', '{{{not json');
+      render(<SearchPage />);
+      expect(cards()).toHaveLength(0);
+      expect(document.activeElement).toBe(key('A'));
     });
   });
 

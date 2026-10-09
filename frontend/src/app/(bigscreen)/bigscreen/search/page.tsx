@@ -41,8 +41,12 @@ import { useBackKey } from '../../_focus/useBackKey';
  * input would take DOM focus and fight the roving-tabindex grid for it, and webOS raises its
  * own IME panel over the app when one is focused. The keyboard is the only input path.
  *
- * ONE SEARCH PER PRESS. A TV's network is the slow part, and a per-keystroke search would
- * queue nine requests for a nine-letter title.
+ * ONE SEARCH PER PRESS, AND NOT TWO. A TV's network is the slow part, so there is no
+ * per-keystroke search (nine requests for a nine-letter title), and a second press for a
+ * query whose search is already out is refused out loud instead of doubling it.
+ *
+ * THE QUERY, THE RESULTS AND THE RING SURVIVE LEAVING. See the storage block below: without
+ * it, opening a result and pressing Back costs the viewer every press they spent typing.
  */
 
 const HOME = '/bigscreen';
@@ -78,19 +82,104 @@ const chunk = <T,>(items: readonly T[], size: number): T[][] =>
 /**
  * A row that can become a card that goes somewhere. The arrays come off the wire, so a null
  * element or an id that is not a number is possible at runtime whatever the types say, and
- * `catalogItemToCard` would turn one into a link to `/bigscreen/movie/NaN`. `media_type` is
- * checked too, because that is what picks the route. Same rule as `_data/rails`' own guard;
- * this is three lines rather than an export, because the rail version also caps and
- * interleaves.
+ * `catalogItemToCard` would turn one into a link to `/bigscreen/movie/NaN`.
+ *
+ * `media_type` is checked because that is what picks the ROUTE: `catalogItemToCard` sends
+ * anything that is not `'tv'` to `/bigscreen/movie/{id}`, so a row of some other kind
+ * becomes a card that dead-ends — the stage-4 Critical's exact shape.
+ *
+ * This is NOT the same predicate as `_data/rails`' own guard, which checks `tmdb_id` alone.
+ * That is correct there and would be wrong here: a rail fetches the movie endpoint and the
+ * tv endpoint separately, so each half's `media_type` is implied by which call returned it,
+ * whereas search is the only place on this surface where the two merge into one list. Do
+ * not dedupe the two onto the weaker predicate.
  */
 function isUsable(item: CatalogItem | null | undefined): item is CatalogItem {
   return !!item && Number.isInteger(item.tmdb_id) && (item.media_type === 'movie' || item.media_type === 'tv');
 }
 
 /**
- * One half's answer, or null when that half is dead. A rejection, a synchronous throw and a
- * 200 whose body is not a page all count as dead; only BOTH halves being dead is a failed
- * search (`Promise.allSettled`, never `Promise.all`).
+ * WHAT SURVIVES LEAVING THE SCREEN, and why any of it does.
+ *
+ * The detail screens' Back is `router.push('/bigscreen')`, so a viewer who types a
+ * 13-character title (about 30 D-pad presses), searches, opens a result and presses Back
+ * arrives at home — and without this, comes back to an empty keyboard. Home
+ * (`bigscreen/page.tsx`) and the profile picker both pass a `storageKey` to `useFocusGrid`
+ * for the same reason; this screen additionally has text worth keeping. (The architecturally
+ * right answer is Back popping a stack the app owns, with home as its floor; that belongs to
+ * the stage that gives this surface a real exit. This is the cheap, correct fix at this
+ * layer, and it restores the ring on any re-entry within the session as a side effect.)
+ *
+ * TWO KEYS, not one record: the query is rewritten on every keystroke and the results are up
+ * to ~40 rows, and re-serialising those per keystroke is synchronous work on a surface with
+ * a frame budget — the focus hook debounces its own writes for exactly that reason.
+ *
+ * EVERY read and write is wrapped. `sessionStorage` throws on access in a restricted mode,
+ * comes back empty in a private window, and dies with the browsing context; losing a
+ * remembered query is harmless, and a screen that will not render is not.
+ */
+const QUERY_KEY = 'bs-search:q';
+const RESULTS_KEY = 'bs-search:results';
+/** `useFocusGrid`'s key, which it namespaces itself (`bs-focus:search`). */
+const FOCUS_KEY = 'search';
+
+interface Restored {
+  query: string;
+  phase: Phase;
+}
+
+function readStored(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* nothing to do: losing the remembered query is harmless */
+  }
+}
+
+function removeStored(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    /* as above */
+  }
+}
+
+/**
+ * The query and the last completed search, as far as they can be trusted. What comes back
+ * out of storage is no more trustworthy than what came off the wire in the first place —
+ * another build may have written it, or a viewer's browser may hand back a truncated
+ * string — so the rows are re-validated with the same guard the network path uses.
+ */
+function readSaved(): Restored {
+  const query = (readStored(QUERY_KEY) ?? '').slice(0, MAX_QUERY);
+  try {
+    const raw = readStored(RESULTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { q?: unknown; items?: unknown };
+      if (typeof parsed?.q === 'string' && parsed.q && Array.isArray(parsed.items)) {
+        return { query, phase: { kind: 'results', q: parsed.q, items: (parsed.items as CatalogItem[]).filter(isUsable) } };
+      }
+    }
+  } catch {
+    /* malformed or unreadable: start with no results, which is always a valid screen */
+  }
+  return { query, phase: { kind: 'idle' } };
+}
+
+/**
+ * One half's answer, or null when that half is dead. A rejection and a 200 whose body is not
+ * a page both count as dead; only BOTH halves being dead is a failed search
+ * (`Promise.allSettled`, never `Promise.all`). A SYNCHRONOUS throw would not reach here at
+ * all — it escapes the `allSettled` call itself and lands in the try/catch around it, which
+ * is also "failed", so neither half can be lost silently either way.
  */
 function pageOf(settled: PromiseSettledResult<CatalogPage>): CatalogPage | null {
   if (settled.status !== 'fulfilled') return null;
@@ -100,22 +189,41 @@ function pageOf(settled: PromiseSettledResult<CatalogPage>): CatalogPage | null 
   return { ...value, results: value.results.filter(isUsable) };
 }
 
-/** Wrapper so a service that throws synchronously rejects instead of taking both halves down. */
-async function ask(call: () => Promise<CatalogPage>): Promise<CatalogPage> {
-  return call();
-}
-
 export default function SearchPage() {
   const router = useRouter();
 
+  // Read once, on the first render, so the restored results are part of the grid's FIRST
+  // shape: `useFocusGrid` holds a saved position as a pending restore until its row has
+  // items, and a results row that only appeared an effect later would make the ring land on
+  // the keyboard first and jump afterwards.
+  const [restored] = useState(readSaved);
   // The query lives in a ref as well as in state, for the reason the passcode keypad gives:
   // a held key (and the Back listener, which is registered once) can act twice before a
   // re-render, which state read through a closure would drop.
-  const queryRef = useRef('');
-  const [query, setQuery] = useState('');
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
+  const queryRef = useRef(restored.query);
+  const [query, setQuery] = useState(restored.query);
+  const [phase, setPhase] = useState<Phase>(restored.phase);
   /** A transient answer to a press this screen declined. Cleared by the next key press. */
   const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    writeStored(QUERY_KEY, query);
+  }, [query]);
+
+  useEffect(() => {
+    if (phase.kind === 'results') {
+      try {
+        writeStored(RESULTS_KEY, JSON.stringify({ q: phase.q, items: phase.items }));
+      } catch {
+        /* unserialisable rows are not worth taking a screen down for */
+      }
+      return;
+    }
+    // A search still out, or one that failed, leaves nothing worth coming back to: the
+    // stored rows would describe a query the screen is no longer showing. `idle` is what a
+    // mount with nothing stored looks like, so it must not clear what it was restored FROM.
+    if (phase.kind !== 'idle') removeStored(RESULTS_KEY);
+  }, [phase]);
 
   /**
    * Which search is current. A stale answer — success OR failure — must not land on a newer
@@ -125,6 +233,11 @@ export default function SearchPage() {
    * the hero). The web's `SearchView` guards it with the same counter.
    */
   const generation = useRef(0);
+  /**
+   * The query whose search is still out. A ref, not `phase`: two presses in the same frame
+   * both read the render's `phase`, which is exactly the hazard the query ref exists for.
+   */
+  const inFlight = useRef<string | null>(null);
   // Set in an effect, not at declaration: StrictMode runs the cleanup once on mount, and a
   // ref initialised to true would then stay false for the real mount.
   const alive = useRef(false);
@@ -167,17 +280,26 @@ export default function SearchPage() {
       setNote('Type a title first, then press Search.');
       return;
     }
+    if (inFlight.current === q) {
+      // The one press on this surface that would otherwise be neither acted on nor refused:
+      // `setPhase({ kind: 'searching', q })` with the same `q` renders a byte-identical
+      // status line, so NOTHING on screen changes while two more TMDB-backed requests go
+      // out — slowing the very search the viewer is waiting for. Refused out loud, the same
+      // way the empty-query press is.
+      setNote(`Still searching for “${q}”. Give it a moment.`);
+      return;
+    }
     const mine = ++generation.current;
+    inFlight.current = q;
     setNote(null);
     setPhase({ kind: 'searching', q });
 
     let next: Phase;
     try {
-      // Both halves in flight together; there is no combined search endpoint.
-      const settled = await Promise.allSettled([
-        ask(() => moviesService.search(q, 1)),
-        ask(() => tvService.search(q, 1)),
-      ]);
+      // Both halves in flight together; there is no combined search endpoint. Called
+      // directly: both service methods are `async`, so neither can throw synchronously into
+      // this array, and the try/catch around it is the backstop if that ever changes.
+      const settled = await Promise.allSettled([moviesService.search(q, 1), tvService.search(q, 1)]);
       const pages = settled.map(pageOf).filter((p): p is CatalogPage => p !== null);
       next = pages.length === 0 ? { kind: 'failed', q } : { kind: 'results', q, items: mergeDedupe(pages) };
     } catch {
@@ -185,8 +307,10 @@ export default function SearchPage() {
       next = { kind: 'failed', q };
     }
     // The viewer has left, or has already searched for something else. Either way this
-    // answer is not theirs any more.
+    // answer is not theirs any more — and `inFlight` is deliberately NOT cleared here,
+    // because by now it names the newer search, which is still out.
     if (!alive.current || mine !== generation.current) return;
+    inFlight.current = null;
     setPhase(next);
   };
 
@@ -207,12 +331,14 @@ export default function SearchPage() {
   // Declared from what is rendered: the same arrays the render below maps over.
   const grid = useFocusGrid({
     rowCounts: [...KEYBOARD_ROW_COUNTS, ACTION_CELLS, ...rows.map((r) => r.length)],
+    storageKey: FOCUS_KEY,
   });
 
   let status: string | null = null;
   if (phase.kind === 'searching') status = `Searching for “${phase.q}”…`;
   else if (phase.kind === 'results') {
-    status = phase.items.length === 0 ? `No results for “${phase.q}”.` : `${phase.items.length} results for “${phase.q}”`;
+    const n = phase.items.length;
+    status = n === 0 ? `No results for “${phase.q}”.` : `${n} result${n === 1 ? '' : 's'} for “${phase.q}”`;
   }
 
   return (
@@ -231,10 +357,11 @@ export default function SearchPage() {
       <div className="bs-shell__scroll">
         <Keyboard rowOffset={0} focusProps={grid.focusProps} onPress={press} />
         <div className="bs-search__actions">
-          {/* The label NEVER changes. A press while a search is out starts a newer one (the
-              generation counter drops the older answer), so "Searching…" on the control
-              would be a lie about what pressing it does; the status line below says what is
-              happening instead. */}
+          {/* The label stays "Search" because that is what the control does, in every state;
+              the status line below carries the progress. A press for a query whose search is
+              ALREADY OUT is refused out loud (`inFlight`) rather than quietly doubled. A
+              press for a DIFFERENT query is a new search, and the generation counter drops
+              the older answer. */}
           <button type="button" className="bs-btn" {...grid.focusProps(ACTION_ROW, 0)} onClick={() => void submit()}>
             Search
           </button>

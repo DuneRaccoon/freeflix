@@ -489,3 +489,23 @@ describe('movie detail screen', () => {
     });
   });
 });
+describe('/bigscreen/movie/[id]: a recheck that lands after the viewer has left', () => {
+  it('does not clear the profile or send them to the picker', async () => {
+    // apiClient has no timeout, so the window between a "Check again" press and its answer
+    // can be long. Acting on a locked answer then would pull the viewer off whatever screen
+    // they went to AND forget the profile they had chosen — worse than a stray navigation,
+    // because it silently discards something.
+    const view = await mount({ kind: 'blocked', reason: 'nope' });
+    const late = deferred<ReturnType<typeof stateOf>>();
+    stateFor.mockReturnValue(late.promise);
+    fireEvent.click(primary());
+    view.unmount();
+    clear.mockClear();
+    router.replace.mockClear();
+    await act(async () => {
+      late.resolve(stateOf({ kind: 'blocked', reason: 'locked' }, true));
+    });
+    expect(clear).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+});

@@ -282,6 +282,16 @@ export default function MovieDetailPage() {
     };
   }, [id, profileId, profileLoading, redirecting, attempt, sentToPicker]);
 
+  // Set in an effect, not at declaration: StrictMode runs the cleanup once on mount, and a
+  // ref initialised to true would then stay false for the real mount.
+  const alive = useRef(false);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   const retry = () => {
     setLoad({ phase: 'loading' });
     setAttempt((a) => a + 1);
@@ -297,6 +307,11 @@ export default function MovieDetailPage() {
     } catch {
       state = { action: { kind: 'blocked', reason: 'Couldn’t reach the box. Check that it is on.' }, locked: false };
     }
+    // The viewer may have pressed Back while this was out — apiClient has no timeout, so the
+    // window can be long. Acting now would pull them off whatever screen they went to AND,
+    // on a locked answer, clear the profile they had selected. Worse than a stray
+    // navigation, because it silently forgets something.
+    if (!alive.current) return;
     if (!sentToPicker(state)) setLoad({ phase: 'ready', detail, state });
   };
 

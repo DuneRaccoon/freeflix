@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { backgroundImageFor } from './Hero';
+import { backgroundImageFor } from './css';
 
 /**
  * The frame both detail screens (movie, show) share: a full-bleed backdrop under a scrim,

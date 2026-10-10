@@ -1,8 +1,11 @@
 import os
+import re
 import sys
 import asyncio
 import uvicorn
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -191,6 +194,33 @@ app.middleware("http")(error_handling_middleware)
 async def bare_401(request: Request, exc: SilentUnauthorized):
     """A 401 with no body, for the routes a <video> element loads directly."""
     return Response(status_code=401)
+
+
+# The ONLY paths whose 422 is served to a media decoder rather than to a JSON reader:
+# GET and HEAD /api/v1/streaming/{torrent_id}/video. Both are loaded by a raw
+# <video src>/<video> probe, so FastAPI's default {"detail": [...]} body reaches the
+# decoder as corrupt media — the same argument as bare_401 above and as stream_video's
+# empty-bodied 503s. A client that builds "?file_index=null" out of a missing index hits
+# exactly this. /info is deliberately NOT in the set: it is read by axios/fetch as JSON.
+#
+# Scoped by path, not app-wide, and that scoping is load-bearing: three live callers read
+# response.data.detail off a 422 ((bigscreen)/_data/title.ts, (web)/claim/page.tsx,
+# (web)/auth/reset-password/page.tsx), so blanking every router's 422 body would break
+# them. test_stream_status_matrix.py pins both halves — the bare body on /video and
+# FastAPI's default shape on a non-video route.
+_BARE_422_PATHS = re.compile(
+    rf"^{re.escape(settings.api_v1_str)}/streaming/[^/]+/video/?$"
+)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    """A bare 422 for the two byte-serving video routes; the default body everywhere else."""
+    if _BARE_422_PATHS.match(request.url.path):
+        return Response(status_code=422)
+    # Delegated rather than re-implemented so the non-video shape cannot drift from
+    # FastAPI's own, which is what the three readers above were written against.
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.on_event("startup")

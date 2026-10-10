@@ -90,10 +90,16 @@ Three points that make it safe rather than merely small:
   is byte-identical, race included. The TV passes a predicate that **never reads `video.paused`**,
   because `load()` sets `paused` with no `pause` event — which is what makes the web's escalation
   latch race the recovery it just triggered. The divergence lives in the callers.
-- **`streamAdvice` takes `busy`.** The web passes `true` unconditionally so its copy is unchanged;
-  the TV passes the real value and does not inherit "Waiting for peers (0 connected)" on a
-  finished 0-peer title playing perfectly from disk (`VideoPlayer.tsx:1317-1328` — a real bug,
-  parked, not fixed here).
+- **`streamAdvice` takes `busy`.** The TV passes the real value and so does not inherit
+  "Waiting for peers (0 connected)" on a finished 0-peer title playing perfectly from disk
+  (`VideoPlayer.tsx:1317-1328` — a real bug, parked, not fixed here).
+  **Corrected during task 4** — this originally read "the web passes `true` unconditionally, so its
+  copy is unchanged", which is wrong. The web gated its **slow** branch on `isBuffering || isStalled`
+  and its **noPeers** branch on nothing, so a web passing `true` and consuming the verdict directly
+  would start showing "Buffering — slow connection" during healthy playback. `busy` must gate **both**
+  branches inside the module (that is the only shape in which `busy: false` + 0 peers answers
+  `'none'`, which is the row that stops the TV inheriting the lie), and the `isBuffering || isStalled`
+  conjunct therefore **stays at the web call site, on the slow branch only**. Commented in both files.
 - **The escalation latch is a field on the sample**, cleared only by an explicit reset. The
   reducer never clears its own latch from a predicate.
 

@@ -471,6 +471,13 @@ export interface VideoFileInfo {
   progress: number;
   mime_type: string;
   stream_url: string;
+  // The seek boundary: the contiguous downloaded run CONTAINING /info's `at`
+  // byte offset, in FILE bytes with an exclusive `run_end`. `downloaded` and
+  // `progress` above are file_progress TOTALS counting scattered pieces, so a
+  // bar drawn from them permits exactly the seek this refuses. NULL MEANS
+  // UNKNOWN AND MUST BE READ AS UNBOUNDED, never as a ceiling of zero: a
+  // finished download has no live handle to measure and every byte on disk.
+  contiguous?: { file_index: number; file_size: number; piece_length: number; run_start: number; run_end: number; complete: boolean; measured_against: string } | null;
 }
 
 export interface StreamingInfo {

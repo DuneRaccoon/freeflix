@@ -15,6 +15,16 @@ import { formatTime } from '@/utils/format';
 import { PlayerState, StreamHealthState, TorrentCandidate } from '@/types';
 import BufferingAnimation from '@/components/streaming/BufferingAnimation';
 import { cn } from '@/lib/cn';
+// The stall/recovery ARITHMETIC, shared with the TV player. These five values were
+// component-body locals here — re-created every render, unimportable, and invisible to
+// every test. The element driving (load() / restore / play()) stays in this file: see
+// the module header for what is shared, what is copied, and why.
+import {
+  MAX_RECOVERY_ATTEMPTS,
+  recoveryStep,
+  stallStep,
+  streamAdvice,
+} from '@/lib/player/streamRecovery';
 
 /**
  * Format a download rate (kB/s) adaptively: KB/s below 1000 kB/s, MB/s
@@ -119,25 +129,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // PREVIOUS 1s tick. Nothing else may write it (see the note in checkForStall).
   const stallSamplePositionRef = useRef<number>(0);
   const stallTimeRef = useRef<number | null>(null);
-  const maxStallTime = 10000; // Maximum time (ms) frozen before we escalate to recovery
-  // Stall-detector tuning. Because the playhead is sampled once per ~1s tick,
-  // healthy playback advances ~1s (>=0.5s even at the slowest 0.5x speed) between
-  // ticks — far above STALL_EPSILON_S — while a genuinely frozen playhead advances
-  // ~0. STALL_SPINNER_MS is the sustained-freeze grace before WE surface the
-  // spinner; the browser's native 'waiting' event still shows it instantly on a
-  // real buffer underrun, so this only covers wedges 'waiting' never reported.
-  const STALL_EPSILON_S = 0.25;
-  const STALL_SPINNER_MS = 2000;
-  // Bounded exponential backoff recovery (1·2·4·8s, capped). Each attempt re-seeks
-  // currentTime to force the browser to re-issue the Range request to the backend.
+  // The stall thresholds (epsilon, spinner grace, escalation) live in
+  // `@/lib/player/streamRecovery` and reach this file through `stallStep`.
+  // Bounded exponential backoff recovery (1·2·4·8s, capped — RECOVERY_BACKOFF_MS in
+  // that module). Each attempt reloads the element and restores the playhead to force
+  // the browser to re-issue the Range request to the backend.
   const recoveryAttemptRef = useRef<number>(0);
   const recoveryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Detaches the one-shot 'loadedmetadata' listener a recovery attempt installs to
   // restore the playhead after load(). Held in a ref so a second attempt, a source
   // change or an unmount can never leave a stale one behind.
   const recoveryRestoreRef = useRef<(() => void) | null>(null);
-  const RECOVERY_BACKOFF_MS = [1000, 2000, 4000, 8000];
-  const MAX_RECOVERY_ATTEMPTS = RECOVERY_BACKOFF_MS.length;
 
   const [playerState, setPlayerState] = useState<PlayerState>({
     isPlaying: false,
@@ -539,14 +541,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
-    if (recoveryAttemptRef.current >= MAX_RECOVERY_ATTEMPTS) {
+    const step = recoveryStep(recoveryAttemptRef.current);
+    if (step.exhausted) {
       if (debug) console.log('Recovery exhausted after', MAX_RECOVERY_ATTEMPTS, 'attempts');
       onRecoveryExhausted?.();
       return;
     }
 
-    const delay = RECOVERY_BACKOFF_MS[recoveryAttemptRef.current];
-    recoveryAttemptRef.current += 1;
+    const delay = step.delayMs;
+    recoveryAttemptRef.current = step.next;
     if (debug) console.log(`Recovery attempt ${recoveryAttemptRef.current} in ${delay}ms`);
 
     setIsBuffering(true);
@@ -615,18 +618,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
-    const currentPosition = video.currentTime;
-    const advanced =
-      Math.abs(currentPosition - stallSamplePositionRef.current) > STALL_EPSILON_S;
-    stallSamplePositionRef.current = currentPosition;
-
     // Only treat a frozen playhead as a stall when we actually expect to play.
+    //
+    // This predicate is an INPUT to the shared reducer, not something it computes, and
+    // this is the web's version of it, unchanged: it reads `video.paused`, which
+    // `load()` sets WITHOUT firing a 'pause' event — so a recovery can release the very
+    // escalation that triggered it. That race is deliberately preserved here (the TV
+    // passes a predicate that never reads `paused`); see the module header.
     const expectingPlayback = playerState.isPlaying && !video.paused && !video.ended;
 
-    if (advanced || !expectingPlayback) {
+    const wasFrozen = stallTimeRef.current !== null;
+    const { next, phase } = stallStep(
+      {
+        position: stallSamplePositionRef.current,
+        frozenSinceMs: stallTimeRef.current,
+        // The latch lives in React state here, because the overlay and the debug panel
+        // read it. `next.escalated` is therefore not consulted: `setIsStalled` below is
+        // this surface's explicit reset, and `handlePlaying` / a source change are the
+        // others.
+        escalated: isStalled,
+      },
+      { position: video.currentTime, expectingPlayback, nowMs: Date.now() },
+    );
+    stallSamplePositionRef.current = next.position;
+    stallTimeRef.current = next.frozenSinceMs;
+
+    if (phase === 'ok') {
       // Healthy, or intentionally paused/ended — tear down any stall bookkeeping.
-      if (stallTimeRef.current !== null) {
-        stallTimeRef.current = null;
+      if (wasFrozen) {
         setIsStalled(false);
         setIsBuffering(false);
         setShowBufferingMessage(false);
@@ -634,23 +653,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return;
     }
 
-    // We believe we're playing but the playhead hasn't advanced across the window.
-    if (stallTimeRef.current === null) {
-      stallTimeRef.current = Date.now();
-      return;
-    }
-
-    const stallDuration = Date.now() - stallTimeRef.current;
-
     // Only surface the spinner after a sustained freeze — a single slow or
     // frame-quantized tick shouldn't flash it (and a real underrun already shows
-    // it instantly via the native 'waiting' handler).
-    if (stallDuration > STALL_SPINNER_MS) {
+    // it instantly via the native 'waiting' handler). 'escalate' subsumes 'buffering',
+    // which is how the web's two independent thresholds both fired on the same tick.
+    if (phase === 'buffering' || phase === 'escalate') {
       setIsBuffering(true);
       setShowBufferingMessage(true);
     }
 
-    if (stallDuration > maxStallTime && !isStalled) {
+    if (phase === 'escalate') {
       // After max stall time (10s): kick off the bounded backoff recovery (re-seek).
       setIsStalled(true);
       attemptRecovery();
@@ -1314,12 +1326,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const controlsVisible = playerState.showControls || !playerState.isPlaying;
 
   // Health-aware buffering copy: a dead/0-peer swarm reads differently from a slow one.
+  // The branch order is `streamAdvice`'s; only the copy is this surface's.
+  //
+  // `busy: true`, deliberately and unconditionally. This surface's copy is UNCHANGED by
+  // the extraction, which means it keeps a known defect: a finished 0-peer torrent
+  // playing perfectly from disk still reads "Waiting for peers (0 connected)". That is
+  // precisely why `streamAdvice` takes `busy` at all — the TV passes the real value. The
+  // web's fix is a behaviour change on a surface this stage was not asked to touch, so
+  // it is parked, and the `isBuffering || isStalled` term stays on the slow branch here
+  // rather than being handed to the reducer, which would gate the noPeers copy too.
   const healthMessage: string | null = (() => {
-    if (!streamHealth) return null;
-    if (streamHealth.health === 'dead' || streamHealth.num_peers === 0) {
-      return 'Waiting for peers (0 connected)';
-    }
-    if (isBuffering || isStalled) {
+    const advice = streamAdvice(streamHealth, true);
+    if (advice === 'noPeers') return 'Waiting for peers (0 connected)';
+    // `streamHealth &&` narrows the type; `advice === 'slow'` already implies it.
+    if (advice === 'slow' && streamHealth && (isBuffering || isStalled)) {
       return `Buffering — slow connection (${streamHealth.num_peers} ${
         streamHealth.num_peers === 1 ? 'peer' : 'peers'
       })`;

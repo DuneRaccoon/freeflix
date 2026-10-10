@@ -44,6 +44,44 @@ drift pin and focus invariant in this stage is enforced only by someone typing t
 This repo's own standing note is that **one green run proves nothing** — a 24% flake passed
 eight agents during stage 6. The mutations below are the real proof, and they are manual too.
 
+## Corrections found while implementing (read these before your task)
+
+**`response.content == b""` is vacuous on a HEAD response.** HTTP strips HEAD bodies, so the
+assertion passes whatever the handler returns. Task 1 found this by mutation, twice: the one-byte-401
+mutation turned the GET rows red while a `content == b""` HEAD row stayed green, and the same for the
+unregistered-422 handler. **This plan originally insisted on that assertion and was wrong.** On a HEAD
+route, assert `content-length` and the absence of a JSON content-type — a bodied response still
+announces the type on a HEAD. Eleven tests that could not fail have now been found in this project;
+this one was specified by the plan itself.
+
+**`wait_for_first_chunk`'s override kwarg is `budget`, not `piece_timeout`.** No `piece_timeout`
+exists anywhere in `manager.py`. Task 1 pins the name so the next reader hits a test rather than a
+`TypeError`.
+
+**"HEAD 200 with the full `Content-Length` at zero bytes on disk" was two fixtures.** A genuinely
+0-byte file answers `Content-Length: 0`, and that is what makes the `file_size <= 0` mutation
+discriminating; "full `Content-Length`" only holds for a **sparse preallocated** file, which is the
+common live case. Both are pinned as separate rows.
+
+**The 404 details are distinct across the set, not across the routes**, and two collisions matter:
+`/info`'s video-missing detail (`streaming.py:363`) is byte-identical to `_resolve_video_file`'s
+(`:173`), so **a client cannot tell `/video` from `/info` by the detail string** — only by which route
+it called. Worse for task 9: that one string is *"Video file not found or not ready for streaming"*,
+which conflates **not-yet-ready** with **genuinely deleted**. `/info`'s own two details still separate
+"Torrent not found" (terminal) from the rest, so the polling discriminator survives — but **task 9
+must not infer "still preparing" from the detail alone.** Use the torrent's own state from
+`getTorrentStatus` together with `/files` answering `200 []`.
+
+**The 404s are JSON-bodied** (`HTTPException`) on routes a decoder loads — a third escape from the
+empty-body contract, alongside `error_handler.py`'s JSON 500. Task 1 changed no hand-built status, so
+this stands; task 5's classifier reads those details and should know.
+
+**`git checkout -- <file>` on a file you are also editing is a destructive restore, not a mutation
+undo.** It silently discarded task 1's own uncommitted handler, because HEAD had nothing to restore.
+Every remaining task does mutation testing: snapshot with `cp` and restore from the snapshot.
+
+---
+
 **Standing guard from task 4 onward:** `npx vitest run src/components/player` reports its
 baseline (4 VideoPlayer suites + `UpNextCard`) **unchanged, with no file edited but
 `VideoPlayer.tsx`**. That is the cheapest proof the production web player stayed intact.
@@ -164,7 +202,7 @@ branches on something proved. One parametrised case per answer across `GET /vide
   `os.path.getsize` with no guard while `parse_range_header`'s `if file_size <= 0` is consulted
   only by GET. So HEAD 200 is **not** evidence playback will start, and **HEAD structurally
   cannot see the 503**.
-- **`wait_for_first_chunk`'s budget**, both ends, via the explicit `piece_timeout` kwarg: 2.0s at
+- **`wait_for_first_chunk`'s budget**, both ends, via the explicit `budget` kwarg (**not** `piece_timeout`, which does not exist): 2.0s at
   zero peers, reaching 60s only around 3.4 MB/s. The common TV failure — no peers — answers 503 in
   about two seconds, not sixty.
 - **`quality` is accepted and never read** on both routes.
@@ -621,8 +659,11 @@ the most likely thing here to throw.
 `checking`, `checking_fastresume`, `allocating` all in `PREPARING`, and `preparing` **navigates**. So
 `/info` 404s with "not ready" while `/files` answers **`200 []`** — which means "not ready, or evicted",
 **never** "this pack has no episodes" (`title.ts:476` already reads it that way). `/info`'s detail string
-is the discriminator: "not ready" → keep polling at ~3s (it opens two DB sessions plus the walk; not
-1Hz, and stop on unmount); "Torrent not found" → terminal.
+discriminates **only** the terminal case: "Torrent not found" → terminal; anything else → keep polling
+at ~3s (it opens two DB sessions plus the walk; not 1Hz, and stop on unmount). **Do not read the other
+detail as "not ready"** — it is *"Video file not found or not ready for streaming"*, which conflates
+not-yet-ready with genuinely deleted and is byte-identical to `_resolve_video_file`'s. Separate those
+with the torrent's own state from `getTorrentStatus` plus `/files` answering `200 []`. See Corrections.
 
 **A bare watch URL on a pack is legitimate.** It is the `unresolvedEpisode` path — the viewer read the
 disclosure and chose to proceed. Play something, and re-resolve from `/files` (season/episode-sorted) now

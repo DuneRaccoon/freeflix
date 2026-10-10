@@ -106,6 +106,29 @@ stub and a docstring, because otherwise those 404s would quietly be asserting th
 exists in whatever database the process reaches. Five neighbouring streaming suites carry the same
 latent coupling, deliberately untouched and green.
 
+**The `int(a/b)` mutation cannot fail at realistic sizes.** Integer division and float division
+agree exactly below 2^53 (~9 PB), so the plan's "off-by-one-sensitive at multi-gigabyte offsets" is
+wrong. Task 3 brute-forced piece lengths from 16 KiB to 16 MiB and found the smallest discriminating
+numerator is `9007199254757375`; its test uses that absurd offset deliberately, with the reason in the
+docstring. **Fifth test this plan specified that could not fail.** Related and handled well: of the
+three `//` sites only two are observable — `last_piece` is absorbed by the forward walk's
+`min(file_size, …)` clamp, so it is **deliberately not pinned**, with the reason in a docstring rather
+than a green test that proves nothing.
+
+**`measured_against`'s stated rationale is wrong.** It cannot detect the metadata-vs-`getsize`
+disagreement the design notes claim, because the only size the function sees is the metadata one and
+`/info`'s sibling `size` comes from the same place. The field ships as an honest self-description of
+the measurement, not as a cross-check.
+
+**Task 6's handover from task 3, precisely.** `contiguous` bounds are **file-relative** and `run_end`
+is **exclusive**. Three distinct answers, and conflating any two is a defect:
+`contiguous: null` → **unknown** → seeking **unbounded** (the evicted-finished torrent is pinned as
+this case and still plays); a **measured** zero-length run (`run_start == run_end`) → a real answer →
+**refuse forward seeks but keep playing**; and `run_start` legitimately sits **behind** the playhead on
+a pack episode, which is why the clamp lifts to the playhead. Also: `?at=` non-numeric returns
+FastAPI's **default** 422 body, because that path is outside `main.py`'s bare-422 scope — pinned,
+and `/info` is read by axios rather than by a decoder.
+
 **A long `advanceTimersByTime` inside ONE `act()` cannot observe a re-render, and silently makes a
 dep-array mutation unfalsifiable.** React commits queued updates only when `act()` exits, so a host
 that re-renders from a 200ms interval never actually re-runs its effects if the whole span is advanced
@@ -581,7 +604,9 @@ URL and any cache key for nothing). Never use `/info`'s `stream_url`, which appe
 only when the **caller** passed one while the sibling `file_index` reports the **resolved** index —
 self-inconsistent on exactly the one arrival allowed to be bare.
 
-`seekLimitSeconds` / `clampSeek`. **`null` run → unbounded, never 0** (three backend paths legitimately
+`seekLimitSeconds` / `clampSeek`. Bounds are **file-relative** and `run_end` is **exclusive** — see
+Corrections for task 3's full handover, including that a *measured* zero-length run is a different
+answer from `null`. **`null` run → unbounded, never 0** (three backend paths legitimately
 answer unknown, and a ceiling of 0 refuses every seek on a complete file — the TV's main content).
 `Math.floor(duration * run_end / size) - MARGIN_S`, floored at 0, then **raised to the playhead**: for
 a pack episode the run can sit behind `currentTime`, and a clamp without that lift would yank the

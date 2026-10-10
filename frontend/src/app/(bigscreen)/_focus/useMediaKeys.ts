@@ -21,7 +21,10 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
  *
  * This project spent weeks believing the panel was Chromium 87 before anyone read the user
  * agent, so the provenance is written down rather than implied by a confident-looking table.
- * Stage 10's instrument takes the readings; until they are transcribed, narrow nothing.
+ * The instrument that takes these readings is `/bigscreen/diag` — hardened in THIS stage
+ * (stage 7, task 10), not stage 10 — and the sheet to transcribe into is
+ * `docs/superpowers/plans/2026-10-10-tv-stage7-device-readings.md`. Until the rows carry real
+ * strings, narrow nothing here.
  *
  * WHY THE TWO LISTS ARE NOT SYMMETRICAL. A `key` name this device never sends is inert — it
  * matches nothing. A `keyCode` that is wrong is worse than inert: the numbers are a flat

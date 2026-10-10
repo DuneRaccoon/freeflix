@@ -3,6 +3,7 @@ import asyncio
 import threading
 import time
 import json
+import os
 import uuid
 import shutil
 from datetime import datetime
@@ -31,6 +32,12 @@ TORRENT_STATES = [
     "allocating",
     "checking_fastresume"
 ]
+
+# States in which every wanted byte is expected to be on disk already, so a file
+# may be served straight through with no piece gating. Deliberately NARROWER than
+# states.TERMINAL_STATES, which also holds 'error' (a download that stopped at an
+# arbitrary percentage) and 'blocked' (whose files the content guard deleted).
+ON_DISK_STATES = frozenset({"finished", "seeding"})
 
 class TorrentManager:
     """
@@ -81,6 +88,12 @@ class TorrentManager:
 
         # Per-torrent tracker-recovery backoff: {torrent_id: {"attempts": int, "next_at": float}}
         self._tracker_recovery: Dict[str, Dict[str, Any]] = {}
+
+        # Video-file lists recovered from stored resume data for torrents that are
+        # no longer in the session: {torrent_id: (blob_fingerprint, [file dicts])}.
+        # Keyed on the blob itself, so a re-saved resume blob can never be served
+        # from a stale entry. See _video_files_from_resume_data.
+        self._resume_video_files: Dict[str, Tuple[Any, List[Dict[str, Any]]]] = {}
         
         # Initialize the database
         init_db()
@@ -1102,6 +1115,158 @@ class TorrentManager:
                     return f
             return None
         return max(files, key=lambda f: f["size"])
+
+    def _video_files_from_resume_data(self, torrent_id: str, blob: Optional[str],
+                                      save_path: str) -> List[Dict[str, Any]]:
+        """A torrent's video-file list read from its STORED RESUME DATA.
+
+        Resume data carries the whole `info` dict, so `lt.read_resume_data(...).ti`
+        yields the authoritative file list — index, path and size — for a torrent
+        that is no longer in the libtorrent session (round-trip verified against
+        the pinned libtorrent 2.0.11). Nothing is added to the session here.
+
+        It reads the metadata rather than walking save_path because the INDEX is
+        the thing being resolved: `?file_index=N` is a libtorrent file index, and
+        a directory listing's ordering is NOT it — pad files and non-video extras
+        shift it. On a season pack a walk would silently serve the wrong episode,
+        which is a worse answer than the 404 this fallback replaces.
+
+        Same dict shape as get_video_files, and the same _is_video_file filter, so
+        the content guard's "only video extensions are streamable" still holds.
+        `downloaded`/`progress` here are the completion the DB row CLAIMS, not a
+        measurement: the one caller (get_completed_video_file_info) verifies the
+        file it selects against the bytes on disk. Private for that reason.
+
+        Returns [] when there is no blob or it cannot be parsed — the caller then
+        keeps today's 404 rather than guessing. Memoised on the blob, because
+        _resolve_video_file runs on every Range request and /info is polled while
+        a title is on screen.
+        """
+        if not blob:
+            return []
+        fingerprint = (len(blob), hash(blob), save_path)
+        cached = self._resume_video_files.get(torrent_id)
+        if cached is not None and cached[0] == fingerprint:
+            return [dict(f) for f in cached[1]]
+        try:
+            ti = lt.read_resume_data(decode_resume_data(blob)).ti
+            if ti is None:
+                logger.info(
+                    f"Resume data for {torrent_id} carries no metadata; cannot "
+                    f"resolve its files without the session"
+                )
+                return []
+            base_path = Path(save_path)
+            files: List[Dict[str, Any]] = []
+            for i in range(ti.num_files()):
+                fi = ti.file_at(i)
+                if not self._is_video_file(fi.path):
+                    continue
+                files.append({
+                    "index": i,
+                    "path": str(base_path / fi.path),
+                    "size": fi.size,
+                    "downloaded": fi.size,
+                    "progress": 100.0,
+                    "name": Path(fi.path).name,
+                })
+        except Exception as e:
+            logger.warning(
+                f"Could not read the file list from resume data for {torrent_id}: {e}")
+            return []
+        if len(self._resume_video_files) > 16:
+            self._resume_video_files.clear()
+        self._resume_video_files[torrent_id] = (fingerprint, files)
+        return [dict(f) for f in files]
+
+    def get_completed_video_file_info(self, torrent_id: str,
+                                      file_index: Optional[int] = None
+                                      ) -> Optional[Dict[str, Any]]:
+        """Resolve a video file for a torrent that is DONE and no longer loaded.
+
+        The gap this closes: find_loadable_on_startup never re-adds a finished or
+        seeding torrent after a restart, and _refresh_active_torrents evicts
+        'finished' mid-session, so get_video_file_info answers None for the
+        television's main content — a completed download. stream_file_range has
+        carried the handler for that case all along ("No live torrent (e.g.
+        completed and removed from the session) -> every byte is already on disk;
+        serve straight through"); it was unreachable because resolution 404ed
+        first. This is the narrow seam that makes it reachable, and nothing else:
+        no state-machine filter changes, and the torrent is NOT reloaded.
+
+        Same return shape as get_video_file_info, or None. FOUR gates, every one
+        load-bearing, because that straight-through branch does NO piece gating —
+        an ungated fallback reads sparse/zero bytes off a partial file and hands
+        them to a decoder, which presents as CORRUPT MEDIA rather than as an error:
+
+        1. a terminal, complete DB state (finished / seeding);
+        2. progress >= 100 — the row's own claim that every wanted byte arrived.
+           libtorrent writes at offsets in sparse storage mode, so a partially
+           downloaded file can already report its FULL length with holes inside
+           that read back as zeros; only this gate sees that;
+        3. os.path.getsize(path) == the size the torrent metadata records — the
+           file has not been truncated, replaced or half-written since;
+        4. the content guard: a row carrying a block_reason is never served, and
+           only video extensions are resolvable at all.
+
+        Any gate failing answers None and the caller's existing "not found or not
+        ready for streaming" 404 stands — including for a finished torrent whose
+        file was deleted or truncated, where that detail is admittedly generous.
+        This fallback's whole contract is "every byte is on disk" and it will not
+        claim that on evidence it does not have.
+        """
+        try:
+            with get_db() as db:
+                row = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if row is None:
+                    return None
+                state = row.state
+                progress = row.progress or 0.0
+                block_reason = row.block_reason
+                save_path = row.save_path
+                blob = row.resume_data
+        except Exception as e:
+            logger.warning(f"Completed-file lookup failed for {torrent_id}: {e}")
+            return None
+
+        # Gate 1 + 2: the row must say the download is over and complete.
+        if state not in ON_DISK_STATES or progress < 100:
+            return None
+        # Gate 4a (content guard): never serve a torrent the guard rejected.
+        if block_reason:
+            return None
+        if not save_path:
+            return None
+
+        # Gate 4b (content guard): video extensions only, same filter as the
+        # live path. A non-video index is unresolvable, not merely deprioritised.
+        files = self._video_files_from_resume_data(torrent_id, blob, save_path)
+        if not files:
+            return None
+        if file_index is not None:
+            match = next((f for f in files if f["index"] == file_index), None)
+        else:
+            match = max(files, key=lambda f: f["size"])
+        if match is None:
+            return None
+
+        # Gate 3: the bytes really are there. This is the last line between a
+        # partial file and a decoder, and it is why the fallback may not be
+        # reduced to a state check.
+        try:
+            on_disk = os.path.getsize(match["path"])
+        except OSError as e:
+            logger.info(
+                f"Completed torrent {torrent_id}: {match['path']} is not readable ({e})")
+            return None
+        if on_disk != match["size"]:
+            logger.warning(
+                f"Completed torrent {torrent_id}: {match['name']} is {on_disk} bytes on "
+                f"disk but its metadata records {match['size']}; refusing to stream a "
+                f"partial file as though it were complete"
+            )
+            return None
+        return match
 
     def validate_torrent_content(self, handle) -> Optional[str]:
         """Inspect a torrent's file list (metadata required) and return a content-

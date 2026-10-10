@@ -171,7 +171,16 @@ def exploding_video(tmp_path, monkeypatch):
 
 @pytest.fixture
 def no_video_file(monkeypatch):
-    """get_video_file_info resolves nothing: metadata not ready, or evicted."""
+    """NOTHING resolves a video file: metadata not ready, or evicted.
+
+    Two resolvers have to be stubbed, not one. Task 2 added a completed-on-disk
+    fallback (`get_completed_video_file_info`) that `_resolve_video_file` consults
+    when the live session answers nothing, so stubbing only `get_video_file_info`
+    would leave these 404 rows asserting something about whatever database the
+    process happens to reach rather than about the endpoint. The pinned answers
+    below are unchanged — a finished torrent with a real file on disk is a 200
+    now, and `test_finished_torrent_streamable.py` owns that row.
+    """
     calls = []
 
     def _get(tid, fi=None):
@@ -179,6 +188,9 @@ def no_video_file(monkeypatch):
         return None
 
     monkeypatch.setattr(streaming_api.torrent_manager, "get_video_file_info", _get)
+    monkeypatch.setattr(
+        streaming_api.torrent_manager, "get_completed_video_file_info",
+        lambda tid, fi=None: None)
     monkeypatch.setattr(
         streaming_api.torrent_manager, "get_torrent_status",
         lambda tid: types.SimpleNamespace(

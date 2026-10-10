@@ -148,6 +148,29 @@ def parse_range_header(range_header: Optional[str], file_size: int) -> tuple:
     return start, min(end, file_size - 1)
 
 
+def _lookup_video_file(torrent_id: str, file_index: Optional[int]) -> Optional[Dict[str, Any]]:
+    """The live session first, then the completed-on-disk fallback.
+
+    A finished download is the television's main content, and until this fallback
+    existed it was unplayable: find_loadable_on_startup never re-adds a finished
+    or seeding torrent after a restart and _refresh_active_torrents evicts
+    'finished' mid-session, so get_video_file_info answers None and both video
+    routes 404ed on a title whose every byte was sitting on disk. stream_file_range
+    already handled the no-live-torrent case; only resolution was in the way.
+
+    ORDER IS THE SEAM. The live lookup runs first and its answer always wins, so
+    the fallback is reachable only when the session knows nothing — it is not a
+    second opinion about a loaded torrent, and it never becomes the general path.
+    get_completed_video_file_info carries the four gates (terminal state,
+    progress >= 100, the on-disk size matching the metadata, and the content
+    guard); everything it refuses keeps the 404 the caller already raised.
+    """
+    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
+    if video_info:
+        return video_info
+    return torrent_manager.get_completed_video_file_info(torrent_id, file_index)
+
+
 def _resolve_video_file(torrent_id: str, file_index: Optional[int]) -> tuple:
     """Resolve a torrent's video file for streaming, or raise the 404 both routes share.
 
@@ -161,7 +184,7 @@ def _resolve_video_file(torrent_id: str, file_index: Optional[int]) -> tuple:
     it outside that try and change stream_video's error semantics for an
     unreadable file.
     """
-    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
+    video_info = _lookup_video_file(torrent_id, file_index)
     if not video_info:
         if file_index is not None:
             raise HTTPException(
@@ -357,8 +380,12 @@ async def get_video_info(
     if not torrent_status:
         raise HTTPException(status_code=404, detail="Torrent not found")
 
-    # Get video file info
-    video_info = torrent_manager.get_video_file_info(torrent_id, file_index)
+    # Get video file info. Same two-step lookup the byte routes use, so a finished
+    # download that /video can now play does not 404 here and strand a player that
+    # polls /info while waiting to start. /info keeps raising its OWN 404s, with
+    # no index-specific detail: "Torrent not found" above is still the only
+    # terminal answer, and this one still means "not ready, or evicted".
+    video_info = _lookup_video_file(torrent_id, file_index)
     if not video_info:
         raise HTTPException(status_code=404, detail="Video file not found or not ready for streaming")
     

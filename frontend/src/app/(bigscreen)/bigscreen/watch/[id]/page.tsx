@@ -89,6 +89,17 @@ const PREPARE_POLL_MS = 3000;
  */
 const INFO_REFRESH_MS = 10_000;
 
+/**
+ * How long the "we could not resume you where you were" sentence stays on screen.
+ *
+ * It used to be cleared by the `playing` event, which follows `loadedmetadata` by a frame or
+ * two on a healthy start — so the one sentence that tells the viewer their resume was reduced
+ * was readable for well under a second at three metres (measured by the branch review). It is
+ * dismissed by TIME, or by the viewer's first press, and never by playback starting: playback
+ * starting is the event that makes the sentence true, not the one that answers it.
+ */
+const RESUME_NOTE_MS = 8000;
+
 type Arrival =
   | { k: 'loading' }
   | { k: 'failed' }
@@ -218,6 +229,18 @@ function WatchScreen() {
   const [round, setRound] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  /**
+   * THE LATCH: has this screen ever been playable? Once it has, a re-measure may not take
+   * the player away — only a terminal answer or a new arrival may.
+   *
+   * This is the second of two defences against the same failure and it is deliberately the
+   * blunter one. The first (below, in the boundary's `catch`) is what the behaviour rests
+   * on: a failed REFRESH writes nothing, so nothing can turn into "not ready". This one is
+   * the guard against the next writer of `notReady` that someone adds without noticing that
+   * the same state gates whether the player exists at all. With both in place neither can be
+   * mutated out on its own — see the report; the pair is demonstrated instead.
+   */
+  const [started, setStarted] = useState(false);
 
   // The player's own state lives HERE, not in `Playing`: Back's level is derived from
   // `visible` and `editOpen`, and the heartbeat needs the playhead. `Playing` owns the
@@ -237,6 +260,14 @@ function WatchScreen() {
     let cancelled = false;
     setArrival({ k: 'loading' });
     setBoundary({ k: 'unknown' });
+    // A NEW ARRIVAL IS ALLOWED to take the player down (it is the retry press, or a new
+    // torrent id); the latch is about re-measures, not about arrivals. And the playhead goes
+    // with it: a `position` carried across a title change would make the resume below seek
+    // the NEW title to the previous one's playhead.
+    setStarted(false);
+    setPosition(0);
+    setDuration(Number.NaN);
+    setEnded(false);
     Promise.all([
       torrentsService.getTorrentStatus(torrentId),
       // An unreadable or empty `/files` is UNKNOWN, never "no episodes": it decides which
@@ -328,13 +359,28 @@ function WatchScreen() {
           status: statusOf(err) ?? 0,
           detail: detailOf(err),
         });
-        // The ONE string that means the torrent itself is gone. Everything else `/info` says
-        // conflates "not ready yet" with "deleted", so the state decides below.
-        setBoundary(
-          verdict.kind === 'gone' && verdict.detail === TORRENT_NOT_FOUND
-            ? { k: 'gone' }
-            : { k: 'notReady' },
-        );
+        // The ONE string that means the torrent itself is gone. Terminal whenever it arrives,
+        // arrival or refresh: a deleted file cannot be played on.
+        if (verdict.kind === 'gone' && verdict.detail === TORRENT_NOT_FOUND) {
+          setBoundary({ k: 'gone' });
+          return;
+        }
+        // A FAILED RE-MEASURE IS NOT AN ARRIVAL, and this is the whole of it. `notReady` is a
+        // statement about whether the title can be played, and `playable` gates whether the
+        // player EXISTS — so writing it here from a 503, a 500 or a timeout on the periodic
+        // re-measure tore the player down mid-film, remounted it, replayed from the
+        // arrival-time resume value and then wrote that over the viewer's real position.
+        // (Measured by the branch review: `[1200]` became `[1200, 6]`.)
+        //
+        // So once the player has started, a failed refresh writes NOTHING: the last good
+        // answer stands. That is also the honest reading of the measurement — the run only
+        // ever GROWS, so yesterday's run is a safe subset of today's, while dropping it to
+        // `null` would mean "nobody measured" and go UNBOUNDED, permitting exactly the seek
+        // past the frontier that hangs the stream for 300s with the status code already
+        // spent. The next tick asks again.
+        if (startedRef.current) return;
+        // The ARRIVAL ask, where "not ready, or deleted" is true and the state decides.
+        setBoundary({ k: 'notReady' });
       });
     return () => {
       cancelled = true;
@@ -345,7 +391,9 @@ function WatchScreen() {
   // --- what the screen is ----------------------------------------------------------
   const state = arrival.k === 'ok' ? arrival.status.state : '';
   const evicted = arrival.k === 'ok' && READY.has(state);
-  const playable = boundary.k === 'ready' || evicted;
+  // `|| started`: see the latch. A screen that has been playable stays playable until a
+  // terminal answer or a new arrival says otherwise.
+  const playable = boundary.k === 'ready' || evicted || started;
   // `progress.locked` as well as `redirecting`: the lock is known one commit before the
   // redirect latches, and in that commit a `finished` torrent is already "playable" — so the
   // screen would paint a live Play control for one frame to a profile that is passcode-
@@ -363,6 +411,14 @@ function WatchScreen() {
             : boundary.k === 'notReady' && !PREPARING.has(state)
               ? 'failed'
               : 'preparing';
+
+  const startedRef = useRef(started);
+  useLayoutEffect(() => {
+    startedRef.current = started;
+  });
+  useEffect(() => {
+    if (phase === 'playing' && !started) setStarted(true);
+  }, [phase, started]);
 
   // --- the `/info` cadence ---------------------------------------------------------
   useEffect(() => {
@@ -448,7 +504,12 @@ function WatchScreen() {
           src={src}
           status={arrival.status}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
-          resumeAtSeconds={resume.ready ? resume.atSeconds : 0}
+          // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never
+          // refreshed, so a `Playing` that remounts for any reason would otherwise seek back
+          // to where the viewer was when they arrived — 0 on a fresh watch — and the
+          // heartbeat would then write that over their real position. `position` is reset
+          // with every new arrival (above), so this can only ever be the same title's.
+          resumeAtSeconds={Math.max(resume.ready ? resume.atSeconds : 0, position)}
           position={position}
           duration={duration}
           visible={visible}
@@ -551,9 +612,32 @@ function Playing({
   const [recovery, setRecovery] = useState<RecoveryStatus>({ kind: 'idle' });
   const [resumeNote, setResumeNote] = useState('');
 
+  // Held in a ref so the engine's one-shot `onStatus` closure always calls the current
+  // props, rather than the ones the first render happened to have.
+  const latestDuration = useRef(onDuration);
+  useLayoutEffect(() => {
+    latestDuration.current = onDuration;
+  });
+
   // One engine for the life of this element. `onStatus` is the readout; the ladder, the
   // attempt bound and the exhaustion latch are the engine's.
-  const [engine] = useState(() => createRecovery({ getVideo, onStatus: setRecovery }));
+  const [engine] = useState(() =>
+    createRecovery({
+      getVideo,
+      onStatus: (status) => {
+        setRecovery(status);
+        // `load()` HAS JUST BEEN CALLED, so the element's `duration` is NaN until
+        // `loadedmetadata` lands again. Writing that through is what makes the scrub row
+        // actually disappear and come back — which is what `ScrubBar`'s render-phase
+        // pending-edit reset is written for, and without this the premise was false: the
+        // route's `duration` STATE was only ever written by `onLoadedMetadata`, so the row
+        // never went away and an edit opened mid-stall stayed committable by OK against a
+        // duration that no longer existed. Measured by the branch review: the cell still read
+        // "OK jumps to 20:10" throughout a recovery.
+        if (status.kind === 'reloading') latestDuration.current(Number.NaN);
+      },
+    }),
+  );
   useEffect(() => () => engine.dispose(), [engine]);
 
   const stall = useStallWatch({
@@ -588,18 +672,33 @@ function Playing({
       });
       if (verdict.seconds !== video.currentTime) video.currentTime = verdict.seconds;
       onPosition(Math.floor(verdict.seconds));
+      // THE VIEWER'S CHOICE IS NEWER THAN THE ENGINE'S CAPTURE. A recovery captures the
+      // playhead before `load()` and restores it on the next `loadedmetadata`; a press in
+      // that window would otherwise be silently undone.
+      engine.noteSeek();
     },
-    [onPosition],
+    [onPosition, engine],
   );
 
   const act = useCallback(
     (action: TransportAction) => {
       const video = ref.current;
       if (!video) return;
+      // A press is the viewer answering the note, whatever the press was.
+      setResumeNote('');
       switch (action) {
         case 'playPause':
           if (playing) video.pause();
           else void video.play()?.catch?.(() => {});
+          return;
+        // DISCRETE AND IDEMPOTENT. The remote's ▶ and ⏸ are two keys, not a toggle: a viewer
+        // pressing ▶ on a playing title must not stop it. Both still live on the one
+        // focusable cell (`TWIN_CELL`), so the on-screen-twin contract is untouched.
+        case 'play':
+          if (!playing) void video.play()?.catch?.(() => {});
+          return;
+        case 'pause':
+          if (playing) video.pause();
           return;
         case 'back10':
           seekTo(video.currentTime - 10);
@@ -625,6 +724,15 @@ function Playing({
     },
     [playing, seekTo, engine, onStop],
   );
+
+  // Long enough to read at three metres, and it suppresses the auto-hide while it is up (a
+  // message on screen is one of the three suppressions), so the band cannot fade out from
+  // under the sentence.
+  useEffect(() => {
+    if (resumeNote === '') return;
+    const timer = setTimeout(() => setResumeNote(''), RESUME_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [resumeNote]);
 
   // --- the auto-hide ---------------------------------------------------------------
   /**
@@ -739,13 +847,22 @@ function Playing({
         onTerminal(verdict);
         return;
       }
+      // NOTHING TO RETRY: the box has rejected the request itself (422/416), so the same
+      // request four more times is four more deadline recomputes for nothing — and the
+      // message tells the viewer to press Stop, so a focusable Retry beside it would be a
+      // control the sentence says not to use. Structurally unreachable today (see the test);
+      // kept coherent for the day it is not.
+      if (verdict.kind === 'badRequest') return;
       // Bounded, because one of the three 503 paths is the catch-all and covers permanent
       // faults with the same status, the same Retry-After and the same empty body.
       engine.attempt(verdict.kind === 'retry' ? verdict.afterMs : undefined);
     });
   };
 
-  const rowCounts = [scrubRowCount(duration), transportCellCount({ retry: !!failure })];
+  // The Retry cell is offered only for a failure a press can change. `badRequest` is not
+  // one, and `session`/`gone` leave the player altogether.
+  const retryable = failure !== null && failure.kind !== 'badRequest';
+  const rowCounts = [scrubRowCount(duration), transportCellCount({ retry: retryable })];
   const grid = useFocusGrid({ rowCounts });
 
   return (
@@ -771,7 +888,8 @@ function Playing({
         onPlaying={() => {
           setPlaying(true);
           setFailure(null);
-          setResumeNote('');
+          // NOT `setResumeNote('')`: see RESUME_NOTE_MS. `playing` arrives a frame or two
+          // after the seek that the sentence is about.
           engine.noteHealthy();
         }}
         onPause={() => setPlaying(false)}
@@ -807,7 +925,7 @@ function Playing({
           row={1}
           focusProps={grid.focusProps}
           playing={playing}
-          retry={!!failure}
+          retry={retryable}
           onAction={act}
         />
       </div>

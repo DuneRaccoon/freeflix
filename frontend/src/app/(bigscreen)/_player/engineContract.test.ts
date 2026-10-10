@@ -280,6 +280,16 @@ describe('DELIBERATELY_DIFFERENT', () => {
     for (const k of keys) expect(DELIBERATELY_DIFFERENT[k].length).toBeGreaterThan(30);
   });
 
+  it('has exactly six divergences, counted absolutely', () => {
+    // THE WEAKNESS NON-EMPTINESS AND SET-EQUALITY LEAVE: deleting a key from BOTH maps
+    // removes that divergence's own `it.each` row and both of the guards above still pass, so
+    // the list can be shortened in lockstep with the thing that checks it. An absolute count
+    // is the fix, the same one `describeScrub.test.ts` uses for the six `SeekReason`s: a
+    // seventh divergence or a deleted sixth has to be a deliberate edit here.
+    expect.soft(Object.keys(DIVERGENCE_CHECKS)).toHaveLength(6);
+    expect.soft(Object.keys(DELIBERATELY_DIFFERENT)).toHaveLength(6);
+  });
+
   it('names exactly the divergences that have a check', () => {
     expect(Object.keys(DELIBERATELY_DIFFERENT).sort()).toEqual(Object.keys(DIVERGENCE_CHECKS).sort());
   });

@@ -200,6 +200,15 @@ export function useWatchProgress(opts: WatchProgressOptions): WatchProgressState
   });
 
   const inFlight = useRef(false);
+  /**
+   * The last duration the element reported. A title's length is a CONSTANT; `NaN` means "not
+   * known right now", not "this has no length" — and there is now a window where that
+   * happens mid-film, because the route writes `NaN` while a recovery `load()` is in flight
+   * so the scrub row really does go away. A write landing in that window would otherwise
+   * record `duration: null, percentage: 0` over a good row and Continue Watching would show
+   * the title as untouched.
+   */
+  const lastDuration = useRef<number | null>(null);
 
   const write = useCallback(() => {
     const o = latest.current;
@@ -207,8 +216,10 @@ export function useWatchProgress(opts: WatchProgressOptions): WatchProgressState
 
     const position = Number(o.position);
     if (!Number.isFinite(position)) return;
-    const duration = Number(o.duration);
-    const usable = Number.isFinite(duration) && duration > 0;
+    const live = Number(o.duration);
+    if (Number.isFinite(live) && live > 0) lastDuration.current = live;
+    const duration = lastDuration.current;
+    const usable = duration !== null && duration > 0;
     const percentage = usable ? Math.min(100, Math.max(0, (position / duration) * 100)) : 0;
     const ended = o.ended === true;
     if (position < MIN_POSITION_S && !ended) return;

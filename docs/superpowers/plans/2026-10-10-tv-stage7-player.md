@@ -408,6 +408,75 @@ The rule the route implements is therefore "`finished`/`seeding` is playable wha
 and `/info` say", which is strictly what the Corrections asked for and does not depend on
 `/info` having been fixed.
 
+### From the whole-branch review (after task 9 was committed)
+
+**THE CRITICAL: the periodic `/info` re-measure was wired to the same state that decides
+whether the player exists.** `INFO_REFRESH_MS` is the route's own addition — the plan names no
+refresh cadence — and its failure path wrote `{k:'notReady'}`, which made `playable` false,
+which (because `downloading` IS a PREPARING state) landed the phase ladder on `'preparing'` and
+UNMOUNTED the player mid-film. It remounted seconds later, the fresh one-shot seeked to the
+ARRIVAL-time resume value, and the heartbeat wrote that over the viewer's real position: the
+review measured `[1200]` becoming `[1200, 6]`. Fixed in three layers, and the layers mask each
+other, which is worth knowing before mutating them:
+ 1. a failed REFRESH now writes nothing — the last good answer stands, which is also the honest
+    reading, since the measured run only ever GROWS and so a stale run is a safe subset while
+    `null` would mean "nobody measured" and go unbounded;
+ 2. a `started` latch, so a future writer of `notReady` cannot re-introduce it;
+ 3. the live playhead wins over the arrival read, so a remount for any other reason cannot
+    rewind the viewer (and the playhead is cleared with every new arrival, or the next title
+    would inherit it).
+Mutating (1) alone reddens the "keeps the measurement" row; mutating (1)+(2) reproduces the
+Critical; **mutating (2) alone reddens nothing**, because with (1) in place nothing writes
+`notReady` after start. (3) is the same shape: with the Critical fixed there is no remount path,
+so it was measured in a C1-live world instead — `PLAYHEAD AFTER REMOUNT: 1200` with it, `0`
+without. Two layers for one failure cannot both be falsifiable; say which carries the behaviour.
+
+**The NINTH test on this branch that could not fail, and the sentence it guarded was
+unreadable anyway.** `toMatch(/23:45/)` for the resume-was-reduced note is satisfied by the
+scrub cell's own readout (`"23:45 of 40:00"`), so the whole `setResumeNote` block could be
+deleted with the suite green. Worse, `onPlaying` cleared the note and `playing` follows
+`loadedmetadata` by a frame or two, so on the healthy path it was on screen for well under a
+second at three metres. Both halves fixed: the row asserts the note element itself, and the note
+is dismissed by TIME (8s) or by the viewer's first press, never by playback starting.
+**And its replacement needed one more thing:** the playhead has to keep moving through the wait,
+or the stall watcher escalates after ~2s and "Buffering…" takes the one line by PRECEDENCE — the
+note then looks gone while still being set, and a mutation that never clears it passes. Measured.
+
+**`MEDIA_TWINS` conflated two questions and the remote's ▶ paused a playing title.** "What does
+this key mean" and "which cell embodies it" are different, and collapsing `play`, `pause` and
+`playPause` onto the one toggle made a *recognised* key do the opposite of what it says — which
+`useMediaKeys`' "an unrecognised key is a missing shortcut, never a missing feature" defence does
+not cover. Now `MEDIA_TWINS` answers the first question and `TWIN_CELL` the second, both
+`Record`s over their unions, and the route handles `play`/`pause` idempotently. The twin test
+walks both tables, so a future collapse cannot pass it.
+
+**Task 8's mid-edit reset was UNREACHABLE in the composition that shipped.** The Corrections
+entry above records it as a real fix, and it was — of a defect the route then prevented from ever
+firing: the route's `duration` STATE is written only by `onLoadedMetadata`, so a recovery
+`load()` never took it to NaN, the scrub row never went away and the render-phase reset never
+ran. Measured: the cell read "OK jumps to 20:10" throughout a recovery, and an OK pressed then
+was silently undone by the engine's pre-`load()` playhead restore (`1260` → `1200`). Two fixes:
+the route writes `NaN` on `{kind:'reloading'}` (so the premise is true and the row really does
+go), and `recovery.ts` gained **`noteSeek()`** — the viewer's choice is newer than the engine's
+capture, and it drops the pending restore without touching the ladder. A third followed from the
+first: the heartbeat now remembers the title's length, because a write inside that NaN window
+would otherwise record `duration: null, percentage: 0` over a good row.
+
+**`.bs-player__video` had no pin, and it is the class that carries the picture.**
+`playerCss.test.tsx`'s catch-all renders the two components; the route's band is not a component
+it can mount, because a page file may not export one. Renaming the class in the route left
+`test:tv` at 55/1319 and `tsc` clean. The stylesheet side is now pinned in `playerCss.test.tsx`
+(with the band's other five classes) and the render side in the route's own suite, which has the
+element in hand.
+
+**Three cheap ones, taken rather than parked.** `badRequest` no longer burns the ladder or grows
+a `Try again` beside a sentence that says to press Stop (it stays structurally unreachable, and
+the test says so). `DIVERGENCE_CHECKS` gained an absolute count, because deleting a key from
+*both* maps removed a divergence's own row with both guards still green — the weakest pin on the
+branch, fixed the way `describeScrub.test.ts` does it. And the readings sheet gained rows 14 and
+15: whether the set's own keys survive `useRevealOnKey`'s swallow-while-hidden, and whether 5s
+and 15s are the right guesses. A guess with no row is how an assumption becomes a fact.
+
 ---
 
 **Standing guard from task 4 onward:** `npx vitest run src/components/player` reports its

@@ -10,6 +10,7 @@ import {
   TRANSPORT_CELLS,
   RETRY_CELL,
   MEDIA_TWINS,
+  TWIN_CELL,
   transportCells,
   transportCellCount,
   labelFor,
@@ -128,7 +129,11 @@ describe('TransportBar', () => {
     render(<Harness retry />);
     const rendered = transportCells({ retry: true });
     for (const action of actions) {
-      const twin = MEDIA_TWINS[action];
+      // Through BOTH tables: `MEDIA_TWINS` says what the key means, `TWIN_CELL` says which
+      // control embodies it. ▶, ⏸ and the toggle mean three different things and share one
+      // cell, so a test that went straight from the key to a cell id could not tell the
+      // difference — which is how ▶ came to pause a playing title.
+      const twin = TWIN_CELL[MEDIA_TWINS[action]];
       const cell = rendered.find((c) => c.id === twin);
       expect.soft(cell, `${action} -> ${twin} is a cell that exists`).toBeDefined();
       if (!cell) continue;
@@ -137,6 +142,23 @@ describe('TransportBar', () => {
       // disabled — a disabled focus stop is a control that refuses to act.
       expect.soft(el.getAttribute('tabindex'), `${action} twin is a focus stop`).not.toBeNull();
       expect.soft(el).not.toBeDisabled();
+    }
+  });
+
+  it('keeps ▶ and ⏸ as separate intents on the one shared control', () => {
+    // The remote's two keys are not a toggle. Measured before this split: with the title
+    // playing, a Play press called `pause()` once and `play()` not at all.
+    expect.soft(MEDIA_TWINS.play).toBe('play');
+    expect.soft(MEDIA_TWINS.pause).toBe('pause');
+    expect.soft(MEDIA_TWINS.playPause).toBe('playPause');
+    // ...and all three still land on the one focusable cell, so the twin contract holds.
+    expect.soft(TWIN_CELL.play).toBe('playPause');
+    expect.soft(TWIN_CELL.pause).toBe('playPause');
+    expect.soft(TWIN_CELL.playPause).toBe('playPause');
+    // Every action has a cell, and every cell is a cell that exists.
+    const ids = new Set(transportCells({ retry: true }).map((c) => c.id));
+    for (const [action, cellId] of Object.entries(TWIN_CELL)) {
+      expect.soft(ids.has(cellId), `${action} -> ${cellId}`).toBe(true);
     }
   });
 

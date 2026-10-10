@@ -39,10 +39,25 @@ import type { MediaKeyAction } from '../_focus/useMediaKeys';
  * other way the player can be taken out from under itself) and that is the route's job.
  */
 
-export type TransportAction = 'playPause' | 'back10' | 'back60' | 'forward60' | 'stop' | 'retry';
+/** The cells this row can contain. One id per control, and the ids are the labels' keys. */
+export type TransportCellId = 'playPause' | 'back10' | 'back60' | 'forward60' | 'stop' | 'retry';
+
+/**
+ * What a press MEANS — the cell ids, plus the two DISCRETE transport intents a remote has
+ * and a screen does not.
+ *
+ * A remote has separate ▶ and ⏸ keys; a screen has one control that toggles. Collapsing the
+ * three onto the toggle (which is what shipped, and what the branch review measured) means a
+ * viewer pressing ▶ on a playing title STOPS it, and ⏸ on a paused one resumes it — a
+ * recognised key mapped to the wrong semantic, which `useMediaKeys`' "an unrecognised key is
+ * a missing shortcut, never a missing feature" defence does not cover. `play` and `pause` are
+ * therefore their own actions, handled idempotently by the consumer, and `TWIN_CELL` below is
+ * what keeps the on-screen-twin contract intact: all three still live on the one control.
+ */
+export type TransportAction = TransportCellId | 'play' | 'pause';
 
 export interface TransportCell {
-  id: TransportAction;
+  id: TransportCellId;
   /** The resting label. Play/Pause's is replaced at render; see `labelFor`. */
   label: string;
   /** Which existing `.bs-btn` dress it wears. No new modifier is added to `.bs-btn`. */
@@ -68,14 +83,40 @@ export const TRANSPORT_CELLS: readonly TransportCell[] = [
 /** Offered only when the stream has failed in a way a press can retry. Always LAST. */
 export const RETRY_CELL: TransportCell = { id: 'retry', label: 'Try again', variant: 'primary' };
 
-/** Which cell does what a media key asks. Every action has one; that is the point. */
+/**
+ * What a media key MEANS. A `Record` over the hook's action union, so a seventh media action
+ * fails `tsc` here until it has been given one.
+ *
+ * NOT "which cell it lands on" — that is `TWIN_CELL`. The two were one table and the
+ * conflation is what made ▶ pause a playing title.
+ */
 export const MEDIA_TWINS: Record<MediaKeyAction, TransportAction> = {
-  play: 'playPause',
-  pause: 'playPause',
+  play: 'play',
+  pause: 'pause',
   playPause: 'playPause',
   stop: 'stop',
   rewind: 'back60',
   fastForward: 'forward60',
+};
+
+/**
+ * Which CELL embodies an action — the focusable twin. Play, Pause and the toggle are all the
+ * one control, which is why this mapping exists rather than three cells: a screen has no use
+ * for two buttons that differ only in which of them is a no-op.
+ *
+ * A `Record` over the whole action union, so a seventh action fails `tsc` here until it has
+ * been given a cell to live on, and `TransportBar.test.tsx` walks it to prove every media key
+ * still reaches something a remote can focus.
+ */
+export const TWIN_CELL: Record<TransportAction, TransportCellId> = {
+  playPause: 'playPause',
+  play: 'playPause',
+  pause: 'playPause',
+  back10: 'back10',
+  back60: 'back60',
+  forward60: 'forward60',
+  stop: 'stop',
+  retry: 'retry',
 };
 
 export function transportCells(opts: { retry: boolean }): readonly TransportCell[] {

@@ -133,9 +133,10 @@ async function mount(opts: MountOptions = {}) {
   };
   let position = 0;
   let ended = false;
-  const view = render(<Host {...props} position={position} duration={props.duration} />);
+  let duration = props.duration;
+  const view = render(<Host {...props} position={position} duration={duration} />);
   const draw = () =>
-    view.rerender(<Host {...props} position={position} duration={props.duration} ended={ended} />);
+    view.rerender(<Host {...props} position={position} duration={duration} ended={ended} />);
   // Let the resume read settle before any assertion about it.
   await act(async () => {});
   return {
@@ -147,6 +148,11 @@ async function mount(opts: MountOptions = {}) {
     },
     end: () => {
       ended = true;
+      act(() => draw());
+    },
+    /** What a recovery `load()` does: the element reports no duration until metadata lands. */
+    blind: () => {
+      duration = Number.NaN;
       act(() => draw());
     },
   };
@@ -342,6 +348,22 @@ describe('the heartbeat', () => {
     await tick(PROGRESS_CADENCE_MS);
     expect.soft(posts()[2].percentage).toBe(100);
     expect.soft(posts()[2].completed).toBe(true);
+  });
+
+  it('keeps the title’s length across a window where the element has none', async () => {
+    // A recovery `load()` takes `video.duration` to NaN until `loadedmetadata` lands again,
+    // and the route writes that through so the scrub row really does disappear. A write in
+    // that window must not record `duration: null, percentage: 0` over a good row — Continue
+    // Watching would then show the title as untouched. A title's length is a constant.
+    const { seek, blind } = await mount({ duration: 1000 });
+    seek(500);
+    await tick(PROGRESS_CADENCE_MS);
+    expect.soft(posts()[0].duration).toBe(1000);
+    blind();
+    seek(600);
+    await tick(PROGRESS_CADENCE_MS);
+    expect.soft(posts()[1].duration).toBe(1000);
+    expect.soft(posts()[1].percentage).toBeCloseTo(60);
   });
 
   it('flushes in the unmount cleanup, because a Back press fires no unload event at all', async () => {

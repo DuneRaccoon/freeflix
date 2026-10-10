@@ -146,6 +146,31 @@ describe('createRecovery — the five web assertions, ported', () => {
     expect(playSpy).toHaveBeenCalled();
   });
 
+  it('a seek the viewer made during a recovery survives: noteSeek drops the pending restore', () => {
+    // The capture happens BEFORE load(); `loadedmetadata` can arrive long after. A press in
+    // that window is newer than the capture, and without noteSeek the restore silently undoes
+    // it — measured on the real route: `currentTime after OK: 1260` then `after the restore:
+    // 1200`. The ladder must be untouched, because a seek is not evidence of health.
+    const { video, engine } = mount();
+    const ctl = wireErroredVideo(video);
+
+    ctl.seek(1200);
+    act(() => { engine.attempt(); });
+    tick(RECOVERY_BACKOFF_MS[0]);
+    expect(loadSpy).toHaveBeenCalledTimes(1);
+
+    // The viewer presses something that seeks, after load() and before metadata.
+    ctl.seek(1260);
+    act(() => { engine.noteSeek(); });
+    act(() => { fireEvent.loadedMetadata(video); });
+
+    expect.soft(ctl.at(), 'the viewer kept the position they chose').toBe(1260);
+    // ...and the ladder is still where it was: the next rung is the second one.
+    act(() => { engine.attempt(); });
+    tick(RECOVERY_BACKOFF_MS[1]);
+    expect.soft(loadSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('does not seek back to a position of zero', () => {
     const { video, engine } = mount();
     wireErroredVideo(video);

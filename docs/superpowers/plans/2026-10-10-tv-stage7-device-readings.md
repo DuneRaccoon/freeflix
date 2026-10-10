@@ -4,7 +4,8 @@ Run: **NOT TAKEN.** Replace this line with the date (or dates) when the readings
 as `2026-09-22-webos-tv-stage3-results.md` does, and say which sitting produced which rows.
 
 Deliverable named in `docs/superpowers/plans/2026-10-10-tv-stage7-player.md`, task 10, whose
-thirteen rows are enumerated in that plan's **"On the television"** section. Instrument:
+thirteen rows are enumerated in that plan's **"On the television"** section (rows 14 and 15 came
+later, from the whole-branch review). Instrument:
 `/bigscreen/diag` (`frontend/src/app/(bigscreen)/bigscreen/diag/page.tsx`), hardened by the
 same task **before** these readings were taken, for the reason in the next paragraph.
 
@@ -40,7 +41,7 @@ destroy the line that pressing Back produced.**
 
 ---
 
-## The thirteen rows
+## The fifteen rows
 
 | # | Reading | Gates "done"? | Where | Status |
 | --- | --- | --- | --- | --- |
@@ -57,6 +58,13 @@ destroy the line that pressing Back produced.**
 | 11 | Does `<video>` report a finite `duration` for an in-progress stream | no | `/bigscreen/diag` | **not taken** |
 | 12 | Does the band's `opacity` transition hold frame over decoding 1080p | no | real player | **not taken** |
 | 13 | Does `isolation: isolate` keep the focus ring **visible** over the video | no | real player | **not taken** |
+| 14 | With the controls **hidden**, do the set's own keys (Home, Exit, Guide, colours) still work on the first press | no | real player | **not taken** |
+| 15 | Is 5s the right quiet period before the controls go, and 15s the right seek margin | no | real player | **not taken** |
+
+**Two of the fifteen are not from the plan.** Rows 14 and 15 were added by the whole-branch
+review, which found two of the player's decisions resting on nothing this sheet would ever catch
+(see those rows). A guess with no row here is how an assumption becomes a fact, which is the
+failure this document exists to stop.
 
 **Thirteen rows from the plan's eight clauses.** The plan names three gates plus "ten more
 rows" in a list of eight clauses. Two of them are two readings each, and both splits are
@@ -73,7 +81,8 @@ takeable (and untaken) for four days. Gate 1 needs a paired television and `AUTH
 and nothing else: the main web app's player is enough to answer whether the media pipeline sends
 the cookie, so it does **not** wait for task 9. Rows 12 and 13 are about the control band and
 its focus ring, so they wait for tasks 8 and 9 to land; gate 2 is answerable on either player's
-recovery ladder.
+recovery ladder. Rows 14 and 15 need the real player too, and 14 is taken in the same sitting as
+12 — both start by letting the band auto-hide.
 
 **Posture (from the plan): merge on green tests, hold the "done" claim until rows 1, 2 and 3
 are transcribed.** The other ten each close a named decision but none of them blocks the merge,
@@ -422,6 +431,61 @@ outline — a defect that already cost this stylesheet its one full-bleed focus 
 was found by rendering it in a browser at 1920×1080, not by reading the CSS. The `test:tv` rule
 it adds asserts the declaration is **present**; only a television proves the ring is
 **visible**. A ring nobody can see is a surface a remote cannot use.
+
+---
+
+## Row 14 — With the controls hidden, do the set's own keys still work on the first press?
+
+Real player, during playback. Let the band auto-hide (five seconds of no presses), then press,
+one at a time and each from the hidden state: **Home**, **Exit** / **Back-to-live**, **Guide**,
+and one **colour** button. After each, say whether the television did its usual thing on the
+FIRST press, or whether it took two.
+
+| Button | Did the set act on the first press (hidden)? | On the second press? |
+| --- | --- | --- |
+| Home | **not taken** | **not taken** |
+| Exit | **not taken** | **not taken** |
+| Guide | **not taken** | **not taken** |
+| A colour button | **not taken** | **not taken** |
+
+**What it closes.** `_focus/useRevealOnKey.ts:84-94` calls `preventDefault()` **and**
+`stopPropagation()` on every keydown except Back while the band is hidden — which is the steady
+state five seconds into every film. That is deliberate and argued in the hook's header (the first
+press must mean only "wake up", never "wake up and also seek"), and it is the opposite of the rule
+the other three key hooks state for themselves: `useBackKey.ts:35` — *"`preventDefault()` on a key
+this does not act on is how Back stops working on a device nobody can attach a debugger to."* The
+difference is that this hook DOES act on every key, by revealing. But nobody has pressed Home
+inside the player on this television. If the set routes its platform keys through the page, this
+swallows the first press of each of them for most of the film.
+
+**If a key needs two presses**, the fix is a one-line exemption list beside Back's in
+`useRevealOnKey`, and the hook's header already says so. If the set handles those keys before the
+page sees them at all, write that down: it is the answer that makes this row stop mattering.
+
+---
+
+## Row 15 — Are the two timing guesses right?
+
+Real player, during playback. Both of these are **self-declared guesses in the source**, which is
+why they have a row: nothing on this set informed either number.
+
+| Fact | Reading |
+| --- | --- |
+| `REVEAL_HIDE_MS` is 5s: too short, too long, or about right? | **not taken** |
+| Did the band ever hide while you were still deciding? | **not taken** |
+| `SEEK_MARGIN_S` is 15s: after a clamped forward seek, did playback continue without stalling? | **not taken** |
+| If it stalled, how long before the picture came back | **not taken** |
+
+**What it closes.** `useRevealOnKey.ts:5-9` says of the first in as many words: *"A guess, not a
+measurement — no reading from the set informs it"*, and it is a named constant the caller may
+override precisely so this row can change it. `_player/seekBoundary.ts`'s `SEEK_MARGIN_S = 15` is
+reasoned from the backend's 1 MiB chunk reads and a 1080p bitrate — which is arithmetic over two
+estimates, not a measurement — and gate 3 only covers the far-seek *refusal*, not whether a seek
+the clamp **allowed** actually keeps playing. A margin that is too small is a 300-second
+mid-stream hold with the status code already spent (hazard 9); too large and the last minutes of a
+downloading title are needlessly unreachable.
+
+Like row 12 this is partly a judgement. Record it in words and say so.
 
 ---
 

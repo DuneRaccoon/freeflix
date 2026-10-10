@@ -24,6 +24,7 @@ import type { StreamingInfo, StreamingProgress, TorrentStatus, VideoFile } from 
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
+import { PROGRESS_CADENCE_MS } from '../../../_data/useWatchProgress';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import WatchPage from './page';
 
@@ -160,6 +161,15 @@ const httpError = (status: number, detail?: string) =>
 
 const NOT_READY = 'Video file not found or not ready for streaming';
 
+/**
+ * The route's own re-measure cadence, copied rather than imported: Next validates a page
+ * module's exports and rejects anything but its own known fields, so `page.tsx` cannot hand
+ * this to its test. The copy is self-pinning in the direction that matters — every row below
+ * advances this plus a margin and then asserts the ask HAPPENED, so a page that waited longer
+ * than this would go red here.
+ */
+const INFO_REFRESH_MS = 10_000;
+
 // --- DOM helpers -------------------------------------------------------------------
 
 const ring = () => Array.from(document.querySelectorAll('[tabindex="0"]'));
@@ -185,6 +195,28 @@ const down = () => press({ key: 'ArrowDown' });
 const up = () => press({ key: 'ArrowUp' });
 const ok = () => press({ key: 'Enter' });
 
+/**
+ * Make `/info` answer normally until `fail()` is called, then reject with `err`.
+ *
+ * The periodic re-measure is the one call this route makes REPEATEDLY, so "what a transient
+ * failure of it does" is a question only a per-call stub can ask.
+ */
+function infoThatCanFail(answer = infoRow()) {
+  let failing: unknown = null;
+  svc.getStreamingInfo.mockImplementation(async () => {
+    if (failing) throw failing;
+    return answer;
+  });
+  return {
+    fail: (err: unknown) => {
+      failing = err;
+    },
+    heal: () => {
+      failing = null;
+    },
+  };
+}
+
 /** One `act()` per slice; see the header. */
 async function tick(ms: number, slices = 4) {
   for (let i = 0; i < slices; i++) {
@@ -194,7 +226,13 @@ async function tick(ms: number, slices = 4) {
   }
 }
 
-/** Give the element the two properties jsdom leaves unusable, then announce metadata. */
+/**
+ * Give the element the two properties jsdom leaves unusable, then announce metadata.
+ *
+ * `at()` reads whatever element is on screen NOW, not the one that was wired: a closure over
+ * the original node keeps answering its last value after a remount, which would make every
+ * "did the playhead move?" assertion vacuous in exactly the case that matters.
+ */
 function wire(el: HTMLVideoElement, { duration = 2400 } = {}) {
   let t = 0;
   Object.defineProperty(el, 'currentTime', {
@@ -206,7 +244,7 @@ function wire(el: HTMLVideoElement, { duration = 2400 } = {}) {
   });
   Object.defineProperty(el, 'duration', { configurable: true, get: () => duration });
   return {
-    at: () => t,
+    at: () => (video() === el ? t : (video()?.currentTime ?? Number.NaN)),
     seek: (v: number) => {
       t = v;
     },
@@ -300,6 +338,14 @@ describe('arriving', () => {
     expect.soft(el.getAttribute('preload')).toBe('metadata');
     // No tabindex on the element itself; the ring belongs to the controls.
     expect.soft(el.hasAttribute('tabindex')).toBe(false);
+    // THE RENDER SIDE OF THE STYLESHEET PIN. `playerCss.test.tsx` proves the rule exists;
+    // only this proves the route asks for it. Renaming the class to `bs-player__vidoe` left
+    // `test:tv` at 55/1319 and `tsc` clean, while on the television the picture stopped being
+    // full-bleed behind the band. Same for the scrim and the band itself.
+    expect.soft(el.className).toBe('bs-player__video');
+    expect.soft(document.querySelector('.bs-player')).not.toBeNull();
+    expect.soft(document.querySelector('.bs-player__scrim')).not.toBeNull();
+    expect.soft(document.querySelector('.bs-player__bar')).not.toBeNull();
   });
 
   it('?file=0 reaches the src as file_index=0', async () => {
@@ -418,6 +464,113 @@ describe('arriving', () => {
     // ...and the ring lands on the transport row, not the scrub bar: the scrub row is
     // declared first but renders nothing until `loadedmetadata`.
     expect.soft(ring()[0]?.textContent).toMatch(/Pause|Play/);
+  });
+});
+
+// ===================================================================================
+// 1b. A failed re-measure is not an arrival
+// ===================================================================================
+
+describe('a transient /info failure while playing', () => {
+  /** Playing, 20 minutes in, with a progress row and one heartbeat already written. */
+  async function twentyMinutesIn() {
+    nav.search.current = new URLSearchParams('file=0');
+    svc.getProgressByMovie.mockResolvedValue(progressRow({ current_time: 1200 }));
+    const info = infoThatCanFail();
+    const handle = await playing();
+    expect(handle.at(), 'the resume landed').toBe(1200);
+    await act(async () => {
+      fireEvent.timeUpdate(video()!);
+    });
+    await tick(PROGRESS_CADENCE_MS);
+    expect(svc.saveProgress.mock.calls.map(([, p]) => p.current_time)).toEqual([1200]);
+    return { ...handle, info };
+  }
+
+  it('does not take the picture away, does not rewind it, and does not overwrite the saved row', async () => {
+    // THE WHOLE OF C1, as the branch review proved it: one 503 on the 10s re-measure made
+    // `playable` false, which — because `downloading` IS a PREPARING state — landed the phase
+    // ladder on 'preparing' and UNMOUNTED the player. It remounted seconds later, the fresh
+    // one-shot seeked to the ARRIVAL-time resume value (0 on a fresh watch), and the next
+    // heartbeat wrote the replayed position over the real one: `[1200]` became `[1200, 6]`.
+    const { at, info } = await twentyMinutesIn();
+    const el = video();
+
+    info.fail(httpError(503));
+    await tick(INFO_REFRESH_MS + 500);
+
+    expect.soft(video(), 'the player is still mounted').not.toBeNull();
+    expect.soft(video(), 'and it is the SAME element — no remount').toBe(el);
+    expect.soft(document.body.textContent).not.toMatch(/Loading this title/);
+    expect.soft(at(), 'the playhead did not move').toBe(1200);
+
+    // And the record is intact: the next write is still where the viewer is.
+    await tick(PROGRESS_CADENCE_MS);
+    const written = svc.saveProgress.mock.calls.map(([, p]) => p.current_time);
+    expect.soft(written.every((t) => t >= 1200)).toBe(true);
+    expect.soft(written).not.toContain(0);
+  });
+
+  it('keeps the measurement it already has: a failed re-measure is not a measurement of nothing', async () => {
+    // The other half of the fix, and the one that isolates it from the latch. A failed
+    // REFRESH says nothing about the download, so the last good run still stands — and the
+    // run only ever grows, so it is a safe subset of the truth. Dropping it to `null` would
+    // read as "nobody measured" and go UNBOUNDED, permitting exactly the seek past the
+    // frontier that hangs the stream for 300s with the status code already spent (hazard 9).
+    const { seek, at, info } = await twentyMinutesIn();
+    info.fail(httpError(500));
+    await tick(INFO_REFRESH_MS + 500);
+
+    seek(1400);
+    await act(async () => {
+      fireEvent.timeUpdate(video()!);
+    });
+    await act(async () => {
+      fireEvent.click(cell('Forward 1 min'));
+    });
+    // Still the measured ceiling: 1.2 GB of 2 GB over 2400s, less the 15s margin.
+    expect(at()).toBe(1425);
+  });
+
+  it('asks again on the next tick, and carries on when the box answers', async () => {
+    const { info } = await twentyMinutesIn();
+    info.fail(httpError(503));
+    await tick(INFO_REFRESH_MS + 500);
+    const asked = svc.getStreamingInfo.mock.calls.length;
+    info.heal();
+    await tick(INFO_REFRESH_MS + 500);
+    expect.soft(svc.getStreamingInfo.mock.calls.length).toBeGreaterThan(asked);
+    expect.soft(video()).not.toBeNull();
+  });
+
+  it('a new torrent id starts afresh: the previous title’s playhead does not follow it', async () => {
+    // The App Router renders the same component for a different dynamic param, so this
+    // screen's state survives a watch -> watch navigation. The live playhead now wins over
+    // the arrival-time resume value (so a remount cannot rewind the viewer), which means the
+    // playhead MUST be cleared with the arrival or the new title would be seeked to the old
+    // one's position — and the heartbeat would then write that under the new title's id.
+    const { view, at } = await twentyMinutesIn();
+    expect(at()).toBe(1200);
+
+    svc.getProgressByMovie.mockResolvedValue(null);
+    nav.params.current = { id: 'other' };
+    await act(async () => {
+      view.rerender(<WatchPage />);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    const next = await metadata();
+    expect.soft(video()!.getAttribute('src')).toContain('/other/video');
+    expect.soft(next.at(), 'the new title starts at its own beginning').toBe(0);
+  });
+
+  it('a torrent that really is gone still takes the player down', async () => {
+    // The latch is not a licence to keep playing a deleted file: "Torrent not found" is the
+    // one answer `/info` gives that means the torrent itself has gone, and it is terminal.
+    const { info } = await twentyMinutesIn();
+    info.fail(httpError(404, 'Torrent not found'));
+    await tick(INFO_REFRESH_MS + 500);
+    expect.soft(video()).toBeNull();
+    expect.soft(document.body.textContent).toMatch(/isn’t on the box any more/);
   });
 });
 
@@ -633,6 +786,28 @@ describe('the control surface', () => {
     expect.soft(window.HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1);
   });
 
+  it('the remote’s ▶ does not stop a playing title, and ⏸ does not start a paused one', async () => {
+    // Measured before the split: with the title playing, a Play press called `pause()` once.
+    // `useMediaKeys` distinguishes three actions and the one consumer collapsed all three
+    // onto the toggle. 415 is MediaPlay, 19 is VK_PAUSE.
+    await playing();
+    press({ key: 'Unidentified', keyCode: 415 });
+    expect.soft(window.HTMLMediaElement.prototype.pause, '▶ while playing').not.toHaveBeenCalled();
+    press({ key: 'Unidentified', keyCode: 19 });
+    expect.soft(window.HTMLMediaElement.prototype.pause, '⏸ while playing').toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.pause(video()!);
+    });
+    const plays = vi.mocked(window.HTMLMediaElement.prototype.play).mock.calls.length;
+    press({ key: 'Unidentified', keyCode: 19 });
+    expect.soft(window.HTMLMediaElement.prototype.pause, '⏸ while paused').toHaveBeenCalledTimes(1);
+    press({ key: 'Unidentified', keyCode: 415 });
+    expect.soft(
+      vi.mocked(window.HTMLMediaElement.prototype.play).mock.calls.length,
+      '▶ while paused',
+    ).toBe(plays + 1);
+  });
+
   it('a forward jump is bounded by the download, not by the press', async () => {
     const { seek } = await playing();
     seek(1400);
@@ -685,6 +860,28 @@ describe('the control surface', () => {
     vi.unstubAllGlobals();
   });
 
+  it('a request the box rejects as nonsense is not retried, and offers no Retry to press', async () => {
+    // `badRequest` (422/416) is structurally unreachable from here — the probe is a HEAD with
+    // no Range, and `fileIndex`/`streamSrc` guarantee the index is decimal digits or absent —
+    // so this is defence in depth. But if it ever fires it must be COHERENT: four retries of
+    // a request the server has already rejected as nonsense are four pointless deadline
+    // recomputes, and a focusable "Try again" beside a sentence that says to press Stop is
+    // two controls one of which the message tells the viewer not to use.
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 422 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await playing();
+    const before = screen.getAllByRole('button').length;
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    await tick(12_000);
+    expect.soft(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect.soft(screen.getAllByRole('button')).toHaveLength(before);
+    expect.soft(window.HTMLMediaElement.prototype.load).not.toHaveBeenCalled();
+    expect.soft(document.body.textContent).toMatch(/Press Stop/);
+    vi.unstubAllGlobals();
+  });
+
   it('Stop flushes and then leaves, rather than navigating from inside the cell', async () => {
     const { seek } = await playing();
     seek(1000);
@@ -697,6 +894,87 @@ describe('the control surface', () => {
     expect.soft(svc.saveProgress).toHaveBeenCalled();
     expect.soft(svc.saveProgress.mock.calls[0][1].current_time).toBe(1000);
     expect.soft(nav.replace).toHaveBeenCalledWith('/bigscreen');
+  });
+});
+
+// ===================================================================================
+// 4b. A recovery, and what it may not do to a seek the viewer made
+// ===================================================================================
+
+describe('during a recovery', () => {
+  /** Playing, 20 minutes in, with the ladder's first rung about to fire. */
+  async function recovering() {
+    nav.search.current = new URLSearchParams('file=0');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(null, { status: 503, headers: { 'Retry-After': '2' } })),
+    );
+    const handle = await playing();
+    handle.seek(1200);
+    await act(async () => {
+      fireEvent.timeUpdate(video()!);
+    });
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    // The 503's Retry-After (2s) wins over the ladder's first rung (1s).
+    await tick(2500);
+    expect(window.HTMLMediaElement.prototype.load, 'the ladder reloaded').toHaveBeenCalled();
+    return handle;
+  }
+
+  it('takes the scrub row away and the pending edit with it', async () => {
+    // Task 8 wrote `ScrubBar`'s render-phase reset for exactly this, but the premise was
+    // false in this composition: the route's `duration` STATE was only written by
+    // `onLoadedMetadata`, so `load()` never took it to NaN, the row never went away and the
+    // reset never fired. Measured: the cell still read "OK jumps to 20:10" throughout a
+    // recovery, and an OK pressed then was silently undone by the engine's playhead restore.
+    nav.search.current = new URLSearchParams('file=0');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(null, { status: 503, headers: { 'Retry-After': '2' } })),
+    );
+    const { seek } = await playing();
+    seek(1200);
+    await act(async () => {
+      fireEvent.timeUpdate(video()!);
+    });
+    // Open an edit on the scrub cell.
+    up();
+    right();
+    expect.soft(document.querySelector('.bs-player__scrub')?.textContent).toMatch(/OK jumps to/);
+
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    await tick(2500);
+
+    // The row is gone, so there is nothing for OK to commit against a duration that no
+    // longer exists.
+    expect.soft(document.querySelector('.bs-player__scrub'), 'the scrub row went away').toBeNull();
+
+    // And when metadata comes back, so does the row — WITHOUT the edit.
+    await metadata();
+    const scrub = document.querySelector('.bs-player__scrub');
+    expect.soft(scrub, 'the row came back').not.toBeNull();
+    expect.soft(scrub?.textContent).toMatch(/Left or Right chooses a time/);
+    expect.soft(scrub?.textContent).not.toMatch(/OK jumps to/);
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps a seek the viewer made, rather than letting the restore undo it', async () => {
+    // The engine captures the playhead BEFORE `load()` and restores it on the next
+    // `loadedmetadata`. A press in that window is newer than the capture.
+    const { at } = await recovering();
+    await act(async () => {
+      fireEvent.click(cell('Back 10s'));
+    });
+    expect.soft(at(), 'the press landed').toBe(1190);
+    await act(async () => {
+      fireEvent.loadedMetadata(video()!);
+    });
+    expect.soft(at(), 'and the restore did not reverse it').toBe(1190);
+    vi.unstubAllGlobals();
   });
 });
 
@@ -739,14 +1017,43 @@ describe('what it records', () => {
   it('a resume the download has not reached is reduced, and the reduction is on screen', async () => {
     nav.search.current = new URLSearchParams('file=0');
     svc.getProgressByMovie.mockResolvedValue(progressRow({ current_time: 2000 }));
-    const { at } = await playing();
+    const { at, seek } = await playing();
     // The run ends at 1.2 GB of 2 GB over 2400s = 1440s, less the margin = 1425. Seeking to
     // the asked 2000 would put the playhead past the download frontier and hang the stream
     // where no status code is left to say so.
     expect.soft(at()).toBe(1425);
-    // And it is a sentence, not a silence: a player that quietly starts somewhere else is
-    // the lying-label defect this surface refuses.
-    expect.soft(document.body.textContent).toMatch(/23:45/);
+    // AND IT IS A SENTENCE, NOT A SILENCE. Asserted against the note itself, not against the
+    // body text: `/23:45/` alone was satisfied by the scrub cell's own readout ("23:45 of
+    // 40:00"), so the whole `setResumeNote` block could be deleted with the suite still green
+    // — the eighth test on this branch that could not fail.
+    const note = screen.getByText(/^Carrying on from/);
+    expect.soft(note.className).toBe('bs-player__hint');
+    expect.soft(note.textContent).toMatch(/Carrying on from 23:45/);
+    expect.soft(note.textContent).toMatch(/hasn’t reached 33:20/);
+
+    // And it survives the event that used to clear it. `playing` follows `loadedmetadata` by
+    // a frame or two on a healthy start, so clearing the note there left it on screen for
+    // well under a second at three metres.
+    await act(async () => {
+      fireEvent.playing(video()!);
+    });
+    expect.soft(screen.getByText(/^Carrying on from/)).toBeTruthy();
+
+    // It goes on its own, so it does not sit over the film for the rest of the title — and
+    // the band, which this message was suppressing, can fade again afterwards.
+    //
+    // THE PLAYHEAD HAS TO KEEP MOVING through this wait, and that is not decoration: with it
+    // frozen, the stall watcher escalates after ~2s and "Buffering…" takes over the one line
+    // by PRECEDENCE. The note then looks gone while still being set, and a mutation that
+    // never clears it passes. Measured: it did.
+    for (let i = 1; i <= 9; i++) {
+      at() >= 0 && seek(1425 + i);
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+    }
+    expect.soft(screen.queryByText(/^Carrying on from/), 'cleared, not masked').toBeNull();
+    expect.soft(document.querySelector('.bs-player__hint')?.textContent ?? '').not.toMatch(/Buffering/);
   });
 
   it('an unmeasured boundary resumes exactly where the viewer left off', async () => {

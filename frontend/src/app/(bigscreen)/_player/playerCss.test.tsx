@@ -56,6 +56,39 @@ describe('bigscreen.css, as the player relies on it', () => {
     expect(rule('.bs-controls')).toMatch(/flex-wrap:\s*wrap/);
   });
 
+  it('.bs-player__video is the picture, and it is full-bleed behind everything else', () => {
+    // THE ONE CLASS THE CATCH-ALL BELOW CANNOT SEE, because that row renders the two
+    // components and the route's band is not a component it can mount (a page file may not
+    // export one). Renaming it in the route to `bs-player__vidoe` left `test:tv` at 55/1319
+    // and `tsc` clean — while on the television the film loses `position: absolute`,
+    // `inset: 0`, `z-index: -1` and `object-fit: contain` and becomes an in-flow child of a
+    // `justify-content: flex-end` column: the picture at its intrinsic size, above the band,
+    // not behind it. The render side of this pin is in the route's own suite, which has the
+    // element in hand (`plays the file the URL named`).
+    const body = rule('.bs-player__video');
+    expect.soft(body).toMatch(/position:\s*absolute/);
+    expect.soft(body).toMatch(/inset:\s*0/);
+    expect.soft(body).toMatch(/z-index:\s*-1/);
+    // contain, never cover: a TV release is not the panel's aspect ratio and cropping the
+    // frame is not this surface's call to make.
+    expect.soft(body).toMatch(/object-fit:\s*contain/);
+    expect.soft(body).not.toMatch(/object-fit:\s*cover/);
+  });
+
+  it('every class the route mounts on the band has a rule, not only the two components', () => {
+    // Same reason: the catch-all row renders ScrubBar and TransportBar. These are the names
+    // the ROUTE writes, listed once here so a rule renamed in the stylesheet is caught.
+    const missing = [
+      '.bs-player',
+      '.bs-player__video',
+      '.bs-player__scrim',
+      '.bs-player__bar',
+      '.bs-player__bar--hidden',
+      '.bs-player__hint',
+    ].filter((name) => !hasRule(name));
+    expect(missing, `no rule for ${missing.join(', ')}`).toEqual([]);
+  });
+
   it('.bs-player isolates, so its own focus ring is not painted over', () => {
     // Absolutely positioned children paint OVER their parent's outline. That already cost
     // this stylesheet its one full-bleed focus stop (`.bs-hero`, found by rendering at

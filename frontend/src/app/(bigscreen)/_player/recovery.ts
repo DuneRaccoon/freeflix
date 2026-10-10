@@ -69,6 +69,19 @@ export interface Recovery {
   attempt(afterMs?: number): void;
   /** Playback is running again: re-arm the ladder and the exhaustion latch. */
   noteHealthy(): void;
+  /**
+   * The VIEWER chose a position. Drops a pending playhead restore and nothing else.
+   *
+   * The restore captures `currentTime` BEFORE `load()`, and `loadedmetadata` can arrive long
+   * after. A seek the viewer makes in that window is newer evidence than the capture, and
+   * without this the restore silently undoes it: the branch review measured a transport press
+   * during a recovery taking the playhead to 21:00 and the restore putting it back to 20:00 —
+   * a control that promised a jump, a press that took it, and a result that reversed it.
+   *
+   * It does NOT touch the ladder or the exhaustion latch: the stream is still broken and the
+   * reload is still wanted. A seek is not evidence of health.
+   */
+  noteSeek(): void;
   /** A new src is being loaded: reset, and do the cleanup's two jobs. */
   noteSourceChange(): void;
   /** Permanent teardown. Does the two jobs and refuses to schedule anything after. */
@@ -152,6 +165,13 @@ export function createRecovery({ getVideo, onStatus, debug }: RecoveryOptions): 
       cancelPending();
       say({ kind: 'scheduled', attempt: attempts, delayMs });
       timer = setTimeout(reload, delayMs);
+    },
+
+    noteSeek() {
+      if (disposed) return;
+      // Only the one-shot. The scheduled reload stays: the viewer moving the playhead says
+      // nothing about whether the stream came back.
+      if (detach) detach();
     },
 
     noteHealthy() {

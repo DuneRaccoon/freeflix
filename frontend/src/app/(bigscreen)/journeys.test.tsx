@@ -68,6 +68,7 @@ import PairPage from './bigscreen/pair/page';
 import ProfilesPage from './bigscreen/profiles/page';
 import SearchPage from './bigscreen/search/page';
 import ShowPage from './bigscreen/show/[id]/page';
+import WatchPage from './bigscreen/watch/[id]/page';
 
 // --- the surface's one router and one param bag ------------------------------------
 //
@@ -245,17 +246,22 @@ function routeFor(path: string): Route | null {
 const pathOf = (href: string) => href.split('#')[0].split('?')[0];
 
 /**
- * THE ONE EXEMPTION, and its reason.
+ * THERE IS NO EXEMPTION ANY MORE, and that is the point of this note.
  *
- * `/bigscreen/watch/{id}` is STAGE 7. Play, Resume, Open and a resume card all navigate
- * there today and land on the `[...rest]` catch-all, which says so honestly and keeps a focus
- * target — that screen exists precisely so a card press cannot strand a remote. Exempting the
- * prefix is therefore correct; leaving it un-exempted would fail this test for the wrong
- * reason, and dropping the catch-all distinction to make it pass would make the test vacuous.
- * `watchIsStillTheCatchAll` below fails the day stage 7 lands, which is when this comes out.
+ * `/bigscreen/watch/{id}` used to be exempt: Play, Resume, Open and a resume card all
+ * navigated there and landed on the `[...rest]` catch-all, which said so honestly and kept a
+ * focus target. Stage 7 built the route, so the exemption and the test that pinned its reason
+ * (`watchIsStillTheCatchAll`) are both gone and every producer now goes through the same
+ * assertion. Four sites referred to that regex, not the two the deleted test's own comment
+ * named; the fourth was the home-card branch at the bottom of this file, which is now an
+ * ordinary `expectBuiltRoute` call.
+ *
+ * WHAT MUST NOT HAPPEN NEXT: relaxing `expectBuiltRoute` — dropping the catch-all
+ * distinction, or re-adding a prefix exemption for a route someone has not built yet —
+ * because then every href in this file "resolves to a route that exists" trivially and the
+ * whole file is vacuous. If a future stage needs a placeholder again, it exempts ONE prefix
+ * and pins the reason with a test that fails the day the route lands.
  */
-const STAGE_7_WATCH = /^\/bigscreen\/watch\/[^/]+$/;
-
 interface Produced {
   /** Where the href came from, so a failure names the producer and not just the URL. */
   source: string;
@@ -268,13 +274,6 @@ function expectBuiltRoute({ source, href }: Produced) {
   const path = pathOf(href);
   const route = routeFor(path);
   expect(route, `${source}: ${href} matches no route under (bigscreen)/bigscreen/`).not.toBeNull();
-  if (STAGE_7_WATCH.test(path)) {
-    // Deliberately the catch-all; see STAGE_7_WATCH.
-    expect(route!.file, `${source}: ${href} should land on the catch-all until stage 7`).toBe(
-      CATCH_ALL!.file,
-    );
-    return;
-  }
   expect(
     route!.file,
     `${source}: ${href} resolves ONLY to the catch-all — nothing builds that screen`,
@@ -473,6 +472,14 @@ beforeEach(() => {
 type BackClaim =
   /** Claims Back and goes home. */
   | 'navigates-home'
+  /**
+   * Claims Back as an ESCALATION whose level is derived from state: collapse what is on
+   * screen, then leave — and leave by `replace`, because a pushed watch URL leaves a dead
+   * history entry pointing at a torrent that may be gone. In its FIRST state there is
+   * nothing to collapse, so the first press already leaves; the collapse rungs need a
+   * playing player and are asserted separately below.
+   */
+  | 'escalating'
   /** Claims Back and deliberately does nothing with it (stage 10 owes both a real exit). */
   | 'claimed-but-inert'
   /** Does not claim Back at all. */
@@ -496,8 +503,12 @@ interface ScreenCase {
 const SCREENS: readonly ScreenCase[] = [
   {
     file: 'bigscreen/[...rest]/page.tsx',
-    path: '/bigscreen/watch/t1',
-    params: { rest: ['watch', 't1'] },
+    // A GENUINELY UNBUILT PATH. This used to be `/bigscreen/watch/t1`, which stage 7 turned
+    // into a real route — so the case would have been mounting the catch-all at a path the
+    // catch-all no longer serves, and the one screen whose whole job is "nothing is built
+    // here" would have been exercised against something that is.
+    path: '/bigscreen/nothing-built-here',
+    params: { rest: ['nothing-built-here'] },
     Page: CatchAllPage,
     back: 'navigates-home',
     lock: null,
@@ -576,6 +587,23 @@ const SCREENS: readonly ScreenCase[] = [
     Page: SearchPage,
     back: 'navigates-home',
     lock: null,
+  },
+  {
+    file: 'bigscreen/watch/[id]/page.tsx',
+    path: '/bigscreen/watch/t1',
+    params: { id: 't1' },
+    Page: WatchPage,
+    back: 'escalating',
+    // `useSearchParams` is mocked (above) as a fresh EMPTY URLSearchParams, so every case in
+    // this file exercises the BARE arrival — the `unresolvedEpisode` path. `?file=` is
+    // covered by the screen's own suite, which can vary the query.
+    lock: () => {
+      // Far enough for the one profile-scoped call the player makes: the resume read, which
+      // is keyed on the content id the torrent row and `/files` produce between them.
+      vi.mocked(torrentsService.getTorrentStatus).mockResolvedValue(packRow());
+      vi.mocked(streamingService.getFiles).mockResolvedValue([videoFile(0, 2, 1)]);
+      vi.mocked(streamingService.getProgressByMovie).mockRejectedValue(httpError(423));
+    },
   },
   {
     file: 'bigscreen/show/[id]/page.tsx',
@@ -667,12 +695,31 @@ describe('every href the TV can produce resolves to a route that exists', () => 
     expect(routeFor('/bigscreen/show/1399')?.file).toBe('bigscreen/show/[id]/page.tsx');
     // A static segment beats the catch-all, and a dynamic one beats it too.
     expect(routeFor('/bigscreen/search')?.file).toBe('bigscreen/search/page.tsx');
+    // Stage 7's route, which replaced this file's one exemption: a dynamic segment beats the
+    // catch-all, and that is the whole reason the exemption could be deleted rather than
+    // relaxed.
+    expect(routeFor('/bigscreen/watch/t1')?.file).toBe('bigscreen/watch/[id]/page.tsx');
     // Nothing builds this; only the catch-all answers. THIS is the shape a bad href has.
     expect(routeFor('/bigscreen/moviedetail/603')?.file).toBe(CATCH_ALL!.file);
     expect(routeFor('/bigscreen/watch/t1/deeper')?.file).toBe(CATCH_ALL!.file);
     // Off the surface entirely: the web's own routes are not ours to land on.
     expect(routeFor('/movies/603')).toBeNull();
     expect(routeFor('/')).toBeNull();
+  });
+
+  it('expectBuiltRoute itself rejects the catch-all, which is what keeps this file honest', () => {
+    // THE VACUITY TRAP, pinned directly. Everything below runs hrefs through
+    // `expectBuiltRoute`, so RELAXING it — dropping the catch-all distinction, or re-adding a
+    // prefix exemption — would leave every one of those tests green while checking nothing:
+    // `[...rest]` matches every path under /bigscreen, so "resolves to a route" is trivially
+    // true. Measured: with the distinction removed, the whole file still passed. These three
+    // rows are what fails instead.
+    expect(() =>
+      expectBuiltRoute({ source: 'vacuity', href: '/bigscreen/moviedetail/603' }),
+    ).toThrow();
+    expect(() => expectBuiltRoute({ source: 'vacuity', href: '/bigscreen/watch/t1/deeper' })).toThrow();
+    // ...and it still accepts the real thing, or it would "fail" for the wrong reason.
+    expect(() => expectBuiltRoute({ source: 'vacuity', href: '/bigscreen/watch/t1?file=0' })).not.toThrow();
   });
 
   it('the data-layer producers emit only built routes', async () => {
@@ -762,13 +809,6 @@ describe('every href the TV can produce resolves to a route that exists', () => 
     for (const href of hrefs()) expectBuiltRoute({ source: s.file, href });
   });
 
-  it('/bigscreen/watch is still the catch-all, which is the whole reason Play is exempt', () => {
-    // When stage 7 lands this fails, and that is the signal to delete STAGE_7_WATCH and its
-    // branch in expectBuiltRoute. Written the other way round — exempting the prefix with no
-    // pin on why — the exemption would quietly outlive its reason and hide a real dead end.
-    expect(routeFor('/bigscreen/watch/t1')?.file).toBe(CATCH_ALL!.file);
-    expect(ROUTES.map((r) => r.pattern)).not.toContain('/bigscreen/watch/[id]');
-  });
 });
 
 // ===================================================================================
@@ -799,7 +839,45 @@ describe('every screen that should claim Back does', () => {
     },
   );
 
-  it.each(SCREENS.filter((s) => s.back !== 'navigates-home'))(
+  it.each(SCREENS.filter((s) => s.back === 'escalating'))(
+    '$file: Back leaves by replace, never by push',
+    async (s) => {
+      mountScreen(s);
+      await waitFor(() => expect(stops().length).toBeGreaterThan(0));
+      back();
+      // Nothing is on screen to collapse in this state — no control band, no pending edit —
+      // so the first press is already the rung that leaves. What this file can see that the
+      // screen's own suite cannot is WHICH navigation it is: `navCalls()` merges push and
+      // replace, so the two buckets above cannot tell them apart.
+      expect(nav.replace).toHaveBeenCalledWith('/bigscreen');
+      expect(nav.push, 'a pushed watch URL leaves a dead entry behind').not.toHaveBeenCalled();
+    },
+  );
+
+  it('the player collapses its controls before it leaves, and a reveal resets the level', async () => {
+    // The escalation itself, which needs a PLAYING player: the generic case above mounts
+    // every screen with its services still out. A level COUNTED rather than derived would be
+    // at rung 2 after the first press, so the press after a reveal would leave the player
+    // while the controls were still on screen.
+    vi.mocked(torrentsService.getTorrentStatus).mockResolvedValue(packRow());
+    vi.mocked(streamingService.getFiles).mockResolvedValue([videoFile(0, 2, 1)]);
+    vi.mocked(streamingService.getProgressByMovie).mockResolvedValue(null);
+    mountScreen(screenFor('bigscreen/watch/[id]/page.tsx'));
+    await waitFor(() => expect(document.querySelector('video')).not.toBeNull());
+
+    back();
+    expect(document.querySelector('.bs-player__bar--hidden'), 'the band faded').not.toBeNull();
+    expect(navCalls()).toEqual([]);
+    // The band is still MOUNTED and still holds the ring: the hide is paint only.
+    expect(document.querySelector('.bs-player__bar')).not.toBeNull();
+    expect(ring()).toHaveLength(1);
+
+    back();
+    expect(nav.replace).toHaveBeenCalledWith('/bigscreen');
+    expect(nav.push).not.toHaveBeenCalled();
+  });
+
+  it.each(SCREENS.filter((s) => s.back !== 'navigates-home' && s.back !== 'escalating'))(
     '$file: Back does not navigate ($back)',
     async (s) => {
       mountScreen(s);
@@ -1011,8 +1089,11 @@ describe('a card press lands on a screen that accepts the id the card carried', 
         expect(await screen.findByRole('heading', { level: 1, name: `Show ${id}` })).toBeTruthy();
         view.unmount();
       } else {
-        // A home card that points anywhere else is a finding, not a case to add quietly.
-        expect(STAGE_7_WATCH.test(pathOf(href)), `home card to ${href}`).toBe(true);
+        // A home card pointing anywhere else used to be checked against the watch-prefix
+        // exemption; with that gone it goes through the general assertion, which is strictly
+        // stronger (it rejects the catch-all). DELETING this branch instead would have left
+        // `STAGE_7_WATCH` referenced nowhere and the resume card asserted by nothing.
+        expectBuiltRoute({ source: `home card`, href });
       }
     }
   });

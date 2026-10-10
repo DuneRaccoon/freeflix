@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FocusProps } from '../_focus/useFocusGrid';
 import { describeScrub, SCRUB_STEP_S } from './describeScrub';
 import { formatTime } from './formatTime';
@@ -77,6 +77,7 @@ export function ScrubBar({
   contiguous,
   step = SCRUB_STEP_S,
   onSeek,
+  onEditOpen,
 }: {
   /** The grid row this cell occupies; it is the only cell in it. */
   row: number;
@@ -91,6 +92,13 @@ export function ScrubBar({
   step?: number;
   /** OK pressed with an edit open: seek here. The only thing this component asks for. */
   onSeek: (seconds: number) => void;
+  /**
+   * Whether an edit is open, for the ROUTE's benefit. Back is an escalation whose level is
+   * DERIVED from state rather than counted — cancel the edit, then put the controls away,
+   * then leave — and a counter would walk the viewer two rungs after a reveal. The cancel
+   * itself stays here (`onBlur`, below): the route only has to know one is open.
+   */
+  onEditOpen?: (open: boolean) => void;
 }) {
   // Hooks before the conditional return: the row appears when `loadedmetadata` lands, and a
   // hook count that changed with it would be a React error rather than a missing row.
@@ -114,6 +122,12 @@ export function ScrubBar({
       }),
     );
   };
+
+  // Reported in an effect, never during render: the route turns it into state of its own.
+  const editOpen = pending !== null;
+  useEffect(() => {
+    onEditOpen?.(editOpen);
+  }, [editOpen, onEditOpen]);
 
   const commit = () => {
     if (!pending) return; // the label already says what Left and Right are for

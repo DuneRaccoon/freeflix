@@ -326,6 +326,88 @@ survives in component state unless it is dropped, which would let OK commit a po
 during the stall. `ScrubBar` resets it in the render phase (no effect: every hook must run before the
 row's conditional return).
 
+**Hazard 20 is wrong about this route: the missing-Suspense mutation CANNOT FAIL.** Task 9
+deleted the boundary and ran `npm run build`: it compiled, and the route came out as
+`ƒ /bigscreen/watch/[id]`. `[id]` is a dynamic segment with no `generateStaticParams`, so the
+page is rendered on demand and the `useSearchParams` bail-out only errors while STATICALLY
+PRERENDERING. The boundary stays — it is a one-line trap for whoever adds
+`generateStaticParams` or moves the screen to a static path, and its fallback is a real
+focusable screen for the shell to paint — but `npm run build` is not evidence for it, and the
+page says so.
+
+**`display: none` is invisible to the focus assertion, because jsdom does not blur.** The
+plan's headline mutation ("hide by `display:none` -> identical-`activeElement` fails") was
+measured and the four focus assertions all stayed GREEN: jsdom leaves `document.activeElement`
+on an element whose subtree is `display: none`. What actually reddens is the structural half —
+the band carries no `display`/`visibility`/`inert`/`hidden`/`aria-hidden` — plus
+`playerCss.test.tsx`'s rule assertion that `--hidden` sets `opacity: 0` and nothing else. Only
+a real browser blurs, so only a structural test can defend that rule here. **The other two
+mutations land on DIFFERENT HALVES of the one test**, exactly as the plan predicted: the
+constant-counts UNMOUNT fails the first half with `<body>` received (permanent, as described),
+and `rowCounts: [0]` passes the first half and fails the reveal with `.bs-player__scrub`
+received — "reset to `firstTarget`" in the flesh. This is the clearest case yet for
+`expect.soft` in a "one test, both modes" row.
+
+**A counting-Back mutation has to be written as a PURE counter or it survives.** The first
+attempt kept the derived `visible` check as a fall-through, so a reveal still re-armed the
+collapse and only the edit-cancel row went red. The discriminating shape replaces the whole
+ladder with `level === 1 ? hide : leave`; then the reveal row fails as the plan says.
+
+**`useWatchProgress` CANNOT LIVE IN `_player/`.** `engineContract.test.ts`'s "never routes a
+probe through apiClient" bans `@/services/streaming` and `@/services/api-client` in every
+non-test file in that directory, and a progress heartbeat is by definition an HTTP writer. It
+is `(bigscreen)/_data/useWatchProgress.ts`, beside `useTvProfile`, which imports a service for
+the same reason. The guard is not weakened and not shimmed around.
+
+**A flush in an unmount cleanup cannot read the element.** React detaches host refs during the
+mutation phase, before a passive cleanup runs, so `getVideo()` in the cleanup always answers
+`null` — and the unmount is the ONE exit that matters (a Back press fires neither
+`beforeunload` nor `pagehide`). Measured: the unmount flush wrote nothing. The playhead is
+therefore a VALUE the caller passes, not an element getter.
+
+**A `ready` flag written by an effect is a wrong-offset `/info` ask.** The caller arrives with
+no identity, so a resume-read `ready` set in an effect stays true for one commit after the
+content id appears — and the `/info` ask in that commit is anchored at byte 0 instead of the
+resume byte, which is precisely the defect the anchoring exists to prevent. Measured: that
+stale ask was real (two calls, the first bare). `useWatchProgress` therefore tags its answer
+with the key it answers and DERIVES `ready` in the render body; the route's test pins
+`getStreamingInfo` called exactly once.
+
+**Three signatures were missing and are now extended, additively.**
+`streamingService.getStreamingInfo` had no `at` parameter at all (task 3 added it to the
+backend), so the anchored ask was impossible; it now builds its params key by key, which keeps
+`fileIndex.test.ts`'s exact-match rows (`'/streaming/t-1/info', undefined` and
+`{ params: { file_index: i } }`) green. `saveProgress` had no way to carry `__allow401`; it
+takes `{ allow401 }`. And `ScrubBar` gained an optional `onEditOpen` report, because Back's
+first rung is "cancel the pending edit" and the route has no other way to know one is open —
+the cancel itself is still the cell's own `onBlur`, reached by a blur-and-refocus of the same
+element, so the ring does not move.
+
+**`title.ts` now EXPORTS `FINISHED_PCT`, `READY` and `PREPARING`.** The route reads all three
+and a second copy is how one screen navigates to a player that then refuses, or a row is
+marked complete at one threshold and judged resumable at another.
+
+**The vacuity trap needed a test of its own.** Relaxing `expectBuiltRoute` — dropping the
+catch-all distinction — left the WHOLE of `journeys.test.tsx` green; nothing in the file
+asserted the assertion. There is now a row that calls `expectBuiltRoute` directly on
+`/bigscreen/moviedetail/603` and `/bigscreen/watch/t1/deeper` and requires it to throw. Also
+confirmed: the delete instruction named two of FOUR sites, and the fourth (the home-card
+branch) is now an ordinary `expectBuiltRoute` call rather than a deletion.
+
+**Two jsdom facts the route's suite had to be written around.** `pause()` fires no `pause`
+event, so a label read from events — which is the contract, because `load()` sets `paused`
+with no event — can only be tested by delivering the event by hand. And `waitFor` with
+vitest's fake timers polls a clock nothing advances and dies at the 5s limit instead of
+failing on the assertion: the arrival is settled with four `await act(async () => {})` flushes
+instead, one per link of the chain (torrent row + `/files` -> resume read -> `/info`).
+
+**`/info` does serve the evicted torrent after task 2, so the state discriminator is about
+`/files` alone.** `get_video_info` calls the same `_lookup_video_file` the byte routes use, so
+a finished-and-evicted torrent answers 200 there; it is `/files` that still answers `200 []`.
+The rule the route implements is therefore "`finished`/`seeding` is playable whatever `/files`
+and `/info` say", which is strictly what the Corrections asked for and does not depend on
+`/info` having been fixed.
+
 ---
 
 **Standing guard from task 4 onward:** `npx vitest run src/components/player` reports its
@@ -981,7 +1063,7 @@ planned one. Extend `BackClaim` with a fourth **escalating** variant plus its as
 exercises the bare arrival; `?file=` is covered in `page.test.tsx`. Fix the catch-all's doc comment,
 already stale about `movie/{id}` and `show/{id}`.
 
-- [ ] **Step 1: the route and its children**, then `useWatchProgress`, then the journeys edits.
+- [x] **Step 1: the route and its children**, then `useWatchProgress`, then the journeys edits.
 
 **Mutate:** every reachable state has exactly one `[tabindex="0"]` and it **is**
 `document.activeElement`. Auto-hide keeps `document.activeElement` **identical by reference** across the

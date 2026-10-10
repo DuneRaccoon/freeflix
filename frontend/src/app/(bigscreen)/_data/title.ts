@@ -83,13 +83,26 @@ const LOCKED_REASON = 'This profile is locked. Enter its passcode to continue.';
 
 const QUALITY = '1080p' as const;
 
-/** Past this a film is finished, not resumable. Matches the web's cut-off. */
-const FINISHED_PCT = 95;
+/**
+ * Past this a film is finished, not resumable. Matches the web's cut-off.
+ *
+ * EXPORTED because the watch route's heartbeat writes `completed` and must use the SAME
+ * cut-off this file reads it back with: a row marked complete at one threshold and judged
+ * resumable at another is a title that is neither resumable nor watched, so the show screen
+ * never says "all caught up" and Continue Watching keeps offering it.
+ */
+export const FINISHED_PCT = 95;
 
-const READY = new Set(['finished', 'seeding']);
+/**
+ * The torrent states the watch route reads the same way this file does, exported for the
+ * same reason: two copies of "is this playable yet" is how one screen navigates to a player
+ * the player then refuses. `READY` is also the EVICTED case — `finished`/`seeding` with an
+ * empty `/files` means "playable straight off disk", never "this pack has no episodes".
+ */
+export const READY = new Set(['finished', 'seeding']);
 // checking/allocating are the first moments of a download that has just been added; leaving
 // them out would offer Play for a title that is already on its way and mint a second torrent.
-const PREPARING = new Set([
+export const PREPARING = new Set([
   'downloading',
   'downloading_metadata',
   'queued',

@@ -829,9 +829,17 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
        video.bs-player__video        absolute, z-index -1
        .bs-player__scrim             absolute, bottom-anchored, z-index -1
        .bs-player__bar[--hidden]     the band: carries the safe inset, fades by opacity
-         .bs-player__hint            the scrub cell's reserved status line
+         .bs-player__hint            the STREAM's line, when there is one to say (the route)
+         .bs-player__hint            the scrub cell's reserved status line (ScrubBar)
          .bs-player__row             the scrub row: one cell, full width
          .bs-player__row             the transport row: one cell per TRANSPORT_CELLS entry
+
+   TWO hint lines, not one, and they are the same class deliberately: the route's line (why the
+   stream stopped, what the ladder is doing, where a resume was reduced to) and the cell's line
+   (why a pending seek lands where it does) are the same geometry, and the band is
+   bottom-anchored, so either one wrapping grows the band UPWARDS and no control moves. Neither
+   is a focus stop. The route's line only exists while there is something to say, which is also
+   when the auto-hide is suppressed — so it cannot be faded out from under the viewer.
 
    NONE OF THIS IS DECORATION:
 

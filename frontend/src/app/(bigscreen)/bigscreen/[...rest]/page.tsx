@@ -8,11 +8,18 @@ import { useBackKey } from '../../_focus/useBackKey';
 /**
  * /bigscreen/<anything not built yet> — where Home's cards land until their screens exist.
  *
- * WHY THIS FILE EXISTS. Home's cards link to `/bigscreen/movie/{id}`, `/show/{id}` and
- * `/watch/{id}`, which a later stage builds. Without a route Next serves its bare built-in
- * 404 with no layout and no stylesheet; the TV page unmounts, taking its focus grid AND its
- * Back handler with it, and a remote has nothing left to press. One OK on any card would end
- * the session. This catch-all keeps the viewer inside `(bigscreen)` with something focused.
+ * WHY THIS FILE EXISTS. It was written when Home's cards linked to `/bigscreen/movie/{id}`,
+ * `/show/{id}` and `/watch/{id}` and none of those screens existed yet. All three are built
+ * now (the detail screens in stage 6, the player in stage 7), so nothing this surface
+ * produces lands here any more — `journeys.test.tsx` asserts exactly that, for every href
+ * every producer on the surface can emit.
+ *
+ * IT IS STILL LOAD-BEARING, for the two cases that are not a card press: a typo
+ * (`/bigscreen/profile`, one letter off `profiles`) and a stage that ships an href before its
+ * screen. Without a route Next serves its bare built-in 404 with no layout and no stylesheet;
+ * the TV page unmounts, taking its focus grid AND its Back handler with it, and a remote has
+ * nothing left to press. One OK would end the session. This keeps the viewer inside
+ * `(bigscreen)` with something focused.
  *
  * A static segment beats a catch-all, so `/bigscreen/pair`, `/diag` and `/profiles` are
  * untouched, and `/bigscreen` itself is `page.tsx` (a catch-all needs one segment).

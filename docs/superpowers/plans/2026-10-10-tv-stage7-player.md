@@ -106,6 +106,29 @@ stub and a docstring, because otherwise those 404s would quietly be asserting th
 exists in whatever database the process reaches. Five neighbouring streaming suites carry the same
 latent coupling, deliberately untouched and green.
 
+**A long `advanceTimersByTime` inside ONE `act()` cannot observe a re-render, and silently makes a
+dep-array mutation unfalsifiable.** React commits queued updates only when `act()` exits, so a host
+that re-renders from a 200ms interval never actually re-runs its effects if the whole span is advanced
+in a single `act()`. Task 5's single most important mutation — the callback moved into the interval
+effect's dep array — was **green** because of this. Fix: **one `act()` per slice**, plus a non-vacuity
+assertion that the hook really received many distinct closures (task 5 asserts >50). This is a general
+trap for every fake-timer test of a React interval in this repo; a targeted audit of the other
+fake-timer suites is **parked**, not done.
+
+**Three more test-infrastructure facts task 5 measured**, all worth copying rather than rediscovering:
+a listener tally must understand `{ once: true }`, because a naive add/remove count over-counts a
+one-shot that already fired — which is the exact state being asserted (copy its `trackListeners`);
+**React attaches its own listener for every media event to every `<video>` it creates**, whatever the
+props (12 calls for 4 names, measured) and removes none on unmount, so "registered once" can never be
+an absolute count; and **vitest unwinds `afterEach` in reverse registration order**, so a local
+`vi.runOnlyPendingTimers()` runs before testing-library's cleanup and fires a timer `setState` outside
+`act()` — wrap it.
+
+**A getter-not-element test needs the getter to have already been called.** Task 5's element-getter
+test was green under an element-caching mutation because it remounted the `<video>` before any
+`attempt()`, so the cache simply picked up the new node. **Spend one rung on the first element before
+the remount.**
+
 **`git checkout -- <file>` on a file you are also editing is a destructive restore, not a mutation
 undo.** It silently discarded task 1's own uncommitted handler, because HEAD had nothing to restore.
 It also **cannot restore an untracked file at all**, which bit task 7 and left a mutation in place for

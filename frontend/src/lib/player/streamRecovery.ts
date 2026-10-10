@@ -24,10 +24,18 @@
  *    by the recovery that triggered it. The TV will pass a predicate that never reads
  *    `video.paused`. The divergence lives in the callers; this module cannot see it.
  *
- * 2. `streamAdvice` takes `busy`. The web passes `true` unconditionally, so its
+ * 2. `streamAdvice` takes `busy`, and it gates BOTH branches. The web still shows
  *    "Waiting for peers (0 connected)" on a finished 0-peer title playing fine from
- *    disk is unchanged — a real, PARKED bug (`VideoPlayer.tsx` healthMessage). The TV
- *    passes the real value and does not inherit it.
+ *    disk — a real, PARKED bug (`VideoPlayer.tsx` healthMessage) — and the TV passes
+ *    the real value so it does not inherit it.
+ *    Do NOT read this as "the web passes `true` and consumes the verdict directly":
+ *    that was this header's original claim and it is wrong. The web gated its SLOW
+ *    branch on `isBuffering || isStalled` and its noPeers branch on nothing, so a bare
+ *    `true` would show "slow connection" during healthy playback. `busy` gating both
+ *    branches here is what lets `busy: false` + 0 peers answer 'none' (the row that
+ *    stops the TV inheriting the lie), and the `isBuffering || isStalled` conjunct
+ *    therefore STAYS at the web call site, on the slow branch only. Pinned by
+ *    `VideoPlayer.health.test.tsx` — removing that conjunct reddens exactly one row.
  *
  * 3. The escalation latch is a FIELD ON THE SAMPLE (`escalated`), cleared only by an
  *    explicit `resetStallSample()`. `stallStep` never clears its own latch from a

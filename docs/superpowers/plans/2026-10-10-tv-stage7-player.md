@@ -76,6 +76,36 @@ must not infer "still preparing" from the detail alone.** Use the torrent's own 
 empty-body contract, alongside `error_handler.py`'s JSON 500. Task 1 changed no hand-built status, so
 this stands; task 5's classifier reads those details and should know.
 
+**Task 2's "DB fallback" is really a *resume-data* fallback, and gate 3's rationale was inverted.**
+The plan specified `os.path.getsize(path) == stored_size`, but **`stored_size` does not exist in the
+database** — no path column, no per-file size (`sizes` is two human strings like `"1.5 GB"`), and
+nothing in `backend/app` walks a directory. The real source is `resume_data`:
+`lt.read_resume_data(decode_resume_data(blob)).ti` yields a full `torrent_info` **without touching the
+session**. A directory walk is the obvious shortcut and is **silently wrong on a season pack** —
+`?file_index=N` is a libtorrent index, and libtorrent orders files lexicographically and inserts pad
+files, so a video-only enumeration renumbers the episodes. Separately: a size check **cannot** detect a
+partial file in sparse storage mode (a high-offset write extends the file to full length with
+zero-reading holes), so the sparse case the plan used to justify gate 3 is caught by `progress >= 100`.
+**Gate 3's unique job is the truncated-or-replaced-on-disk case.** Both are needed, for different
+reasons, and both mutations fail independently.
+
+**`/files` answering `200 []` now has a third meaning, and task 9 must discriminate on state.** Task 2
+made a finished-and-evicted torrent streamable but deliberately did **not** fix `/files`, so after a
+restart a finished pack plays while its episode list is empty. The rule for task 9: read the torrent's
+state from `getTorrentStatus` alongside the empty list — `finished`/`seeding` + `200 []` means
+**evicted but playable**; a `PREPARING` state + `200 []` means **genuinely preparing**. It still never
+means "this pack has no episodes".
+
+**`wait_for_first_chunk` was already prepared for the evicted case** — its contract is "Torrent absent
+from the session AT ENTRY → True. It completed and was removed, so every byte is on disk" — so no
+second production change was needed there. The design notes understate how ready the code was.
+
+**Watch for test fixtures that stub one manager call and not the other.** `_resolve_video_file` now
+makes two. Task 2 extended `test_stream_status_matrix.py`'s `no_video_file` fixture with the second
+stub and a docstring, because otherwise those 404s would quietly be asserting that no row with that id
+exists in whatever database the process reaches. Five neighbouring streaming suites carry the same
+latent coupling, deliberately untouched and green.
+
 **`git checkout -- <file>` on a file you are also editing is a destructive restore, not a mutation
 undo.** It silently discarded task 1's own uncommitted handler, because HEAD had nothing to restore.
 It also **cannot restore an untracked file at all**, which bit task 7 and left a mutation in place for
@@ -754,10 +784,12 @@ already stale about `movie/{id}` and `show/{id}`.
 
 **Mutate:** every reachable state has exactly one `[tabindex="0"]` and it **is**
 `document.activeElement`. Auto-hide keeps `document.activeElement` **identical by reference** across the
-transition. `?file=0` reaches the src as `file_index=0`. `/files === []` renders preparing. Back once
+transition. `?file=0` reaches the src as `file_index=0`. `/files === []` renders preparing **only when the torrent's state is a `PREPARING` one** — with
+`finished`/`seeding` it means evicted-but-playable and must play, not poll (see Corrections). Back once
 hides with `navCalls() === []`; twice replaces to `/bigscreen`; held acts once.
 
-Then: hide by `display:none` → identical-activeElement fails; hide by `rowCounts: [0]` → the **same-cell**
+Then: `/files === []` with a `finished` state → renders preparing and polls forever (the regression
+task 2 handed over); hide by `display:none` → identical-activeElement fails; hide by `rowCounts: [0]` → the **same-cell**
 test fails (landing on row 0 col 0 — the mutation that distinguishes "restored" from "reset to
 `firstTarget`"); constant-counts unmount → fails permanently; count Back presses → reveal-then-Back walks
 two levels; `preload="auto"`; `tabIndex={0}` on the `<video>` → the one-ring count fails; delete the

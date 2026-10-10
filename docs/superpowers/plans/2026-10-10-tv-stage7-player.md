@@ -150,6 +150,53 @@ the viewer sees, and it is what makes a future sibling cell in that row unreacha
 double-acting — but **do not write its "most important mutation" expecting the ring to move**; assert
 the refusal reached the readout, and keep a two-cell fixture if you want the claim itself pinned.
 
+**"On the television" names thirteen rows in eight clauses, so two of them are two readings.** Task
+10 split the ones whose halves have *different consequences*, rather than splitting to reach a count:
+the key-code clause says "on keydown **and** keyup", and a button answering on only one phase is a
+hook that must change rather than a key that is missing (rows 4 and 5); and "auto-repeats, at what
+rate, and whether `e.repeat` is set" is a rate read off timestamps (row 6) and a flag read off the
+word `REPEAT` (row 7) — a set can repeat without flagging, which is the combination that breaks every
+"claimed but acts once" hook on the surface. The split is recorded in the sheet so the next reader
+does not re-derive it.
+
+**The instrument as specified could not fill one of its own rows.** The repeat-RATE reading needs
+times, and the key log had none — five changes were listed (keyup, persist, raise the cap,
+`mediaSession`, the no-title instruction) and a timestamp was not among them. Task 10 added
+`t=${Math.round(e.timeStamp)}` per line, which is the whole of that row's method: hold an arrow,
+subtract two consecutive values. The cap went to 60 with its reason written down (keydown + keyup for
+seven buttons plus four arrows is 22 lines before a single repeat, and at 12 the earliest press —
+usually Back, the one number the project needs — was silently pushed off the end by the presses that
+followed it).
+
+**Persistence creates a failure the plan did not name: the log now outlives the sitting.** A log that
+survives the navigation Back causes also survives the previous visit, so the operator cannot tell
+which lines belong to the press just made. A `Clear key log` control is therefore part of the
+persistence, not decoration — placed after the way-home link so the "first focus stop is the exit"
+test keeps passing. Related: `bigscreen/diag/page.test.tsx` had no `sessionStorage.clear()` in its
+`beforeEach`, and once the log persists, one test's presses are the next test's restored log.
+
+**Gate 1 is not a diag reading, and it needs the opposite `AUTH_ENABLED` to every other diag row.**
+The sitting is two halves and the plan reads as one. `/bigscreen/diag` must be browsed with
+`AUTH_ENABLED=false` (its own header says so, and with auth on its `GET /torrents/list` 401s and it
+never reaches a stream), while gate 1 is "pair the TV, leave `AUTH_ENABLED=true`, press Play" on a
+*real* player. Gate 1 needs no stage-7 route at all — the main web app's player answers "does the
+media pipeline send the cookie" — so it is takeable now, while rows 12 and 13 wait for tasks 8 and 9.
+Both halves read the same backend log: `middleware/error_handler.py:29,37` logs `METHOD /path` on
+entry and `METHOD /path - STATUS` on completion, so the 401-vs-206 and the HEAD-before-GET readings
+(row 9) need no devtools. Query strings are not logged, so no `Range` offset is readable there.
+
+**The `@allow-legacy-probes` pin is stronger than "set equality", which is worth knowing before
+editing that file.** Removing the marker reddens **three** assertions in `legacy-target.test.ts`, not
+one: the set-equality pin, the raw-source marker test (`:412`, which asserts the marker survives
+comment-stripping), and the GPU scan itself — the diag page's `backdrop-filter` probe becomes an
+offence the moment the file stops being exempt. Confirmed by mutation; the marker survived task 10's
+edit.
+
+**`_focus/useMediaKeys.ts:24` attributes this instrument to "stage 10".** It is stage 7, task 10, and
+it already exists; a reader following that comment would go looking in the webOS-shell stage for a
+page that is already on the surface. Left alone because task 10 is scoped to `bigscreen/diag/`, and
+recorded as a follow-up in the readings sheet.
+
 ---
 
 **Standing guard from task 4 onward:** `npx vitest run src/components/player` reports its

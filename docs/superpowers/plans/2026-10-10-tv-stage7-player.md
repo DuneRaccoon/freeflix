@@ -129,6 +129,50 @@ a pack episode, which is why the clamp lifts to the playhead. Also: `?at=` non-n
 FastAPI's **default** 422 body, because that path is outside `main.py`'s bare-422 scope — pinned,
 and `/info` is read by axios rather than by a decoder.
 
+**Task 6's own `!= null` → truthiness mutation CANNOT FAIL, because `fileIndex` reads a STRING.**
+`!'0'` is `false` — the string `'0'` is truthy — so `if (raw == null)` → `if (!raw)` is an
+*equivalent* rewrite: the only extra values it catches are `''` and `undefined`, which the reader
+already refuses. **Sixth test this plan specified that could not fail**, and the first one whose
+replacement had to be found rather than written. The file-0 hazard is real but lives at the two
+places the value is a **number**: `return n` → `return n || undefined` inside the reader (5 rows
+red, in all three groups), and `index !== undefined` → `index` inside `streamSrc` (3 rows red).
+`watchHref` itself is the number case, which is why *its* comment is right; a reader that mirrors
+the comment rather than the mechanism pins nothing.
+
+**A one-test-two-failure-modes seam needs `expect.soft`.** Both consumers receive the same value,
+so any escape breaks both halves — and with hard assertions the first failure ends the test before
+the axios half is ever evaluated, which leaves the SILENT escape (the one the plan says is worse)
+asserted by a line that never runs. Measured: the `return null` mutation reddened the URL
+assertion and stopped. With `expect.soft` throughout, the same mutation reports
+`?file_index=null` **and** `{ params: { file_index: null } }` in one test. General trap for every
+"one test, both modes" instruction in this plan.
+
+**`_player/` MAY NOT import `@/services/streaming`** — `engineContract.test.ts:220-221`, landed by
+task 5, bans it in every non-test file in that directory (apiClient's rejection interceptor
+hard-navigates to `/bigscreen/pair` from inside its own handler). So `streamSrc` **cannot delegate
+to `getStreamingUrl`** as task 6 implies. It is a deliberate copy with a **total** drift pin
+instead: `fileIndex.test.ts` value-imports the real `getStreamingUrl` and asserts byte equality
+over every id and every index the reader can produce — the `_data/railsDrift.test.ts` shape. Do not
+weaken the guard to delegate.
+
+**Task 6's seek ceiling has a FOURTH answer the plan did not name: the end of the title.** A
+`run_end === file_size` run (`run_end` is exclusive, so that is "every byte is here") has **no
+frontier ahead**, and subtracting the margin anyway makes the last `SEEK_MARGIN_S` seconds of a
+fully downloaded film unreachable. So `seekLimitSeconds` answers **`Number.POSITIVE_INFINITY`** for
+every unbounded case (unknown run, EOF run, `file_size <= 0`, no usable `duration`) rather than the
+duration, and `clampSeek` bounds the press by the duration separately with reason **`'end'`** — so
+"the download stops you here" and "the title ends here" never share a sentence. `SeekReason` is
+therefore **six** members: `rewind | within | unmeasured | clamped | atFrontier | end`. **Task 8's
+`describeScrub` must switch exhaustively over all six with `assertNever`**, and must check
+`Number.isFinite` before putting `seekLimitSeconds` on screen (`formatTime(Infinity)` is `'0:00'`,
+which reads as a measurement rather than an absence).
+
+**The playhead lift does not rescue "refuse to start" — only "yank backwards".** On arrival
+`currentTime` is 0, so `Math.max(limit, 0)` is `limit`: a resume seek to 50:20 measured against a
+run around byte 0 is still reduced. **Task 9 must ask `/info` with `at=` the byte under the
+INTENDED playhead**, not 0, or the resume seek on a pack episode is clamped by a measurement of
+the wrong part of the file. The clamp cannot fix a measurement taken at the wrong offset.
+
 **A long `advanceTimersByTime` inside ONE `act()` cannot observe a re-render, and silently makes a
 dep-array mutation unfalsifiable.** React commits queued updates only when `act()` exits, so a host
 that re-renders from a 200ms interval never actually re-runs its effects if the whole span is advanced

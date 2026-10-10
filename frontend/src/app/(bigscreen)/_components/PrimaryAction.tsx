@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { requestTitle, resumeTitle, type TitleAction } from '../_data/title';
 import { watchHref } from '../_data/watchHref';
+import { formatTime } from '../_player/formatTime';
 import type { FocusProps } from '../_focus/useFocusGrid';
 
 /**
@@ -31,14 +32,14 @@ function assertNever(x: never): never {
   throw new Error(`Unhandled title action: ${JSON.stringify(x)}`);
 }
 
-export function formatResumeTime(seconds: number): string {
-  const s = Math.max(0, Math.floor(Number(seconds) || 0));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
-}
+/**
+ * Moved to `_player/formatTime.ts` (shared with the player's readouts) and re-exported
+ * under its old name: this label has no total to pad against — the duration is not known
+ * on a detail screen — so it is `formatTime` with one argument, which is byte-identical to
+ * what this function did. `PrimaryAction.test.tsx` pins the name here and still runs its
+ * original table unedited.
+ */
+export { formatTime as formatResumeTime };
 
 export type Busy = 'starting' | 'resuming' | 'checking' | null;
 
@@ -58,7 +59,7 @@ export function describeAction(action: TitleAction, busy: Busy = null): ActionVi
     case 'play':
       return { label: busy === 'starting' ? 'Starting…' : busy === 'checking' ? 'Checking…' : 'Play' };
     case 'resume':
-      return { label: `Resume from ${formatResumeTime(action.atSeconds)}`, href: action.href };
+      return { label: `Resume from ${formatTime(action.atSeconds)}`, href: action.href };
     case 'open':
       return { label: 'Open', href: action.href };
     case 'preparing':
@@ -73,7 +74,7 @@ export function describeAction(action: TitleAction, busy: Busy = null): ActionVi
       return { label: busy === 'resuming' ? 'Resuming…' : 'Resume download' };
     case 'unresolvedEpisode':
       return {
-        label: action.atSeconds != null ? `Resume from ${formatResumeTime(action.atSeconds)} anyway` : 'Play anyway',
+        label: action.atSeconds != null ? `Resume from ${formatTime(action.atSeconds)} anyway` : 'Play anyway',
         href: action.href,
         note: UNRESOLVED_NOTE,
       };

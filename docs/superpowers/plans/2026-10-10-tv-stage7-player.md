@@ -78,7 +78,9 @@ this stands; task 5's classifier reads those details and should know.
 
 **`git checkout -- <file>` on a file you are also editing is a destructive restore, not a mutation
 undo.** It silently discarded task 1's own uncommitted handler, because HEAD had nothing to restore.
-Every remaining task does mutation testing: snapshot with `cp` and restore from the snapshot.
+It also **cannot restore an untracked file at all**, which bit task 7 and left a mutation in place for
+a full run. Every remaining task does mutation testing: snapshot with `cp` and restore from the
+snapshot, for new files as well as edited ones.
 
 **`nestedArrowClaim.test.tsx`, written on the layout task 8 specifies, CANNOT FAIL.** With the scrub
 cell alone in its row, deleting `useFocusGrid.ts:248`'s `if (e.defaultPrevented) return` leaves the
@@ -638,7 +640,13 @@ Then: `nowrap` → `wrap`; `pointer-events: none` on the hidden modifier → mus
 by a test, not by review); `transform: scale(1.06)` on the scrub focus rule; drop `isolation: isolate`;
 `backdrop-filter: blur(8px)` on the band → `test:tv` fails, **including the camelCase and Tailwind
 spellings**; a `:last-child` rule. Components: make the scrub `preventDefault` conditional → the
-at-the-ceiling test fails with the ring off the bar (**the most important mutation in the task**);
+at-the-ceiling test fails — but **not** by the ring moving: task 7 proved that on a **one-cell** row a
+horizontal press moves nothing whether it is claimed or not, because `move` never wraps left/right
+between rows (`model.ts:95-97`) and `go` returns at `useFocusGrid.ts:232` before `focus()`. So assert
+that **the refusal reached the readout** (`describeScrub`'s text), and pin the claim itself with a
+**two-cell** fixture, which is the smallest shape that can observe the hatch. Writing this mutation the
+way the plan originally described it produces a test that cannot fail (**still the most important
+mutation in the task** — just not the assertion the plan first named);
 `<button>` → `div role="slider"`; add a button without adding it to `TRANSPORT_CELLS` → count parity
 fails; prepend the Retry cell → the column-stability test fails; delete a `describeScrub` case →
 `npx tsc --noEmit` fails on `assertNever`; **delete the on-screen ±60s control → "every media-key action
@@ -864,7 +872,11 @@ reintroduced by a careless change:
 4. **The auto-hide dropping focus to `<body>`** — three distinct mechanisms, one of them permanent.
 5. **A second overlapping arrow handler.** First registered wins, and effects register child before
    parent, so the winner is not the one the author expects.
-6. **A conditional claim at the boundary** — the press at the ceiling falls through and the ring jumps
+6. **A conditional claim at the boundary.** (Mechanism corrected by task 7 — see Corrections. On the
+   one-cell scrub row the ring does **not** move, so the symptom is a silent refusal, not a visible
+   jump; the unconditional claim is still right, because it keeps the refusal the thing the viewer sees
+   and makes a future sibling in that row unreachable rather than double-acting.) Originally: the press
+   at the ceiling falls through and the ring jumps
    off the bar at the exact moment §7.4's refusal fires.
 7. **`api-client`'s 401 redirect taking the player out from under itself**, from inside the rejection
    interceptor, before any caller sees the error, with a module-scoped `redirecting` flag that is never

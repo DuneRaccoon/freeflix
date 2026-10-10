@@ -106,6 +106,30 @@ stub and a docstring, because otherwise those 404s would quietly be asserting th
 exists in whatever database the process reaches. Five neighbouring streaming suites carry the same
 latent coupling, deliberately untouched and green.
 
+**React fills `e.key` from `e.keyCode`, so "match the numeric keyCode too" is a no-op in a React
+handler.** Task 8 probed it: `{key:'Unidentified', keyCode:39}` reaches a React `onKeyDown` as
+`ArrowRight`, `{key:'', keyCode:37}` as `ArrowLeft`, legacy `'Right'` is normalised, and `461` is left
+alone. Both arrow codes are in React's table, so **no fixture can discriminate that branch** — it is
+kept only against the day the listener becomes native, which is where task 7's `window`-level hooks
+genuinely need it. Consequence recorded: two of `nestedArrowClaim.test.tsx`'s "by code only" rows do
+not isolate the code path (its `||` is satisfied by the name branch); the hatch proof itself is
+unaffected.
+
+**That conditional-claim mutation has three unfalsifiable shapes, all measured.** The ring cannot move
+on a one-cell row; `e.defaultPrevented` is true either way, because when the cell declines the grid
+claims the arrow in its place; and the keyCode branch is invisible under React. What *does*
+discriminate is the readout text plus a two-cell fixture — which is what task 8 shipped.
+
+**`.bs-msg` cannot carry the scrub status line; the plan's two instructions conflicted.** It has its own
+`var(--safe-x)`, so inside the band it double-insets by 96px a side — and mounting it outside means it
+survives the opacity hide and reads out an edit nobody can see. It is `.bs-player__hint`, copying the
+one load-bearing property (`min-height`), with both halves pinned by the stylesheet test. **Task 9: the
+band's child order is written into the CSS block.**
+
+**A recovery `load()` removes the scrub row mid-edit** by taking `duration` to NaN, and a pending edit
+would otherwise survive in state and stay committable by OK — a seek against a duration that no longer
+exists. Not in the plan; task 8 fixed it with a render-phase reset and its own mutation.
+
 **The `int(a/b)` mutation cannot fail at realistic sizes.** Integer division and float division
 agree exactly below 2^53 (~9 PB), so the plan's "off-by-one-sensitive at multi-gigabyte offsets" is
 wrong. Task 3 brute-forced piece lengths from 16 KiB to 16 MiB and found the smallest discriminating

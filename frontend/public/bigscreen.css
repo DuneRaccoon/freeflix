@@ -820,3 +820,155 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-list__toggle { border: 1px solid transparent; }
 .bs-list__toggle[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
 .bs-list__fail { color: var(--danger); }
+
+/* --- the player: video, scrim, band, transport row, scrub cell ----------------- */
+/* Rendered by _player/TransportBar and _player/ScrubBar inside the band the watch route
+   mounts. The shape the rules below assume, top to bottom:
+
+     .bs-player                      fixed, full-bleed, the film's own stacking context
+       video.bs-player__video        absolute, z-index -1
+       .bs-player__scrim             absolute, bottom-anchored, z-index -1
+       .bs-player__bar[--hidden]     the band: carries the safe inset, fades by opacity
+         .bs-player__hint            the scrub cell's reserved status line
+         .bs-player__row             the scrub row: one cell, full width
+         .bs-player__row             the transport row: one cell per TRANSPORT_CELLS entry
+
+   NONE OF THIS IS DECORATION:
+
+   - `isolation: isolate` on .bs-player. Absolutely positioned children paint OVER their
+     parent's own outline, and this element has two of them. That already cost this
+     stylesheet its one full-bleed focus stop once (see .bs-hero, found by rendering in
+     Chromium at 1920x1080, not by reading it).
+   - The scrim is scoped to the BAND, not the viewport. Fill rate over a decoding 1080p
+     surface is this screen's whole budget, and a full-viewport gradient is composited over
+     every frame of the film for its entire length. 480px covers the band — two 60px+ rows,
+     a reserved hint line, three 24px gaps and the 54px safe inset come to ~334px — and
+     leaves ~146px for the gradient to reach nothing.
+   - --hidden sets OPACITY ONLY (§8.3, hazard 4). `display: none`, `visibility: hidden`,
+     `inert` and unmounting all blur the focused control, and with the focus grid's counts
+     unchanged its reconcile effect never re-runs: the ring is gone for good on a surface
+     with no Tab key. `pointer-events: none` while a descendant has focus is banned
+     outright. The scrim and the hint hold no focus, so the route is free to unmount those.
+   - .bs-player__row is `flex-wrap: nowrap`. .bs-controls (the diag harness's row) wraps and
+     must not be borrowed: the focus model counts one row per container, so a container that
+     re-flowed would draw one focus row on two visual lines — Right would land on a control
+     on the next line and Down would skip one. The six transport cells measure ~1290px with
+     their gaps, inside the 1728px the safe area leaves.
+   - .bs-player__scrub takes NO `transform` — not even a transition for one. It is
+     full-bleed, and a scaled 1728px box crosses the safe inset and shows the page behind
+     it; .bs-hero:focus refuses scale for the same reason. The ring is the house ring.
+   - The hint is NOT .bs-msg. .bs-msg carries `padding: 0 var(--safe-x)` itself and the band
+     already carries the safe inset, so a .bs-msg in here would sit 192px from each edge.
+     What .bs-msg is actually reused FOR is its reserved min-height — a line appearing
+     unreserved nudges the control the ring is sitting on — so that is what this copies.
+
+   COMBINING: every class here is used ALONE on its own element, except the one modifier
+   .bs-player__bar + .bs-player__bar--hidden. The transport cells wear the existing .bs-btn
+   (+ .bs-btn--ghost) unchanged, exactly as home and the detail screens do; no modifier is
+   added to .bs-btn from this block. No positional selector: the three track layers are
+   three named classes, and the played layer paints over the ready layer by source order,
+   the same mechanism .bs-card__fallback documents. No new colour token. */
+.bs-player {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--ink);
+  isolation: isolate;
+}
+.bs-player__video {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* contain, never cover: a TV release is not the panel's aspect ratio and cropping the
+     frame is not this surface's call to make. */
+  object-fit: contain;
+  background: #000;
+}
+.bs-player__scrim {
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 480px;
+  /* --ink written out as rgba, as .bs-hero__scrim does: a gradient needs the alpha stops
+     and there is no colour-mix on this surface. */
+  background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.82) 45%, rgba(10, 10, 11, 0) 100%);
+}
+.bs-player__bar {
+  position: relative;
+  padding: var(--safe-y) var(--safe-x);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-player__bar--hidden { opacity: 0; }
+.bs-player__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 24px;
+}
+.bs-player__hint {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.45;
+  /* One line held open, .bs-msg's own trick: a line appearing unreserved would nudge the
+     control the ring is sitting on, which on a remote reads as the screen moving under you.
+     It is the band's FIRST child and the band is bottom-anchored, so a sentence that wraps
+     to a second line grows the band upwards and the rows below it do not move either. */
+  min-height: 1.45em;
+  color: var(--gold-lite);
+}
+.bs-player__scrub {
+  flex: 1 1 auto;
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  padding: 14px 0;
+  text-align: left;
+  font-size: 24px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.bs-player__scrub:focus { outline: var(--focus-ring) solid var(--gold); outline-offset: 2px; }
+.bs-player__times { display: block; }
+.bs-player__total { color: var(--muted); }
+/* What OK will do, inside the control OK acts on. A press is never silently refused on this
+   surface, so the cell says what it will commit — or, with no edit open, what to press. */
+.bs-player__commit { display: block; margin: 4px 0 0; color: var(--muted); }
+/* The remainder: the whole file's length. The two layers inside it are the measured
+   download run and the playhead, and their widths arrive as inline styles. */
+.bs-player__track {
+  position: relative;
+  display: block;
+  height: 12px;
+  margin: 8px 0 0;
+  border-radius: 6px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+.bs-player__ready {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+.bs-player__played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}

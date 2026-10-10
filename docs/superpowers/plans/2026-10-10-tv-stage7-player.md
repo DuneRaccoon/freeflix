@@ -264,6 +264,44 @@ it already exists; a reader following that comment would go looking in the webOS
 page that is already on the surface. Left alone because task 10 is scoped to `bigscreen/diag/`, and
 recorded as a follow-up in the readings sheet.
 
+**React FILLS `e.key` FROM `e.keyCode`, so a nested handler's numeric match cannot be tested.**
+Task 8 measured it: deleting `e.keyCode === 37/39` from the scrub cell leaves the whole suite green,
+because React's `getEventKey` rewrites a *synthetic* event's `key` before any handler runs —
+`{key: 'Unidentified', keyCode: 39}` arrives as `ArrowRight`, `{key: '', keyCode: 37}` as
+`ArrowLeft`, and the legacy `'Right'` spelling is normalised too (`461` is not in React's map and
+stays `Unidentified`). So the numeric half of a **React `onKeyDown`** is defence in depth for the day
+it becomes a native listener, and **no fixture can make its absence fail**; `useFocusGrid`,
+`useBackKey` and `useMediaKeys` read NATIVE events, where their numeric maps are genuinely
+load-bearing. Task 8 keeps the match, says this on the function and asserts the translation itself,
+so the row goes red if React ever stops. **Consequence for `nestedArrowClaim.test.tsx`:** its two
+rows labelled "by code only" are satisfied by the *name* branch of that harness's `||`, so the labels
+describe a path the test does not isolate. The file's proof (the hatch) is unaffected.
+
+**`e.defaultPrevented` cannot discriminate a conditional claim.** The obvious assertion for task 8's
+headline mutation — the press at the ceiling is claimed — is **green either way**: when the cell
+declines the press it falls through to the grid, which claims every arrow itself. So the only
+assertion that fails is **the refusal reaching the readout**, exactly as this section already said,
+and the flag is kept only as a statement of the contract. Third shape of this mutation that cannot
+fail, after the ring-moves and the keyCode ones.
+
+**Task 8 did not reuse `.bs-msg` for the scrub readout's status line, and the geometry is why.**
+`.bs-msg` carries `padding: 0 var(--safe-x)` and `.bs-player__bar` carries the safe inset itself, so
+the plan's "mount it outside the band's padding" and "the band fades by opacity" cannot both hold for
+a line that must fade with the band: a `.bs-msg` *inside* it double-insets by 96px a side, and one
+*outside* it stays on screen after the band is hidden, reading out an edit the viewer can no longer
+see. The line is `.bs-player__hint` instead — `.bs-msg`'s load-bearing property is its reserved
+`min-height`, and that is what was copied, with the stylesheet test pinning that the hint reserves a
+line and does **not** carry `var(--safe-x)`. **Task 9 mounts:** `.bs-player` > (`video.bs-player__video`,
+`.bs-player__scrim`, `.bs-player__bar[--hidden]`), with `<ScrubBar>` (which renders its own hint line
+plus its row) and `<TransportBar>` inside the band, in that order. The scrim and the hint hold no
+focus, so the route may unmount them; the band may only fade.
+
+**A recovery `load()` takes the scrub row away mid-edit.** `duration` returns to `NaN` until
+`loadedmetadata`, so the row is removed and remounted during every recovery — and a pending edit
+survives in component state unless it is dropped, which would let OK commit a position nobody chose
+during the stall. `ScrubBar` resets it in the render phase (no effect: every hook must run before the
+row's conditional return).
+
 ---
 
 **Standing guard from task 4 onward:** `npx vitest run src/components/player` reports its
@@ -795,7 +833,7 @@ window each time. OK commits; moving off cancels.
 the hint and **what OK will do**. If Up/Down are held while an edit is pending, the hint **says so**, or
 it is a claimed key that does nothing.
 
-- [ ] **Step 1: the CSS block and its rule assertions**, then both components.
+- [x] **Step 1: the CSS block and its rule assertions**, then both components.
 
 **Mutate:** `npm run test:tv` for the bans. Plus a `describe('bigscreen.css, as the player relies on it')`
 block modelled on `profiles/page.test.tsx:952-976`, which reads the stylesheet and regex-asserts a named

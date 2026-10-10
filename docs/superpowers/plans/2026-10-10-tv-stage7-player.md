@@ -80,6 +80,21 @@ this stands; task 5's classifier reads those details and should know.
 undo.** It silently discarded task 1's own uncommitted handler, because HEAD had nothing to restore.
 Every remaining task does mutation testing: snapshot with `cp` and restore from the snapshot.
 
+**`nestedArrowClaim.test.tsx`, written on the layout task 8 specifies, CANNOT FAIL.** With the scrub
+cell alone in its row, deleting `useFocusGrid.ts:248`'s `if (e.defaultPrevented) return` leaves the
+whole suite green. `move` never wraps left/right between rows (`model.ts:95-97`), so on a one-cell row
+an unclaimed arrow moves nothing, `go` returns early on `!changed && document.activeElement === el`,
+and the hatch has **no observable effect**. Task 7 measured this, then gave the claiming row **two
+cells** — the smallest shape that can see the hatch, and also the live defect class it prevents (the
+web's ±20s double-seek, `VideoPlayer.tsx:728`/`:1619`: a window handler and a nested one both acting on
+one press). The one-cell shape is kept as the suite's last test, labelled as the second, independent
+defence it is. **Hazard 6's "the ring jumps off the bar" is therefore wrong about this code** for the
+layout task 8 is told to build: a horizontal press at the boundary of a one-cell row moves nothing even
+unclaimed. Task 8's unconditional claim is still right — it keeps `describeScrub`'s refusal the thing
+the viewer sees, and it is what makes a future sibling cell in that row unreachable rather than
+double-acting — but **do not write its "most important mutation" expecting the ring to move**; assert
+the refusal reached the readout, and keep a two-cell fixture if you want the claim itself pinned.
+
 ---
 
 **Standing guard from task 4 onward:** `npx vitest run src/components/player` reports its

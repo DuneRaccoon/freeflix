@@ -36,6 +36,32 @@ import Link from 'next/link';
  * focus order is the only navigation it has, and an exit after six tiles, a key log and a
  * video is not an exit.
  *
+ * IT USES NONE OF THE KEY HOOKS, AND THAT IS THE POINT. `_focus/useMediaKeys` and
+ * `_focus/useRevealOnKey` exist (stage 7) and this page deliberately ignores both, as it
+ * ignores `useBackKey`. Every one of them is a FILTER: they reject alt/ctrl/meta chords, bail
+ * on `defaultPrevented`, and act only on keys they already recognise. Routing presses through
+ * them would make this page report the recognition lists back to itself instead of reporting
+ * the device — the one measurement nothing else can take. The raw `window` listeners below
+ * are the instrument; the hooks are what the instrument is used to narrow. A reader who sees
+ * two hooks and a page that does not import them is looking at that on purpose.
+ *
+ * THE LOG IS PERSISTED, BECAUSE THE LAST READING WAS LOST. `useBackKey.ts:8-11`: the key log
+ * was run on the television and what it showed was never written down, so six merged stages
+ * rest on exactly one device key number, recorded as an assumption. Pressing Back is itself a
+ * navigation — the browser walks history, possibly out of `(bigscreen)` — so the line that
+ * press logs used to be destroyed by the press that logged it. The log is now written to
+ * `sessionStorage` on every line and restored on mount, which survives any same-tab
+ * navigation, including one that leaves this surface and comes back.
+ *
+ * Both `keydown` and `keyup` are logged, labelled. A transport button that arrives only on
+ * keyup previously read as "the television eats it", which is the wrong conclusion to draw
+ * from a silent log, and `keyup` is also where a platform that consumes the press in its own
+ * player tends to leak.
+ *
+ * The readings taken with this page belong in
+ * `docs/superpowers/plans/2026-10-10-tv-stage7-device-readings.md`. Transcribe the raw lines
+ * into it; a blank row there is a failure, not a pass.
+ *
  * @allow-legacy-probes — this file names expensive and post-Chromium-87 CSS and JS
  * features on
  * purpose, to probe for them. legacy-target.test.ts skips any file with this marker;
@@ -48,6 +74,59 @@ type TorrentRow = { torrent_id?: string; id?: string; movie_title?: string; name
 function chromeMajor(ua: string): number | null {
   const m = /Chrome\/(\d+)/.exec(ua);
   return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * `navigator.mediaSession`, read defensively: the property is absent in jsdom and on older
+ * engines, and `navigator` itself is absent while this renders on the server. A probe that
+ * throws here would take the whole feature table with it (see the `probeError` catch).
+ */
+function mediaSession(): { setActionHandler?: unknown } | undefined {
+  try {
+    return (navigator as unknown as { mediaSession?: { setActionHandler?: unknown } }).mediaSession;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The key log's cap, and why it is not 12.
+ *
+ * The sheet asks for keydown AND keyup for seven buttons (Back, OK, Play, Pause, Stop,
+ * Rewind, Fast-Forward) plus the four arrows: twenty-two lines before a single auto-repeat.
+ * At 12 the earliest press — usually Back, the one number this project actually needs — was
+ * silently dropped off the end of the list by the ones that followed it. Bounded, still: an
+ * unbounded log on a held arrow grows without limit and this surface renders every line.
+ */
+const KEY_LOG_MAX = 60;
+
+/** Per-tab, so it survives the navigation a Back press causes. `bs-` prefix: house pattern. */
+const KEY_LOG_STORAGE = 'bs-diag:keylog';
+
+/**
+ * sessionStorage access can throw outright on a television in a restricted mode, so a bad
+ * read degrades to "no log yet" rather than taking the whole instrument down — the same
+ * posture `_focus/useFocusGrid.ts:87` takes for the remembered focus position.
+ */
+function readKeyLog(): string[] {
+  try {
+    const raw = sessionStorage.getItem(KEY_LOG_STORAGE);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((l): l is string => typeof l === 'string').slice(0, KEY_LOG_MAX)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeKeyLog(lines: string[]): void {
+  try {
+    sessionStorage.setItem(KEY_LOG_STORAGE, JSON.stringify(lines));
+  } catch {
+    /* A television that refuses storage still shows the log on screen. */
+  }
 }
 
 const TOKENS: Array<[string, string]> = [
@@ -76,6 +155,11 @@ export default function BigScreenDiagnostics() {
   const [probeError, setProbeError] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const tilesRef = useRef<HTMLDivElement | null>(null);
+  // The log mirrored in a ref, so appending is one synchronous write of a known value
+  // instead of a side effect inside a setState updater (which React may call twice) or a
+  // `[keys]` effect (whose first run would write the empty initial state over a restored
+  // log before the restore had committed).
+  const keysRef = useRef<string[]>([]);
 
   useEffect(() => {
     // This page's whole purpose is to survive an engine nobody has tested it on, so a
@@ -109,29 +193,83 @@ export default function BigScreenDiagnostics() {
         { label: 'JS: Array.prototype.at', ok: typeof (Array.prototype as unknown as { at?: unknown }).at === 'function' },
         { label: 'JS: Object.hasOwn', ok: typeof (Object as unknown as { hasOwn?: unknown }).hasOwn === 'function' },
         { label: 'JS: structuredClone', ok: typeof (window as unknown as { structuredClone?: unknown }).structuredClone === 'function' },
+        // Where the transport buttons go if they do not arrive as key events. A television
+        // may route Play/Pause/Stop to the Media Session API instead of the page, and a
+        // silent key log alone cannot tell "the set eats the button" from "the set delivered
+        // it somewhere this page is not listening". Read this row TOGETHER with the key log:
+        // present + nothing logged means the buttons exist and are being delivered here, and
+        // the shortcut is a stage-10 shell job rather than an unrecognised key code.
+        // Presence only — registering a handler would claim the buttons from the platform.
+        { label: 'JS: navigator.mediaSession (where media keys may go instead)', ok: mediaSession() !== undefined },
+        { label: 'JS: mediaSession.setActionHandler', ok: typeof mediaSession()?.setActionHandler === 'function' },
       ]);
     } catch (err) {
       setProbeError(`Feature probing failed: ${String(err)}`);
     }
   }, []);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      // The nav hooks (useFocusGrid, useBackKey) ignore any press with alt/ctrl/meta set, and
-      // useBackKey acts once on e.repeat, so those fields decide whether the D-pad works at
-      // all. Printed only when set, to keep the line short at ten feet: no `mods=` means
-      // none held, no `REPEAT` means a fresh press. shift is shown too, though nothing
-      // rejects it.
-      const mods = [e.altKey && 'alt', e.ctrlKey && 'ctrl', e.metaKey && 'meta', e.shiftKey && 'shift'].filter(Boolean);
-      const line =
-        `key=${JSON.stringify(e.key)} keyCode=${e.keyCode} code=${e.code || '-'}` +
-        (mods.length ? ` mods=${mods.join('+')}` : '') +
-        (e.repeat ? ' REPEAT' : '');
-      setKeys((prev) => [line, ...prev].slice(0, 12));
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+  const appendKeyLine = useCallback((line: string) => {
+    const next = [line, ...keysRef.current].slice(0, KEY_LOG_MAX);
+    keysRef.current = next;
+    // Written per line, not debounced. `useFocusGrid` debounces its own sessionStorage write
+    // by 200ms because a held arrow would otherwise cost synchronous work inside a frame
+    // budget; this page has no frame budget to protect (no animation, no rails, no video
+    // until a title is chosen) and the failure being fixed here is a LOST line. A reading
+    // that arrives and is then dropped by the navigation it caused is the whole defect.
+    writeKeyLog(next);
+    setKeys(next);
   }, []);
+
+  const clearKeyLog = useCallback(() => {
+    keysRef.current = [];
+    setKeys([]);
+    writeKeyLog([]);
+  }, []);
+
+  useEffect(() => {
+    // Restored in an effect rather than from a useState initialiser: this is a client
+    // component that Next.js still renders on the server, where sessionStorage does not
+    // exist, and a lazy initialiser would make the server and client first paints differ.
+    const saved = readKeyLog();
+    if (saved.length > 0) {
+      keysRef.current = saved;
+      setKeys(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    function record(phase: 'keydown' | 'keyup') {
+      return (e: KeyboardEvent) => {
+        // The nav hooks (useFocusGrid, useBackKey, useMediaKeys) ignore any press with
+        // alt/ctrl/meta set, and act once on e.repeat, so those fields decide whether the
+        // D-pad and the transport keys work at all. Printed only when set, to keep the line
+        // short at ten feet: no `mods=` means none held, no `REPEAT` means a fresh press.
+        // shift is shown too, though nothing rejects it.
+        //
+        // `t=` is `e.timeStamp` rounded — milliseconds since the page loaded. It is what
+        // makes the auto-repeat RATE readable: hold an arrow and subtract two consecutive
+        // values. Without it the sheet's repeat-rate row cannot be filled from this screen.
+        const mods = [e.altKey && 'alt', e.ctrlKey && 'ctrl', e.metaKey && 'meta', e.shiftKey && 'shift'].filter(Boolean);
+        const line =
+          `[${phase}] t=${Math.round(e.timeStamp)} ` +
+          `key=${JSON.stringify(e.key)} keyCode=${e.keyCode} code=${JSON.stringify(e.code || '')}` +
+          (mods.length ? ` mods=${mods.join('+')}` : '') +
+          (e.repeat ? ' REPEAT' : '');
+        appendKeyLine(line);
+      };
+    }
+    // Both listeners on `window`, never on the <video>: a media key the platform routes to
+    // its own player never reaches an element, and the element does not exist until a title
+    // is chosen — which is exactly the state the operator is told to take these readings in.
+    const onDown = record('keydown');
+    const onUp = record('keyup');
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+    };
+  }, [appendKeyLine]);
 
   useEffect(() => {
     // preventScroll: focusing the first tile must not scroll the verdict banner (the
@@ -300,7 +438,33 @@ export default function BigScreenDiagnostics() {
       </div>
 
       <h2>Remote key codes</h2>
-      <p>Press Back, Play, Pause, Rewind, Fast-Forward and the arrows. Back should report keyCode 461. A line also shows <code>mods=…</code> if any modifier flag is set and <code>REPEAT</code> if the press is an auto-repeat; if the arrows show a mods flag other than shift, the D-pad is inert on every screen.</p>
+      <p>
+        <strong>Take these readings before you load a title, below.</strong> The player on this
+        page is a plain <code>&lt;video controls&gt;</code>, so once it exists the television’s
+        own control UI may consume the arrows and the transport buttons and this log
+        under-reports: a key that works would read as a key the set eats.
+      </p>
+      <p>
+        Press Back, OK, Play, Pause, Stop, Rewind, Fast-Forward and the four arrows, then hold
+        one arrow down. Every press logs a <code>[keydown]</code> line and a{' '}
+        <code>[keyup]</code> line — if only one of the two appears, that is the reading, not a
+        bug. <code>t=</code> is milliseconds since load, so two consecutive lines from a held
+        arrow give the auto-repeat rate; <code>REPEAT</code> means <code>e.repeat</code> was
+        set; <code>mods=…</code> appears if any modifier flag was, and an arrow carrying a flag
+        other than shift is a D-pad that is inert on every screen.
+      </p>
+      <p>
+        <strong>keyCode 461 for Back is an assumption, not an expectation</strong> — it comes
+        from platform documentation and has never been confirmed on this set. Transcribe
+        whatever the lines actually say, verbatim, into the stage-7 device-readings document.
+        The log is kept in session storage, so it survives leaving this page and coming back:
+        press Back, come back, and the line Back logged is still here.
+      </p>
+      <div className="bs-controls">
+        <button className="bs-btn bs-btn--ghost" type="button" onClick={clearKeyLog}>
+          Clear key log
+        </button>
+      </div>
       <div className="bs-keylog">
         {keys.length === 0 ? <div style={{ color: 'var(--muted)' }}>waiting for a key…</div>
           : keys.map((k, i) => <div key={`${k}-${i}`}>{k}</div>)}

@@ -3,11 +3,29 @@ import apiClient from './api-client';
 import { StreamingInfo, StreamingProgress, VideoFile } from '@/types';
 
 export const streamingService = {
-  // Get streaming information for a torrent
-  getStreamingInfo: async (torrentId?: string | null, fileIndex?: number): Promise<StreamingInfo | null> => {
+  // Get streaming information for a torrent.
+  //
+  // `at` is the BYTE OFFSET the seek boundary (`video_file.contiguous`) is measured around,
+  // and omitting it means 0 — the run at the head of the file. A player that resumes at
+  // 50:20 and asks with no `at` is handed the run around byte 0, which is a measurement of
+  // the wrong part of the file: the resume seek is then clamped to a ceiling that has
+  // nothing to do with where the viewer is going. Built key-by-key rather than as a literal
+  // so an absent value is an ABSENT PARAM and never `?at=undefined`/`?file_index=null`
+  // (axios drops a null param silently, and `/info` then resolves the largest file and
+  // answers THAT file's content_id — see `(bigscreen)/_player/fileIndex.ts`).
+  getStreamingInfo: async (
+    torrentId?: string | null,
+    fileIndex?: number,
+    at?: number,
+  ): Promise<StreamingInfo | null> => {
     if (!torrentId) return null;
-    const params = fileIndex !== undefined ? { file_index: fileIndex } : undefined;
-    const response = await apiClient.get(`/streaming/${torrentId}/info`, params !== undefined ? { params } : undefined);
+    const params: Record<string, number> = {};
+    if (fileIndex !== undefined) params.file_index = fileIndex;
+    if (at !== undefined) params.at = at;
+    const response = await apiClient.get(
+      `/streaming/${torrentId}/info`,
+      Object.keys(params).length > 0 ? { params } : undefined,
+    );
     return response.data;
   },
 
@@ -52,8 +70,21 @@ export const streamingService = {
     }
   },
 
-  saveProgress: async (userId: string, progress: Omit<StreamingProgress, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'last_watched_at'>): Promise<StreamingProgress> => {
-    const response = await apiClient.post(`/streaming/progress/${userId}`, progress);
+  // `allow401` opts this one call out of the client's global 401 redirect. The interceptor
+  // hard-navigates from inside its own rejection handler, BEFORE any caller sees the error
+  // (`api-client.ts` `handleUnauthorized`), so a player flushing its position on the way out
+  // would be destroyed mid-flush by its own failing write and the position lost. The TV
+  // player passes it; the web keeps the redirect.
+  saveProgress: async (
+    userId: string,
+    progress: Omit<StreamingProgress, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'last_watched_at'>,
+    opts?: { allow401?: boolean },
+  ): Promise<StreamingProgress> => {
+    const response = await apiClient.post(
+      `/streaming/progress/${userId}`,
+      progress,
+      opts?.allow401 ? { __allow401: true } : undefined,
+    );
     return response.data;
   },
 

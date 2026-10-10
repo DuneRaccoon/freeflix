@@ -3,6 +3,7 @@ import asyncio
 import threading
 import time
 import json
+import os
 import uuid
 import shutil
 from datetime import datetime
@@ -31,6 +32,23 @@ TORRENT_STATES = [
     "allocating",
     "checking_fastresume"
 ]
+
+# States in which every wanted byte is expected to be on disk already, so a file
+# may be served straight through with no piece gating. Deliberately NARROWER than
+# states.TERMINAL_STATES, which also holds 'error' (a download that stopped at an
+# arbitrary percentage) and 'blocked' (whose files the content guard deleted).
+ON_DISK_STATES = frozenset({"finished", "seeding"})
+
+# contiguous_available's walk bound and memo window.
+#
+# The walk costs one have_piece() pybind call per piece inspected, and a 30 GB
+# season pack at libtorrent's 8 MiB piece length is ~3,840 pieces. This bounds
+# the calls ONE answer may cost; exhausting it makes the answer conservative (a
+# run reported shorter than it really is refuses a seek that would have worked)
+# and never optimistic, which is the right direction for a seek ceiling.
+_CONTIGUOUS_MAX_PIECES = 4096
+# Memo window, matched to the status loop's own ~1s cadence.
+_CONTIGUOUS_TTL_S = 1.0
 
 class TorrentManager:
     """
@@ -81,7 +99,19 @@ class TorrentManager:
 
         # Per-torrent tracker-recovery backoff: {torrent_id: {"attempts": int, "next_at": float}}
         self._tracker_recovery: Dict[str, Dict[str, Any]] = {}
-        
+
+        # Video-file lists recovered from stored resume data for torrents that are
+        # no longer in the session: {torrent_id: (blob_fingerprint, [file dicts])}.
+        # Keyed on the blob itself, so a re-saved resume blob can never be served
+        # from a stale entry. See _video_files_from_resume_data.
+        self._resume_video_files: Dict[str, Tuple[Any, List[Dict[str, Any]]]] = {}
+
+        # contiguous_available's memo: {(torrent_id, file_index, at_piece):
+        # (monotonic_stamp, result)}. Keyed on the PIECE containing the offset,
+        # so a player polling a moving playhead still hits it. See
+        # _CONTIGUOUS_TTL_S.
+        self._contiguous_runs: Dict[Tuple[str, int, int], Tuple[float, Dict[str, Any]]] = {}
+
         # Initialize the database
         init_db()
         
@@ -1103,6 +1133,158 @@ class TorrentManager:
             return None
         return max(files, key=lambda f: f["size"])
 
+    def _video_files_from_resume_data(self, torrent_id: str, blob: Optional[str],
+                                      save_path: str) -> List[Dict[str, Any]]:
+        """A torrent's video-file list read from its STORED RESUME DATA.
+
+        Resume data carries the whole `info` dict, so `lt.read_resume_data(...).ti`
+        yields the authoritative file list — index, path and size — for a torrent
+        that is no longer in the libtorrent session (round-trip verified against
+        the pinned libtorrent 2.0.11). Nothing is added to the session here.
+
+        It reads the metadata rather than walking save_path because the INDEX is
+        the thing being resolved: `?file_index=N` is a libtorrent file index, and
+        a directory listing's ordering is NOT it — pad files and non-video extras
+        shift it. On a season pack a walk would silently serve the wrong episode,
+        which is a worse answer than the 404 this fallback replaces.
+
+        Same dict shape as get_video_files, and the same _is_video_file filter, so
+        the content guard's "only video extensions are streamable" still holds.
+        `downloaded`/`progress` here are the completion the DB row CLAIMS, not a
+        measurement: the one caller (get_completed_video_file_info) verifies the
+        file it selects against the bytes on disk. Private for that reason.
+
+        Returns [] when there is no blob or it cannot be parsed — the caller then
+        keeps today's 404 rather than guessing. Memoised on the blob, because
+        _resolve_video_file runs on every Range request and /info is polled while
+        a title is on screen.
+        """
+        if not blob:
+            return []
+        fingerprint = (len(blob), hash(blob), save_path)
+        cached = self._resume_video_files.get(torrent_id)
+        if cached is not None and cached[0] == fingerprint:
+            return [dict(f) for f in cached[1]]
+        try:
+            ti = lt.read_resume_data(decode_resume_data(blob)).ti
+            if ti is None:
+                logger.info(
+                    f"Resume data for {torrent_id} carries no metadata; cannot "
+                    f"resolve its files without the session"
+                )
+                return []
+            base_path = Path(save_path)
+            files: List[Dict[str, Any]] = []
+            for i in range(ti.num_files()):
+                fi = ti.file_at(i)
+                if not self._is_video_file(fi.path):
+                    continue
+                files.append({
+                    "index": i,
+                    "path": str(base_path / fi.path),
+                    "size": fi.size,
+                    "downloaded": fi.size,
+                    "progress": 100.0,
+                    "name": Path(fi.path).name,
+                })
+        except Exception as e:
+            logger.warning(
+                f"Could not read the file list from resume data for {torrent_id}: {e}")
+            return []
+        if len(self._resume_video_files) > 16:
+            self._resume_video_files.clear()
+        self._resume_video_files[torrent_id] = (fingerprint, files)
+        return [dict(f) for f in files]
+
+    def get_completed_video_file_info(self, torrent_id: str,
+                                      file_index: Optional[int] = None
+                                      ) -> Optional[Dict[str, Any]]:
+        """Resolve a video file for a torrent that is DONE and no longer loaded.
+
+        The gap this closes: find_loadable_on_startup never re-adds a finished or
+        seeding torrent after a restart, and _refresh_active_torrents evicts
+        'finished' mid-session, so get_video_file_info answers None for the
+        television's main content — a completed download. stream_file_range has
+        carried the handler for that case all along ("No live torrent (e.g.
+        completed and removed from the session) -> every byte is already on disk;
+        serve straight through"); it was unreachable because resolution 404ed
+        first. This is the narrow seam that makes it reachable, and nothing else:
+        no state-machine filter changes, and the torrent is NOT reloaded.
+
+        Same return shape as get_video_file_info, or None. FOUR gates, every one
+        load-bearing, because that straight-through branch does NO piece gating —
+        an ungated fallback reads sparse/zero bytes off a partial file and hands
+        them to a decoder, which presents as CORRUPT MEDIA rather than as an error:
+
+        1. a terminal, complete DB state (finished / seeding);
+        2. progress >= 100 — the row's own claim that every wanted byte arrived.
+           libtorrent writes at offsets in sparse storage mode, so a partially
+           downloaded file can already report its FULL length with holes inside
+           that read back as zeros; only this gate sees that;
+        3. os.path.getsize(path) == the size the torrent metadata records — the
+           file has not been truncated, replaced or half-written since;
+        4. the content guard: a row carrying a block_reason is never served, and
+           only video extensions are resolvable at all.
+
+        Any gate failing answers None and the caller's existing "not found or not
+        ready for streaming" 404 stands — including for a finished torrent whose
+        file was deleted or truncated, where that detail is admittedly generous.
+        This fallback's whole contract is "every byte is on disk" and it will not
+        claim that on evidence it does not have.
+        """
+        try:
+            with get_db() as db:
+                row = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if row is None:
+                    return None
+                state = row.state
+                progress = row.progress or 0.0
+                block_reason = row.block_reason
+                save_path = row.save_path
+                blob = row.resume_data
+        except Exception as e:
+            logger.warning(f"Completed-file lookup failed for {torrent_id}: {e}")
+            return None
+
+        # Gate 1 + 2: the row must say the download is over and complete.
+        if state not in ON_DISK_STATES or progress < 100:
+            return None
+        # Gate 4a (content guard): never serve a torrent the guard rejected.
+        if block_reason:
+            return None
+        if not save_path:
+            return None
+
+        # Gate 4b (content guard): video extensions only, same filter as the
+        # live path. A non-video index is unresolvable, not merely deprioritised.
+        files = self._video_files_from_resume_data(torrent_id, blob, save_path)
+        if not files:
+            return None
+        if file_index is not None:
+            match = next((f for f in files if f["index"] == file_index), None)
+        else:
+            match = max(files, key=lambda f: f["size"])
+        if match is None:
+            return None
+
+        # Gate 3: the bytes really are there. This is the last line between a
+        # partial file and a decoder, and it is why the fallback may not be
+        # reduced to a state check.
+        try:
+            on_disk = os.path.getsize(match["path"])
+        except OSError as e:
+            logger.info(
+                f"Completed torrent {torrent_id}: {match['path']} is not readable ({e})")
+            return None
+        if on_disk != match["size"]:
+            logger.warning(
+                f"Completed torrent {torrent_id}: {match['name']} is {on_disk} bytes on "
+                f"disk but its metadata records {match['size']}; refusing to stream a "
+                f"partial file as though it were complete"
+            )
+            return None
+        return match
+
     def validate_torrent_content(self, handle) -> Optional[str]:
         """Inspect a torrent's file list (metadata required) and return a content-
         guard block reason if it should be rejected, else None. Best-effort — any
@@ -1428,6 +1610,165 @@ class TorrentManager:
             )
         except Exception:
             return False
+
+    def contiguous_available(self, torrent_id: str,
+                             file_index: Optional[int] = None,
+                             at_bytes: int = 0) -> Optional[Dict[str, Any]]:
+        """The contiguous downloaded run CONTAINING `at_bytes`, in file bytes.
+
+        The seek boundary's only data source. /info's `downloaded`/`progress` are
+        `file_progress()` TOTALS counting scattered pieces, and every Range
+        request re-anchors the deadline window at a fresh mid-file offset, so
+        holes behind the frontier are the normal state — a bar drawn from
+        `progress` permits exactly the seek the boundary exists to refuse.
+
+        THE RUN CONTAINING `at_bytes`, NOT A FROM-FILE-START SCALAR.
+        prioritize_video_files marks EVERY video file priority 7 while
+        set_sequential_download is per-TORRENT, so on a season pack libtorrent
+        fills the lowest-index episode first: for episode 5 a from-file-start
+        figure legitimately sits near zero while playback runs off the deadline
+        window, and a scalar would refuse every seek inside the episode actually
+        being watched. `at_bytes=0` degenerates to the prefix case.
+
+        Returns {file_index, file_size, piece_length, run_start, run_end,
+        complete, measured_against}, where `run_start`/`run_end` are FILE-relative
+        byte offsets and `run_end` is EXCLUSIVE (the first byte not in the run),
+        or None.
+
+        None MEANS UNKNOWN, and only a measured answer may report a zero-length
+        run. Three paths answer None: the torrent is absent from active_torrents
+        (evicted, or finished and never reloaded — see get_completed_video_file_info),
+        it has no metadata yet, or a libtorrent call raised. The caller must map
+        None to UNBOUNDED seeking, not to a ceiling of zero: a completed download
+        is the television's main content and it is exactly the case with no live
+        handle, so a zero there would refuse every seek on a file whose every byte
+        is on disk.
+
+        That is also why this does NOT use _safe_have: its per-piece False-on-error
+        would silently turn an invalidated handle into a measured zero-length run.
+        The whole body is guarded by one try that answers None instead.
+
+        `measured_against` names the size the arithmetic was measured against —
+        'metadata', i.e. torrent_info.file_at(idx).size. It is the only value
+        today, deliberately: the alternative (os.path.getsize) is a stat call this
+        walk does not make, and the live path always has metadata. It exists so a
+        client can tell what it is reading rather than having to assume.
+        """
+        entry = self.active_torrents.get(torrent_id)
+        if entry is None:
+            return None  # unknown, NOT zero: no live handle to measure with.
+        handle = entry[0]
+        try:
+            if not handle.has_metadata():
+                return None
+            ti = handle.get_torrent_info()
+
+            idx = file_index
+            if idx is None:
+                # Mirror the byte routes' own default (the largest video file)
+                # rather than inventing a second resolution rule.
+                info = self.get_video_file_info(torrent_id, None)
+                if not info:
+                    return None
+                idx = int(info["index"])
+            if idx < 0 or idx >= ti.num_files():
+                return None
+
+            fi = ti.file_at(idx)
+            file_size = int(fi.size)
+            # EVERY FILE BUT THE FIRST IN A PACK HAS A NON-ZERO OFFSET, and the
+            # piece map is torrent-global: dropping this term measures some other
+            # episode's pieces and calls the answer this one's.
+            file_offset = int(fi.offset)
+            piece_length = int(ti.piece_length())
+            if file_size <= 0 or piece_length <= 0:
+                return None
+
+            at = min(max(int(at_bytes or 0), 0), file_size - 1)
+            # Integer //, never int(a / b): manager.py's older piece arithmetic
+            # uses the float idiom and this index must not depend on it.
+            first_piece = file_offset // piece_length
+            last_piece = (file_offset + file_size - 1) // piece_length
+            at_piece = (file_offset + at) // piece_length
+
+            # Memoised on the PIECE containing at_bytes, not on at_bytes: every
+            # offset inside one piece has the same answer, so a player polling a
+            # moving playhead still hits the cache. /info is polled while a title
+            # is on screen and each miss costs a walk.
+            cache_key = (torrent_id, idx, at_piece)
+            now = time.monotonic()
+            cached = self._contiguous_runs.get(cache_key)
+            if cached is not None and (now - cached[0]) < _CONTIGUOUS_TTL_S:
+                return dict(cached[1])
+
+            def _finish(run_start: int, run_end: int, complete: bool) -> Dict[str, Any]:
+                result = {
+                    "file_index": idx,
+                    "file_size": file_size,
+                    "piece_length": piece_length,
+                    "run_start": run_start,
+                    "run_end": run_end,
+                    "complete": complete,
+                    "measured_against": "metadata",
+                }
+                if len(self._contiguous_runs) > 64:
+                    self._contiguous_runs.clear()
+                self._contiguous_runs[cache_key] = (now, result)
+                return dict(result)
+
+            # Fast path for the common finished-but-still-loaded case, which is
+            # otherwise the most expensive walk there is. file_progress() is
+            # called with NO granularity flag by either caller, so it counts
+            # unverified blocks: byte-completeness alone would report `complete`
+            # at exactly the moment a tail seek still blocks. Hence the
+            # have_piece(last_piece) conjunct.
+            progress = handle.file_progress()
+            if idx < len(progress) and progress[idx] >= file_size \
+                    and handle.have_piece(last_piece):
+                return _finish(0, file_size, True)
+
+            if not handle.have_piece(at_piece):
+                # Measured, and zero-length: the piece under the playhead is not
+                # here. Distinct from None, which means "not measured".
+                return _finish(at, at, False)
+
+            # Forward first — it is the direction the boundary is drawn from —
+            # and both walks share one budget. A 30 GB pack at an 8 MiB piece
+            # length is ~3,800 have_piece() pybind calls; running out of budget
+            # makes the answer CONSERVATIVE (a run reported shorter than it is
+            # refuses a seek that would have worked) and never optimistic.
+            budget = _CONTIGUOUS_MAX_PIECES
+            end_piece = at_piece
+            while end_piece < last_piece and budget > 0:
+                budget -= 1
+                if not handle.have_piece(end_piece + 1):
+                    break
+                end_piece += 1
+
+            start_piece = at_piece
+            while start_piece > first_piece and budget > 0:
+                budget -= 1
+                if not handle.have_piece(start_piece - 1):
+                    break
+                start_piece -= 1
+
+            # max(0, …): the file's first piece starts BEFORE the file does
+            # (pieces are torrent-global), so the raw product is negative there.
+            run_start = max(0, start_piece * piece_length - file_offset)
+            # min(file_size, …): the file's last piece is partial and its end
+            # overshoots the file — into the next file of a pack, or past EOF.
+            run_end = min(file_size, (end_piece + 1) * piece_length - file_offset)
+            return _finish(run_start, run_end,
+                           run_start == 0 and run_end == file_size)
+        except Exception as e:
+            # One try for the whole body, answering the unknown value. Logged at
+            # debug: /info is polled while a title is on screen and the error
+            # middleware writes to a retained file.
+            logger.debug(
+                f"contiguous_available({torrent_id}, {file_index}, {at_bytes}) "
+                f"could not measure: {e}"
+            )
+            return None
 
     async def wait_for_first_chunk(self, torrent_id: str, file_index: int,
                                    start: int, length: int,

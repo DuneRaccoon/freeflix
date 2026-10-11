@@ -111,6 +111,21 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**Every `file:line` in tasks 4 through 9 was re-checked before the first agent ran**, and all of
+them hold: `movies.py:70`/`:79`/`:96`/`:97`/`:115`, `tv.py:99`/`:108` (and `services/tv.py` calls
+neither `set_detail` nor `set_torrents`), `cron/jobs.py:284`, `test_candidate_helpers.py:3`,
+`test_cron_select_parity.py:15`, `test_sources_endpoint.py`'s nine-field `_cand`,
+`config.py:138-141` (sixteen extensions, thirteen outside `.mkv/.mp4/.ts`) against
+`api/streaming.py:32-49`, `title.ts:57`/`:133-140`/`:296`/`:382-385`,
+`movie/[id]/page.tsx:26`/`:137`, `list/page.tsx:129-141`, `TitleScreen.tsx:9-12`,
+`PrimaryAction.tsx:17`/`:144`, `bigscreen.css:672-674`/`:820-821` (and the no-`.bs-btn`-modifier
+rule in four separate blocks), `types/index.ts:139-149`, `watch/[id]/page.tsx:505` (and
+`chosen_quality` appears nowhere in that file), `classify.ts:27-30`, `journeys.test.tsx:907-921`,
+`legacy-target.test.ts:169`/`:172`/`:552`, `diag/page.tsx:65`/`:314` (and `canPlayType` appears
+nowhere under `(bigscreen)`), and the **eleven** web payload assertions, counted: five on the
+download path and six on the Play path. **One correction:** the movie payload assertion in
+`title.test.ts` is at `:492`, not `:491`.
+
 **`parse_release_info` has zero production callers** (confirmed: only `test_quality.py` imports
 it; `parse_quality`'s single production caller is `providers/catalog.py:69`). Widening the first
 is free. Reordering the second is not, and task 2 does not.
@@ -307,9 +322,14 @@ The named follow-up, so the next reader does not re-derive it: `movies.detail` c
 and already upserts at `:86-94` via `upsert_list_item(**fields)`, which `setattr`s anything
 passed. A nullable `runtime` Integer on `catalog_items` (auto-added by `sync_columns`) plus
 `runtime=base.runtime` is a one-line, **zero-extra-HTTP** write on the exact call the TV already
-makes. Movies only; TV needs its own cache write. Also recorded: `tmdb.movie_details` returns
-`None` without `TMDB_API_KEY`, that key is commented out in this repo's `.env`, and compose passes
-that file — so even when implemented the rule cannot fire on this box until the key is set.
+makes. Movies only; TV needs its own cache write. **A dedicated column rather than a read of
+`detail_json`, deliberately:** stage 4's parked finding 10 established that reading `detail_json`
+is a trap, because `available_qualities` is derived from the **live** torrent search and serving the
+blob from cache would silently stale the detail screen's quality list — which is very likely why
+nobody ever read it. A nullable `runtime` Integer carries one scalar and inherits none of that.
+Also recorded: `tmdb.movie_details` returns `None` without `TMDB_API_KEY`, that key is commented
+out in this repo's `.env`, and compose passes that file — so even when implemented the rule cannot
+fire on this box until the key is set.
 
 **What the television loses in the meantime, stated:** no bitrate ceiling with 4K opted in. There
 is partial cover and **it is an accident, not a design** — UHD remuxes are overwhelmingly DTS-HD
@@ -490,7 +510,10 @@ the three naming shapes (movie, `SxxExx`, season pack).
 1. **`catalog_item_cache.torrents_json`**, free via `make db`. Written for every movie detail page
    ever opened with qualities. **Movies only** — `set_torrents` has exactly one caller
    (`services/movies.py:97`) and `services/tv.py` never calls it, so the two shapes that matter
-   most for the television are structurally absent from the cache.
+   most for the television are structurally absent from the cache. Note that both `torrents_json`
+   and `detail_json` are **write-only caches: nothing in the backend reads either** (stage 4's
+   parked finding 10, verified by grep). So harvesting from them is a `psql` read for corpus
+   material and **does not** oblige this task to write a reader — do not add one.
 2. **A live harvest**, `backend/scripts/harvest_release_titles.py`, calling
    `catalog.torrents(f"{show} S01E01")` and `f"{show} S01"` across 60–100 titles chosen for shape
    coverage: 4K-era blockbusters, catalogue films, single episodes, season packs.
@@ -656,7 +679,7 @@ Genuinely empty hits keep the **unchanged** `"No torrents found"`.
 
 **Two bypasses stay live, in a code comment with the reason.** `if request.magnet:`
 (`api/torrents.py:81-84`) never calls `rank_candidates` at all and is pinned as intended by
-`test_download_explicit_magnet_used_verbatim`; and an unmatched `source_id` falls through to
+`test_download_explicit_magnet_used_verbatim` (`tests/test_download_select.py:63`); and an unmatched `source_id` falls through to
 `candidates[0]` with a 200 — unreachable from any current client, because both web pickers send
 `magnet` **and** `source_id` together and the TV sends neither. Drop the two unused imports
 (`select_best`, `available_qualities`) while in the file.
@@ -709,7 +732,7 @@ design fact (`title.ts:57`, `movie/[id]/page.tsx:26`) in the same change that ma
 - [ ] **Step 1:** the argument, the body, the dedupe key, the two comments.
 
 **Proved by** the two exact-equality `toHaveBeenCalledWith` payload assertions in `title.test.ts`
-(`:469-475` tv, `:491` movie), which are both the intended edit **and** the tripwire: **if they
+(`:469-475` tv, `:492` movie), which are both the intended edit **and** the tripwire: **if they
 pass unchanged, the TV is not sending the profile.** New row: press 1080p, then 4K before the
 first resolves → **two** distinct POSTs with distinct qualities.
 

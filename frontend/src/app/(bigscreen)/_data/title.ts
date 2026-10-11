@@ -1,4 +1,4 @@
-import type { StreamingProgress, TorrentStatus } from '@/types';
+import type { ClientProfileId, StreamingProgress, TorrentStatus } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { buildContentId } from '@/lib/contentId';
@@ -54,7 +54,14 @@ interface TitleRef {
   episode?: number;
 }
 
-/** The television asks for 1080p everywhere (spec §7.3); there is no picker on this surface. */
+/**
+ * The television asks for 1080p by default and there is still no quality PICKER on this
+ * surface — but 1080p is no longer everywhere: a per-title 4K opt-in (stage 8, spec §7.3)
+ * raises a single ask to 2160p via `fourK`. Nothing is persisted, so the next title is 1080p
+ * again. Every TV request carries `client: TV_PROFILE` regardless, which is what makes the
+ * 1080p ask honest too: without it the box ranks by seeds alone and can hand this panel a
+ * release it cannot decode.
+ */
 type RequestResult =
   | {
       ok: true;
@@ -81,7 +88,17 @@ const inFlight = new Map<string, Promise<RequestResult>>();
 
 const LOCKED_REASON = 'This profile is locked. Enter its passcode to continue.';
 
-const QUALITY = '1080p' as const;
+const QUALITY_HD = '1080p' as const;
+const QUALITY_4K = '2160p' as const;
+
+/**
+ * Sent on EVERY request this surface makes, not only the 4K one. The 1080p ask is the one
+ * that needs it most: a 1080p HEVC 10-bit Opus release is exactly what an unprofiled ranker
+ * picks on seeds and exactly what this panel cannot play. The backend declares the value as
+ * a pydantic Literal and forbids unknown keys, so a typo here is a 422, never a quiet 200
+ * ranked with no profile at all.
+ */
+const TV_PROFILE: ClientProfileId = 'lg-webos22-floor';
 
 /**
  * Past this a film is finished, not resumable. Matches the web's cut-off.
@@ -421,17 +438,28 @@ export async function resumeTitle(
  * Start a download. Resolves with the new torrent id, or a reason it did not start.
  * Deliberately not `handleCatalogStreamingStart`: it swallows the error into a toast, and
  * this surface mounts no toaster, so a failed Play would be silent on the television.
+ *
+ * `fourK` raises this one ask to 2160p. It is an argument rather than any kind of stored
+ * preference on purpose: nothing persists it, so the opt-in is per press.
  */
 export function requestTitle(args: {
   mediaType: 'movie' | 'tv';
   tmdbId: number;
   season?: number;
   episode?: number;
+  fourK?: boolean;
 }): Promise<RequestResult> {
   // POST /download runs a provider search before it answers, and titleStateFor still says
   // `play` for that whole window. A second OK press must join the first request, not mint a
   // second torrent (the ARM build allows two downloads).
-  const key = `${args.mediaType}:${args.tmdbId}:${args.season ?? ''}:${args.episode ?? ''}`;
+  //
+  // THE QUALITY IS PART OF THE IDENTITY. Without it in the key, a 1080p press followed by a
+  // 4K press inside that window (a full provider search wide, up to ~35s cold) hands the
+  // second press the FIRST press's promise: the 4K ask is never sent, and the control
+  // reports someone else's result as its own. Two different asks are two requests.
+  const key = `${args.mediaType}:${args.tmdbId}:${args.season ?? ''}:${args.episode ?? ''}:${
+    args.fourK ? QUALITY_4K : QUALITY_HD
+  }`;
   const pending = inFlight.get(key);
   if (pending) return pending;
   const started = startDownload(args).finally(() => {
@@ -446,6 +474,7 @@ async function startDownload(args: {
   tmdbId: number;
   season?: number;
   episode?: number;
+  fourK?: boolean;
 }): Promise<RequestResult> {
   if (args.mediaType === 'tv' && args.season === undefined) {
     return { ok: false, reason: "Couldn't start this title. Try again.", maybeCreated: false };
@@ -453,8 +482,9 @@ async function startDownload(args: {
   try {
     const status = await torrentsService.downloadCatalogMovie({
       tmdb_id: args.tmdbId,
-      quality: QUALITY,
+      quality: args.fourK ? QUALITY_4K : QUALITY_HD,
       media_type: args.mediaType,
+      client: TV_PROFILE,
       ...(args.mediaType === 'tv' ? { season: args.season, episode: args.episode } : {}),
     });
     const id = status?.id;

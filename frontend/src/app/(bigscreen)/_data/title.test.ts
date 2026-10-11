@@ -459,7 +459,12 @@ describe('titleStateFor: never rejects', () => {
 });
 
 describe('requestTitle', () => {
-  it('posts once at 1080p with the media identity and returns the new id', async () => {
+  it('posts once at 1080p, under the capability profile, with the media identity', async () => {
+    // Exact equality, not objectContaining: `client` is the whole point of stage 8 on this
+    // surface and a loose matcher would pass with the profile missing, which on the wire is
+    // a 200 ranked by seeds alone -- the quietest possible way for the profile to be absent
+    // while looking present. The literal is written out rather than imported from the module
+    // under test, so a typo in TV_PROFILE cannot agree with itself.
     download.mockResolvedValue(torrent({ id: 'new', media_type: 'tv', season: 1, episode: 3 }));
     expect(await requestTitle({ mediaType: 'tv', tmdbId: 1399, season: 1, episode: 3 })).toEqual({
       ok: true,
@@ -470,8 +475,23 @@ describe('requestTitle', () => {
       tmdb_id: 1399,
       quality: '1080p',
       media_type: 'tv',
+      client: 'lg-webos22-floor',
       season: 1,
       episode: 3,
+    });
+  });
+
+  it('fourK raises this one ask to 2160p and still sends the profile', async () => {
+    download.mockResolvedValue(torrent({ id: 'uhd' }));
+    expect(await requestTitle({ mediaType: 'movie', tmdbId: 603, fourK: true })).toEqual({
+      ok: true,
+      torrentId: 'uhd',
+    });
+    expect(download).toHaveBeenCalledWith({
+      tmdb_id: 603,
+      quality: '2160p',
+      media_type: 'movie',
+      client: 'lg-webos22-floor',
     });
   });
 
@@ -489,7 +509,22 @@ describe('requestTitle', () => {
   it('a movie request sends no season or episode', async () => {
     download.mockResolvedValue(torrent({ id: 'new' }));
     await requestTitle({ mediaType: 'movie', tmdbId: 603 });
-    expect(download).toHaveBeenCalledWith({ tmdb_id: 603, quality: '1080p', media_type: 'movie' });
+    expect(download).toHaveBeenCalledWith({
+      tmdb_id: 603,
+      quality: '1080p',
+      media_type: 'movie',
+      client: 'lg-webos22-floor',
+    });
+  });
+
+  it('omitting fourK is 1080p, not undefined', async () => {
+    // The backend declares quality as a Literal with a 1080p default, so an absent key
+    // would also come back 1080p -- and this surface would be relying on a default it
+    // never states. The ask is explicit on every press.
+    download.mockResolvedValue(torrent({ id: 'new' }));
+    await requestTitle({ mediaType: 'movie', tmdbId: 604 });
+    expect(download.mock.calls[0][0].quality).toBe('1080p');
+    expect('quality' in download.mock.calls[0][0]).toBe(true);
   });
 
   it('a tv request without a season is refused without calling the box', async () => {
@@ -566,6 +601,32 @@ describe('requestTitle in-flight guard', () => {
     finish(torrent({ id: 'one' }));
     expect(await a).toEqual({ ok: true, torrentId: 'one' });
     expect(await b).toEqual({ ok: true, torrentId: 'one' });
+  });
+
+  it('a 4K press during a 1080p search is its own request, not the first one re-served', async () => {
+    // The dedupe window is a full provider search wide (~35s cold). With quality out of the
+    // key the second press gets the FIRST press's promise: the 4K ask is never sent and the
+    // control reports an HD result as the viewer's 4K one. Both halves are asserted -- two
+    // calls AND two distinct qualities -- because a key that merely differed would give two
+    // calls with the same quality.
+    download.mockReturnValue(new Promise(() => {}));
+    void requestTitle({ mediaType: 'movie', tmdbId: 603 });
+    void requestTitle({ mediaType: 'movie', tmdbId: 603, fourK: true });
+    expect(download).toHaveBeenCalledTimes(2);
+    expect(download.mock.calls.map((c) => c[0].quality)).toEqual(['1080p', '2160p']);
+  });
+
+  it('a second press at the SAME quality still joins the first', async () => {
+    // The flag widened the key; it must not have defeated it. Without this row, "quality is
+    // in the key" is satisfied by a key that dedupes nothing at all.
+    let finish!: (v: TorrentStatus) => void;
+    download.mockReturnValue(new Promise((r) => (finish = r)));
+    const a = requestTitle({ mediaType: 'movie', tmdbId: 77, fourK: true });
+    const b = requestTitle({ mediaType: 'movie', tmdbId: 77, fourK: true });
+    expect(download).toHaveBeenCalledTimes(1);
+    finish(torrent({ id: 'uhd' }));
+    expect(await a).toEqual({ ok: true, torrentId: 'uhd' });
+    expect(await b).toEqual({ ok: true, torrentId: 'uhd' });
   });
 
   it('a movie and an episode of the same tmdb_id do not collide', async () => {

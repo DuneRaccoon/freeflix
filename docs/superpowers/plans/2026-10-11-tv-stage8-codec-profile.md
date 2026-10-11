@@ -48,13 +48,21 @@ docker compose run --rm -v "$(pwd)/backend/tests:/opt/freeflix/tests" backend py
 **Re-baseline all four counts at branch start and quote them in task 1's commit.** The stage-7
 numbers (frontend 2277, `test:tv` 1334, backend 649) are the starting point, not a target.
 
-**This stage adds a file the container cannot see by default.** `backend/tests/data/releases.tsv`
-is test data, so it lands under `backend/tests`, which the dev override does not mount. Run the
-corpus suite both ways once — with the explicit `-v` mount above, and after `make build` — and
-record in task 3's commit which you used. An unmounted corpus is a **green no-op**, not an error:
-there is no `[tool.pytest.ini_options]` in `backend/pyproject.toml`, so `empty_parameter_set_mark`
-is the default `skip` and every parametrised row reports as skipped. Task 3's row-count test is
-the thing that fails instead.
+**This stage adds files the container cannot see by default.** `backend/tests/data/releases.tsv`
+and the corpus suite land under `backend/tests`, which the dev override does not mount, and
+`backend/scripts/` is **not copied into the image at all** (`backend/Dockerfile` takes `app/`,
+`serve.py`, `tests/` and `shell.py` only) — so running the harvest needs
+`-v "$(pwd)/backend/scripts:/opt/freeflix/scripts"` **and** `-e PYTHONPATH=/opt/freeflix`, the same
+shape as task 1's finding C. Run the corpus suite both ways once and record which you used.
+
+**And the failure mode is worse than "a green no-op", which is what this said before.** Measured:
+without the mount the *test file itself* is absent from the image, because `backend/tests` is baked
+at build time and the last build predated this stage — a full-suite run collects 527 tests with
+**zero** occurrences of `test_release_corpus`. Nothing fails and nothing skips; the suite is simply
+not there, and the row-count test cannot backstop that case because **it does not exist in the
+container either**. The real backstop is the mount or a rebuild. The row-count test backstops only
+the narrower "data moved, tests present" case, where it does fail as intended (64 failed / 4 passed
+/ 1 skipped).
 
 **Neither frontend guard runs in any build or in CI**, and every mutation below is manual. One
 green run proves nothing here — a 24% flake passed eight agents during stage 6 — so loop the
@@ -110,6 +118,46 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 `\b(hdr|hdr10|dolby\s*vision|\bdv\b)\b` at `quality.py:17`. The real gap is exactly `DoVi`, `HLG`,
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
+
+**From task 7 — the mutation this plan called "the most important in the task" cannot fail**, and
+the leak it was supposed to detect had **no automated guard at all**. All three web test files mock
+`@/services/torrents` wholesale, so the eleven payload assertions never execute the real service;
+a `client` defaulted in the service, or injected by an axios request interceptor, left all 2292
+frontend tests green. `services/torrents.ts` had no test of its own while five sibling services
+did. **Closed, not documented**: `frontend/src/services/torrents.test.ts` swaps
+`defaults.adapter` so the real interceptors run, and I verified it reddens for both leak shapes
+(2 tests for the service default, 5 for the interceptor) with a sentinel case proving the harness
+observes an interceptor at all. A detail worth keeping: a request interceptor sees `config.data` as
+the **object**, not the serialized string — axios serializes after the interceptor chain.
+
+**From task 3 — the corpus guard's own prescriptions were wrong twice, and the provider turns out
+to truncate.**
+
+- **`git mv` cannot move the TSV**: the no-staging rule leaves it untracked and git refuses. Plain
+  `mv`. Corrected at the guard.
+- **"every parametrised row merely reports as skipped" is conditional on the id function.** Written
+  naturally, an empty row list makes pytest's id lambda raise on its `NOTSET` sentinel and the
+  module dies at **collection**, suppressing the row-count failure and aborting collection of the
+  rest of the suite. This is the prescribed-mutation-produces-an-error shape, a new one.
+- **Without the tests mount the corpus *suite itself* is absent**, not merely its data: 527 tests
+  collect with zero mentions of `test_release_corpus`, so nothing fails and nothing skips. The
+  row-count test cannot backstop that case because it is not in the container either.
+- **`catalog_item_cache.torrents_json` is not a queryable name** — the ORM class is
+  `CatalogItemCache`, the table is `catalog_items`.
+- **`backend/scripts/` is not copied into the image**, so the harvest needs its own `-v` mount plus
+  `PYTHONPATH`.
+- **NEW, and the largest single source of lost facts in this stage: the provider truncates titles.**
+  614 of 6052 harvested titles (~10%) end in a literal `" ..."`, and it clips the **longest** names
+  — i.e. the feature-rich 2160p remuxes the profile cares most about. Worked example:
+  `1917.2019.2160p.UHD.BluRay.x265.10bit.HDR.DTS-HD.MA.TrueHD.7.1.A ...`, where `Atmos` is clipped
+  to `A` and the token is simply gone from the selector's input. Six of the corpus's eight
+  `bit_depth` false negatives are this, not a regex defect: the clip removes the codec token that
+  the depth rule co-requires. Pinned as a property of the **upstream**, so no parser change moves
+  it and a future harvest that stops showing it is a provider change worth noticing.
+- **The `Opus` hazard is real and measured.** Every false positive in 370 titles is one film: the
+  2025 release *Opus*, whose name opens every title, so 8 rows read `opus` audio on releases whose
+  actual audio is DDP, AAC or unnamed. `Cam (2018)` leaks into `parse_release_info`'s `source` but
+  not into `ReleaseFacts`, so it costs nothing here; both halves are asserted.
 
 **From task 5 — four more, two of them contradictions that would have blocked task 6.** Verified:
 
@@ -723,9 +771,16 @@ diff.
 - [ ] **Step 1:** harvest, hand-label, then the counts.
 
 **Mutate — four guards, each with its own.** (1) **A minimum-row-count test, and it is the first
-mutation target:** `git mv` the TSV aside and `test_corpus_min_rows` must **FAIL**, while every
-parametrised row merely reports as *skipped* — `empty_parameter_set_mark` is the default `skip`,
-so an absent or unmounted corpus otherwise makes the whole suite a **green no-op**. Run it both
+mutation target:** plain `mv` the TSV aside — **not** `git mv`, which refuses with
+`fatal: not under version control` because this task's own no-staging rule leaves the file
+untracked — and `test_corpus_min_rows` must **FAIL**, while every parametrised row merely reports
+as *skipped*. **That second half is conditional, not given.** Written the natural way
+(`ids=lambda r: r.title[:60]`) an empty row list still builds one parameter set holding pytest's
+`NOTSET` sentinel, the id lambda raises on it, and the module dies at **collection**
+(`Interrupted: 1 error during collection`) — which suppresses the row-count failure entirely and,
+in a full-suite run, aborts collection of everything else. A defensive id function is what makes
+the prescribed behaviour exist at all. `empty_parameter_set_mark` is the default `skip`, so an
+absent corpus otherwise makes the whole suite a **green no-op**. Run it both
 ways (with the `-v` tests mount, and after `make build`) and record which. (2) A label-coverage
 assertion: at least N rows for every value each label column can take — without it, "0 false
 negatives on DTS" can be reported from a corpus containing no DTS rows. (3) **Flip one hand label
@@ -946,8 +1001,19 @@ Note `EpisodeList.test.tsx:389` already asserts `quality: '2160p'`, so the web e
 request end to end today.
 
 **Mutate:** revert the dedupe key → the two-presses row reddens; drop `client` from the body →
-both payload rows redden; default `client` in `torrentsService` or an axios interceptor → **the
-eleven web assertions redden, which is exactly what they are for.** `npm run test:tv` would **not**
+both payload rows redden; default `client` in `torrentsService` or an axios interceptor → **this was named the most
+important mutation in the task and it CANNOT FAIL. Measured: both variants leave the full
+2292-test frontend suite green.** All three web files mock the service wholesale
+(`vi.mock('@/services/torrents', …)` at `MovieDetailView.test.tsx:57`, `EpisodeList.test.tsx:40`,
+`ShowDetailView.test.tsx:53`), so the eleven assertions compare the object handed *into* the
+service — the real module never runs and `api-client` is never imported. `services/torrents.ts` had
+**no test of its own**, while five sibling services did. The eleven assertions guard the web
+**callers**: a real but different failure. **Closed by `frontend/src/services/torrents.test.ts`**,
+which swaps `defaults.adapter` (the `api-client.401.test.ts` pattern) so the **real interceptors
+run** and anything they inject is visible — mocking the module would have closed the service half
+and left the interceptor half open. Verified both ways: a service default reddens 2 tests, an
+interceptor injection reddens 5 (including the `getSources` params rows the first cannot reach),
+and a sentinel-interceptor case proves the harness can see an interceptor at all. `npm run test:tv` would **not**
 catch that: `legacy-target.test.ts:467` explicitly pins `@/services/*` as allowed. Make `client`
 required on `CatalogTorrentRequest` → `npx tsc --noEmit` fails at eight web call sites, the type
 system itself proving the field must stay optional.

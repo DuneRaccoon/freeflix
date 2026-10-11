@@ -23,7 +23,8 @@ import { useBackKey } from '../../../_focus/useBackKey';
  * TWO CALLS, ONE LOAD. The detail comes from `getDetail(id, { withQualities: false })` and
  * the title's state from `titleStateFor`. The cheap form matters: the web's equivalent
  * screen runs three identical server-side torrent searches per load, each up to ~35s cold,
- * and this surface needs none of them (it asks for 1080p and builds no quality picker).
+ * and this surface needs none of them: it builds no quality picker, and the per-title 4K
+ * opt-in below chooses between two FIXED asks (1080p, 2160p) rather than listing what exists.
  * Consequence: `available_qualities` is `[]` here, so nothing below reads it.
  *
  * A FAILED PLAY IS VISIBLE. This surface mounts no toaster, so the web's toast-and-swallow

@@ -1,5 +1,5 @@
 import apiClient from './api-client';
-import { TorrentStatus, TorrentRequest, TorrentAction, TorrentBatchActionType, TorrentBatchResponse, CatalogTorrentRequest, TorrentCandidate } from '@/types';
+import { TorrentStatus, TorrentRequest, TorrentAction, TorrentBatchActionType, TorrentBatchResponse, CatalogTorrentRequest, ClientProfileId, TorrentCandidate } from '@/types';
 
 export interface SourcesParams {
   tmdb_id: number;
@@ -7,6 +7,12 @@ export interface SourcesParams {
   media_type?: 'movie' | 'tv';
   season?: number;
   episode?: number;
+  // Capability profile of the caller (stage 8). OPTIONAL for the same reason it is optional
+  // on CatalogTorrentRequest: the web source picker must keep seeing every candidate with a
+  // null `device_verdict`, and only a device that really is the television may claim one.
+  // Not defaulted here, and not injected by an interceptor: either would profile every web
+  // request in the app from one line.
+  client?: ClientProfileId;
 }
 
 export const torrentsService = {

@@ -10,8 +10,11 @@ This is the deliverable named in the plan's file table
 > **How to read this document.** Every row is either a value that was *observed on the television*
 > or the words **not tested**. Nothing here is inferred from a model number, a vendor table or a
 > desktop browser. Where a cell says "not tested" it is followed by why, and by what would settle
-> it. Two entries — HEVC decode and the `webos22` profile name — are **accepted risks** carried on
-> documentation rather than measurement, and are labelled as such. A reader six months from now
+> it. Two entries — HEVC decode and the `webos22` profile name — were **accepted risks** carried on
+> documentation rather than measurement, and are labelled as such. *(The naming half was settled in
+> stage 8 on 2026-10-11: the profile is `lg-webos22-floor`, carrying the table's provenance and the
+> posture instead of a device version. HEVC decode is **still** unmeasured — readings 16, 17 and 23
+> of `docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md`.)* A reader six months from now
 > should be able to tell measurement from assumption without leaving this page.
 
 ---
@@ -200,10 +203,16 @@ That is a materially smaller job than the spec assumed.
 2. **Transcribe the remote key codes.** Observed as "displaying as expected", but no code was
    written down — including the 461 that spec §5.2 and §8.3 bind for Back. Do this before stage 7
    relies on it.
-3. **The codec profile is named `client=webos22` and is built from LG's webOS 22 AV table.** The
-   device is webOS **25**, whose table is likely more permissive. The name is now inaccurate for this
-   device. **Stage 8** is where the profile gets built, and it must decide which AV table it is built
-   from and rename accordingly (spec §7.2).
+3. **RESOLVED in stage 8 (2026-10-11).** The profile is `client=lg-webos22-floor`, still built
+   from LG's webOS 22 AV table — not re-derived from the webOS 25 one. The decision, in short: the
+   engine was upgraded by software but the decoder silicon is 2022, so the 22 table is the *safer*
+   derivation for this set rather than merely a conservative one, and the name now carries the
+   table's provenance (`webos22`) and the posture (`-floor`) instead of claiming a device match.
+   Nobody has read LG's webOS 25 table in any form, and "webOS 25" is itself inferred from the
+   measured Chromium 120 — the model SKU and the verbatim user agent are **both still
+   untranscribed** (reading 26). A later *measured* profile gets a new id, never a quiet edit to
+   this one's rules. See spec §7.2 and
+   `docs/superpowers/plans/2026-10-11-tv-stage8-codec-profile.md`.
 4. **HEVC and DTS-at-1080p remain unmeasured.** HEVC is an accepted documentation-backed risk; DTS is
    untouched. Both are naturally settled during stage 8, which needs real files to validate the
    profile against anyway.

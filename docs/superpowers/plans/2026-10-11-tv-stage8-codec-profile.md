@@ -299,8 +299,23 @@ docstring so the next reader does not re-litigate it from a version number. A la
 profile is a **new id** (`lg-qned99-measured`), never a quiet edit to this one's rules.
 
 **Rename cost, in full: seven occurrences across two files** — spec `:72`, `:539`, `:555`, `:742`,
-`:846`, plus `2026-09-22-webos-tv-stage3-results.md:13` and `:203`. After the rename
-`grep -rn webos22 docs/ backend/ frontend/src` must return nothing. A merge gate.
+`:846`, plus `2026-09-22-webos-tv-stage3-results.md:13` and `:203`. **Six of the seven are done**
+(commits `ad465cf` and this branch's doc commit); the seventh is the §7.2 corrected-note paragraph
+at spec `:556`, which task 10 rewrites wholesale.
+
+**The merge gate, stated correctly — and the obvious phrasing of it is wrong.** "`grep -rn webos22`
+returns nothing" cannot be the gate, for two reasons: `lg-webos22-floor` *contains* `webos22` as a
+substring, so the gate would forbid the very name it is enforcing; and the stage-3 results document
+and this plan both legitimately *record* the old name as history, which is the opposite of a defect.
+The gate is therefore:
+
+```bash
+grep -rn webos22 backend/app frontend/src | grep -v lg-webos22-floor   # must be empty
+```
+
+plus, in `docs/`, every surviving bare `webos22` must be inside prose that is explicitly recording
+the decision or its history — never a live wire value. Checked by eye against that list, once, at
+the branch review.
 
 ## The rules table
 
@@ -1046,8 +1061,10 @@ Atmos-carrier deviation stated, R10 marked NOT IMPLEMENTED with its reason and r
 "over-conservative because webOS 25 is newer" rationale **replaced** by the silicon argument.
 §11.2's "prefers 1080p H.264+**AC3**" fixture becomes **E-AC3** (or AC3 *and* E-AC3), since
 §11.5(d) asked for AC3 while the run delivered DDP5.1 — plain AC3 is no more measured than HEVC;
-"penalises AV1" survives untouched, which is why R6 is in force. And the seven-occurrence rename,
-with `grep -rn webos22 docs/ backend/ frontend/src` returning nothing as a merge gate.
+"penalises AV1" survives untouched, which is why R6 is in force. And the last of the seven rename
+occurrences (spec `:556`, this paragraph itself), after which the merge gate in "The name" section
+above — `grep -rn webos22 backend/app frontend/src | grep -v lg-webos22-floor` empty, and every
+surviving bare `webos22` in `docs/` being explicit history — is checked once by eye.
 
 **Does not:** take any reading, fill any cell, or claim the stage works.
 

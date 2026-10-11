@@ -23,6 +23,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
@@ -34,6 +36,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
@@ -62,6 +66,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
@@ -73,6 +79,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
@@ -101,6 +109,8 @@
       "ranked": [
         {
           "bytes": 1500,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:66b352099da6cff6ace88a2952bb3a659c827717",
@@ -112,6 +122,8 @@
         },
         {
           "bytes": 0,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:5084f9391ac0fdbe1ef9d7d54642a566431074fa",
@@ -205,6 +217,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
@@ -216,6 +230,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
@@ -227,6 +243,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
@@ -238,6 +256,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
@@ -249,6 +269,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
@@ -260,6 +282,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
@@ -271,6 +295,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
@@ -282,6 +308,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
@@ -293,6 +321,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
@@ -304,6 +334,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
@@ -315,6 +347,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
@@ -326,6 +360,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
@@ -337,6 +373,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
@@ -348,6 +386,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
@@ -359,6 +399,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
@@ -452,6 +494,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
@@ -463,6 +507,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
@@ -474,6 +520,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
@@ -485,6 +533,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
@@ -496,6 +546,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
@@ -507,6 +559,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
@@ -518,6 +572,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
@@ -529,6 +585,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
@@ -540,6 +598,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
@@ -551,6 +611,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
@@ -562,6 +624,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
@@ -573,6 +637,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
@@ -584,6 +650,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
@@ -595,6 +663,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
@@ -606,6 +676,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
@@ -699,6 +771,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
@@ -710,6 +784,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
@@ -721,6 +797,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
@@ -732,6 +810,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
@@ -743,6 +823,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
@@ -754,6 +836,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
@@ -765,6 +849,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
@@ -776,6 +862,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
@@ -787,6 +875,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
@@ -798,6 +888,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
@@ -809,6 +901,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
@@ -820,6 +914,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
@@ -831,6 +927,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
@@ -842,6 +940,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
@@ -853,6 +953,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
@@ -946,6 +1048,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
@@ -957,6 +1061,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
@@ -968,6 +1074,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
@@ -979,6 +1087,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
@@ -990,6 +1100,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
@@ -1001,6 +1113,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
@@ -1012,6 +1126,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
@@ -1023,6 +1139,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
@@ -1034,6 +1152,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
@@ -1045,6 +1165,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
@@ -1056,6 +1178,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
@@ -1067,6 +1191,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
@@ -1078,6 +1204,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
@@ -1089,6 +1217,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
@@ -1100,6 +1230,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
@@ -1193,6 +1325,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
@@ -1204,6 +1338,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
@@ -1215,6 +1351,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
@@ -1226,6 +1364,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
@@ -1237,6 +1377,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
@@ -1248,6 +1390,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
@@ -1259,6 +1403,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
@@ -1270,6 +1416,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
@@ -1281,6 +1429,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
@@ -1292,6 +1442,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "low",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
@@ -1303,6 +1455,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
@@ -1314,6 +1468,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
@@ -1325,6 +1481,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
@@ -1336,6 +1494,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
@@ -1347,6 +1507,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "dead",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
@@ -1380,6 +1542,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:a85a9fc0d2cb95e2f34611a4b32c1b8832675507",
@@ -1391,6 +1555,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
@@ -1402,6 +1568,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:bd04926d718d1ffb20fba29d386c634ba2839775",
@@ -1435,6 +1603,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:bdfca4467ddbd6c058e4cf5cd07afb73a04772fc",
@@ -1446,6 +1616,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
@@ -1457,6 +1629,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:b7ca394c505ca5464049ef3223fcc67bfbd1d229",
@@ -1490,6 +1664,8 @@
       "ranked": [
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:318dd74b08d2e56a00655f7cb401b25c2d778f7a",
@@ -1501,6 +1677,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
@@ -1512,6 +1690,8 @@
         },
         {
           "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
           "health": "healthy",
           "is_season_pack": false,
           "magnet": "magnet:?xt=urn:btih:871950b44ad30b8fbc6b1e4cbbd3c4d4a5f05022",

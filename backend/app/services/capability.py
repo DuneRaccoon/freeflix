@@ -43,22 +43,26 @@ dishonest table red; they are deliberately **tests** rather than import-time ass
 bad edit reddens one named row instead of killing the backend at import and burying which
 invariant broke.
 
-Imports: ``app.providers.quality`` only. No DB, no HTTP, no ``settings``, and **no import
-of ``torrents_select``** — nothing in the selector changes in this stage, and an import
-here would invite the next change to.
+Imports: ``app.providers.quality`` and ``app.models`` only. No DB, no HTTP, no
+``settings``, and **no import of ``torrents_select``** — nothing in the selector changes in
+this stage, and an import here would invite the next change to. That ban is why
+:data:`_HEALTH_ORDER` below is a copy rather than a read: the selector's health map is a
+local inside ``rank_candidates``, unreachable from outside the function body.
 
-Ordering is **not** here. :func:`evaluate` answers "what does this release claim, and what
-does the profile think of it"; where that verdict sits in the ranking is ``apply_profile``'s
-job (stage 8 task 5), which is why ``evaluate`` has no production caller yet.
+:func:`evaluate` answers "what does this release claim, and what does the profile think of
+it"; where that verdict sits in the ranking is :func:`apply_profile`'s job — a **stable
+second sort** over an already-ranked list, which is the only thing in this module that
+knows about ordering at all.
 
 The prose readings sheet these rows mirror is
 ``docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md``; :data:`READINGS_ROWS`
 is the machine-readable half, **in Python**, because nothing here parses markdown.
 """
 from dataclasses import dataclass
-from typing import Callable, Dict, FrozenSet, Optional, Tuple
+from typing import Callable, Dict, FrozenSet, List, Optional, Tuple
 
-from app.providers.quality import CONTAINER_TOKENS, ReleaseFacts
+from app.models import TorrentCandidate
+from app.providers.quality import CONTAINER_TOKENS, ReleaseFacts, parse_release_facts
 
 # --------------------------------------------------------------------------------------
 # Vocabulary
@@ -703,3 +707,123 @@ def evaluate(
         cost=sum(rule.cost for rule in in_force),
         matched=matched,
     )
+
+
+# --------------------------------------------------------------------------------------
+# The ordering: one stable second sort over an already-ranked list
+# --------------------------------------------------------------------------------------
+
+#: The selector's health tiers, by name, best first. **A copy, and it has to be:** the real
+#: map is a local inside ``rank_candidates`` (``torrents_select.py:80``) and this module may
+#: not import that one (see the module docstring). The drift guard is therefore a test —
+#: ``test_apply_profile.py`` parametrises ``classify_health`` over seeds 0/1/4/5/100 and
+#: requires this dict's key set to be exactly the set of strings it can return, and asserts
+#: behaviourally that applying a profile never reorders two candidates that differ only in
+#: health. A value added here, or a tier renamed there, reddens one named row.
+_HEALTH_ORDER: Dict[str, int] = {"healthy": 0, "low": 1, "dead": 2}
+
+#: Where a health string this module has never heard of sorts: last, within its reject
+#: group. ``_to_candidate`` only ever writes a ``classify_health`` return value, so this is
+#: unreachable from the endpoints — but ``TorrentCandidate.health`` is a plain ``str`` that
+#: any caller can set, and a ``KeyError`` deep in a sort key would surface as an opaque 500.
+#: Exercised by a test, so it is not a branch nothing can reach.
+_UNKNOWN_HEALTH_RANK = len(_HEALTH_ORDER)
+
+
+def apply_profile(
+    candidates: List[TorrentCandidate],
+    profile: Optional[str] = None,
+    *,
+    allow_2160p: bool,
+) -> List[TorrentCandidate]:
+    """Annotate and re-order an already-ranked candidate list for one television.
+
+    ``profile`` is a key of :data:`PROFILES` — the id the client sent — or ``None`` for
+    every caller that is not a television. **``None`` returns the very same list object,
+    unannotated**, which is the absent-profile guarantee: the desktop path is not merely
+    equivalent to today's, it is literally today's list. It is a default rather than a
+    required argument so that a caller who forgets it cannot accidentally get a profile.
+    (The test asserts ``is``, which is sound here only because the subject is a *list*:
+    ``list(l) is l``, ``l[:] is l``, ``sorted(l) is l`` and ``[x for x in l if True] is l``
+    are all False. On a **tuple** that assertion cannot fail — ``tuple(t) is t`` is True —
+    which is how task 4's registry test came back green under its own mutation.)
+
+    **Nothing is filtered, ever**: ``len(result) == len(candidates)`` for every input, and a
+    rejected candidate is partitioned last and *marked*. ``/sources`` is advisory — the
+    web's alternatives modal and the in-player switcher are both guarded on a non-empty
+    list, so dropping rows would make the web play a bad release with no warning instead of
+    offering a better one. Refusing is ``/download``'s job, on the mark.
+
+    **The sort key is ``(rejected, health_rank, capability_cost)``** and it is a *second*,
+    stable sort over the output of ``rank_candidates``, which ordered by
+    ``(health, bucket, seeds, bytes)``:
+
+    * ``health_rank`` is the first element of **both** keys and Python's sort is stable, so
+      the capability term lands exactly **between health and the quality bucket** by
+      construction — no weight tuning, no arithmetic bound, no fifth element in the
+      selector — and bucket/seeds/bytes order inside each (reject, health) group survives
+      byte-for-byte.
+    * ``rejected`` is **outermost**, so a reject is never the auto-pick whatever its swarm.
+      This is also why the 4K opt-out (R1) must be a reject rather than a weight:
+      ``bucket_order`` makes 2160p the *first* downgrade target for a 1080p ask, so a 2160p
+      sits at bucket index 1 against a 720p at 2, and no cost placed below health can reach
+      it. Mutating R1 to a cost reddens the opt-out rows; that is the arithmetic.
+    * ``capability_cost`` is :attr:`Verdict.cost` — signed, summed over the **in-force**
+      matches only, penalties positive and bonuses negative, so **lower is better** and the
+      sort is ascending. Shadow and skipped rules contribute 0 and reorder nothing; they
+      are still reported in ``device_reasons``.
+
+    Penalties sit **below** health deliberately: a penalty means "worse, but it will play",
+    while a release under ``min_seeds`` will not start at all. The accepted cost is
+    hazard 5 — a rejected *healthy* release loses to an acceptable *dead* one, so
+    ``candidates[0]`` can be a 0-seed swarm and the viewer waits on "Preparing… 0%".
+    Reverse it on evidence, not on taste.
+
+    ``health`` itself is **never touched**. It drives the web's badges and its
+    ``hasHealthierAlt`` gate (``c.health === 'healthy' && c.quality !== resolved``), so a
+    cost folded into health would make a device-rejected release the alternative the modal
+    actively *recommends* — and accepting that offer ships a magnet, which takes the
+    verbatim bypass in ``/download``.
+
+    The annotation is written **in place** on each candidate rather than onto copies.
+    ``rank_candidates`` builds a fresh ``TorrentCandidate`` per hit on every request and
+    nothing caches them, so there is no object here anyone else owns.
+    """
+    if profile is None:
+        return candidates
+
+    rules = PROFILES.get(profile)
+    if rules is None:
+        # Loud, not silent. The endpoints validate ``client`` against a Literal, so an
+        # unknown id here is a programming error - and the one failure mode this stage
+        # must not have is "the profile quietly did not run while the response looked
+        # fine" (the pydantic-drop hazard, in a different costume).
+        raise ValueError(
+            f"unknown capability profile {profile!r}; known: {sorted(PROFILES)}"
+        )
+
+    judged: List[Tuple[TorrentCandidate, Verdict]] = []
+    for candidate in candidates:
+        verdict = evaluate(
+            parse_release_facts(candidate.release_title),
+            allow_2160p=allow_2160p,
+            rules=rules,
+        )
+        # ``reason`` is non-None iff ``rejected`` - read off the same effects by
+        # ``evaluate``, so the flag and the label cannot disagree, and an unlabelled
+        # reject falls back to the rule id rather than to None (it must stay truthy, or
+        # ``/download``'s ``if not c.device_verdict`` would auto-pick it).
+        candidate.device_verdict = verdict.reason
+        candidate.device_reasons = [
+            f"{match.rule_id}:{match.state}" for match in verdict.matched
+        ]
+        judged.append((candidate, verdict))
+
+    judged.sort(
+        key=lambda pair: (
+            pair[1].rejected,
+            _HEALTH_ORDER.get(pair[0].health, _UNKNOWN_HEALTH_RANK),
+            pair[1].cost,
+        )
+    )
+    return [candidate for candidate, _verdict in judged]

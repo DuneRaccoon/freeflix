@@ -111,6 +111,34 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**From task 5 — four more, two of them contradictions that would have blocked task 6.** Verified:
+
+- **`device_verdict` was specified both ways, and task 6's proof was the wrong half.** Line 832
+  needs it **falsy when accepted** (`if not c.device_verdict` is the auto-pick skip); line 852 said
+  every candidate carries a **non-null** one. Both cannot hold. The shipped contract is
+  **truthy iff rejected** (`models.py:206-212`), matching task 4, so 852 is corrected above.
+- **`profile_for()` never existed** and is in no task's file list; meanwhile the hostile-table test
+  requires the registry to be read **inside** `apply_profile` or it is inert. `apply_profile`'s
+  second argument is the id; the lookup is internal; an unknown id raises.
+- **"Call it with the argument omitted" needs a default** the sketched signature did not give.
+  `profile=None`, which is also the stronger guarantee.
+- **Adding two defaulted fields breaks task 1's golden snapshot at the `model_dump()` level**, which
+  the plan promised would hold byte-for-byte. 11 cases go red with no ordering change. Regeneration
+  is expected and must be **proved** additive: 180 insertions, 0 deletions — verified.
+- **Nuance on the stage's central claim, worth getting right:** "the 4K gate cannot be a weight" is
+  exactly about the **health-mismatch** case. With R1 as a 1,000,000 cost, leak (a)'s order is
+  *still* wrong because `health_rank` precedes the cost; leak (b)'s order is corrected and only the
+  `withheld` mark is lost. So a weight fails precisely where the television most often lands.
+
+**From task 10 — three stale statements in this plan and one trap found in its own test.** The
+`_HDR` citation moved to `quality.py:40` after task 2's rewrite; reading 20 (AV1) takes a **real
+file**, not one of the four clips, so decision 3's enumeration was wrong; and "three spec edits"
+was already down to one, §11.2 and §14 having landed in `ad465cf`. The trap: a row-wide
+`/FILE NOT PRESENT/` matcher was satisfied by **two** nodes (the table cell *and* the explanatory
+paragraph), so deleting the words from the cell — which is what the operator transcribes — came
+back **green through 30 runs**. Scoped to the cell. This is the "substring the happy path also
+satisfies" shape, and it is the second time in this stage a matcher has been too loose.
+
 **From task 4 — the plan contradicted itself three times, and one integrity test was asked to do
 a job it cannot do.** All verified before acceptance:
 
@@ -768,7 +796,17 @@ inside `rank_candidates`) and carries a drift pin parametrised over seeds 0/1/4/
 `classify_health`. `TorrentCandidate` gains two **defaulted** fields —
 `device_verdict: Optional[str] = None`, `device_reasons: List[str] = []` — so
 `test_sources_endpoint.py:13-17`'s nine-field construction still constructs; mirror them by hand
-at `frontend/src/types/index.ts:139-149`.
+at `frontend/src/types/index.ts:139-149`, **optional** there — required ones fail `tsc` at the web
+fixtures.
+
+**Expect to regenerate task 1's golden snapshot, and read the plan's "byte-for-byte" promise
+carefully.** `test_selector_baseline.py:141` records `[c.model_dump() for c in ...]`, so two
+defaulted fields add two **keys** to all 90 recorded rows and 11 parametrised cases go red with no
+ordering change at all. Byte-for-byte holds at the **ordering** level and is impossible at the
+`model_dump()` level. Regenerate with that file's own documented command (`-v` mount plus
+`-e PYTHONPATH=/opt/freeflix`) and then **prove the regeneration carries no ordering change**:
+`git diff` must be insertions only — exactly `"device_reasons": []` ×90 and `"device_verdict": null`
+×90, **zero deletions**. Anything else means the ordering moved and the task is wrong.
 
 - [ ] **Step 1:** the sort and the `None` guarantee.
 - [ ] **Step 2:** the feature rows — and note **today's red test is the opt-OUT**.

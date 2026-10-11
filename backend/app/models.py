@@ -198,6 +198,24 @@ class TorrentCandidate(BaseModel):
     health: str             # "healthy"|"low"|"dead"
     is_season_pack: bool
     release_title: str
+    # --- capability profile (stage 8), written only by services.capability.apply_profile ---
+    # Both fields are DEFAULTED, so every existing nine-field construction still
+    # constructs (tests/test_sources_endpoint.py) and every request that carries no
+    # client profile answers exactly as it does today.
+    #
+    # device_verdict is truthy IFF this television refuses the release: "withheld"
+    # (a 2160p release for a non-4K ask -- a product decision, not an AV claim) or
+    # "incapable" (it cannot be decoded here). None means "no profile was applied, or
+    # the profile accepted it" -- the two are deliberately not distinguished, because
+    # /download skips on falsiness (`if not c.device_verdict`) and an accepted release
+    # must be auto-choosable. Use device_reasons to tell them apart.
+    device_verdict: Optional[str] = None
+    # Every rule that matched, "<rule-id>:<state>", in table order -- including the
+    # shadow and skipped rows, which change no ordering. Empty when no profile ran AND
+    # when a profile ran but nothing matched (the common case for a plain release).
+    device_reasons: List[str] = []
+    # Mirror by hand in frontend/src/types/index.ts (TorrentCandidate). There is no
+    # drift guard between the two.
 
 
 class CatalogPage(BaseModel):

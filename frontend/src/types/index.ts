@@ -146,6 +146,15 @@ export interface TorrentCandidate {
   health: SwarmHealth;
   is_season_pack: boolean;
   release_title: string;
+  // Capability profile (stage 8). Present only when the request carried a `client`
+  // profile id; absent/null on every web request, which is why both are optional.
+  // `device_verdict` is truthy IFF this television refuses the release: 'withheld'
+  // (a 4K release for a non-4K ask -- a product decision, not an AV claim) or
+  // 'incapable' (it cannot be decoded here). `device_reasons` names every rule that
+  // matched, '<rule-id>:<state>', including the shadow rows that reorder nothing.
+  // Hand-mirrored from backend app.models.TorrentCandidate -- NO drift guard exists.
+  device_verdict?: string | null;
+  device_reasons?: string[];
 }
 
 // Derived/polled stream-health snapshot passed from the streaming page to the player.

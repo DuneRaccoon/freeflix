@@ -111,6 +111,31 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**From task 4 — the plan contradicted itself three times, and one integrity test was asked to do
+a job it cannot do.** All verified before acceptance:
+
+- **The `settled_by` "iff" was self-contradictory** (integrity test 2 vs the rules table): the table
+  gives readings to R2 and R9 (`lg-table`) and R5 (`lg-doc`), and test 3 needs those claims or five
+  readings are orphaned. Fixed to required / permitted / forbidden by basis.
+- **`test_every_rule_is_observable` cannot detect a rule implied by another**, which the plan
+  claimed it would. `matched` is total, so any satisfiable rule changes `matched` and passes.
+  **Measured**: a byte-for-byte duplicate of R6 was added to the table and observability passed for
+  **both** copies. A separate pairwise predicate-disagreement test is now the instrument, and
+  observability keeps only the *unsatisfiable* half of the job.
+- **The eight-field rule tuple had nowhere to put `withheld`/`incapable`**, which task 6 needs on
+  the wire. Ninth defaulted field, required on rejects and forbidden elsewhere. Same shape of gap
+  in `evaluate`'s signature: with no profile parameter `PROFILES` would be dead data.
+- **R9's bit depth was specified two ways** (8/10-bit in the rule, "no bit-depth gate" in the
+  losses section). Resolved in the rules table above.
+- **"R2 fires only when 4K was opted into" is not implementable** without breaking task 6's own
+  copy rule, which needs a candidate able to match both labels. Resolved with a reject precedence.
+- **An `is` assertion on a tuple is a test that cannot fail** — `tuple(t) is t` is True. Task 4's
+  registry test came back green under its own mutation and was retargeted at contents. Task 5's
+  list identity test is unaffected and sound; the note is beside it.
+- A weight on a `skipped` rule is invisible at runtime, so the `no-input` test asserts `cost == 0`
+  directly rather than leaning on a verdict row.
+- **R7 can never be retired by any planned reading** — hazard 7, sharpened.
+
 **From task 1 — two more of this plan's prescribed mutations could not fail, and the second one
 exposes two pre-existing unfalsifiable tests in the repo.** Both verified independently:
 
@@ -273,6 +298,11 @@ verbatim bypass.
 
 **The absent-profile default is structural, three ways.** (1) `apply_profile(candidates, None,
 ...)` returns `return candidates` — the *same list object*, unannotated, asserted `is`, not `==`.
+**That test is sound, and sound only because the subject is a list**: `list(l) is l`, `l[:] is l`,
+`sorted(l) is l` and `[x for x in l if True] is l` are **all False**. The same assertion on a
+**tuple** cannot fail — `tuple(t) is t`, `t[:] is t` and `t + () is t` are all **True** — which is
+exactly how task 4's registry test came back green under its own mutation. Never assert `is` on a
+tuple to prove a copy did not happen.
 (2) Zero-diff on the selector: the unprofiled path is literally today's code. (3) A hostile-table
 identity test: monkeypatch the registry with a profile that rejects everything at maximum penalty,
 call with `client=None` and again with the argument omitted, and assert byte-identical order
@@ -319,8 +349,12 @@ the branch review.
 
 ## The rules table
 
-Every rule is `(id, when, effect, cost, basis, state, settled_by, why)`. `basis` is a **closed
-set** — `measured` | `lg-table` | `lg-doc` | `inferred` | `guess` | `no-input` | `product` — and
+Every rule is `(id, when, effect, cost, basis, state, settled_by, why, verdict)`. The ninth field
+is the wire label — `'withheld'` or `'incapable'` — **required on every reject and forbidden
+elsewhere**, with its own integrity test. *(The plan originally fixed an eight-field tuple with
+nowhere to put those two strings, which task 6 needs on the wire. For the same reason `evaluate`
+takes a defaulted `rules=RULES` keyword: with no profile parameter `PROFILES` would be dead data
+and a hostile table could not be injected.)* `basis` is a **closed set** — `measured` | `lg-table` | `lg-doc` | `inferred` | `guess` | `no-input` | `product` — and
 each value **licenses a ceiling**: only `lg-table` and `product` may REJECT; `lg-doc`, `inferred`
 and `guess` may cost only; `no-input` forces effect NONE with a non-empty reason. `state` is
 `in_force` | `shadow` | `skipped`. `evaluate` is **total**: it returns the worst in-force effect
@@ -373,6 +407,20 @@ positively identified `xvid|divx` token — **`container_guess is None` is alway
 the minimal honest recovery of §7.2's "heavy penalty" magnitude, which a flat cost tier otherwise
 flattens: it gets a strictly larger cost than the three within-bucket guesses, with a
 strict-ordering test.
+
+**R9's bit depth, where the plan said two different things.** The rules table specifies `hevc`
+**8/10-bit**, and "what the television loses" says there is **no bit-depth gate**, so a 12-bit HEVC
+is treated as 10-bit. Resolved: a positively named 12-bit HEVC gets **no bonus** — it is outside
+the table R9's basis *is* — but is never penalised and never rejected, so "no bit-depth gate" stays
+true in the direction that matters. **An unknown depth counts as documented**, because unknown must
+be free and an unnamed depth is overwhelmingly 8 or 10; denying it the bonus would make R9 nearly
+inert, which is the vacuity trap this stage is most prone to. All three cases are pinned.
+
+**R2 does not read `allow_2160p`, and the plan's "fires only when 4K was opted into" is not
+implementable as a predicate.** Task 6's copy rule distinguishes "every candidate `withheld`-only"
+from "any candidate `incapable`", which **requires a candidate to be able to match both**. So R2
+matches on the facts alone and `REJECT_PRECEDENCE = ('incapable', 'withheld')` resolves a double
+match — correct, because opting into 4K would not help a 2160p DTS-HD release.
 
 **R8 and R9 are split, with a strict-ordering test between their bonuses.** If H.264 and HEVC
 share one "preferred" tier, the project's only *reading* scores identically to the combination
@@ -431,17 +479,28 @@ treated as 10-bit. And the 4K opt-in rests entirely on an unmeasured HEVC decode
 ### Integrity tests — the mechanism that makes a dishonest table red
 
 1. Every rule's `basis` is in the closed set.
-2. `settled_by` is required **iff** `basis ∈ {inferred, guess, no-input}`, and must name an id
-   present in a frozen `READINGS_ROWS` tuple **in Python** — nothing parses markdown.
+2. `settled_by` is **required** for an unsettled basis (`inferred`, `guess`, `no-input`),
+   **permitted** for a documented one (`lg-table`, `lg-doc`), and **forbidden** for `product` and
+   `measured`. Every id must be present in a frozen `READINGS_ROWS` tuple **in Python** — nothing
+   parses markdown. *(This was "required **iff** unsettled" and that is self-contradictory: the
+   rules table gives readings to R2 and R9 (`lg-table`) and R5 (`lg-doc`), and integrity test 3
+   below **needs** those claims, or readings 16, 17, 21, 23 and 24 are claimed by nobody and the
+   both-directions test fails. "Forbidden for `product`/`measured`" is what the table's two `n/a`
+   cells, R1 and R8, actually mean.)*
 3. Both directions: every `READINGS_ROWS` entry is claimed by at least one rule, or flagged
    `standalone` (rows 22, 26).
 4. Exactly **two** rules may REJECT, and their bases are `product` and `lg-table`.
 5. R10's effect is NONE and its reason is non-empty.
 6. Tier A's bonus is strictly greater than tier B's; R7's cost is strictly greater than R3–R6's.
 7. `test_every_rule_is_observable`: for each rule, `evaluate` on its matching fixture must differ
-   from `evaluate` on its non-matching fixture in `effect` **or** in `matched`. An unsatisfiable
-   predicate, or a row whose effect is already fully implied by another row, fails here instead of
-   sitting in the table forever looking enforced.
+   from `evaluate` on its non-matching fixture in `effect` **or** in `matched`. This catches an
+   **unsatisfiable** predicate — a rule nothing can ever match.
+8. `test_no_rule_is_implied_by_another`: pairwise, two rules' predicates must disagree on at least
+   one fixture in the pool. **This is a separate test because test 7 cannot do it**, and the plan
+   originally claimed it could. `matched` is total by design, so *any* satisfiable rule changes
+   `matched` and passes test 7 — measured, by adding a byte-for-byte duplicate of R6 to the table
+   and watching observability pass for **both** copies. A duplicated or fully-implied row needs the
+   pairwise test; an unsatisfiable one needs test 7. Neither substitutes for the other.
 
 The three states also surface in **§7.2's own table** as a vocabulary — **IN FORCE / SHADOW / NOT
 IMPLEMENTED** — because a six-month reader opens the spec, not `capability.py`.
@@ -1156,7 +1215,17 @@ that the profile is *correct about files* rather than about titles.
    at 80 Mbps passes every rule.
 7. **Four guessed rules reorder from day one** (R3/R4 shadowed; R5, R6, R7 not). §7.2's only
    contemplated movement is penalty→reject, so the only retirement path is a reading that may never
-   be taken, and a `device_reasons` string nobody reads is not a retirement mechanism.
+   be taken, and a `device_reasons` string nobody reads is not a retirement mechanism. **And R7 is
+   worse than that: no reading in rows 16–26 would retire it at all**, because nothing in the sheet
+   plays an AVI — reading 22 plays the containers R7 does *not* penalise. Its `settled_by` points
+   at 22 as the nearest premise, not as a retirement. Written into R7's own `why`.
+8. **A `guess` basis cannot be promoted to a reject in one cell.** If reading 18 shows a hard
+   `MediaError` rather than silence, §7.2's "promote to reject if it fails" needs four cells —
+   `state`, `effect`, `basis` (→ `measured`, which is what the reading would make it) and a
+   `verdict` label — plus the exactly-two-rejects test, which hard-codes its list. That is the
+   basis ceiling working as designed, not a defect; but the plan's "one-cell edit" framing covers
+   only the **silence** branch, which is the expected one. The silence branch really is one
+   production cell plus three one-line test expectations, confirmed by performing it.
 8. **Shadow mode is unfalsifiable in the retiring direction.** A shadow R3 never reorders, so no
    release it would have demoted playing correctly can disprove it. It can only be promoted by
    reading 18 or carried forever. Accepted for R3/R4 because their reading is specified; refused

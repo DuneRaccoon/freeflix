@@ -111,6 +111,38 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**From task 2 — three of this plan's prescribed mutations could not fail, and one claim about
+Python's regex engine was simply false.** Verified independently before being accepted:
+
+- **Finding 1. Alternation order is unobservable for alternatives that start at different
+  characters.** `(?:ac3|e-ac3)` and `(?:e-ac3|ac3)` **both** return `E-AC3` from
+  `Movie.2020.E-AC3.5.1`, because Python tries every alternative at the leftmost position before
+  advancing. The `_SOURCE` analogy at `quality.py:37` only holds for alternatives starting at the
+  *same* character — `(?:web|web-?dl)` really does return `WEB` where `(?:web-?dl|web)` returns
+  `WEB-DL`. So "move `ac3` before `eac3`" would have come back **green** against the obvious
+  single-alternation implementation. The shipped parser makes it falsifiable by a different
+  mechanism: an ordered list of per-token patterns scanned most-specific-first, refusing to
+  re-read characters an earlier pattern claimed (`_scan_tokens`), with the reasoning written at
+  `quality.py:62-81` so nobody simplifies it back.
+- **Finding 2. "Drop the codec co-requirement from bit depth → `FLAC.24bit` reddens" is false.**
+  `(?<!\d)(8|10|12)` already refuses `24` — verified: it returns `[]` on `24bit` and `['10']` on
+  `10bit`. There are **two independent guards** where the plan saw one, and
+  `Concert.2020.FLAC.24bit.48kHz` (`test_quality.py:22`) can discriminate **neither**: it has no
+  codec *and* an out-of-domain number, which is exactly the "fixture whose values collide" shape.
+  Two fixtures now, one per guard.
+- **Finding 3. "Add `ts` as a container token → the telesync row reddens" is false for the title
+  the plan named.** `Movie.2020.TS.XviD-GRP` reads `container_guess='avi'` with or without `ts`,
+  because it names XviD. The discriminating fixture is a telesync whose codec is *not* XviD —
+  `Movie.2020.TS.x264-GRP`, which reads `None`. Both rows are kept.
+- Finding 4, minor: the `parse_quality` characterisation test must assert `parse_quality` **alone**.
+  Written the natural way — both parsers on one string, asserting they disagree — it reddens under
+  the resolution-precedence mutation and destroys the independence demonstration the plan wanted.
+  Split into two tests.
+
+Verified by direct exercise of the shipped parser: `Movie.2020.1080p.UHD.BluRay.DD5.1.x265-GRP`
+buckets as **`2160p`** through `parse_quality` while `facts.resolution` reads **1080** — the
+containment this stage depends on, working.
+
 **Every `file:line` in tasks 4 through 9 was re-checked before the first agent ran**, and all of
 them hold: `movies.py:70`/`:79`/`:96`/`:97`/`:115`, `tv.py:99`/`:108` (and `services/tv.py` calls
 neither `set_detail` nor `set_torrents`), `cron/jobs.py:284`, `test_candidate_helpers.py:3`,
@@ -433,10 +465,13 @@ Each addition is shaped by a measured defect rather than by copying the house st
   (`REMUX.HEVC.DTS-HD.MA.TrueHD.7.1.Atmos`). Every pattern needs `[-. _]?` separators and
   digit-tolerant boundaries: `\bdd\b` misses `DD5.1` but **matches** `DD+5.1`; `\bddp\b` misses
   `DDP5.1` (the AMZN/NTb standard); `\baac\b` misses `AAC2.0`; `\bdts\b` misses `DTSHD.MA`.
-  Alternation **order** is load-bearing — `\bac3\b` matches *inside* `E-AC3` because the hyphen
-  supplies the boundary — so E-AC3/DDP/DD+ before AC3/DD, and DTS-HD/TrueHD before DTS, exactly as
-  `web-?dl|webrip|web` already is at `:14`. `atmos` is recorded as a flag beside its carrier,
-  never as a codec.
+  Order is load-bearing in **two different ways**, and a single alternation only enforces one of
+  them (see Corrections, finding 1): two tokens starting at the *same* character (`DD+`/`DDP`
+  before `DD`, `DTS-HD` before `DTS`) are ordered exactly as `web-?dl|webrip|web` already is at
+  `:14` — but `ac3` matches *inside* `E-AC3`, because the hyphen supplies its left boundary, and
+  **no alternation order can fix that**. The shipped answer is a list of per-token patterns scanned
+  most-specific-first that refuses to re-read characters an earlier pattern claimed. `atmos` is
+  recorded as a flag beside its carrier, never as a codec.
 - **`dynamic_range` is written from scratch**, not split off `hdr`. `_HDR` matches a bare `DV` but
   misses `DoVi`, `HLG` and dotted `Dolby.Vision` (`\s*` does not match `.`). Needs `dovi`,
   `dolby[-. ]?vision`, `dv[-. ]?p?8`, `profile[-. ]?8`, `hlg`.
@@ -467,11 +502,16 @@ remains, pinned as a characterisation test with a named follow-up. The existing
 
 **Mutate**, one per measured defect: restore `\b` on the DD pattern → the `DD5.1` row reddens while
 `DD+5.1` stays green (the measurement that the house style is wrong in the direction that
-matters); move `ac3` before `eac3` → every `E-AC3` row reports `ac3` and reddens; drop the codec
-co-requirement from bit depth → `FLAC.24bit` reddens; remove `avc` → the AVC remux row reddens;
+matters); move `ac3` before `eac3` in the scan order → every `E-AC3` row reports `ac3` and reddens (this
+one is only falsifiable because of the scan mechanism, **not** because of alternation order —
+finding 1); widen the bit-depth domain from `(8|10|12)` to `(\d+)` → the `24bit` row reddens
+(**not** "drop the codec co-requirement", which that fixture cannot see — finding 2); drop the
+codec co-requirement → a `10Bit`-with-no-codec row reddens, which is a *second* fixture for a
+*second* guard; remove `avc` → the AVC remux row reddens;
 remove `dovi` → the DoVi row reddens **while `hdr` stays green**; delete the standalone remux
-`search` → the leftmost-BluRay row reddens; add `ts` as a container token → the telesync row
-reddens; drop explicit-token precedence in `resolution` → `1080p.UHD` reports 2160 and reddens
+`search` → the leftmost-BluRay row reddens; add `ts` as a container token → a telesync row **whose codec is not XviD** reddens
+(`Movie.2020.TS.x264-GRP`; the plan's original `Movie.2020.TS.XviD-GRP` reads `avi` either way and
+cannot discriminate — finding 3); drop explicit-token precedence in `resolution` → `1080p.UHD` reports 2160 and reddens
 **while the `parse_quality` characterisation row stays green**, proving the two are independent.
 
 Plus two anti-vacuity guards. A **meta-test** asserting every member of the audio and container
@@ -524,7 +564,10 @@ produced by the parser proves only that the parser is deterministic.
 
 **How precision and recall are pinned: exact confusion counts, per field and per direction**,
 asserted as integers with the offending titles in the assertion message —
-`audio contains dts-hd: tp=41 fp=0 fn=2`, naming both false negatives. **Never an aggregate
+`audio contains dtshd: tp=41 fp=0 fn=2`, naming both false negatives. **Import the token spellings
+from `quality.py` (`AUDIO_TOKENS`, `CONTAINER_TOKENS`, `VIDEO_FAMILIES`, `DYNAMIC_RANGES`,
+`BIT_DEPTHS`) rather than re-spelling them here** — they are hyphen-free (`dtshd`, `truehd`,
+`eac3`) and `container_guess` emits `'avi'`, not `'xvid'`. **Never an aggregate
 ratio.** The two error directions have opposite costs: a missed 2160p-DTS reject is a black screen
 on the television; an over-eager one silently discards a playable release. A percentage can absorb
 a regression in either, and a future parser change then produces a judgement call instead of a

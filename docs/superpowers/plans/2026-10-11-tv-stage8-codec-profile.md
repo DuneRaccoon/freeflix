@@ -921,6 +921,18 @@ sheet carries the exact ffmpeg command line per clip** so producing them is one 
 `canPlayType` may be added as **one clearly-labelled advisory row** and may gate nothing — §7.2 is
 right that TV implementations under-report.
 
+**On producing the clips, and what is recalled rather than verified.** The command lines go in the
+sheet, and each one is **labelled with whether it was run or only written down** — none can be run
+from here, so all four ship as written-down. Three encoder facts to check with `ffmpeg -encoders`
+before trusting them (recalled, not measured): ffmpeg's DTS encoder is `dca`, is marked
+experimental and so needs `-strict -2`, and produces **DTS core only** — which is exactly what
+reading 18 wants, and is also why reading 19 (DTS-HD MA / TrueHD) is listed as needing a real file
+rather than a clip. E-AC3 is `eac3` and AC3 is `ac3`. HEVC Main10 needs both
+`-pix_fmt yuv420p10le` and an explicit `profile=main10`, because the pixel format alone does not
+set the profile tag a decoder reads. If any of those turns out wrong, **fix the sheet and say so in
+the row** — a command line that was never run and is also wrong is worse than one labelled as
+untried.
+
 - [ ] **Step 1:** the instrument.
 - [ ] **Step 2:** the sheet, pre-filled "not taken".
 - [ ] **Step 3:** the three spec edits and the rename check.

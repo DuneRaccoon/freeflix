@@ -69,7 +69,7 @@ Three things make this more than "add a stylesheet":
 | 5 | **Device pairing (RFC 8628-shaped), not typed credentials.** TV shows a short code + QR; an already-signed-in phone approves; the TV's next poll receives `Set-Cookie`. |
 | 6 | **Device sessions slide; browser sessions stay absolute.** `touch_session` extends `expires_at` only when `device_kind` is set. Existing browser behaviour is unchanged. |
 | 7 | **No transcoding, no remuxing, no HLS.** The host is a Raspberry Pi. Progressive HTTP with byte ranges is the only transport. |
-| 8 | **Codec-aware torrent selection via a named client profile** (`client=webos22`). The capability table lives server-side; the TV sends a profile name, not a matrix. *(Corrected after the stage-3 gate — the device is webOS **25**, so the `webos22` name misdescribes the table it is built from; stage 8 re-decides it. See §7.2.)* |
+| 8 | **Codec-aware torrent selection via a named client profile** (`client=lg-webos22-floor`). The capability table lives server-side; the TV sends a profile name, not a matrix. *(Named in stage 8, 2026-10-11. The device is webOS **25** but the rules are a function of LG's webOS **22** AV table, so the name carries the table's provenance and the posture rather than the device's version: `lg` the vendor, `webos22` the table the rules are derived from, `-floor` that it is a deliberate floor. The engine was upgraded by software; the decoder silicon is 2022 — so the 22 table is the **safer** derivation for this set, not merely a conservative one. A later measured profile is a new id, never a quiet edit to this one. See §7.2.)* |
 | 9 | **TV defaults to 1080p; 2160p is opt-in per title.** 4K is where LG's audio restrictions bite, where the 60 Mbps HEVC ceiling sits, and where a Pi feeding a partial torrent is likeliest to stall. |
 | 10 | **Fast-forward/rewind and speed control are removed on TV**, because the webOS pipeline does not support them. Discrete ±10s/±60s jumps replace them. |
 | 11 | **Subtitles v1 is sidecar-only**, with acknowledged partial coverage. Embedded MKV tracks stay out of reach. |
@@ -536,7 +536,8 @@ independently is a liability.
 
 ### 7.2 Codec-aware selection
 
-`/torrents/sources` and `/torrents/download` accept `client=<profile>`. Profile `webos22`:
+`/torrents/sources` and `/torrents/download` accept `client=<profile>`. Profile
+`lg-webos22-floor`:
 
 | Rule | Effect |
 | --- | --- |
@@ -739,8 +740,11 @@ notice it"**.)*
    without entering the generator; a dead swarm returns an error rather than a short body. Note
    `backend/tests` is **not** bind-mounted — new files need `make build` or
    `-v "$(pwd)/backend/tests:/opt/freeflix/tests"`.
-2. **Selector, pytest.** Profile `webos22` rejects 2160p+DTS-HD, prefers 1080p H.264+AC3, penalises
-   AV1 — as a table test over synthetic candidates.
+2. **Selector, pytest.** Profile `lg-webos22-floor` rejects 2160p+DTS-HD, prefers 1080p
+   H.264+**E-AC3** (and AC3), penalises AV1 — as a table test over synthetic candidates.
+   *(AC3 → E-AC3 corrected in stage 8: §11.5(d) asked for AC3 but the 2026-10-07 run delivered
+   DDP5.1, i.e. E-AC3, so **plain AC3 is no more measured than HEVC**. "Penalises AV1" is left
+   standing deliberately, which is why that rule reorders from day one instead of shadowing.)*
 3. **Pairing, pytest.** Happy path; expired code; wrong `user_code` budget; replay of a consumed
    `device_code`; approval by a non-ACTIVE account; that a `login` token cannot be used here and a
    pairing code cannot reach `/auth/verify`.
@@ -843,6 +847,6 @@ phase). Stages 1–3 are the first plan, because stage 3 can invalidate everythi
 | 5 | Device pairing: backend, `/link`, `/bigscreen/pair` | Unblocks using it without a keyboard. **Complete — merged 2026-10-07 (merge commit `529c44c`, 22 commits, plan `docs/superpowers/plans/2026-10-07-tv-device-pairing.md`), and verified end to end on the television on 2026-10-09: the TV showed the code and QR, the phone scanned and approved, and the approval was reflected back on the TV screen.** One honest limitation shipped with it: `_DEVICE_START_LIMIT` sits on a single global unkeyable bucket (per-IP keying is impossible while `/api/*` is proxied by the Next.js server), so a burst of ~241 starts in 15 minutes still locks every television out of pairing for the window. |
 | 6 | Detail screens, season/episode picker, search keyboard, my list | Completes "watch + request" |
 | 7 | TV player: controls, 461, seek boundary, 401 handling | Depends on 1 and 5 |
-| 8 | Codec-aware selection + `webos22` profile + 4K opt-in | Needs a real player to validate against. Also carries three things the stage-3 gate left unmeasured: **HEVC decode**, **DTS at 1080p**, and **which AV table the profile is derived from** (the device is webOS 25, the name says 22 — see §7.2). |
+| 8 | Codec-aware selection + `lg-webos22-floor` profile + 4K opt-in | Needs a real player to validate against. **Which AV table the profile is derived from is now settled** — LG's webOS 22 table, named in the profile id, because the engine was upgraded by software while the decoder silicon is 2022 (§7.2). The other two things the stage-3 gate left unmeasured are carried forward and **still unmeasured**: **HEVC decode** (readings 16/17/23) and **DTS at 1080p** (reading 18), which is why the DTS-at-1080p rules ship in SHADOW. Plan: `docs/superpowers/plans/2026-10-11-tv-stage8-codec-profile.md`. |
 | 9 | Subtitles: sidecar priority, WebVTT endpoint, `<track>` | Independent; last because coverage is partial |
 | 10 | `webos/` shell, IPK, `make tv-install`; README fallback + renewal notes | Cheapest step, deliberately last |

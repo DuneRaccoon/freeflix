@@ -1,13 +1,27 @@
+import hashlib
+
 from app.models import TorrentHit
 from app.providers.quality import parse_quality
 from app.services.torrents_select import rank_candidates
 
 
 def _hit(title, seeds, byts=1_000_000, magnet=None):
+    """A hit with a magnet distinct per (title, seeds, bytes).
+
+    The infohash used to be ``abs(hash(title)) % (16**16)``, which is not reproducible:
+    ``PYTHONHASHSEED`` is unset in the backend image, so ``hash(str)`` is salted
+    per-process and the same fixture yielded a different magnet — hence a different
+    ``source_id`` — on every run. Nothing in this file asserts on ``source_id``, so it
+    never failed here, but it made the shape unusable for the golden snapshot in
+    ``test_selector_baseline.py``. sha1 over (title, seeds, bytes) is stable and
+    distinct, which is what ``_source_id``'s magnet fallback needs.
+    """
+    if magnet is None:
+        digest = hashlib.sha1(f"{title}|{seeds}|{byts}".encode()).hexdigest()
+        magnet = f"magnet:?xt=urn:btih:{digest}"
     return TorrentHit(
         title=title, seeds=seeds, peers=0, bytes=byts,
-        magnet=magnet or f"magnet:?xt=urn:btih:{abs(hash(title)) % (16**16):016x}",
-        hash="", quality=parse_quality(title),
+        magnet=magnet, hash="", quality=parse_quality(title),
     )
 
 

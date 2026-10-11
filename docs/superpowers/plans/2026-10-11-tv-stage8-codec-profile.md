@@ -111,6 +111,48 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**From task 1 — two more of this plan's prescribed mutations could not fail, and the second one
+exposes two pre-existing unfalsifiable tests in the repo.** Both verified independently:
+
+- **Finding A. `_effective_bytes`'s `-1` sentinel is INERT, and `else -1` → `else 0` reddens
+  nothing.** The key element at `torrents_select.py:93` is `-_effective_bytes(bytes)`, so a real
+  release contributes a *negative* number and a 0-byte release contributes `+1` today, `0` mutated,
+  `0` with the sentinel deleted — all three greater than every negative, so the order is identical.
+  Measured: `else 0` → **45 passed**; `return byts` (sentinel gone) → **45 passed**; only a sign
+  flip reddens (5 tests). The docstring's promise ("a 0-byte release must not outrank a real one")
+  is already delivered by the plain `-bytes` term, and **only a negative `bytes` could tell the two
+  apart**. Consequence: `test_rank_candidates.py:49` `test_bytes_tiebreak_zero_never_outranks_real_release`
+  and `test_select_best_shim.py:31` `test_shim_bytes_zero_never_wins_tiebreak` **do not pin the
+  sentinel they appear to guard** — two more tests-that-cannot-fail, this time pre-existing rather
+  than prescribed. Task 1 retargeted at the term's *direction* instead and wrote the finding into
+  the test docstring. **The sentinel stays**: the zero-diff gate forbids touching the selector in
+  this stage, which here is the gate producing the right answer. Named follow-up.
+- **Finding B. "delete `-seeds` → the 720p/2160p row reddens" names a row that cannot redden.**
+  `_bucket_index` is consulted before `-seeds` (`torrents_select.py:90-92`), so a *cross-bucket*
+  pair is decided by the bucket and never reaches the seeds term. Verified: under that mutation
+  leak (b)'s `2160p@6 vs 720p@999` row stayed **green**. Only same-bucket pairs discriminate it.
+- Finding C: regenerating the snapshot needs `-e PYTHONPATH=/opt/freeflix`, because the app package
+  is not pip-installed in the image and running a script puts `/opt/freeflix/tests` on `sys.path`
+  rather than the workdir. Recorded in the module docstring and in the JSON's own `_comment`.
+- **Finding D. `test_rank_candidates.py`'s `_hit` was not reproducible across processes** —
+  it derived the infohash from `abs(hash(title))`, and `PYTHONHASHSEED` is unset in the image.
+  Verified: three consecutive processes gave three different values. Nothing asserted on
+  `source_id`, so it never failed, but **any golden snapshot built on that helper would have been
+  unstable.** Fixed to sha1 and pinned. `test_select_best_shim.py:9` has the same shape and is
+  outside task 1's file list — a one-line fix for whoever owns that file.
+- Finding E, a small over-claim of the plan's: the tree has **two** 2160p-for-a-1080p-ask fixtures,
+  not one (`test_torrents_select.py:36-38` and `test_select_best_shim.py:20-23`). The substance
+  holds — both go through `select_best`, which pre-filters and so cannot leak — and
+  `test_rank_candidates.py` really does construct no 2160p hit anywhere.
+
+**And one repo-level hazard task 1 found but correctly did not fix:** `backend/tests/test_torrent.py`
+does **real network I/O during collection**. It joins the swarm for a specific film and only
+terminates because that film is already complete in the bind-mounted downloads dir (1.8 GB). Proved
+by counterfactual: same magnet with a temp `save_path` sat at 1.92% after 24s with `is_seeding`
+still False, so the `while True:` would not exit. On a fresh clone, pruned volume or CI, `pytest`
+downloads a feature film during collection; with no internet it hangs. Not stage 8's to fix, and
+`conftest.py` is untouched — recorded so the next reader does not rediscover it the hard way.
+
 **From task 2 — three of this plan's prescribed mutations could not fail, and one claim about
 Python's regex engine was simply false.** Verified independently before being accepted:
 
@@ -433,8 +475,11 @@ alone.**
 **Mutate.** Demonstrate the fixture defect *before* fixing it: reverse the input lists with the old
 helper and watch both ordering tests redden with no production change; restore distinct magnets
 and reverse again — green. Against production: swap `health_rank` and `_bucket_index` in the key →
-snapshot reddens; negate `-seeds` → reddens; change `_effective_bytes`'s `else -1` to `else 0` →
-reddens; delete `-seeds` → the 720p/2160p row reddens; reorder `_ORDER` to put 2160p last → leak
+snapshot reddens; negate `-seeds` → reddens; **flip the sign of the bytes term**
+(`-_effective_bytes(...)` → `+`) → reddens — **not** `else -1` → `else 0`, which cannot redden
+anything, because the sentinel is inert (Corrections finding A); delete `-seeds` → a **same-bucket**
+seeds row reddens, **not** the cross-bucket 720p/2160p row, which `_bucket_index` decides before
+`-seeds` is ever consulted (finding B); reorder `_ORDER` to put 2160p last → leak
 (b) reddens **while (a) stays green**, separating the two mechanisms. Two meta-mutations:
 regenerate the golden file from a deliberately mutated run and confirm the test then **passes**,
 proving the file is read; restore with `cp` from a copy, never `git checkout --`, which cannot

@@ -515,8 +515,8 @@ events; the Tailwind web app renders.
 | `415/19/413/412/417` are the transport codes | `_focus/useMediaKeys.ts:63-69`, which labels itself as recalled documentation | Rows 4-5 |
 | The engine populates `e.key` for a media button at all | the same file's header calls this a guess | Rows 4-5 |
 | webOS **25** | inferred from the measured Chromium 120, per spec §3.1 — an inference from a measurement, which is the only one of its kind here | the model SKU, still untranscribed |
-| HEVC / H.265 decodes | stage 8's codec profile | a real HEVC file; accepted risk on documentation |
-| DTS at 1080p | the same profile's penalty term | a real DTS file; untouched |
+| HEVC / H.265 decodes | stage 8's codec profile (rule **R9**, and the whole 4K opt-in) | **Row 16** of `2026-10-11-tv-stage8-device-readings.md` — diag clip 1. A failure there **inverts** R9 |
+| DTS at 1080p | the same profile's penalty term (rule **R3**, shipped in `shadow`) | **Row 18** of the same sheet — diag clip 3 **plus the operator's audio answer**, because an undecodable DTS track is silent and raises no error |
 | The `<video>` pipeline sends cookies | the whole authenticated TV path | **Gate 1** |
 | `load()` re-fetches | the whole recovery ladder | **Gate 2** |
 | A far seek answers 503, once | `MARGIN_S`, the attempt bound | **Gate 3** |

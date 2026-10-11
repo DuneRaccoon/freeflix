@@ -536,32 +536,104 @@ independently is a liability.
 
 ### 7.2 Codec-aware selection
 
-`/torrents/sources` and `/torrents/download` accept `client=<profile>`. Profile
-`lg-webos22-floor`:
+`/torrents/sources` and `/torrents/download` accept `client=<profile>`. The only profile is
+`lg-webos22-floor`, implemented in `backend/app/services/capability.py`; the client sends a name
+and nothing else.
 
-| Rule | Effect |
-| --- | --- |
-| Container outside `.mkv/.mp4/.ts` | heavy penalty |
-| DTS / DTS-HD / TrueHD / Atmos audio at 2160p | reject (§3.2 Ultra HD table) |
-| DTS at 1080p | penalty, not reject — the generic `.mkv` row lists DTS, but LG dropped DTS decode on some model years and which years is **unverified**. Step 11.5 tests one DTS file; promote to reject if it fails |
-| HEVC 2160p above 60 Mbps (estimated from bytes ÷ runtime) | penalty |
-| AV1 | penalty (model-dependent on 2022 LCDs) |
-| H.264, or HEVC 8/10-bit, with AC3/EAC3/AAC | preferred |
-| Dolby Vision in MKV | penalty |
+**Three states, because a table of rules that all look enforced is a table that lies.** Every rule
+below carries one, and the words mean exactly this:
 
-The capability table lives server-side; the client sends only a profile name. `canPlayType()` is not
-used — TV implementations under-report.
+- **IN FORCE** — the rule matches, is reported, and **changes the order**. A reject is never
+  auto-chosen; a cost sinks a candidate within its health group.
+- **SHADOW** — the rule matches and is **reported**, and **reorders nothing**. It ships inert on
+  purpose, with a named reading that promotes it. `evaluate` returns every rule that matched
+  *including* the shadowed ones with their state, so a rule that deliberately changes nothing is
+  still observable rather than invisible.
+- **NOT IMPLEMENTED** — the predicate and the plumbing exist, the row exists, and **there is no
+  input**. Its effect is NONE and its reason is non-empty. It is a row rather than a paragraph so
+  that a `grep` which hits it cannot be misread as an enforced ceiling.
 
-*(Corrected after the stage-3 gate — **the profile name is now inaccurate for this device.**
-`webos22` is named after, and its rules are derived from, LG's webOS **22** AV table
-(§3.2). The set measured as webOS **25**, two platform versions newer, and its AV table is likely
-**more permissive** — so these rules are, at worst, over-conservative for this device, and the name
-misdescribes what they model. Nothing is broken today: the profile does not exist yet. **Stage 8 is
-where it gets built, and stage 8 must decide which AV table it is built from and name it
-accordingly** — either re-derive from the webOS 25 table, or keep the 22 table as a deliberate
-floor and say so in the name. What the gate did **not** settle: HEVC decode (not tested — accepted
-on documentation, §12) and DTS at 1080p (not tested, untouched). Both are naturally measured during
-stage 8, which needs real files to validate the profile against anyway.)*
+Only two rules may REJECT, and their bases are `product` and `lg-table` — the two provenances
+strong enough to refuse a file. `lg-doc`, `inferred` and `guess` may cost only; `no-input` forces
+NONE. That ceiling-per-basis is asserted by the module's own integrity tests.
+
+| # | Rule | Condition | State | Effect | Basis | Settled by |
+| --- | --- | --- | --- | --- | --- | --- |
+| R1 | `withheld-2160p` | a 2160p candidate when the ask is **not** 2160p | **IN FORCE** | **reject** (`withheld`) | `product` (§7.3, decision 9) | n/a — it is the opt-in, not an AV claim |
+| R2 | `dts-family-at-2160p` | DTS / DTS-HD MA / TrueHD **carrier** on a 2160p candidate | **IN FORCE** | **reject** (`incapable`) | `lg-table` (§3.2 Ultra HD) | reading **24** |
+| R3 | `dts-at-1080p` | a DTS track at 1080p | **SHADOW** | cost | `guess` | reading **18** |
+| R4 | `dtshd-truehd-at-1080p` | DTS-HD MA / TrueHD at 1080p | **SHADOW** | cost, own weight | `guess` | reading **19** |
+| R5 | `dolby-vision` | a Dolby Vision token (`DV`, `DoVi`, `Dolby.Vision`) | **IN FORCE** | cost | `lg-doc` | reading **21** |
+| R6 | `av1` | an AV1 video token | **IN FORCE** | cost | `inferred` | reading **20** |
+| R7 | `container-proxy-xvid-divx` | a positively identified `xvid`/`divx` token | **IN FORCE** | cost, **strictly larger** than R3-R6 | `inferred` | reading **22** |
+| R8 | `preferred-measured` | `h264` + any of `{ac3, eac3, aac}` | **IN FORCE** | bonus, tier **A** | `measured` + `lg-table` | n/a |
+| R9 | `documented-ok` | `hevc` 8/10-bit + `{ac3, eac3, aac}` | **IN FORCE** | bonus, tier **B**, strictly below A | `lg-table`, decode **unmeasured** | readings **16, 17, 23** |
+| R10 | `hevc-2160p-over-60mbps` | HEVC 2160p above 60 Mbps | **NOT IMPLEMENTED** | **NONE**, with a reason | `no-input` | reading **25** |
+
+**R10 is NOT IMPLEMENTED, and the reason is structural rather than an omission.** §3.2's HEVC 4K
+row is `maximum 60 Mbps`, and the estimate the old table described — bytes ÷ runtime — **has no
+runtime at the decision point**. `rank_candidates` receives `List[TorrentHit]`, which carries
+`bytes` and no duration; `resolve_title_year`'s cache-hit branch reads `CatalogItemCache`, which
+has no runtime column; `catalog_items.detail_json` does hold `MovieDetail.runtime`, but
+`set_detail` is skipped when `with_qualities=False` — the mode the TV's own detail load uses — and
+`services/tv.py` never calls it at all, so TV rows have no `detail_json` ever. On top of that, a
+season pack's `bytes` cover N episodes while the only runtime available is one episode's,
+`bytes == 0` is a real value the selector already distrusts, and minutes-read-as-seconds is a 60x
+error in the **rejecting** direction. The row therefore ships with
+`effect=NONE, basis='no-input'` and the reason *"bytes ÷ runtime: no runtime reaches the selector;
+see row 25"*, and a test injects a non-`None` bitrate to prove the rule **fires** — the predicate
+is complete and only the input is absent. **Reading 25 reinstates it**
+(`docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md`), and the one-line follow-up that
+supplies the input is written down in that row. Until then, **with 4K opted in there is no bitrate
+ceiling**: a DD+ 4K remux at 80 Mbps passes every rule here, and the only cover is R2 catching most
+UHD remuxes for entirely the wrong reason.
+
+**R2 rejects the carrier, not the word "Atmos" — a deliberate deviation from LG's own wording.**
+The earlier version of this table said "DTS / DTS-HD / TrueHD / **Atmos** audio at 2160p", which
+reads a marketing name as a codec. Atmos is metadata that rides **on** a carrier: on **E-AC3**
+(streaming), which §3.2's Ultra HD table explicitly **permits** at 4K, or on **TrueHD** (disc),
+which it **forbids**. So a literal reading of the old row would reject a perfectly legal
+`DDP5.1.Atmos` 2160p release while a `TrueHD.Atmos` release and a bare `TrueHD` release — which
+fail for the same reason — were treated as two different rules. The profile therefore vetoes the
+**carrier** and records `atmos` as a flag beside it, never as a codec of its own.
+
+**The two DTS-at-1080p rules ship in SHADOW (R3, R4): they match, they are reported, they reorder
+nothing.** This cell used to say "penalty, not reject … promote to reject if it fails", which
+understated the problem: the rule's basis is a `guess`. The generic `.mkv` row lists DTS, but LG
+dropped DTS decode on some model years and **which years is unverified**. Shipping the penalty
+would reorder the whole library on that guess with no retirement path; shipping nothing would lose
+the rule. Shadow keeps it visible and inert, and **reading 18 is one diag clip** — so the
+retirement path is cheap and real. Promotion is a one-cell edit to `state`. **Reading 18 also asks
+the question that decides which way it goes, and no other document in this repo asks it:** whether
+a DTS failure on this set is a **silent-but-playing picture** or a hard `MediaError`. Silence
+promotes R3 to IN FORCE; a hard failure argues for a reject, which also requires upgrading its
+basis out of `guess`. And R3 and R4 are **two rules, not one**, because this section says only
+"DTS" at 1080p while §3.2 lumps four codecs at 2160p, and nothing states which the 1080p rule
+covers — one merged rule would silently decide that question.
+
+The capability table lives server-side; the client sends only a profile name. **`canPlayType()` is
+not used, and may not be:** TV implementations under-report, so a `""` from it is not evidence of
+anything. `/bigscreen/diag`'s codec section prints one `canPlayType` row per clip, labelled
+ADVISORY, and a test asserts that it **gates nothing** — the clip mounts whatever the row says.
+
+*(Name corrected in stage 8 — **`lg-webos22-floor`, and the `22` is the table's provenance, not a
+device match.** Three facts in one identifier: vendor and platform family (`lg`), the AV table the
+rules are a function of (LG's webOS **22**, §3.2), and the posture (`-floor`). The earlier note
+here argued that the rules were merely "over-conservative" because the set measured as webOS 25,
+two platform versions newer, and that a re-derivation from the newer table was the natural fix.
+**That rationale is withdrawn, and replaced by the silicon argument.** The engine was upgraded by
+software; **the decoder silicon is 2022.** `legacy-target.test.ts:21-24` already states the
+principle for CSS — a newer browser engine does not make a TV GPU faster — and CLAUDE.md repeats
+it. LG's webOS 25 AV table describes 2025 model-year hardware; applying it to a Re:New-upgraded
+2022 panel would claim decoders this panel may never have had. **So the webOS 22 table is the
+*safer* derivation for this specific set, not merely a conservative one** — and nobody on this
+project has read LG's webOS 25 AV table in any form, while "webOS 25" is itself an inference from
+the measured Chromium 120 through §3.1's mapping, with the model SKU and the verbatim user agent
+both still untranscribed (reading **26**). Not `webos25`, then, and not bare `webos22`, which reads
+as a device match. A later **measured** profile is a new id (`lg-qned99-measured`), never a quiet
+edit to this one's rules. What the stage-3 gate did **not** settle is unchanged: HEVC decode is
+accepted on documentation (reading **16**), and DTS at 1080p is untested (reading **18**) — which is
+why one ships as a tier-B bonus and the other ships in shadow.)*
 
 ### 7.3 Quality policy
 

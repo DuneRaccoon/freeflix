@@ -1,4 +1,4 @@
-import type { StreamingProgress, TorrentStatus } from '@/types';
+import type { ClientProfileId, StreamingProgress, TorrentStatus } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { buildContentId } from '@/lib/contentId';
@@ -54,7 +54,14 @@ interface TitleRef {
   episode?: number;
 }
 
-/** The television asks for 1080p everywhere (spec §7.3); there is no picker on this surface. */
+/**
+ * The television asks for 1080p by default and there is still no quality PICKER on this
+ * surface — but 1080p is no longer everywhere: a per-title 4K opt-in (stage 8, spec §7.3)
+ * raises a single ask to 2160p via `fourK`. Nothing is persisted, so the next title is 1080p
+ * again. Every TV request carries `client: TV_PROFILE` regardless, which is what makes the
+ * 1080p ask honest too: without it the box ranks by seeds alone and can hand this panel a
+ * release it cannot decode.
+ */
 type RequestResult =
   | {
       ok: true;
@@ -79,9 +86,78 @@ type RequestResult =
 
 const inFlight = new Map<string, Promise<RequestResult>>();
 
+/**
+ * WHICH TORRENTS THIS CLIENT ASKED FOR IN 4K — the only channel on this surface that
+ * carries the ASK rather than what arrived.
+ *
+ * Why it has to exist at all: because health outranks the quality bucket in the
+ * selector, a 4K press answered with a 1080p release is the COMMON outcome, and a
+ * control labelled "Ask for 4K" that quietly produces HD is exactly the defect
+ * `unresolvedEpisode` exists to prevent. The watch route cannot work the ask out for
+ * itself — `watchHref` builds `/bigscreen/watch/{id}` plus an optional `?file=` and
+ * nothing else, `router.push` carries no state, `TorrentStatus` has no
+ * requested-quality field, and `to_status()` leaves `chosen_quality` null on every
+ * poll — so a 1080p row is a 1080p ask and a downgraded 4K ask at once. This module
+ * is the one place that knows both the flag and the id it produced.
+ *
+ * DELIBERATELY NOT THE WIRE AND NOT A SHARED TYPE: no query parameter (`?q=2160p` on a
+ * watch URL is a claim anyone can forge and a dead history entry can replay), no field
+ * on `TorrentStatus`, no field on `RequestResult`. Module state, which means it lives
+ * exactly as long as the client-side navigation it is describing.
+ *
+ * SILENCE ON A COLD LOAD IS THE POINT, NOT A LIMITATION. A reload, a deep link, or the
+ * television waking on `/bigscreen/watch/{id}` has genuinely no idea what was asked for,
+ * and "say nothing" is then the honest answer — the alternative is a sentence about a
+ * press that may never have happened.
+ *
+ * TAKEN, NOT READ, and bounded. Both halves guard the same lie: "the second play of a
+ * title inherits the first play's disclosure" would look like a feature.
+ */
+const fourKAsks = new Map<string, true>();
+
+/**
+ * How many unread asks to keep. There is one screen and the ARM build allows two
+ * concurrent downloads, so more than a couple of UNREAD entries means nobody is reading
+ * them — a press the viewer backed out of before the player mounted leaves its entry
+ * behind, and nothing else would ever collect it.
+ */
+const FOUR_K_ASKS_REMEMBERED = 4;
+
+function rememberFourKAsk(torrentId: string): void {
+  fourKAsks.set(torrentId, true);
+  // Map iterates in insertion order, so the oldest unread ask is the one dropped.
+  while (fourKAsks.size > FOUR_K_ASKS_REMEMBERED) {
+    const oldest: string | undefined = fourKAsks.keys().next().value;
+    if (oldest === undefined) return;
+    fourKAsks.delete(oldest);
+  }
+}
+
+/**
+ * Did THIS client ask for this torrent in 4K? Answers once and forgets.
+ *
+ * `delete` rather than `has`, and that is the whole eviction policy: the disclosure is
+ * about an arrival, so the second navigation to the same watch URL — Open, Resume, or a
+ * stale history entry — must not be told about a press that has already been answered.
+ * A caller that needs the answer across renders holds it in its own state.
+ */
+export function takeFourKAsk(torrentId: string): boolean {
+  return fourKAsks.delete(torrentId);
+}
+
 const LOCKED_REASON = 'This profile is locked. Enter its passcode to continue.';
 
-const QUALITY = '1080p' as const;
+const QUALITY_HD = '1080p' as const;
+const QUALITY_4K = '2160p' as const;
+
+/**
+ * Sent on EVERY request this surface makes, not only the 4K one. The 1080p ask is the one
+ * that needs it most: a 1080p HEVC 10-bit Opus release is exactly what an unprofiled ranker
+ * picks on seeds and exactly what this panel cannot play. The backend declares the value as
+ * a pydantic Literal and forbids unknown keys, so a typo here is a 422, never a quiet 200
+ * ranked with no profile at all.
+ */
+const TV_PROFILE: ClientProfileId = 'lg-webos22-floor';
 
 /**
  * Past this a film is finished, not resumable. Matches the web's cut-off.
@@ -370,6 +446,26 @@ export async function titleStateFor(args: TitleRef & { userId: string | null }):
   }
 }
 
+/**
+ * Only the capability profile says "this television" (`api/torrents.py`'s
+ * `_device_refusal`). Two details ride on it, discriminated by `only 4k`:
+ *
+ *   {'withheld'}  -> "Only 4K sources exist for this title — no torrents this television
+ *                     can play in HD"   (a 2160p release the viewer CAN unlock)
+ *   anything else -> "No torrents this television can play"   (nothing to press)
+ *
+ * BELT AND BRACES, AND THE ORDER IS THE BELT. This test runs BEFORE `/no torrents/i`
+ * while both details deliberately still MATCH that regex, so the two defences fail in
+ * opposite directions and neither is a single point of failure: lose this branch and a
+ * device refusal degrades to the mild, true "No sources found for this title yet."
+ * rather than to the outright lie "The box doesn't recognise this title." about a title
+ * the box just searched. The backend's own docstring carries the other half of the
+ * contract ("keep the substring"), and `title.test.ts` reads both strings off
+ * `torrents.py` so a copy edit on either side of the wire reddens here.
+ */
+const DEVICE_REFUSAL = /this television/i;
+const DEVICE_REFUSAL_4K = /only 4k/i;
+
 function reasonFor(err: unknown): string {
   const status = statusOf(err);
   const raw = (err as { response?: { data?: { detail?: unknown } } } | null)?.response?.data?.detail;
@@ -380,6 +476,13 @@ function reasonFor(err: unknown): string {
       : "Couldn't start this title. Try again.";
   }
   if (status === 404) {
+    if (DEVICE_REFUSAL.test(detail)) {
+      // The 4K copy names the press that can still work; the other promises nothing,
+      // because nothing on this screen would change the answer.
+      return DEVICE_REFUSAL_4K.test(detail)
+        ? 'Only 4K sources exist for this title. Press Ask for 4K to try one.'
+        : 'No sources this television can play.';
+    }
     return /no torrents/i.test(detail)
       ? 'No sources found for this title yet.'
       : "The box doesn't recognise this title.";
@@ -421,17 +524,28 @@ export async function resumeTitle(
  * Start a download. Resolves with the new torrent id, or a reason it did not start.
  * Deliberately not `handleCatalogStreamingStart`: it swallows the error into a toast, and
  * this surface mounts no toaster, so a failed Play would be silent on the television.
+ *
+ * `fourK` raises this one ask to 2160p. It is an argument rather than any kind of stored
+ * preference on purpose: nothing persists it, so the opt-in is per press.
  */
 export function requestTitle(args: {
   mediaType: 'movie' | 'tv';
   tmdbId: number;
   season?: number;
   episode?: number;
+  fourK?: boolean;
 }): Promise<RequestResult> {
   // POST /download runs a provider search before it answers, and titleStateFor still says
   // `play` for that whole window. A second OK press must join the first request, not mint a
   // second torrent (the ARM build allows two downloads).
-  const key = `${args.mediaType}:${args.tmdbId}:${args.season ?? ''}:${args.episode ?? ''}`;
+  //
+  // THE QUALITY IS PART OF THE IDENTITY. Without it in the key, a 1080p press followed by a
+  // 4K press inside that window (a full provider search wide, up to ~35s cold) hands the
+  // second press the FIRST press's promise: the 4K ask is never sent, and the control
+  // reports someone else's result as its own. Two different asks are two requests.
+  const key = `${args.mediaType}:${args.tmdbId}:${args.season ?? ''}:${args.episode ?? ''}:${
+    args.fourK ? QUALITY_4K : QUALITY_HD
+  }`;
   const pending = inFlight.get(key);
   if (pending) return pending;
   const started = startDownload(args).finally(() => {
@@ -446,6 +560,7 @@ async function startDownload(args: {
   tmdbId: number;
   season?: number;
   episode?: number;
+  fourK?: boolean;
 }): Promise<RequestResult> {
   if (args.mediaType === 'tv' && args.season === undefined) {
     return { ok: false, reason: "Couldn't start this title. Try again.", maybeCreated: false };
@@ -453,13 +568,18 @@ async function startDownload(args: {
   try {
     const status = await torrentsService.downloadCatalogMovie({
       tmdb_id: args.tmdbId,
-      quality: QUALITY,
+      quality: args.fourK ? QUALITY_4K : QUALITY_HD,
       media_type: args.mediaType,
+      client: TV_PROFILE,
       ...(args.mediaType === 'tv' ? { season: args.season, episode: args.episode } : {}),
     });
     const id = status?.id;
     // A 2xx with no usable id: the server answered, so something may well exist.
     if (typeof id !== 'string' || !id) return { ok: false, reason: "Couldn't start this title. Try again.", maybeCreated: true };
+    // HERE, AND ONLY HERE: this is the one point that holds the flag and the id it
+    // produced at the same time. Recorded before the pack lookup below, which can take
+    // another round trip and must not be able to lose the ask by failing.
+    if (args.fourK) rememberFourKAsk(id);
     // The backend may satisfy an episode with a season pack (a row with no episode of its
     // own); that plays its default file unless the episode's file is located.
     if (args.mediaType === 'tv' && args.season !== undefined && args.episode !== undefined && status.episode == null) {

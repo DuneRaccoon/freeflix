@@ -19,8 +19,13 @@ export interface RevealOnKeyOptions {
   visible: boolean;
   /** Show the controls. Called only while hidden, and must be idempotent. */
   onReveal: () => void;
-  /** Hide them again after the quiet period. Must be idempotent — see below. */
-  onHide: () => void;
+  /**
+   * Hide them again after the quiet period. Must be idempotent — see below.
+   *
+   * RETURN `false` TO SAY "REFUSED", and the quiet period is served again. Returning
+   * nothing means "treat it as done", so every existing caller is unaffected.
+   */
+  onHide: () => void | boolean;
   /** The quiet period. Defaults to `REVEAL_HIDE_MS`. */
   hideAfterMs?: number;
 }
@@ -60,6 +65,17 @@ export interface RevealOnKeyOptions {
  * `onHide` must be idempotent: a pending quiet period is not cancelled when the controls are
  * hidden some other way (a Back press), so it can fire against already-hidden controls.
  *
+ * A REFUSED HIDE IS RETRIED, NOT SPENT, and that is a contract change made to fix a live
+ * defect rather than to enable a new feature. The caller may legitimately refuse — the
+ * player refuses while the title is paused, while a seek edit is open, and WHILE A MESSAGE
+ * IS ON SCREEN. The quiet period used to be armed only by a key press, so a refusal
+ * consumed it and nothing re-armed: a message that outlives the quiet period (the player's
+ * notes run 8s against a 5s period) permanently spent the press that would have put the
+ * band away, and the control band then sat over the picture for the rest of the film. That
+ * was already reachable on the reduced-resume path before anything in stage 8 existed.
+ * Serving the period again costs one `setTimeout` per period while a refusal persists,
+ * renders nothing, and stops with the hook; being stuck visible costs the film.
+ *
  * OWNERSHIP: one live instance per screen, like the other three key hooks. Two would each
  * swallow the other's first press.
  */
@@ -77,7 +93,9 @@ export function useRevealOnKey(opts: RevealOnKeyOptions): void {
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
-        latest.current.onHide();
+        // `=== false` is the refusal, so `undefined` (a void-returning caller) still
+        // counts as done and nothing re-arms behind it.
+        if (latest.current.onHide() === false) rearm();
       }, latest.current.hideAfterMs ?? REVEAL_HIDE_MS);
     };
 

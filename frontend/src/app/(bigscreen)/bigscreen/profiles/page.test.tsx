@@ -70,8 +70,24 @@ const filledDots = (c: HTMLElement) => c.querySelectorAll('.bs-dot--on');
  */
 const pressKeys = (...labels: string[]) =>
   act(async () => { labels.forEach((l) => fireEvent.click(key(l))); });
-/** Let the grid's mount effect, and the focus it moves, land before asserting on focus. */
+/** Let a pending promise and the renders it causes land. NOT enough before a focus claim. */
 const settle = () => act(async () => {});
+/**
+ * Wait for the ring to be PLACED, which is the condition a focus assertion really needs.
+ *
+ * `useFocusGrid` puts the ring on screen from the passive reconciliation effect
+ * (`_focus/useFocusGrid.ts:265`), and React schedules passive effects rather than running
+ * them in the commit — so the ring can land a macrotask after the markup it belongs to.
+ * `await settle()` does NOT close that: once React has handed the work to its own Scheduler
+ * the act queue is empty, and `act(async () => {})` then returns without waiting for it.
+ * Only polling for the ring itself holds, however many ticks the Scheduler takes.
+ *
+ * `go()` calls `el.focus()` before the `setFocused` it queues can commit, so DOM focus is
+ * always already where the ring is by the time `tabindex="0"` appears: this is the stronger
+ * of the two conditions, never the weaker one.
+ */
+const ringPlaced = () =>
+  waitFor(() => expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1));
 const arrow = (k: string) => fireEvent.keyDown(window, { key: k });
 
 /** Render, wait for the grid, and open a profile whose settings call is `settleWith`. */
@@ -115,7 +131,7 @@ describe('/bigscreen/profiles', () => {
       getUsers.mockResolvedValue([ben(), mum(), profile('p3', 'Kid')]);
       const { container } = render(<ProfilesPage />);
       await screen.findByRole('button', { name: 'Ben' });
-      await settle();
+      await ringPlaced();
 
       const stops = container.querySelectorAll(FOCUS_STOPS);
       expect(stops).toHaveLength(3);
@@ -187,7 +203,7 @@ describe('/bigscreen/profiles', () => {
       getUsers.mockResolvedValue([ben(), mum()]);
       render(<ProfilesPage />);
       await screen.findByRole('button', { name: 'Ben' });
-      await settle();
+      await ringPlaced();
       arrow('ArrowRight');
       expect(document.activeElement).toBe(profileButton('Mum'));
     });
@@ -197,7 +213,7 @@ describe('/bigscreen/profiles', () => {
       getUsers.mockResolvedValue(many);
       const { container } = render(<ProfilesPage />);
       await screen.findByRole('button', { name: 'Person 0' });
-      await settle();
+      await ringPlaced();
       const rows = container.querySelectorAll('.bs-profiles');
       expect(rows).toHaveLength(2);
       expect(rows[0].querySelectorAll('.bs-profile')).toHaveLength(6);
@@ -233,7 +249,7 @@ describe('/bigscreen/profiles', () => {
       getUsers.mockResolvedValue(Array.from({ length: 6 }, (_, i) => profile(`p${i}`, `Person ${i}`)));
       render(<ProfilesPage />);
       await screen.findByRole('button', { name: 'Person 0' });
-      await settle();
+      await ringPlaced();
       for (let i = 0; i < 8; i++) arrow('ArrowRight');
       expect(document.activeElement).toBe(profileButton('Person 5'));
       arrow('ArrowDown');
@@ -244,7 +260,7 @@ describe('/bigscreen/profiles', () => {
       getUsers.mockResolvedValue(Array.from({ length: 12 }, (_, i) => profile(`p${i}`, `Person ${i}`)));
       render(<ProfilesPage />);
       await screen.findByRole('button', { name: 'Person 0' });
-      await settle();
+      await ringPlaced();
       for (let i = 0; i < 3; i++) arrow('ArrowRight');
       arrow('ArrowDown');
       expect(document.activeElement).toBe(profileButton('Person 9')); // row 1, column 3

@@ -1,0 +1,371 @@
+shape	resolution	audio	video_family	bit_depth	dynamic_range	container_guess	remux	title
+movie	2160		hevc	10			false	1917 (2019) 2160p BRRip 10Bit x265 -YTS
+movie	720		h264				false	1917 (2019) 720p BluRay [Tamil-Dub] Dual-Audio x264 [1XBET]
+movie	720	ac3	h264				false	1917 (2019).720p.H264.ita.eng.Ac3-5.1.sub.ita.eng-MIRCrew
+movie	1080	atmos|eac3	h264				false	1917 2019 1080p MA WEB-DL H264 SDR DDP Atmos 5 1 English HONE
+movie	1080	opus	av1				false	1917 2019 Bluray 1080p AV1 EN/FR/ES OPUS 7.1-UH
+movie	2160	opus	av1		hdr10		false	1917 2019 Bluray 2160p AV1 HDR10 EN/FR/ES OPUS 7.1-UH
+movie	1080	ac3	h264				false	1917 2019 MULTi VF2 1080p HDLight AC3 5 1 H264-LiHDL
+movie	1080	ac3|atmos	hevc		dv		false	1917 2019 UHD BluRay 1080p DD Atmos 5 1 DoVi HDR10 x265-SM737
+movie	1080	eac3	h264				false	1917.2019.1080p.AMZN.WEB-DL.DDP5.1.H.264-TEPES[EtHD]
+movie	1080	ac3	h264				false	1917.2019.1080p.BluRay.1600MB.DD5.1.x264-GalaxyRG
+movie	1080	atmos|dtshd|truehd	h264				true	1917.2019.1080p.BluRay.REMUX.AVC.DTS-HD.MA.TrueHD.7.1.Atmos-FGT
+movie	1080	aac	h264				false	1917.2019.1080p.BluRay.x264.AAC5.1
+movie	1080	atmos|truehd	hevc				false	1917.2019.1080p.Bluray.TrueHD.Atmos.7.1.HEVC-DDR[EtHD]
+movie	2160	atmos|dtshd|truehd	hevc	10			false	1917.2019.2160p.BluRay.x265.10bit.SDR.DTS-HD.MA.TrueHD.7.1.Atmos ...
+movie	2160	dtshd|truehd	hevc	10	hdr10		false	1917.2019.2160p.UHD.BluRay.x265.10bit.HDR.DTS-HD.MA.TrueHD.7.1.A ...
+movie		ac3	xvid			avi	false	1917.2019.DVDScr.XVID.AC3.Hive-CM8
+movie			xvid			avi	false	2001 - A Space Odyssey (DivX)
+movie	480						false	2001 A Space Odyssey (1968) 480p DVD to MKV
+movie	1080	dts	h264				false	2001 A Space Odyssey 1968 1080p HDDVD DTS x264-hV BOZX
+movie	1080	dts	h264				true	2001 A Space Odyssey 1968 REMASTERED 1080p BluRay REMUX AVC DTS
+movie	1080	dtshd	h264				false	2001 A Space Odyssey 1968 REMASTERED 1080p BluRay x264 DTS-HD MA 5 1-FGT
+movie	1080	eac3	hevc				false	2001.A.Space.Odyssey.1968.Remastered.1080p.x265.HEVC.EAC3-SARTRE ...
+movie		mp3	xvid			avi	false	2001.A.Space.Odyssey.BRRip.XviD.MP3-RARBG
+movie	2160	atmos|dtshd|eac3|truehd	hevc		dv		true	ALiENS.1986.SE.UHD.2160p.REMUX.HDR10.DV.P7.TrueHD.7.1.ATMOS.DTS-HD.DDP.H265-KC
+movie			xvid			avi	false	Apocalypse Now Redux [DVDRip][Divx 6.6][Ogg][Mkv]
+movie	2160	opus	av1		hdr10		false	Avatar The Way Of Water 2022 PROPER Bluray 2160p AV1 HDR10 EN/ITA/FR/ES/DE OPUS
+movie	2160	atmos|eac3	hevc		dv		false	Avatar The Way of Water (2022) [WEBDL-2160p][DV HDR10][EAC3 Atmos 5.1][h265]
+movie	1080	dtshd	h264				false	Avatar The Way of Water (2023) 1080p BluRay x264 DTS-HD MA Soup
+movie	1080	eac3	hevc				false	Avatar The Way of Water 2022 1080p BluRayRip EAC3 5 1 x265-Lootera
+movie	2160	opus	av1		hdr10		false	Blade Runner 2049 2017 Bluray 2160p AV1 HDR10 EN/ES OPUS 7.1-UH
+movie	1080	opus	av1				false	Blade Runner-1982-The Final Cut 1080p Bluray OPUS 7 1 AV1-WhiskeyJack
+movie	2160	dts	h264	8			false	Blade.Runner.1982.The.Final.Cut.2160p.BluRay.x264.8bit.SDR.DTS-H ...
+movie	2160	atmos|truehd	h264				false	Blade.Runner.2049.2017.4K.UltraHD.BluRay.2160p.x264.TrueHD.Atmos ...
+movie	480	aac	h264				false	Blade.Runner.2049.2017.WEBRip.480p.x264.AAC-VYTO [P2PDL]
+movie	1080	flac	h264				false	Casablanca 1942 1080p UHD BluRay FLAC x264-SPiRiT
+movie	720	flac	h264				false	Casablanca 1942 720p BluRay Flac x264-REKD
+movie	1080	flac	h264				true	Casablanca.1942.70th.Anniversary.Edition.1080p.BluRay.REMUX.AVC.FLAC.1.0-EPSiLON
+movie			xvid			avi	false	Die Hard 1 - Trappola di Cristallo [DVDrip DivX Ita] TNT Village ...
+movie	2160	dtshd	hevc		hdr10		true	Die.Hard.1988.Eng.Fre.Ger.Ita.Spa.Cze.Pol.Jpn.2160p.BluRay.Remux.HDR.HEVC.DTS-HD
+movie	1080	atmos|truehd	hevc		dv		false	Dune - Part Two 2024 1080p BluRay DoVi HDR10 TrueHD Atmos 7 1 x265-GeneMige
+movie	1080	atmos|truehd	h264				true	Dune Part Two 2024 1080p BluRay REMUX AVC TrueHD Atmos 7 1-MrTentsaw
+movie	1080	opus	av1				false	Dune Part Two 2024 Bluray 1080p AV1 EN/FR/ES OPUS 7.1-UH
+movie	1080	flac	hevc				false	Dunkirk.1958.1080p.BluRay.x265.HEVC.FLAC.DUAL-SARTRE
+movie	1080	dtshd	h264				false	Dunkirk.2017.1080p.IMAX.EUR.BluRay.AVC.DTS-HD.MA.5.1-BLUEBIRD
+movie	1080	eac3	hevc				false	Everything Everywhere All at Once 2022 1080p BluRayRip EAC3 5 1 x265-Lootera
+movie	1080	eac3	hevc	10			false	Fight Club 1999 1080p Blu-Ray HEVC x265 10Bit DDP5 1 Subs KINGDOM
+movie	1080	dtshd	h264				true	Fight.Club.1999.PROPER.BluRay.1080p.DTS-HD.MA.5.1.AVC.REMUX-TRB
+movie	2160	dtshd	hevc		hdr10		true	Fight.Club.1999.REPACK.2160p.UHD.Blu-ray.Remux.HDR.HEVC.DTS-HD.MA.5.1-CiNEPHiLES
+movie	2160	dtshd	hevc		hdr10		true	Fight.Club.1999.USA.BluRay.2160p.REMUX.HDR10.DTS-HD.MA.5.1.MULTi.HEVC-SEIN
+movie	1080	dts					true	Goodfellas *1990*[1080p.BDRemux.VC-1.DTS 5.1.Custom-Leon 345]
+movie	1080	opus	av1				false	Goodfellas 1990 Anniversary Edition 1080p Bluray OPUS 5 1 AV1-WhiskeyJack
+movie	2160		hevc	10	hdr10		false	Goodfellas.1990.2160p.UHD.BluRay.10bit.HDR.x265-HazMatt
+movie	2160	dtshd	hevc	10	hdr10		false	Goodfellas.1990.2160p.UHD.BluRay.x265.10bit.HDR.DTS-HD.MA.5.1-IA ...
+movie		mp3	xvid			avi	false	Goodfellas.1990.BRRip.XviD.MP3-RARBG
+movie	1080	ac3	h264				false	Goodfellas.1990.Bluray.1080p.DD-5.1.x264-Grym
+movie	1080		h264				false	Gravity (2013) BDrip 1080p ENG-ITA x264 bluray
+movie	1080		av1	10			false	Gravity 2013 1080p AV1 10Bit DKong
+movie	1080	aac	hevc	10			false	Heat (1995) (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)
+movie	1080	opus	av1				false	Heat 1995 Remastered Bluray 1080p AV1 OPUS 5.1-UH
+movie	1080	dtshd	h264				false	Interstellar.2014.1080p.IMAX.BluRay.DTS.HDMA5.1.H264-hallowed.DUAL-andrehsa
+movie	2160	atmos|truehd			dv		true	Interstellar.2014.2160p.PROPER.IMAX.REMUX.DV.HDR10+.TrueHD.7.1.Atmos-jennaortega
+movie	2160	dtshd	hevc				true	Interstellar.2014.PROPER.2160p.BluRay.REMUX.HEVC.DTS-HD.MA.5.1-FGT
+movie	2160	atmos|dtshd	hevc		dv		true	Interstellar.2014.iMAX.UHD.2160p.REMUX.HDR10.DV.MULTi.DTS-HD.7.1.ATMOS.H265-KC
+movie	1080	atmos|truehd	h264				false	John Wick Chapter 4 (2023) 1080p BluRay x264 TrueHD Atmos Soup
+movie	1080	eac3	h264				false	John Wick Chapter 4 2023 1080p PCOK WEB-DL DDP 5 1 H 264-PiRaTeS ...
+movie	2160	atmos|eac3			dv		false	John.Wick.Chapter.4.2023.2160p.WEB-DL.DDP5.1.Atmos.DV.HDR10+.H.2 ...
+movie	720	atmos|eac3	h264				false	John.Wick.Chapter.4.2023.720p.WEB-DL.DDP5.1.Atmos.H264.YG⭐
+movie		ac3	h264				false	Lawrence of Arabia [1962/x264/AC3-5.1/GRsubs] O Lorens Tis Aravi ...
+movie		ac3	xvid			avi	false	Lawrence.Of.Arabia.1962.AC3.SWESUB.DVDRip.XviD-yotsapx
+movie	1080	eac3	hevc				false	Lawrence.of.Arabia.1962.1080p.Remastered.BluRay.HEVC.EAC3-SARTRE ...
+movie	480				hdr10		false	Mad Max Fury Road (2015) 480p HDRip [Hindi Dubbed - English] HDR ...
+movie	1080	ac3					false	Mad Max Fury Road 2015 1080p BluRay AC3 Omikron
+movie	1080	atmos|truehd	h264				true	Mad Max Fury Road 2015 1080p BluRay REMUX AVC TrueHD Atmos 7 1-MrTentsaw
+movie	1080	eac3	av1				false	Mad Max Fury Road 2015 1080p NF WEB-DL DDP5 1 AV1-Saon
+movie		mp3	xvid			avi	false	Mad Max Fury Road 2015 CAMRip XviD MP3 Idiocracy
+movie	1080	truehd					false	Mission Impossible Fallout 2018 IMAX BluRay 1080p TrueHD 7.1-MgB ...
+movie	1080	opus	av1				false	Mission Impossible Fallout-2018-1080p Bluray OPUS 7 1 AV1-WhiskeyJack
+movie	720	mp3	xvid			avi	false	Mission.Impossible.Fallout.2018.720p.KORSUB.HDRip.XviD.MP3-STUTT ...
+movie	480						false	No Time To Die (2021) 480p WEB-HDRip Dual Audio [Hindi (Clean) + ...
+movie	480						false	No Time to Die (2021) 480p V2 HDCAM Dual Audio [Hindi (Clean) +
+movie	1080	opus					false	No Time to Die 2021 1080p UHD BluRay OPUS 7 1 SDR AV-WhiskeyJack ...
+movie	1080	dtshd	h264				false	Oppenheimer 2023 1080p 2in1 Blu-ray AVC DTS-HD MA 5.1-ESiR
+movie	1080	ac3	hevc				false	Oppenheimer.2023.1080p.BluRay.IMAX.ENG.LATINO.CASTELLANO.DD5.1.H265-BEN.THE.MEN
+movie	2160	dtshd	hevc		dv		true	Pulp Fiction 1994 2160p UHD Bluray Remux DV HDR HEVC DTS-HD MA 5 1-CiNEPHiLES
+movie			xvid			avi	false	Pulp_Fiction_DivX_DVD_Rip (High Res).avi
+movie		mp3	h264				false	Raging_Bull [x264][MP3(@160 Kbps)] 12Multi_Sub.mkv
+movie	2160	flac	hevc	10			false	Seven Samurai 1954 4k 2160p GBR UHD Blu-ray x265 10bit FLAC-Shiniori
+movie	2160	flac	hevc				true	Seven.Samurai.1954.2160p.UHD.Blu-ray.REMUX.SDR.HEVC.FLAC.1.0-CiNEPHiLES 7
+movie	2160	flac	hevc				false	Seven.Samurai.1954.BFI.2160p.UHD.BluRay.x265.HEVC.FLAC-SARTRE
+movie	1080	eac3	h264				false	Sicario (2015) WEBRip 1080p x264 EAC3 ITA ENG SUB ITA ENG - Lullozzo
+movie	1080	ac3|atmos	hevc		dv		false	Sicario 2015 REPACK UHD BluRay 1080p DD Atmos 5 1 DoVi HDR10  x265-SM737
+movie	2160	dtshd|truehd	h264	8			false	Sicario.2015.2160p.BluRay.x264.8bit.SDR.DTS-HD.MA.TrueHD.7.1.Atm ...
+movie	1080		h264				false	Spider-Man Brand New Day 2026 1080p HDTS DUAL H264-LMNTRY
+movie	1080	aac	hevc				false	Spider-Man.No.Way.Home.1080p.BluRay.AAC5.1.HEVC.x265-Vyndros
+movie	720		h264				false	Spider-Man.No.Way.Home.2021.720p.BRRip.x264-5.1-REAPER
+movie	2160	atmos|truehd					false	Spider-Man.No.Way.Home.2022.2160p.UHD.BluRay.TrueHD.7.1.Atmos.HD ...
+movie		ac3	xvid			avi	false	Spider-Man.No.Way.Home.Extended.Version.2022.HDRip.XviD.AC3-EVO[ ...
+movie	2160				dv		false	Spider-Man: Brand New Day (2026) 2160p 4K HDR10 DV WEB-DL Dual Audio [Hindi + English] ESub ~ RemuxDoc
+movie	2160	opus	av1		hdr10		false	Spider-Man: No Way Home.2021.2160p.HDR10.BRRip.OPUS7.1.AV1.BluBit
+movie	1080		hevc	10			false	Swapped (2026) 1080p WEBRip 5.1 10Bit x265 -YTS
+movie	1080		hevc	10			false	Swapped (2026) 1080p WEBRip x265 10bit 5.1-LAMA
+movie	1080	atmos|eac3	hevc	10			false	Swapped 2026 1080p WEBRip DDP 5 1 Atmos 10bit H 265-iVy
+movie	2160	dtshd	hevc		dv		false	Taxi Driver 1976 UHD BluRay 2160p HDR10 DV HEVC DTS-HD MA 5.1 x265-E
+movie	1080	dtshd	h264				false	Taxi.Driver.1976.4K.REMASTERED.1080p.BluRay.DTS-HD.MA.x264-Publi ...
+movie	720	ac3	xvid			avi	false	Taxi.Driver.1976.BRRip.720p.XviD.AC3 - CODY
+movie	1080	eac3	hevc				false	Taxi.Driver.1976.Remastered.1080p.BluRay.x265.HEVC.EAC3-SARTRE
+movie	480	aac	h264				false	Tenet (2020) 480p HDRip (ORG) Hindi Dubbed HDRip x264 AAC ESub B ...
+movie	2160						false	Tenet (2020) [2160p] [BluRay] [5.1]
+movie	1080		av1	10			false	Tenet 2020 IMAX 1080p AV1 10Bit DKong
+movie	1080	dtshd	h264				true	Tenet.2020.IMAX.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-FGT
+movie	1080	dtshd	h264				true	Tenet.2020.REMUX.IMAX.1080p.Bluray.DTS-HD.MA.5.1.AVC-EVO[TGx]
+movie	2160		hevc		dv		false	The Batman (2022)[Bluray 2160p 4k UHD DV HDR10HEVC Eng Deu Ita M ...
+movie	2160	atmos|truehd	hevc		hdr10		false	The Batman 2022 UHD 4K BluRay 2160p HDR TrueHD Atmos 7.1 x265-MgB
+movie	2160	eac3	hevc				false	The End of Oak Street 2026 2160p AMZN WEB-DL DDP5.1 SDR H265-SCOPE
+movie	1080	opus	av1				false	The Godfather 1972 The Coppola Restoration Bluray 1080p AV1 OPUS 5.1-UH
+movie			xvid			avi	false	The Good the Bad and the Ugly(1966)DVDRip NL subs[Divx]NLtoppers ...
+movie	2160	atmos|truehd	av1		dv		false	The Matrix (1999) [2160p] UHD [BD] DV HDR AV1 TrueHD.7.1+Atmos
+movie	1080	dts					true	The Matrix 1999 HDDVD ReMux 1080p VC-1 DTS-3Li
+movie	2160	atmos|truehd	av1		dv		false	The Matrix Reloaded (2003) [2160p] UHD [BD] DV HDR10 AV1 TrueHD.7.1+Atmos
+movie	2160	atmos|eac3	hevc		dv		false	The Uprising 2026 2160p MA WEB-DL DDP5.1 Atmos DV HDR H265-UPDOWNING
+movie	2160	dtshd	h264	8			false	The.Dark.Knight.2008.2160p.BluRay.x264.8bit.SDR.DTS-HD.MA.5.1-SW ...
+movie	480		h264				false	The.Dark.Knight.2008.480p.BRRip.x264-RippeR
+movie			xvid			avi	false	The.Dark.Knight.2008.BLURRED[700MB-Release]DivX-LTT
+movie		mp3	xvid			avi	false	The.Dark.Knight.2008.BRRip.XviD.MP3-RARBG
+movie			xvid			avi	false	The.Dark.Knight.[2008.Eng].Telesync.DivX-LTT
+movie	2160		h264	8			false	The.Good.the.Bad.and.the.Ugly.1966.2160p.BluRay.x264.8bit.SDR.DT ...
+movie	2160	dtshd	h264	8			false	The.Matrix.1999.RERIP.2160p.BluRay.x264.8bit.SDR.DTS-HD.MA.TrueH ...
+movie	2160	atmos|eac3	av1		hdr10		false	The.Whisper.Man.2026.2160p.NF.WEB-DL.DDP5.1.Atmos.HDR10+.AV1-SomniWare
+movie	2160	dtshd|truehd	hevc				false	Top.Gun.Maverick.2022.IMAX.2160p.Ai Upscaled BluRay.60FPS H265.SDR.DTS-HD.TrueHD.7.1.MultiLangSubs.Marjenbo
+movie	2160	atmos|truehd	hevc		dv		true	Top.Gun.Maverick.2022.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.REMUX-FraMeSToR.
+movie		ac3	xvid			avi	false	Top.Gun.Maverick.IMAX.2022.HDRip.XviD.AC3-EVO[TGx]
+movie	1080	ac3	hevc	10			false	Toy.Story.5.2026.1080p.WEBRip.DD5.1.10bits.x265-Rapta
+movie	2160	atmos|eac3	hevc		dv		false	Toy.Story.5.2026.2160p.iT.WEB-DL.DV.P5.DDP5.1.Atmos.H265.MP4-BTM ...
+movie	1080	atmos|eac3	hevc	10			false	Toy.Story.5.2026.MA.DS4K.WEBRip.1080p.10bit.HEVC.DDP5.1.Atmos-NmCT
+movie	2160		hevc		dv		false	Toy.Story.5.2026.MULTi.VF2.HDR.DV.2160p.WEB.H265-SUPPLY.mkv
+movie	2160		hevc		hdr10		false	Toy.Story.5.2026.iTA-ENG.WEBDL.2160p.HEVC.HDR.x265-CYBER.mkv
+movie	1080		h264	8			false	[SweetSub][Alien 9][01-04 合集][BDRip][1080P][AVC 8bit][繁日雙語]（檢索用：校園外星人，異形特攻學園）
+movie	1080	ac3	h264				false	[ZQ] Blade Runner: Black Out 2022 (2017) [BD 1080p x264 AC3]
+movie			h264				false	[iPhone] Побег из Шоушенка / The Shawshank Redemption (Фрэнк Дарабонт/ Frank Darabont) 1994 г., Драма/ Криминал, Rus - "Киномания"., Rus/ Eng, Sub, BDRip - AVC
+movie	1080	aac|ac3|dtshd		10			false	Аватар: Путь воды / Avatar: The Way of Water [2022, фантастика, боевик, драма, приключения, ProRes 444 10-bit encode, DTS-HD MA/AC-3/AAC 5.1 ENG] Тизер-трейлер #1 IMAX 4K/1080p
+movie			h264				false	Безумный Макс: Дорога ярости / Mad Max: Fury Road [2015, Австралия, США, боевик, фантастика, приключения, BDRip-AVC] [Black & Chrome Edition] AVO + Rus Sub
+movie	1080				hdr10		false	Довод / Tenet [2020, Великобритания, США, фантастика, боевик, UHD BDRip 1080p, HDR10] [IMAX] Dub + AVO + VO + Original (Eng) + Sub (Rus, Eng)
+movie			h264				false	Крестный отец / The Godfather [1972, США, криминал, драма, HDRip-AVC] 3x AVO + Sub 3x Rus, 2x Eng + Original Eng
+movie	2160	ac3|dtshd					false	Одиссея / The Odyssey [2026, фэнтези, боевик, приключения, ProRes encode, DTS-HD MA/AC-3 5.1 ENG] Трейлер #2 (4K/IMAX4K)
+movie	2160	aac|ac3|dtshd		10			false	Оппенгеймер / Oppenheimer [2023, драма, биография, история, ProRes YUV444 10 bit encode, AAC RUS Dub 2.0/DTS-HD MA/AC-3 Audio] Трейлер #2 IMAX 4K [2-pack]
+movie		mp3					false	Побег из Шоушенка / The Shawshank Redemption (Фрэнк Дарабонт / Frank Darabont) (1994) [авторский одноголосный перевод (Живов, Алексеев, Гаврилов, Горчаков, Визгунов), 44.1 kHz 128 kbps CBR stereo MP3, 23.976 fps BDRip]
+movie	1080						false	Побег из Шоушенка / The Shawshank Redemption [1994, США, драма, BDRip 1080p] [UK / Warner Bros. Home Entertainment] 2x Dub + 7x MVO + 3x DVO + 9х AVO + VO + MVO Bel + DVO Bel + 2x MVO Ukr +DVO Ukr + Sub Rus, Ukr, Eng + Original Eng
+movie	1080	eac3	hevc				false	Opus.2025.1080p.WEB-DL.DDP5.1.x265-NeoNoir
+movie	2160		hevc	10			false	Opus (2025) 2160p WEBRip 5.1 10Bit x265 -YTS
+movie	2160	atmos|eac3	hevc		dv		false	Opus.2025.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.Atmos.H265-AOC
+movie	1080	aac	h264				false	Opus.2025.1080p.WEBRip.x264.AAC5.1-LAMA
+movie	720						false	Opus (2025) [720p] [BluRay] [YTS.MX]
+movie	1080	eac3	h264				false	Opus.2025.1080p.BluRay.x264.DD+5.1.ENG.YG⭐
+movie	1080	eac3	h264				false	Opus 2025 1080p AMZN WEB-DL DDP5 1 H 264-APEX
+movie			h264				false	Опус / Opus [2025, США, триллер, ужасы, HDRip-AVC] MVO (TVShows)
+movie		ac3	xvid			avi	false	Cam.2018.HDRip.XviD.AC3-EVO
+movie	1080	ac3	h264				false	Cam.2018.1080p.NF.WEBRip.DD5.1.x264-CM[EtHD]
+episode	1080		hevc				false	Andor S01E01 1080p HEVC x265-MeGusta
+episode	1080		h264				false	Andor S01E01 1080p WEB h264-KOGi
+episode	480		h264				false	Andor S01E01 480p x264-mSD
+episode	1080	ac3	h264				false	Andor S01E01 Episode 1 1080p DSNP WEBRip DD5 1 X 264-EVO
+episode	2160		hevc		hdr10		false	Andor S01E01 HDR 2160p WEB h265-KOGi
+episode	1080	atmos|truehd	h264				true	Andor S01E01 Kassa 1080p TrueHD Atmos 7 1 AVC HYBRID REMUX-FraMeSToR
+episode	1080	aac	hevc	10			false	Andor.S01E01.1080p.DNSP.WEBRip.AAC5.1.10bits.x265-Rapta
+episode	1080		h264				false	Andor.S01E01.1080p.WEB.h264-KOGi[TGx]
+episode	480		h264				false	Andor.S01E01.480p.x264-RUBiK
+episode	720	eac3	h264				false	Andor.S01E01.720p.DSNP.WEBRip.DDP5.1.x264-NTb[TGx]
+episode	1080	ac3	h264				false	Andor.S01E01.Episode.1.1080p.DSNP.WEBRip.DD5.1.X.264-EVO[TGx]
+episode			xvid			avi	false	Andor.S01E01.XviD-AFG[TGx]
+episode	1080	eac3	hevc		dv		false	Arcane S01E01 Welcome to the Playground 1080p NF WEB-DL DDP5 1 DV HDR H 265
+episode	1080	eac3	hevc		hdr10		false	Arcane S01E01 Welcome to the Playground 1080p NF WEB-DL DDP5 1 HDR HEVC-TEPES
+episode	2160	aac	hevc	10			false	Breaking Bad S01E01 Pilot (4K 2160p Web x265 HEVC 10bit AAC 5.1
+episode	1080	dtshd	h264				true	Breaking Bad S01E01 Pilot 1080p DTS-HD MA 5 1 AVC REMUX-FraMeSToR
+episode	1080	eac3	av1				false	Breaking.Bad.S01E01-07.1080p.NF.WEB-DL.ITA-ENG.DDP5.1.AV1-G66
+episode	2160	dts	h264				false	Breaking.Bad.S01E01.Pilot.2160p.NF.WEBRip.DTS.x264-iON
+episode	2160	dts	hevc				false	Breaking.Bad.S01E01.Pilot.2160p.WEBRip.DTS.HEVC.x265-NoGrouP
+episode		dtshd	h264				true	Cowboy Bebop S01E01 Asteroid Blues 1080i DTS-HD MA 5 1 AVC REMUX-FraMeSToR
+episode		ac3	xvid			avi	false	Death Note s01e01-10 [DVDRip-XviD-Ita/Jap-Ac3-Sub/Ita][Tntvillag ...
+episode	1080	atmos|eac3	h264				false	Fallout S01E01 The End 1080p AMZN WEB-DL DDP5 1 Atmos H 264-FLUX ...
+episode	1080	atmos|eac3	hevc	10			false	Fallout S01E01 The End 1080p WEBRip 10Bit DDP5 1 Atmos HEVC-d3g
+episode	2160	ac3|atmos|truehd		10	hdr10		false	Fallout S01E01 The End 2160p UHD BluRay HDR10 10bit AC-3 TrueHD7 1 Atmos HE
+episode	2160	ac3|atmos|truehd		10	hdr10		false	Fallout S01E01 The End 2160p UHD BluRay HDR10 10bit AC-3 TrueHD7 1Atmos HEV
+episode	1080		hevc	10			false	Fallout S01e01-08 [1080p Ita Eng Spa h265 10bit SubS] byMe7alh [MIRCrew]
+episode	1080	dts	h264				false	Game of Thrones S01E01 1080p BluRay DTS x264-LiNG
+episode	2160	atmos|truehd					false	Game of Thrones S01E01 Winter Is Coming 2160p MAX WEB-DL TrueHD 7 1 Atmos D
+episode	2160	truehd					false	Game of Thrones S01E01 Winter Is Coming REPACK 2160p MAX WEB-DL TrueHD 7 1
+episode	1080		h264				false	Game of Thrones s01e01 2011 1080p Rifftrax 6ch x264 AVC
+episode	480						false	Game.Of.Thrones.S01.E02.480p.TW
+episode			xvid			avi	false	Game.of.Thrones.S01E01.HDTV.XviD-FEVER
+episode	480		h264				false	House of the Dragon S01E01 480p x264-mSD
+episode	2160			10	hdr10		false	House of the Dragon S01E01 The Heirs of the Dragon 2160p UHD BluRay HDR10 1
+episode	1080	ac3	hevc	10			false	House.of.the.Dragon.S01E01.1080p.WEBRip.DD5.1.10bits.x265-Rapta
+episode	720		hevc				false	House.of.the.Dragon.S01E01.720p.x265-T0PAZ
+episode	1080		hevc	10			false	House.of.the.Dragon.S01E01.INTERNAL.1080p.10bit.WEBRip.6CH.x265. ...
+episode	1080		hevc				false	House.of.the.Dragon.S01E01.WEB.1080p.x265.HEVC - ShortRips
+episode	1080	aac	h264				false	JUJUTSU KAISEN S01E01 VOSTFR 1080p WEB H.264 AAC -Tsundere-Raws (CR) (Multi-Subs)
+episode	1080	aac	h264				false	Jujutsu Kaisen S01E01 2020 1080p DSNP WEB-DL AAC2 0 H 264-HHWEB
+episode	2160	ac3|truehd		10	hdr10		false	Loki S01E01 Glorious Purpose 2160p UHD BluRay HDR10 10bit AC-3 TrueHD7 1 At
+episode	1080	atmos|eac3	hevc		hdr10		false	Loki S01E01 Glorious Purpose MULTi 1080p DSNP WEB-DL DDP5 1 Atmos HDR H 265
+episode	2160	atmos|eac3	hevc		hdr10		false	Loki S01E01 Glorious Purpose MULTi 2160p DSNP WEB-DL DDP5 1 Atmos HDR H 265
+episode	1080		h264				false	Loki.S01E01.1080p.WEB.h264-KOGi[TGx]
+episode	720	atmos|eac3	h264				false	Loki.S01E01.720p.DSNP.WEBRip.DDP5.1.Atmos.x264-NOGRP[TGx]
+episode		aac	h264				false	Mad Men S01E01 DVDRIP MPEG-4 AVC 856x480 AAC
+episode	2160	dtshd			dv		false	Mad Men S01E01 Smoke Gets in Your Eyes 2160p HMAX WEB-DL DTS-HD MA 5 1 1 DV
+episode	1080	dts					false	Mad.Men.S01E01.BDRip.1080p.DTS.HDTV
+episode	1080	flac	h264				false	One-Punch Man S01E01 The Strongest Man 1080p CR WEB-DL DUAL FLAC2 0 H 264-K
+episode	480		h264				false	One.Punch.Man.S01E01.DUBBED.480p.x264-mSD
+episode	1080	ac3					false	Planet.Earth - (S01E01).From.Pole.To.Pole - 2006.1080p.AC3.mkv
+episode	720	dts	h264				false	Prison Break S01E01 720p BluRay DTS x264-ESiR
+episode			xvid			avi	false	Prison.Break.S01.E01-E04.SWESUB.DVDRip.XviD-Huzzy
+episode	1080	eac3	h264				false	Reacher - S01 E01-08 (2022) WEBRip 1080p x264 EAC3 ITA ENG SUB ITA ENG -Lullozz
+episode	2160	dtshd		10	hdr10		false	Reacher S01E01 Welcome to Margrave 2160p UHD BluRay HDR10 10bit Dts-HDMa5 1
+episode	2160	atmos|eac3			dv		false	Severance S01E01 Good News About Hell 2160p ATVP WEB-DL DDP5 1 Atmos DV HDR
+episode	1080	dtshd	h264				true	Severance S01E01 Good News About Hell BluRay 1080p DTS-HD MA 5 1 AVC REMUX-
+episode	2160	atmos|eac3	hevc		dv		false	Silo S01E01 Freedom Day 2160p ATVP WEB-DL DDP5 1 Atmos DV HDR H 265-FLUX
+episode	1080	eac3	h264				false	Silo.S01E01.Freedom.Day.1080p.ATVP.WEB-DL.DDP5.1.H.264-NTb[TGx]
+episode	2160	truehd	hevc		dv		false	Stranger Things S01E01 2160p NF WEB-DL TrueHD 5 1 HDR DV HEVC-APEX
+episode	1080		h264				false	Stranger Things s01e01 2016 1080p Rifftrax 6ch 2ch AVC
+episode	1080		h264				false	Stranger Things s01e01 2016 1080p Rifftrax 6ch 2ch x264 AVC
+episode	1080	aac	h264				false	Taxi Driver 2025 S03E08 1080p VIKI WEB-DL AAC2 0 H 264-DUSKLiGHT ...
+episode	1080	aac	h264				false	Taxi Driver S03E03 2025 1080p Viu WEB-DL H 264 AAC-ADWeb
+episode	1080	aac	h264				false	Ted.Lasso.S01E01-07.WEBRip.1080p.H264.AAC-ztorrenter
+episode	1080	ac3	h264				false	Ted.Lasso.S01E01-07.WEBRip.1080p.H264.AC3-ztorrenter
+episode	1080	atmos|eac3	h264				false	Ted.Lasso.S01E01-10.1080p.ATVP.WEB-DL.ITA.ENG.DDP5.1.Atmos.H.264-G66
+episode	1080		hevc				false	The Bear S01e01-08 [1080p Ita Eng Spa 5.1 HEVC10 SubS] byMe7alh [MIRCrew]
+episode	1080	ac3|atmos|truehd	hevc	10			false	The Last Of Us S01E01 1080p BluRay 10Bit AC-3 TrueHD7 1 Atmos H265-d3g
+episode		atmos			hdr10		false	The Last of Us -S01E01-4320p HDR Ai Upscale 7.1 Atmos+5.1 MultiDub/Sub MKV -Mesc
+episode	1080		hevc	10			false	The Last of Us S01e01-09 [1080p Ita Eng Spa h265 10bit SubS] byMe7alh [MIRCrew]
+episode	1080	ac3	h264				false	The Mandalorian S01E01 1080p WEBRip x264 DD 5.1 MSubs - LOKiHD - ...
+episode	720	aac	h264				false	The Mandalorian S01E01 720p WEBRip x264 AAC 5.1 MSubs - LOKiHD - ...
+episode			xvid			avi	false	The Sopranos S01E01(1999) NLT (Eng-Dutch NL subs)DVDRip DivX
+episode	2160	ac3|atmos			dv		false	The Witcher S01E01 The Ends Beginning 2160p NF WEB-DL DD 5 1 Atmos DoVi HDR
+episode	1080	ac3|atmos|truehd					false	The.Last.Of.Us.S01E01.1080p.BluRay.10Bit.AC-3.TrueHD7.1.Atmos.H2 ...
+episode	1080	atmos|eac3	h264				false	The.Last.of.Us.S01E01.1080p.HMAX.WEBRip.DDP5.1.Atmos.x264-SMURF[rartv]
+episode	1080		h264				false	The.Last.of.Us.S01E01.1080p.WEB.H264-CAKES
+episode	2160				hdr10		false	The.Mandalorian.S01E01.4K.HDR.2160p 4.61GB
+episode	1080	atmos|eac3	hevc	10	hdr10		false	The.Witcher.S01E01.1080p.NF.WEB-DL.x265.10bit.HDR.DDP5.1.Atmos-A ...
+episode	480		h264				false	The.Witcher.S01E01.480p.x264-ZMNT
+episode	720	atmos|eac3	h264				false	The.Witcher.S01E01.720p.NF.WEB-DL.DDP5.1.Atmos.x264-STARZ
+episode	1080	dtshd	h264				true	True Detective S01E01 The Long Bright Dark 1080p BluRay REMUX AVC DTS-HD MA
+episode	1080	dtshd	h264				false	Wednesday S01E01 Wednesdays Child is Full of Woe 1080p DTS-HD MA 5 1 AVC RE
+episode	1080	dtshd	h264				true	Westworld S01E01 The Original 1080p DTS-HD MA 5 1 AVC REMUX-FraMeSToR
+episode	2160	ac3|truehd		10	hdr10		false	Westworld S01E01 The Original 2160p UHD BluRay HDR10 10bit AC-3 TrueHD7 1 A
+episode	1080	ac3	hevc				false	Westworld.S01E01.1080p.HDTV.AC3 5.1.HEVC.x265.sharpysword
+episode	2160		hevc	10	hdr10		false	Westworld.S01E01.2160p.10bit.HDR.BluRay.8CH.x265.HEVC-PSA
+episode	1080		hevc				false	Westworld.S01E01.INTERNAL.1080p.HEVC.x265-MeGusta
+episode	480		h264				false	Westworld.S01E01.INTERNAL.480p.x264-mSD
+episode	720		hevc				false	Westworld.S01E01.PROPER.720p.HEVC.x265-MeGusta
+episode			xvid			avi	false	Westworld.S01E01.XviD-AFG
+episode	1080		hevc	10			false	[DKB] Jujutsu Kaisen - S01E01 [1080p][H.265 10bit][Multi-Subs][weekly]
+episode		ac3	xvid			avi	false	[DVDRip-DivX-AC3-ITA]Band Of Brothers S01E01 [CR-Bt]
+pack	1080		hevc				false	A Perfect Planet S01 1080p BluRay x265
+pack	1080		h264				false	A.Perfect.Planet.S01.1080p.BluRay.x264-FLAWLESSWORLD
+pack	2160	atmos|dtshd|truehd	hevc				true	A.Perfect.Planet.S01.2160p.BluRay.REMUX.HEVC.DTS-HD.MA.TrueHD.7.1.Atmos-FGT
+pack	480		h264				false	A.Perfect.Planet.S01.480p.x264-ZMNT
+pack	720		hevc				false	A.Perfect.Planet.S01.720p.x265-ZMNT
+pack			xvid			avi	false	A.Perfect.Planet.S01.XviD-ZMNT
+pack	1080		hevc	10			false	ARCANE.S01.MULTI.1080P.10BIT.WEBRIP.6CH.X265
+pack	1080	atmos|eac3	h264				false	Andor S01 1080p DSNP WEBRip DDP5 1 Atmos x264-NTb
+pack	1080	aac	hevc	10			false	Andor S01 S01 1080p DSNP WEBRip AAC5.1 10bits x265-Rapta
+pack	1080	ac3	h264				false	Andor S01 S01 1080p.DSNP.WEBRip.DD5.1.X.264.djd
+pack	1080	atmos|eac3	h264				false	Andor.S01.1080p.DSNP.WEBRip.DDP5.1.Atmos.x264-NTb
+pack	2160	atmos|truehd	hevc		dv		true	Andor.S01.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.HYBRID.REMUX-FraMeSToR
+pack	1080	eac3	hevc	10	hdr10		false	Arcane S01 1080p NF WEB-DL x265 10bit HDR DDP5 1-TEPES
+pack	1080	atmos|eac3	av1		hdr10		false	Arcane.S01.1080p.NF.WEB-DL.DDP5.1.Atmos.HDR10+.AV1-SomniWare
+pack	2160	truehd	hevc		dv		true	Arcane.S01.2160p.UHD.BluRay.REMUX.HEVC.DV.HDR10.TrueHD.5.1.Bonus-NocturneMain
+pack	480						false	Attack on Titan S01 (Episode 1-25) 480p
+pack	1080	truehd	hevc	10			false	Attack.on.Titan.S01.1080p.Blu-Ray.10-Bit.Dual-Audio.TrueHD.x265-iAHD
+pack	1080	flac	h264				true	Attack.on.Titan.S01.BluRay.1080p.FLAC.2.0.AVC.REMUX-FraMeSToR
+pack	1080	ac3|truehd					true	Attack.on.Titan.S01.Bluray.REMUX.1080p.TRUHD.51.AC351.TRUHD20.AC320.PCM20.Eng+Jap.EngSubs
+pack	1080	dtshd					true	Band.Of.Brothers.S01.COMPLETE.1080p.BluRay.REMUX.MULTi.DTS-HD.MA.VC1-BEN.THE.MEN
+pack	2160		hevc				false	Breaking Bad S01 2160p Web-DL x265-KRAVE
+pack	1080	dtshd	h264				true	Breaking.Bad.S01-S05.COMPLETE.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-FraMeSToR
+pack	2160	dtshd	h264				false	Breaking.Bad.S01.2160p.WEBRip.DTS-HD.MA5.1.x264-TrollUHD
+pack	2160	dtshd	hevc		dv		true	Chernobyl S01 UHD BluRay 2160p DTS-HD MA 5 1 DV HEVC REMUX-FraMeSToR
+pack	1080	flac	h264	10			false	Cowboy Bebop S01 1080p Hi10p BluRay FLAC5.1 x264 [CTR] (English Dubbed Dual Audio) (Includes the Movie - Knockin' on Heaven's Door)
+pack	720	ac3	h264	10			false	Cowboy Bebop S01 720p Hi10p BluRay AC35.1 x264 [CTR] (English Dubbed Dual Audio) (Includes the Movie - Knockin' on Heaven's Door)
+pack	1080	opus	hevc				false	Cowboy.Bebop.S01.1080p.BRRIP.x265.OPUS51.DUAL-EMPATHY
+pack			h264	10			false	Death Note [S01] (2006) DVDRip-AVC [Hi10P] by UA MAX | L1 | [Eng-Rus]
+pack		aac	h264	10			false	Death.Note.S01.540p-Hi10p.BluRay.AAC2.0.x264-CTR (English Dubbed Dual Audio)
+pack		flac	h264	10			false	Death.Note.S01.540p-Hi10p.BluRay.FLAC2.0.x264-CTR (English Dubbed Dual Audio)
+pack	1080	truehd	h264				true	Dexter S01-S08 COMPLETE 1080p BluRay REMUX TrueHD 5.1 AVC-FraMeS ...
+pack	1080	dtshd	h264				true	Dexter.S01.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP
+pack	2160	dtshd	hevc		dv		true	FRIENDS.S01.UHD.BluRay.2160p.DTS-HD.MA.5.1.DV.HEVC.REMUX-FraMeSToR [season one 1
+pack	2160	atmos|truehd	hevc	10	dv		false	Fallout S01 2160p UHD BDRip HEVC 10bit DV HDR TrueHD.7.1 Atmos MUSHR00M
+pack	2160		hevc		dv		false	Fallout.S01.2160p.AMZN.WEB-DL.DV.HDR.ENG.HINDI.TAMIL.TELUGU.H265.MKV-BEN.THE.MEN
+pack	2160		hevc		dv		false	Fallout.S01.2160p.AMZN.WEB-DL.DV.P5.ENG.LATINO.HINDI.TAMIL.TELUGU.H265.MP4-BTM
+pack	480		h264				false	Foundation.S01.480p.x264-ZMNT
+pack	1080	aac	h264				false	Frozen Planet II S01 1080p iP WEBRip AAC2 0 x264-playWEB
+pack	1080	dts	h264				false	Game of Thrones S01 1080p BluRay-RMZ x264-Belex Dual Audio DTS + ...
+pack	1080	dtshd	h264				true	Game of Thrones S01 BluRay Remux 1080p AVC DTS-HDMA 5.1 +
+pack	1080		hevc				false	Game of Thrones S01 S01 (1080p Bluray x265 5.1 Joy)[UTR]
+pack	720	aac	hevc				false	Game.Of.Thrones.S01.S01.Complete.BRRip.720p.x265.2Ch.HE-AAC
+pack	720		h264				false	Game.Of.Thrones.S01.SWESUB.720p.HDTV.x264-aka
+pack	1080		hevc	10			false	Game.of.Thrones.S01.1080p.BluRay.10bit.HEVC-MkvCage Season 1 One ...
+pack	1080	dtshd	h264				true	Game.of.Thrones.S01.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-FGT
+pack	2160	atmos|truehd	hevc				false	Game.of.Thrones.S01.2160p.BluRay.HEVC.TrueHD.7.1.Atmos-HDBEE
+pack	2160	atmos|dtshd|truehd	hevc				true	Game.of.Thrones.S01.2160p.BluRay.REMUX.HEVC.DTS-HD.MA.TrueHD.7.1.Atmos-FGT
+pack	2160		hevc				false	Game.of.Thrones.S01.2160p.UHD.BluRay.x265-SCOTLUHD
+pack			xvid			avi	false	Game.of.Thrones.S01.HDTV.XviD
+pack	1080		hevc				false	House of the Dragon S01 1080p WEBRip x265
+pack	2160	atmos|truehd	hevc	10	dv		false	House of the Dragon S01 2160p BDRip H.265 10bit DV HDR TrueHD.7.1 Atmos MUSHR00M
+pack	1080	aac	hevc				false	House of the Dragon S01 Complete 1080p WEBRip AAC5.1 HEVC x265-HODL
+pack	2160	atmos	hevc		dv		true	House.Of.The.Dragon.S01.2160p.BluRay.REMUX.DV.P7.HDR.MULTi.Atmos.7.1.H265-BTM
+pack	1080	opus					false	Jujutsu Kaisen - S01 MULTi VF/VOSTFR [BD 1080p Opus] (Darki) | FRENCH
+pack	1080		hevc	10			false	Jujutsu Kaisen S01 1080p HEVC x265 10bit Multi-Subs
+pack	720	opus	av1				false	Jujutsu Kaisen S01 720p BluRay Opus2.0 AV1-AnimEssential (English Subs)
+pack	1080		h264				false	Jujutsu.Kaisen.S01.MULTi.1080p.WEB.x264-FRiTCHi571
+pack	720	atmos|eac3	h264				false	Loki S01 720p DSNP WEBRip DDP5 1 Atmos x264-MIXED
+pack	2160	atmos|eac3	hevc		dv		false	Loki.S01.2160p.WEB-DL.DDP5.1.Atmos.DV.x265-MIXED
+pack	2160	atmos|eac3	hevc	10	hdr10		false	Loki.S01.2160p.WEB-DL.x265.10bit.HDR.DDP5.1.Atmos-SWTYBLZ
+pack	480		h264				false	Mad Men S01,2,3,4 BluRay 480p x264-BoB
+pack	1080	dtshd	h264				true	Mad.Men.S01.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP
+pack	1080	dtshd	h264				true	Mad.Men.S01.BluRay.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR
+pack	2160	eac3	hevc		dv		false	Mad.Men.S01.ITA.ENG.2160p.DSNP.WEB-DL.DDP2.0.DV.HDR.H.265-MeM.GP
+pack	1080	opus					false	One Punch Man S01 + OAV + OAD - MULTi VF/VOSTFR [BD 1080p Opus] v2 (Darki) | FRENCH
+pack	480						false	Prison.Break.S01.480p.Bluray.sKs
+pack	1080	eac3	hevc				false	Reacher - S01 (2022) [1080p x265 Ita Eng EAC3 5.1 sub Ita Eng]
+pack	1080	eac3	hevc				false	Reacher S01 [1080p x265 ENG EAC3 6CH SUB ENG] - MeGusta
+pack	1080	dtshd	h264				true	Reacher.S01.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP
+pack	2160				hdr10		false	Seven.Worlds.One.Planet.S01.D1.UHD.4K.HDR.2160p 157.7GB
+pack	1080	ac3	h264				false	Severance.S01.COMPLETE.1080p.WEBRip.AC3.x264-LESS
+pack	2160		hevc		dv		false	Severance.S01.Hybrid.MULTI.2160p.WEB-DL.DV.HDR.H265-AOC
+pack	1080		hevc	10			false	Silo.S01.1080p.10bit.WEBRip.6CH.x265.HEVC-PSA
+pack	2160	ac3	h264				false	Stranger Things S01 2160p NF WEBRip DD5 1 x264-NTb[rartv]
+pack	1080	eac3					false	Stranger Things S01 WEBRip.1080p.(DD+5.1 ) [EN,TAM,TEL,HIN] ESub ...
+pack	720		h264				false	Stranger Things.S01.Complete S01.720p.NF.WEBRip.x264-NTb
+pack	2160	ac3	hevc	10			false	Stranger.Things.S01.2160p.BluRay.x265.10bit.SDR.DD5.1-DEPTH
+pack	2160	dtshd	hevc		dv		true	Stranger.Things.S01.2160p.UHD.BluRay.REMUX.DV.P7.HDR.MULTi.DTS-HD.MA.H265-BTM
+pack	480	aac	h264				false	THE BOYS S01 EP 1 TO 4 480p [Hindi Dub + English] HDRip x264 AAC ...
+pack	2160	ac3|atmos	hevc				false	Ted.Lasso.S01.2160p.ATVP.WEB-DL.DD5.1.Atmos.x265-MIXED
+pack	1080	aac	hevc	10			false	The Last of Us S01 S01 1080p HMAX WEBRip AAC5.1 10bits x265-Rapta
+pack	1080	aac	h264				false	The Mandalorian - S01 S01 - 2019 1080p WEB-DL AAC5.1 x264-R
+pack	720		h264				false	The Mandalorian S01 720p WEBRip [Hindi-Dub] Dual-Audio x264 - Co ...
+pack	1080	dtshd	h264				true	The Sopranos S01-S06 1080p BluRay REMUX AVC DTS-HD MA 5.1 [RiCK] ...
+pack	1080	dtshd	h264				true	The.Boys.S01.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP
+pack	2160	atmos|truehd	hevc		dv		true	The.Last.of.Us.S01.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.REMUX-FraMeSToR
+pack	1080	atmos|eac3	h264				false	The.Mandalorian.S01.1080p.DSNP.WEBRip.DDP5.1.Atmos.x264-SKGTV
+pack	2160	atmos|truehd	hevc		dv		true	The.Mandalorian.S01.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.HYBRID.REMUX-FraMeSToR
+pack			xvid			avi	false	The.Mandalorian.S01.XviD-ZMNT
+pack	1080	opus	av1				false	The.Mandalorian.S01.bluray.sdr.1080p.av1.7.1.opus.subs-Dust
+pack	1080	dtshd	h264				true	The.Sopranos.S01.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP
+pack	1080	dtshd	h264				true	The.Wire.S01.1080p.BluRay.REMUX.AVC.AVC.DTS-HD.MA.5.1-NOGRP
+pack	1080	atmos|eac3	h264				false	The.Witcher.S01.2019.MULTi.1080p.NF.WEB-DL.DD+5.1.Atmos.x264-DDR ...
+pack	2160				hdr10		false	The.Witcher.S01.NF.4K.HDR.2160p 63.1GB
+pack	2160	eac3	hevc		dv		false	Tokyo.Vice.S01.2160p.MAX.WEB-DL.DDP5.1.HDR.DV.HEVC-NTb
+pack	2160		hevc		hlg		false	Tokyo.Vice.S01.HLG.2160p.WEB.H265-GGEZ
+pack			xvid			avi	false	True Detective S01 HDTV.XviD[Pawulon]
+pack	1080						true	True.Detective.S01.1080p.BluRay.REMUX-DDB
+pack	1080	atmos|eac3	h264				false	Wednesday.S01.1080p.NF.WEBRip.DDP5.1.Atmos.x264-SMURF
+pack	480		h264				false	Wednesday.S01.480p.x264-ZMNT
+pack	720	atmos|eac3	h264				false	Wednesday.S01.720p.NF.WEBRip.DDP5.1.Atmos.x264-Dual.YG⭐
+pack	2160	atmos|truehd	hevc				false	Westworld S01 2160p BluRay HEVC TrueHD 7 1 Atmos-SUPERSIZE
+pack	2160	atmos|truehd	hevc	10	hdr10		false	Westworld.S01.2160p.BluRay.x265.10bit.HDR.TrueHD.7.1.Atmos-DEPTH ...
+pack	720		h264				false	Westworld.S01.SWESUB.720p.HDTV.x264-FiLMANTA
+pack	1080		h264				false	Westworld.S01.SweSub-EngSub.1080p.x264-Justiso
+pack	1080	eac3	h264				false	[EmmidRips] One-Punch Man S01 1080p NF WEB-DL EAC3 x264 MULTI (ワンパンマン, Ванпанчмен, איש האגרוף הבודד, 一拳超人, 원펀맨, Tek Vuruş Adam, Wan Pan Man, Wanpanman, Уанпънч-мен, رجل اللكمة الواحدة, 1PM, OPM)
+pack	1080	opus	av1				false	[GapMoe] Attack on Titan - S01 (BD 1080p AV1  Opus 2.0) (Multi-Audio) (ES/LAT) | Shingeki no Kyojin (Season 1)
+pack	1080	flac	hevc				false	[GapMoe] Attack on Titan - S01 (BD 1080p x265 FLAC 2.0) (Multi-Audio) (ES/LAT) | Shingeki no Kyojin (Season 1)
+pack	720	opus	av1				false	[ItachiUchiha] Death Note S01 [BD 720p][AV1 Opus][Multi-Audio][JPN][ENG][ITA][PT][ESP][FR][RU][Multi-Subs][ENG][ITA][JPN] | Death Note S1 (Season 1) (2006) Multi Dual
+pack	1080	aac|ac3	hevc	10			false	[Maximus] Attack on Titan S01 (2013) [BluRay 1080p x265 10bit Dual Audio Eng AC3 5.1 + Jap AAC]
+pack	1080		av1				false	[MiniVodes] Jujutsu Kaisen S01 (BD 1080p AV1) [Dual Audio] | Sorcery Fight S1
+pack	1080	aac	hevc	10			false	[NRN] Cowboy Bebop S01 1080p 10Bit X265 BDRip AAC 5.1 Dual Audio
+pack	1080	opus	av1				false	[PHTM] Cowboy Bebop - S01 (BD 1080p AV1 Opus 5.1) (Multi-Audio) (German/Deutsch)
+pack	1080	opus	av1				false	[PHTMini] Attack on Titan - S01 (BD 1080p AV1 Opus 2.0) (Dual-Audio) (German/Deutsch) | Shingeki no Kyojin (Season 1)
+pack	1080	opus	av1				false	[PHTMini] Attack on Titan - S01 (BD 1080p AV1 Opus 2.0) (Multi-Audio) (German/Deutsch) | Shingeki no Kyojin (Season 1)
+pack	1080		av1				false	[Sokudo] Jujutsu Kaisen - S01 v2 [1080p BD AV1][Dual Audio]
+pack	1080		av1				false	[Sokudo] One Punch Man S01+S02+OVA [1080p BD AV1][dual audio]
+pack	1080	dts	hevc	10			false	[V2] カウボーイビバップ Cowboy Bebop S01 1998 BluRay 1080p HEVC 10bit DTS GOA
+pack	1080	flac	hevc	10			false	[VARYG] Jujutsu Kaisen S01 [BD 1080p x265 10bit Dual Audio FLAC]

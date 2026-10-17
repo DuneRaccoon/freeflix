@@ -129,6 +129,173 @@ function writeKeyLog(lines: string[]): void {
   }
 }
 
+/**
+ * STAGE 8 — THE CODEC INSTRUMENT. Four clips, one variable each, and the one state this
+ * television will actually be in.
+ *
+ * The clips live in `frontend/public/samples/` and are served by **Next.js static** at
+ * `http://<host>:3001/samples/…`: no torrent, no backend, no auth gate, and no ARM download
+ * cap. That is the whole reason they are clips rather than releases — every other playback
+ * path on this surface runs through libtorrent and FastAPI, so a failure there has four
+ * candidate causes before the decoder is even reached.
+ *
+ * **The clips are gitignored and they are not in this repo.** Binaries do not belong here and
+ * none of the four could be produced from the machine that wrote this code, so
+ * `docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md` carries the exact ffmpeg
+ * command line per clip (each labelled written-down-but-never-run) and this section renders
+ * **"FILE NOT PRESENT"** as a first-class state. That distinction is the point of the HEAD
+ * probe: a 404 and a codec the set cannot decode both end with **no picture**, and
+ * `MediaError.code` cannot tell them apart. Without the probe, "stage 8's profile is wrong"
+ * and "nobody copied the files over" are the same reading.
+ *
+ * **Every cell is a raw string.** `MediaError.code`, `videoWidth x videoHeight`, `duration`
+ * and `readyState` are printed verbatim — never "ok", "works" or "as expected", which is the
+ * summary that cost this project the stage-3 key log.
+ *
+ * **The audio answer is the operator's, because no code can read it.** A DTS track this set
+ * cannot decode plays a **silent picture** and raises no error at all, so a code-only readout
+ * would log reading 18 as a pass over a silent film. Hence a yes/no the operator supplies by
+ * hand, stored in the same record as the machine-read fields. It is buttons rather than a text
+ * field for the reason the profile keypad exists: a remote cannot type.
+ *
+ * `canPlayType` is **advisory and gates nothing** — it is printed, and the clip mounts
+ * whatever it says. Spec §7.2 is right that TV implementations under-report, so a `""` from
+ * this row must never be allowed to stand in for a reading off the panel.
+ *
+ * Readings persist to `sessionStorage` under the house `bs-diag:` prefix, every access in
+ * try/catch, for exactly the reason the key log does: stage 3 ran its instrument on this
+ * television and wrote none of it down.
+ */
+const CODEC_STORAGE = 'bs-diag:codec';
+
+const SAMPLES_BASE = '/samples/';
+
+type Clip = { id: string; file: string; label: string; mime: string; note: string };
+
+/**
+ * One variable each, and clip 4 is the control.
+ *
+ * ONE VARIABLE MEANS ONE: clips 1 and 2 carry the control's E-AC3 track, not AC3, so the
+ * only thing that changes between clip 4 and them is libx264 -> libx265. They were first
+ * written with `-c:a ac3` against the control's `-c:a eac3`, which is two codec variables --
+ * and plain AC3 is itself unmeasured on this panel, so a red clip 1 could have been an HEVC
+ * verdict or an AC3 verdict and reading 16 would have been unattributable. Caught by the
+ * whole-branch review before any reading was taken.
+ *
+ * Clip 4 reproduces the only AV combination this project has ever measured (the 2026-10-07
+ * sitting: a 1080p H.264 MKV with a DDP5.1 / E-AC3 track, streamed off a ~26%-complete
+ * torrent). So a red row *there* means the instrument, the mux or the file is wrong — not the
+ * panel. Without it a failure on clips 1-3 is unattributable.
+ *
+ * `.mkv` throughout, deliberately: §3.2 lists Matroska as a supported container and the one
+ * measured run was an MKV, so the container is held constant with the measured case rather
+ * than introduced as a second variable.
+ */
+const CLIPS: Clip[] = [
+  {
+    id: 'c1',
+    file: 'clip1-1080p-hevc-main8-eac3.mkv',
+    label: 'Clip 1 — 1080p HEVC Main 8-bit + E-AC3',
+    mime: 'video/x-matroska; codecs="hvc1.1.6.L120.B0,ec-3"',
+    note: 'Reading 16 — gates R9 and the 4K opt-in. HEVC decode is accepted on documentation alone. E-AC3, not AC3, so the ONLY variable against clip 4 is the video codec.',
+  },
+  {
+    id: 'c2',
+    file: 'clip2-1080p-hevc-main10-eac3.mkv',
+    label: 'Clip 2 — 1080p HEVC Main10 + E-AC3',
+    mime: 'video/x-matroska; codecs="hvc1.2.4.L120.B0,ec-3"',
+    note: 'Reading 17 — R9 names Main and Main10 in one breath; they are different decoder profiles.',
+  },
+  {
+    id: 'c3',
+    file: 'clip3-1080p-h264-dts51.mkv',
+    label: 'Clip 3 — 1080p H.264 + DTS 5.1',
+    mime: 'video/x-matroska; codecs="avc1.640028,dtsc"',
+    note: 'Reading 18 — promotes R3 out of shadow. THE AUDIO ANSWER IS THE READING: silence with a picture and silence with a MediaError are different verdicts.',
+  },
+  {
+    id: 'c4',
+    file: 'clip4-1080p-h264-eac3.mkv',
+    label: 'Clip 4 — 1080p H.264 + E-AC3 — CONTROL',
+    mime: 'video/x-matroska; codecs="avc1.640028,ec-3"',
+    note: 'The one measured combination (2026-10-07, DDP5.1). A red row here means the instrument is wrong, not the panel. Read it FIRST.',
+  },
+];
+
+/**
+ * A clip's row. Every field is a string so that what is rendered is what was persisted and
+ * what gets transcribed — no formatting happens between the element and the sheet.
+ *
+ * `present` is its own field rather than derived from `http`: parsing a status back out of a
+ * verbatim line is exactly the kind of re-derivation that makes a reading a judgement. Three
+ * values, not two — a `fetch` that **throws** is not an absent file, and calling it one would
+ * hide a LAN failure behind "copy the clips over".
+ */
+type ClipReading = {
+  http: string;
+  present: 'yes' | 'no' | 'unknown';
+  error: string;
+  dims: string;
+  duration: string;
+  readyState: string;
+  at: string;
+  audio: string;
+};
+
+/** "not taken", never blank — the stage-7 sheet's rule, in the instrument that fills it. */
+const BLANK_CLIP: ClipReading = {
+  http: 'not probed',
+  present: 'unknown',
+  error: 'not taken',
+  dims: 'not taken',
+  duration: 'not taken',
+  readyState: 'not taken',
+  at: 'not taken',
+  audio: 'not answered',
+};
+
+function blankClipReadings(): Record<string, ClipReading> {
+  return Object.fromEntries(CLIPS.map((c) => [c.id, { ...BLANK_CLIP }]));
+}
+
+/**
+ * Restored field by field against BLANK_CLIP. A stored blob written by an older build (or by
+ * anything else on this origin) must degrade to "not taken" rather than render `undefined`,
+ * which would read as a blank cell — the one state this instrument is not allowed to produce.
+ */
+function readCodecReadings(): Record<string, ClipReading> {
+  const out = blankClipReadings();
+  try {
+    const raw = sessionStorage.getItem(CODEC_STORAGE);
+    if (!raw) return out;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return out;
+    for (const c of CLIPS) {
+      const row = (parsed as Record<string, unknown>)[c.id];
+      if (!row || typeof row !== 'object') continue;
+      for (const key of ['http', 'error', 'dims', 'duration', 'readyState', 'at', 'audio'] as const) {
+        const v = (row as Record<string, unknown>)[key];
+        if (typeof v === 'string' && v !== '') out[c.id][key] = v;
+      }
+      // `present` is validated against its three values rather than trusted, because it is the
+      // field the "FILE NOT PRESENT" branch keys on.
+      const p = (row as Record<string, unknown>).present;
+      if (p === 'yes' || p === 'no' || p === 'unknown') out[c.id].present = p;
+    }
+    return out;
+  } catch {
+    return out;
+  }
+}
+
+function writeCodecReadings(readings: Record<string, ClipReading>): void {
+  try {
+    sessionStorage.setItem(CODEC_STORAGE, JSON.stringify(readings));
+  } catch {
+    /* A television that refuses storage still shows the readings on screen. */
+  }
+}
+
 const TOKENS: Array<[string, string]> = [
   ['--ink', 'ink'],
   ['--surface', 'surface'],
@@ -160,6 +327,16 @@ export default function BigScreenDiagnostics() {
   // `[keys]` effect (whose first run would write the empty initial state over a restored
   // log before the restore had committed).
   const keysRef = useRef<string[]>([]);
+
+  // Stage 8's codec instrument. `clips` is the persisted record; `canPlay` is the advisory
+  // `canPlayType` read and is deliberately NOT persisted, because it is re-derivable on any
+  // mount and must never be mistaken for a transcribed reading. `activeClip` is a single
+  // mounted element at a time: a television has one hardware decoder worth trusting, and the
+  // sound question can only be answered about one clip at a time anyway.
+  const [clips, setClips] = useState<Record<string, ClipReading>>(blankClipReadings);
+  const [canPlay, setCanPlay] = useState<Record<string, string>>({});
+  const [activeClip, setActiveClip] = useState<string | null>(null);
+  const clipVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     // This page's whole purpose is to survive an engine nobody has tested it on, so a
@@ -364,6 +541,116 @@ export default function BigScreenDiagnostics() {
     }
   }, [videoSrc]);
 
+  // The clip readings, mirrored in a ref for the same reason the key log is: every write is a
+  // MERGE of one field into one row, and doing that inside a setState updater (which React may
+  // call twice) would persist a value derived from a state React had not committed.
+  const clipsRef = useRef<Record<string, ClipReading>>(blankClipReadings());
+
+  const updateClip = useCallback((id: string, patch: Partial<ClipReading>) => {
+    const next = { ...clipsRef.current, [id]: { ...clipsRef.current[id], ...patch } };
+    clipsRef.current = next;
+    writeCodecReadings(next);
+    setClips(next);
+  }, []);
+
+  useEffect(() => {
+    // Restored in an effect, not a useState initialiser: this renders on the server too, where
+    // sessionStorage does not exist, and a lazy initialiser would make the two first paints
+    // differ. Same reason as the key log's restore above.
+    const saved = readCodecReadings();
+    clipsRef.current = saved;
+    setClips(saved);
+  }, []);
+
+  useEffect(() => {
+    // ADVISORY ONLY, and in its own effect with its own catch so that an engine without
+    // `canPlayType` cannot take the feature table down with it (the `mediaSession()` posture).
+    // Nothing below reads this value: the clip mounts whatever it says. §7.2 — "TV
+    // implementations under-report" — is the reason it may not gate anything.
+    try {
+      const probe = document.createElement('video');
+      const out: Record<string, string> = {};
+      for (const c of CLIPS) {
+        out[c.id] =
+          typeof probe.canPlayType === 'function' ? JSON.stringify(probe.canPlayType(c.mime)) : 'canPlayType absent';
+      }
+      setCanPlay(out);
+    } catch (err) {
+      setCanPlay(Object.fromEntries(CLIPS.map((c) => [c.id, `threw: ${String(err)}`])));
+    }
+  }, []);
+
+  /**
+   * One HEAD per clip, and the answer is kept verbatim.
+   *
+   * This is the only thing that can separate "the file is not here" from "this panel cannot
+   * decode it", because both end with no picture and `MediaError.code` is identical. A thrown
+   * fetch is recorded as `unknown`, NOT as absence: a LAN or server failure must not be
+   * reported as "copy the clips over".
+   */
+  const probeClip = useCallback(async (clip: Clip): Promise<boolean> => {
+    const url = SAMPLES_BASE + clip.file;
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      updateClip(clip.id, {
+        http: `HEAD ${url} -> ${res.status} ${res.statusText}`.trimEnd(),
+        present: res.ok ? 'yes' : 'no',
+      });
+      return res.ok;
+    } catch (err) {
+      updateClip(clip.id, { http: `HEAD ${url} -> fetch failed: ${String(err)}`, present: 'unknown' });
+      return false;
+    }
+  }, [updateClip]);
+
+  const probeAllClips = useCallback(() => {
+    // Parallel, not a serial loop: one clip whose request never settles must not stop the other
+    // three from being probed.
+    void Promise.all(CLIPS.map((c) => probeClip(c)));
+  }, [probeClip]);
+
+  /**
+   * Sample the live element. Called from `loadedmetadata`, `playing`, `error` and the operator's
+   * own "Sample now" — the last one matters because `readyState` and `duration` both change over
+   * time, so a reading has to say WHEN it was taken. Hence `at`.
+   *
+   * `video.error === null` is printed as itself. "no error" is a judgement; the absence of a
+   * MediaError is a fact about the element.
+   */
+  const sampleClip = useCallback((id: string, v: HTMLVideoElement, at: string) => {
+    const err = v.error;
+    updateClip(id, {
+      error: err ? `MediaError.code=${err.code}` : 'video.error === null',
+      dims: `${v.videoWidth} x ${v.videoHeight}`,
+      duration: String(v.duration),
+      readyState: String(v.readyState),
+      at,
+    });
+  }, [updateClip]);
+
+  /**
+   * Probe first, mount second. A 404 renders the FILE NOT PRESENT state and mounts NOTHING —
+   * an empty `<video>` over a missing file looks exactly like an unsupported codec, which is
+   * the confusion this whole section exists to prevent.
+   */
+  const loadClip = useCallback(async (clip: Clip) => {
+    const ok = await probeClip(clip);
+    setActiveClip(ok ? clip.id : null);
+  }, [probeClip]);
+
+  const sampleActiveClip = useCallback(() => {
+    const v = clipVideoRef.current;
+    if (v && activeClip) sampleClip(activeClip, v, 'operator pressed Sample now');
+  }, [activeClip, sampleClip]);
+
+  const clearClipReadings = useCallback(() => {
+    const next = blankClipReadings();
+    clipsRef.current = next;
+    setClips(next);
+    writeCodecReadings(next);
+    setActiveClip(null);
+  }, []);
+
   const major = chromeMajor(ua);
   const verdictClass =
     major === null ? 'bs-verdict bs-verdict--unknown'
@@ -511,6 +798,138 @@ export default function BigScreenDiagnostics() {
           <p style={{ color: 'var(--muted)', fontSize: 20, wordBreak: 'break-all' }}>{videoSrc}</p>
         </>
       ) : null}
+      <h2>Codec clips (stage 8)</h2>
+      <p>
+        Four clips, one variable each, served by Next.js static out of{' '}
+        <code>frontend/public/samples/</code> — <strong>no torrent, no backend, no auth gate and
+        no ARM download cap</strong>, so a failure here is the decoder and nothing else.{' '}
+        <strong>Read clip 4 first: it is the control</strong>, the one combination this project
+        has actually measured, so a red row there means the instrument or the file is wrong
+        rather than the panel.
+      </p>
+      <p>
+        <strong>The clips are not in the repository.</strong> They are gitignored binaries that
+        nobody has produced yet; copy them into <code>frontend/public/samples/</code> under the
+        exact file names below. The ffmpeg command line for each one is in{' '}
+        <code>docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md</code>, labelled
+        written-down-but-never-run. Until they exist every row reads{' '}
+        <strong>FILE NOT PRESENT</strong>, which is a real reading and not a blank.
+      </p>
+      <p>
+        <strong>Transcribe these cells verbatim</strong> into rows 16-18 of that sheet —{' '}
+        <code>MediaError.code</code>, <code>videoWidth x videoHeight</code>,{' '}
+        <code>duration</code> and <code>readyState</code> exactly as printed. Never “ok”,
+        “works” or “as expected”: a summary is what was lost from the stage-3 sitting.{' '}
+        <strong>
+          And answer the sound question by hand on every clip you play — a DTS track this set
+          cannot decode is a SILENT PICTURE with no error at all,
+        </strong>{' '}
+        so the machine-read fields alone would log reading 18 as a pass over a silent film.
+      </p>
+      <div className="bs-controls">
+        <button className="bs-btn" type="button" onClick={probeAllClips}>
+          Probe all four clips (HEAD only)
+        </button>
+        <button className="bs-btn bs-btn--ghost" type="button" onClick={sampleActiveClip}>
+          Sample now
+        </button>
+        <button className="bs-btn bs-btn--ghost" type="button" onClick={clearClipReadings}>
+          Clear clip readings
+        </button>
+      </div>
+      {CLIPS.map((c) => {
+        const r = clips[c.id] ?? BLANK_CLIP;
+        return (
+          <div key={c.id} data-clip-row={c.id} style={{ marginBottom: 32 }}>
+            <h3 style={{ fontSize: 28, marginBottom: 8 }}>{c.label}</h3>
+            <p style={{ color: 'var(--muted)', fontSize: 20 }}>{c.note}</p>
+            <div className="bs-controls">
+              <button className="bs-btn bs-btn--ghost" type="button" onClick={() => void loadClip(c)}>
+                Load {c.file}
+              </button>
+              <button className="bs-btn bs-btn--ghost" type="button"
+                      onClick={() => updateClip(c.id, { audio: 'yes' })}>
+                Sound came out: yes
+              </button>
+              <button className="bs-btn bs-btn--ghost" type="button"
+                      onClick={() => updateClip(c.id, { audio: 'no' })}>
+                Sound came out: no
+              </button>
+            </div>
+            <table className="bs-facts">
+              <tbody>
+                <tr>
+                  <th>HTTP (verbatim)</th>
+                  <td>{r.http}</td>
+                </tr>
+                <tr>
+                  <th>File present?</th>
+                  <td className={r.present === 'yes' ? 'bs-yes' : r.present === 'no' ? 'bs-no' : undefined}>
+                    {r.present === 'no' ? 'FILE NOT PRESENT — nothing was mounted' : r.present}
+                  </td>
+                </tr>
+                <tr>
+                  <th>MediaError.code</th>
+                  <td>{r.error}</td>
+                </tr>
+                <tr>
+                  <th>videoWidth x videoHeight</th>
+                  <td>{r.dims}</td>
+                </tr>
+                <tr>
+                  <th>duration</th>
+                  <td>{r.duration}</td>
+                </tr>
+                <tr>
+                  <th>readyState</th>
+                  <td>{r.readyState}</td>
+                </tr>
+                <tr>
+                  <th>sampled at</th>
+                  <td>{r.at}</td>
+                </tr>
+                <tr>
+                  <th>Did sound come out of the television? (operator)</th>
+                  <td className={r.audio === 'yes' ? 'bs-yes' : r.audio === 'no' ? 'bs-no' : undefined}>
+                    {r.audio}
+                  </td>
+                </tr>
+                <tr>
+                  <th>canPlayType — ADVISORY, GATES NOTHING</th>
+                  <td>{canPlay[c.id] ?? 'not probed'}</td>
+                </tr>
+              </tbody>
+            </table>
+            {r.present === 'no' ? (
+              <p className="bs-no">
+                <strong>FILE NOT PRESENT.</strong> The HTTP line above is the reading. This is not
+                a codec result and must not be transcribed as one — nothing was mounted, so the
+                panel was never asked to decode anything. Produce{' '}
+                <code>{SAMPLES_BASE + c.file}</code> with the sheet’s ffmpeg line and load it
+                again.
+              </p>
+            ) : null}
+            {activeClip === c.id ? (
+              <>
+                <video
+                  className="bs-video"
+                  data-clip-player={c.id}
+                  ref={clipVideoRef}
+                  src={SAMPLES_BASE + c.file}
+                  preload="metadata"
+                  controls
+                  onLoadedMetadata={(e) => sampleClip(c.id, e.currentTarget, 'loadedmetadata')}
+                  onPlaying={(e) => sampleClip(c.id, e.currentTarget, 'playing')}
+                  onError={(e) => sampleClip(c.id, e.currentTarget, 'error')}
+                />
+                <p style={{ color: 'var(--muted)', fontSize: 20, wordBreak: 'break-all' }}>
+                  {SAMPLES_BASE + c.file}
+                </p>
+              </>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

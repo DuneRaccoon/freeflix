@@ -1,0 +1,1711 @@
+{
+  "_comment": [
+    "GOLDEN SNAPSHOT of rank_candidates() at the base of stage 8 (branch feat/tv-stage8-codec-profile, off master 6227e71).",
+    "Generated from unmodified production code. This file is DATA: the test reads it, it is never recomputed at assertion time.",
+    "Regenerate with: docker compose run --rm -v \"$(pwd)/backend/tests:/opt/freeflix/tests\" -e PYTHONPATH=/opt/freeflix backend python tests/test_selector_baseline.py",
+    "Task 5 (apply_profile) must reproduce this exactly when no client profile is supplied. If a stage-8 change alters it, that change is NOT no-profile-safe."
+  ],
+  "cases": {
+    "boundary:healthy-480p-vs-low-exact": {
+      "ask": "1080p",
+      "hits": [
+        [
+          "480p",
+          30,
+          1000000
+        ],
+        [
+          "1080p",
+          2,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "39dbb825334282b29cb466ad6c1998889a8b4b71"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "8562b53399c2f66c6b222a32434246fea3cc336a"
+        }
+      ]
+    },
+    "boundary:healthy-unparsed-vs-low-exact": {
+      "ask": "1080p",
+      "hits": [
+        [
+          "",
+          30,
+          1000000
+        ],
+        [
+          "1080p",
+          2,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "df784d1a9bcbca5150f1a0912941c5ec180c1616"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "8562b53399c2f66c6b222a32434246fea3cc336a"
+        }
+      ]
+    },
+    "bytes:zero-never-outranks-real": {
+      "ask": "1080p",
+      "hits": [
+        [
+          "1080p",
+          100,
+          0
+        ],
+        [
+          "1080p",
+          100,
+          1500
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1500,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:66b352099da6cff6ace88a2952bb3a659c827717",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd100.by1500-GRP",
+          "seeds": 100,
+          "source_id": "66b352099da6cff6ace88a2952bb3a659c827717"
+        },
+        {
+          "bytes": 0,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:5084f9391ac0fdbe1ef9d7d54642a566431074fa",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd100.by0-GRP",
+          "seeds": 100,
+          "source_id": "5084f9391ac0fdbe1ef9d7d54642a566431074fa"
+        }
+      ]
+    },
+    "matrix:ask=1080p": {
+      "ask": "1080p",
+      "hits": [
+        [
+          "2160p",
+          0,
+          1000000
+        ],
+        [
+          "2160p",
+          2,
+          1000000
+        ],
+        [
+          "2160p",
+          30,
+          1000000
+        ],
+        [
+          "1080p",
+          0,
+          1000000
+        ],
+        [
+          "1080p",
+          2,
+          1000000
+        ],
+        [
+          "1080p",
+          30,
+          1000000
+        ],
+        [
+          "720p",
+          0,
+          1000000
+        ],
+        [
+          "720p",
+          2,
+          1000000
+        ],
+        [
+          "720p",
+          30,
+          1000000
+        ],
+        [
+          "480p",
+          0,
+          1000000
+        ],
+        [
+          "480p",
+          2,
+          1000000
+        ],
+        [
+          "480p",
+          30,
+          1000000
+        ],
+        [
+          "",
+          0,
+          1000000
+        ],
+        [
+          "",
+          2,
+          1000000
+        ],
+        [
+          "",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "8084b5be8323180630167b5486cb72f05907e72b"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "39dbb825334282b29cb466ad6c1998889a8b4b71"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "df784d1a9bcbca5150f1a0912941c5ec180c1616"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "8562b53399c2f66c6b222a32434246fea3cc336a"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "ab1d78ac05d61fa049f2adc68c354e9631f537fc"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "c0ecb8c7a95d098ee3283332b474350b707b65c6"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "228057cbf9a4eb7307c5dbb2562d6d2fd2bad470"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "a6600b5e7a4e07714073ce21df51870eded0539c"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "4dd281a81f4525dbfe182b7313e873a1c5174edd"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "fc8963a136a2f7f19d764a10367065c364a5d854"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "13511f963510f041143001ff8118f8f58a6118f9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "07f542dbb154e068d5ed7b29d38efa9823a722d7"
+        }
+      ]
+    },
+    "matrix:ask=2160p": {
+      "ask": "2160p",
+      "hits": [
+        [
+          "2160p",
+          0,
+          1000000
+        ],
+        [
+          "2160p",
+          2,
+          1000000
+        ],
+        [
+          "2160p",
+          30,
+          1000000
+        ],
+        [
+          "1080p",
+          0,
+          1000000
+        ],
+        [
+          "1080p",
+          2,
+          1000000
+        ],
+        [
+          "1080p",
+          30,
+          1000000
+        ],
+        [
+          "720p",
+          0,
+          1000000
+        ],
+        [
+          "720p",
+          2,
+          1000000
+        ],
+        [
+          "720p",
+          30,
+          1000000
+        ],
+        [
+          "480p",
+          0,
+          1000000
+        ],
+        [
+          "480p",
+          2,
+          1000000
+        ],
+        [
+          "480p",
+          30,
+          1000000
+        ],
+        [
+          "",
+          0,
+          1000000
+        ],
+        [
+          "",
+          2,
+          1000000
+        ],
+        [
+          "",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "8084b5be8323180630167b5486cb72f05907e72b"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "39dbb825334282b29cb466ad6c1998889a8b4b71"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "df784d1a9bcbca5150f1a0912941c5ec180c1616"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "ab1d78ac05d61fa049f2adc68c354e9631f537fc"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "8562b53399c2f66c6b222a32434246fea3cc336a"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "c0ecb8c7a95d098ee3283332b474350b707b65c6"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "228057cbf9a4eb7307c5dbb2562d6d2fd2bad470"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "4dd281a81f4525dbfe182b7313e873a1c5174edd"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "a6600b5e7a4e07714073ce21df51870eded0539c"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "fc8963a136a2f7f19d764a10367065c364a5d854"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "13511f963510f041143001ff8118f8f58a6118f9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "07f542dbb154e068d5ed7b29d38efa9823a722d7"
+        }
+      ]
+    },
+    "matrix:ask=480p": {
+      "ask": "480p",
+      "hits": [
+        [
+          "2160p",
+          0,
+          1000000
+        ],
+        [
+          "2160p",
+          2,
+          1000000
+        ],
+        [
+          "2160p",
+          30,
+          1000000
+        ],
+        [
+          "1080p",
+          0,
+          1000000
+        ],
+        [
+          "1080p",
+          2,
+          1000000
+        ],
+        [
+          "1080p",
+          30,
+          1000000
+        ],
+        [
+          "720p",
+          0,
+          1000000
+        ],
+        [
+          "720p",
+          2,
+          1000000
+        ],
+        [
+          "720p",
+          30,
+          1000000
+        ],
+        [
+          "480p",
+          0,
+          1000000
+        ],
+        [
+          "480p",
+          2,
+          1000000
+        ],
+        [
+          "480p",
+          30,
+          1000000
+        ],
+        [
+          "",
+          0,
+          1000000
+        ],
+        [
+          "",
+          2,
+          1000000
+        ],
+        [
+          "",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "39dbb825334282b29cb466ad6c1998889a8b4b71"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "8084b5be8323180630167b5486cb72f05907e72b"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "df784d1a9bcbca5150f1a0912941c5ec180c1616"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "228057cbf9a4eb7307c5dbb2562d6d2fd2bad470"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "ab1d78ac05d61fa049f2adc68c354e9631f537fc"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "8562b53399c2f66c6b222a32434246fea3cc336a"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "c0ecb8c7a95d098ee3283332b474350b707b65c6"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "13511f963510f041143001ff8118f8f58a6118f9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "4dd281a81f4525dbfe182b7313e873a1c5174edd"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "a6600b5e7a4e07714073ce21df51870eded0539c"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "fc8963a136a2f7f19d764a10367065c364a5d854"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "07f542dbb154e068d5ed7b29d38efa9823a722d7"
+        }
+      ]
+    },
+    "matrix:ask=720p": {
+      "ask": "720p",
+      "hits": [
+        [
+          "2160p",
+          0,
+          1000000
+        ],
+        [
+          "2160p",
+          2,
+          1000000
+        ],
+        [
+          "2160p",
+          30,
+          1000000
+        ],
+        [
+          "1080p",
+          0,
+          1000000
+        ],
+        [
+          "1080p",
+          2,
+          1000000
+        ],
+        [
+          "1080p",
+          30,
+          1000000
+        ],
+        [
+          "720p",
+          0,
+          1000000
+        ],
+        [
+          "720p",
+          2,
+          1000000
+        ],
+        [
+          "720p",
+          30,
+          1000000
+        ],
+        [
+          "480p",
+          0,
+          1000000
+        ],
+        [
+          "480p",
+          2,
+          1000000
+        ],
+        [
+          "480p",
+          30,
+          1000000
+        ],
+        [
+          "",
+          0,
+          1000000
+        ],
+        [
+          "",
+          2,
+          1000000
+        ],
+        [
+          "",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "8084b5be8323180630167b5486cb72f05907e72b"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "39dbb825334282b29cb466ad6c1998889a8b4b71"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "df784d1a9bcbca5150f1a0912941c5ec180c1616"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "c0ecb8c7a95d098ee3283332b474350b707b65c6"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "ab1d78ac05d61fa049f2adc68c354e9631f537fc"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "8562b53399c2f66c6b222a32434246fea3cc336a"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "228057cbf9a4eb7307c5dbb2562d6d2fd2bad470"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "fc8963a136a2f7f19d764a10367065c364a5d854"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "4dd281a81f4525dbfe182b7313e873a1c5174edd"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "a6600b5e7a4e07714073ce21df51870eded0539c"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "13511f963510f041143001ff8118f8f58a6118f9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "07f542dbb154e068d5ed7b29d38efa9823a722d7"
+        }
+      ]
+    },
+    "matrix:ask=unparsed": {
+      "ask": "",
+      "hits": [
+        [
+          "2160p",
+          0,
+          1000000
+        ],
+        [
+          "2160p",
+          2,
+          1000000
+        ],
+        [
+          "2160p",
+          30,
+          1000000
+        ],
+        [
+          "1080p",
+          0,
+          1000000
+        ],
+        [
+          "1080p",
+          2,
+          1000000
+        ],
+        [
+          "1080p",
+          30,
+          1000000
+        ],
+        [
+          "720p",
+          0,
+          1000000
+        ],
+        [
+          "720p",
+          2,
+          1000000
+        ],
+        [
+          "720p",
+          30,
+          1000000
+        ],
+        [
+          "480p",
+          0,
+          1000000
+        ],
+        [
+          "480p",
+          2,
+          1000000
+        ],
+        [
+          "480p",
+          30,
+          1000000
+        ],
+        [
+          "",
+          0,
+          1000000
+        ],
+        [
+          "",
+          2,
+          1000000
+        ],
+        [
+          "",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "8084b5be8323180630167b5486cb72f05907e72b"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:39dbb825334282b29cb466ad6c1998889a8b4b71",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "39dbb825334282b29cb466ad6c1998889a8b4b71"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:df784d1a9bcbca5150f1a0912941c5ec180c1616",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "df784d1a9bcbca5150f1a0912941c5ec180c1616"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:ab1d78ac05d61fa049f2adc68c354e9631f537fc",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "ab1d78ac05d61fa049f2adc68c354e9631f537fc"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8562b53399c2f66c6b222a32434246fea3cc336a",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "8562b53399c2f66c6b222a32434246fea3cc336a"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:c0ecb8c7a95d098ee3283332b474350b707b65c6",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "c0ecb8c7a95d098ee3283332b474350b707b65c6"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:228057cbf9a4eb7307c5dbb2562d6d2fd2bad470",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "228057cbf9a4eb7307c5dbb2562d6d2fd2bad470"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "low",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd2.by1000000-GRP",
+          "seeds": 2,
+          "source_id": "dd2cbdbdb2db58bbba9297da4eb471fb4ab0df2f"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:4dd281a81f4525dbfe182b7313e873a1c5174edd",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "4dd281a81f4525dbfe182b7313e873a1c5174edd"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:a6600b5e7a4e07714073ce21df51870eded0539c",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "a6600b5e7a4e07714073ce21df51870eded0539c"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:fc8963a136a2f7f19d764a10367065c364a5d854",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "fc8963a136a2f7f19d764a10367065c364a5d854"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:13511f963510f041143001ff8118f8f58a6118f9",
+          "peers": 0,
+          "quality": "480p",
+          "release_title": "Baseline.2020.480p.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "13511f963510f041143001ff8118f8f58a6118f9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "dead",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:07f542dbb154e068d5ed7b29d38efa9823a722d7",
+          "peers": 0,
+          "quality": "",
+          "release_title": "Baseline.2020.NoRes.BluRay.x264.sd0.by1000000-GRP",
+          "seeds": 0,
+          "source_id": "07f542dbb154e068d5ed7b29d38efa9823a722d7"
+        }
+      ]
+    },
+    "seeds:same-bucket-desc:1080p": {
+      "ask": "1080p",
+      "hits": [
+        [
+          "1080p",
+          10,
+          1000000
+        ],
+        [
+          "1080p",
+          50,
+          1000000
+        ],
+        [
+          "1080p",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:a85a9fc0d2cb95e2f34611a4b32c1b8832675507",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd50.by1000000-GRP",
+          "seeds": 50,
+          "source_id": "a85a9fc0d2cb95e2f34611a4b32c1b8832675507"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "d49b63cfb9359c188d16d05cfb4cb4755ba0f5cb"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:bd04926d718d1ffb20fba29d386c634ba2839775",
+          "peers": 0,
+          "quality": "1080p",
+          "release_title": "Baseline.2020.1080p.BluRay.x264.sd10.by1000000-GRP",
+          "seeds": 10,
+          "source_id": "bd04926d718d1ffb20fba29d386c634ba2839775"
+        }
+      ]
+    },
+    "seeds:same-bucket-desc:2160p": {
+      "ask": "2160p",
+      "hits": [
+        [
+          "2160p",
+          10,
+          1000000
+        ],
+        [
+          "2160p",
+          50,
+          1000000
+        ],
+        [
+          "2160p",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:bdfca4467ddbd6c058e4cf5cd07afb73a04772fc",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd50.by1000000-GRP",
+          "seeds": 50,
+          "source_id": "bdfca4467ddbd6c058e4cf5cd07afb73a04772fc"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:8084b5be8323180630167b5486cb72f05907e72b",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "8084b5be8323180630167b5486cb72f05907e72b"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:b7ca394c505ca5464049ef3223fcc67bfbd1d229",
+          "peers": 0,
+          "quality": "2160p",
+          "release_title": "Baseline.2020.2160p.BluRay.x264.sd10.by1000000-GRP",
+          "seeds": 10,
+          "source_id": "b7ca394c505ca5464049ef3223fcc67bfbd1d229"
+        }
+      ]
+    },
+    "seeds:same-bucket-desc:720p": {
+      "ask": "720p",
+      "hits": [
+        [
+          "720p",
+          10,
+          1000000
+        ],
+        [
+          "720p",
+          50,
+          1000000
+        ],
+        [
+          "720p",
+          30,
+          1000000
+        ]
+      ],
+      "ranked": [
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:318dd74b08d2e56a00655f7cb401b25c2d778f7a",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd50.by1000000-GRP",
+          "seeds": 50,
+          "source_id": "318dd74b08d2e56a00655f7cb401b25c2d778f7a"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd30.by1000000-GRP",
+          "seeds": 30,
+          "source_id": "6bcd72c0a42e232681b0e22d4c3d8dd9fb94ffe9"
+        },
+        {
+          "bytes": 1000000,
+          "device_reasons": [],
+          "device_verdict": null,
+          "health": "healthy",
+          "is_season_pack": false,
+          "magnet": "magnet:?xt=urn:btih:871950b44ad30b8fbc6b1e4cbbd3c4d4a5f05022",
+          "peers": 0,
+          "quality": "720p",
+          "release_title": "Baseline.2020.720p.BluRay.x264.sd10.by1000000-GRP",
+          "seeds": 10,
+          "source_id": "871950b44ad30b8fbc6b1e4cbbd3c4d4a5f05022"
+        }
+      ]
+    }
+  },
+  "thresholds": {
+    "healthy_seeds": 5,
+    "min_seeds": 1
+  }
+}

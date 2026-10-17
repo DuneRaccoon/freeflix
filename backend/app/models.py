@@ -198,6 +198,24 @@ class TorrentCandidate(BaseModel):
     health: str             # "healthy"|"low"|"dead"
     is_season_pack: bool
     release_title: str
+    # --- capability profile (stage 8), written only by services.capability.apply_profile ---
+    # Both fields are DEFAULTED, so every existing nine-field construction still
+    # constructs (tests/test_sources_endpoint.py) and every request that carries no
+    # client profile answers exactly as it does today.
+    #
+    # device_verdict is truthy IFF this television refuses the release: "withheld"
+    # (a 2160p release for a non-4K ask -- a product decision, not an AV claim) or
+    # "incapable" (it cannot be decoded here). None means "no profile was applied, or
+    # the profile accepted it" -- the two are deliberately not distinguished, because
+    # /download skips on falsiness (`if not c.device_verdict`) and an accepted release
+    # must be auto-choosable. Use device_reasons to tell them apart.
+    device_verdict: Optional[str] = None
+    # Every rule that matched, "<rule-id>:<state>", in table order -- including the
+    # shadow and skipped rows, which change no ordering. Empty when no profile ran AND
+    # when a profile ran but nothing matched (the common case for a plain release).
+    device_reasons: List[str] = []
+    # Mirror by hand in frontend/src/types/index.ts (TorrentCandidate). There is no
+    # drift guard between the two.
 
 
 class CatalogPage(BaseModel):
@@ -371,6 +389,17 @@ class TorrentStatus(BaseModel):
 
 
 class TorrentRequest(BaseModel):
+    # extra='forbid' is load-bearing, not tidiness. pydantic v2 defaults to
+    # extra='ignore', so a client that POSTs a field this model does not declare --
+    # `client` above all -- gets a 200 with that field SILENTLY DROPPED. A television
+    # build shipped ahead of the backend would then be ranked with no capability
+    # profile at all while every response looked correct: the quietest possible way
+    # for stage 8 to be absent. Forbidding extras turns that into a 422 the TV can
+    # read. Safe because every shipped caller posts a typed CatalogTorrentRequest
+    # (frontend/src/types/index.ts) whose fields are all declared here; a hand-rolled
+    # client with a typo breaks loudly, which is the point.
+    model_config = ConfigDict(extra='forbid')
+
     tmdb_id: int
     quality: Literal['720p', '1080p', '2160p'] = '1080p'
     save_path: Optional[str] = None
@@ -381,6 +410,16 @@ class TorrentRequest(BaseModel):
     # the server's ranked top pick. `magnet` wins over `source_id` if both are given.
     magnet: Optional[str] = None
     source_id: Optional[str] = None
+    # The capability profile of the calling device (stage 8, §7.2). None for every
+    # browser: no profile is applied and the ranking is byte-for-byte today's.
+    #
+    # A Literal, not a str, and the two halves of this guard catch different bugs: the
+    # Literal rejects a bad VALUE (422 rather than services.capability.apply_profile
+    # raising ValueError deep inside the request, which the error middleware would turn
+    # into an opaque 500), and model_config above rejects a bad KEY. The id is spelled
+    # out rather than imported from services.capability.PROFILE_ID because that module
+    # imports this one -- keep the two in step by hand; the endpoint tests pin both.
+    client: Optional[Literal['lg-webos22-floor']] = None
 
 class TorrentAction(BaseModel):
     # 'stop' is accepted as a legacy alias of 'pause'. Use DELETE to remove.

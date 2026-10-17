@@ -92,8 +92,25 @@ export function PrimaryAction({
   onRecheck,
 }: {
   action: TitleAction;
-  /** What `requestTitle` is asked for on a `play` press. */
-  request: { mediaType: 'movie' | 'tv'; tmdbId: number; season?: number; episode?: number };
+  /**
+   * What `requestTitle` is asked for on a `play` press, forwarded **verbatim** — this
+   * component adds nothing to it and must not rebuild it field by field.
+   *
+   * `fourK` is declared here for exactly that reason. The movie screen's per-title 4K
+   * opt-in (stage 8) puts it in this object, and `requestTitle` turns it into
+   * `quality: '2160p'`. While this type did not mention it, the call still worked — a
+   * *named* value is accepted structurally, so only a fresh inline literal was refused —
+   * which meant the field travelled through a contract that denied its existence, and a
+   * refactor here that reassembled the argument would have dropped the viewer's 4K ask
+   * **silently**, with the control still showing itself as pressed.
+   */
+  request: {
+    mediaType: 'movie' | 'tv';
+    tmdbId: number;
+    season?: number;
+    episode?: number;
+    fourK?: boolean;
+  };
   focusProps: FocusProps;
   /** Re-ask what the title is, in place. Used by `blocked`; resolves when the answer is in. */
   onRecheck: () => Promise<void>;

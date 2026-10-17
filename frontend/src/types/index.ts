@@ -146,6 +146,15 @@ export interface TorrentCandidate {
   health: SwarmHealth;
   is_season_pack: boolean;
   release_title: string;
+  // Capability profile (stage 8). Present only when the request carried a `client`
+  // profile id; absent/null on every web request, which is why both are optional.
+  // `device_verdict` is truthy IFF this television refuses the release: 'withheld'
+  // (a 4K release for a non-4K ask -- a product decision, not an AV claim) or
+  // 'incapable' (it cannot be decoded here). `device_reasons` names every rule that
+  // matched, '<rule-id>:<state>', including the shadow rows that reorder nothing.
+  // Hand-mirrored from backend app.models.TorrentCandidate -- NO drift guard exists.
+  device_verdict?: string | null;
+  device_reasons?: string[];
 }
 
 // Derived/polled stream-health snapshot passed from the streaming page to the player.
@@ -288,6 +297,16 @@ export interface VideoFile {
   episode: number | null;
 }
 
+/**
+ * The capability profile of the calling device (stage 8, §7.2). Exactly one exists, and the
+ * string is the WIRE VALUE: backend `TorrentRequest.client` declares it as a pydantic
+ * `Literal` and `TorrentRequest` forbids extras, so both a wrong value and a wrong key are
+ * a 422 rather than a silently unprofiled 200. Spelled out here, not imported from the
+ * backend (there is nothing to import from), so this union and
+ * `backend/app/services/capability.py:PROFILE_ID` are kept in step BY HAND.
+ */
+export type ClientProfileId = 'lg-webos22-floor';
+
 // New tmdb-id download request (the legacy TorrentRequest stays until callers migrate)
 export interface CatalogTorrentRequest {
   tmdb_id: number;
@@ -300,6 +319,23 @@ export interface CatalogTorrentRequest {
   // `source_id` server-side; both optional so existing callers are unaffected.
   magnet?: string;
   source_id?: string;
+  /**
+   * OPTIONAL, and that is a requirement rather than convenience. Only the television sends
+   * a profile; every browser call must stay byte-for-byte unprofiled, because applying a
+   * TV's codec floor to a desktop Chrome would withhold releases that machine plays fine.
+   * This interface has ten-odd non-TV call sites — eight web POSTs to `/download`, five of
+   * them funnelling through `utils/streaming.ts:46` — and making this required is what the
+   * type system would use to say so: flip the `?` and `tsc` names all eight.
+   *
+   * NEVER default it in `torrentsService` or an axios interceptor, and know that NO TEST
+   * WILL STOP YOU. Measured (stage 8 task 7): defaulting `client` inside
+   * `torrentsService.downloadCatalogMovie` passed the full 2292-test frontend suite, and so
+   * did injecting it from the `api-client` request interceptor. Every one of the eight test
+   * files that touches this service `vi.mock`s it, so the web payload assertions compare the
+   * object handed TO `downloadCatalogMovie` and never reach the body that leaves the browser;
+   * `src/services/torrents.ts` has no test of its own. The guard here is review, not CI.
+   */
+  client?: ClientProfileId;
 }
 
 // Browse controls for the new API. Genre ids are the canonical unified TMDB set

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { MovieDetail } from '@/types';
@@ -67,6 +69,24 @@ async function mount(action: TitleAction = { kind: 'play' }) {
 
 const primary = () => screen.getByRole('button', { name: /play|starting|resume download|resuming|check/i });
 const listBtn = () => screen.getByRole('button', { name: /my list|saving|removing/i });
+const askBtn = () => screen.getByRole('button', { name: 'Ask for 4K' });
+const askOrNull = () => screen.queryByRole('button', { name: 'Ask for 4K' });
+
+/**
+ * Every focus stop in the actions row, in DOM order. Read off the class rather than by role
+ * name, so the ORDER of the cells is assertable and a cell whose label changed is still
+ * counted.
+ */
+const actionCells = () => Array.from(document.querySelectorAll<HTMLElement>('.bs-title__actions .bs-btn'));
+/**
+ * The cells the focus MODEL is ringing, i.e. holding the roving `tabIndex` 0.
+ *
+ * STRUCTURAL ON PURPOSE. A declared row count one too high parks the model on a column no
+ * element claims: `document.activeElement` then stays on whatever it was last on, so a focus
+ * assertion alone cannot see it, while the ring — the only thing a remote can follow — is on
+ * nothing at all. This reads 0 in that case.
+ */
+const ringed = () => actionCells().filter((el) => el.tabIndex === 0);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -168,7 +188,9 @@ describe('movie detail screen', () => {
       await mount();
       await act(async () => { fireEvent.click(primary()); });
       expect(request).toHaveBeenCalledTimes(1);
-      expect(request).toHaveBeenCalledWith({ mediaType: 'movie', tmdbId: 603 });
+      // `fourK: false` is asserted, not merely absent: the un-pressed cell asks for the
+      // default EXPLICITLY, so this row and the 4K row below differ in exactly one token.
+      expect(request).toHaveBeenCalledWith({ mediaType: 'movie', tmdbId: 603, fourK: false });
       expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/new1');
     });
 
@@ -205,6 +227,163 @@ describe('movie detail screen', () => {
       expect(request).toHaveBeenCalledTimes(2);
       expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/second');
       expect(screen.queryByRole('alert')).toBeNull();
+    });
+  });
+
+  /**
+   * The per-title 4K opt-in (spec §7.3, stage 8 task 8).
+   *
+   * WHAT THIS FILE CAN AND CANNOT SEE. `../../../_data/title` is mocked wholesale at the top
+   * of this file, so `requestTitle` here is a spy: the strongest thing observable from this
+   * screen is the ARGUMENT it is handed. The other half of the chain — `fourK: true` becoming
+   * `quality: '2160p'` with `client: 'lg-webos22-floor'` beside it on the wire — is pinned in
+   * `_data/title.test.ts` ("fourK raises this one ask to 2160p and still sends the profile"),
+   * against the real module. Two links, each pinned where it can actually be observed; a test
+   * written here that claimed to assert the wire payload would be asserting the mock.
+   */
+  describe('the 4K opt-in', () => {
+    it('offers it as a REQUEST, unpressed, with no caveat until it is pressed', async () => {
+      await mount({ kind: 'play' });
+      const ask = askBtn();
+      // "Ask for 4K", never "4K available": this screen fetches the detail with
+      // withQualities: false, so available_qualities is [] and it CANNOT know whether a
+      // 2160p release exists for this title.
+      expect(ask).toHaveTextContent('Ask for 4K');
+      expect(ask).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('note')).toBeNull();
+    });
+
+    it('a press says what it does not know; a second press takes it back', async () => {
+      await mount({ kind: 'play' });
+      fireEvent.click(askBtn());
+      expect(askBtn()).toHaveAttribute('aria-pressed', 'true');
+      // The only pre-press truth available, and it is about DECODE RISK, not availability.
+      expect(screen.getByRole('note')).toHaveTextContent('Not tested on this television. 4K may not play.');
+      fireEvent.click(askBtn());
+      expect(askBtn()).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('note')).toBeNull();
+    });
+
+    it('press the toggle, then Play: the flag reaches requestTitle', async () => {
+      request.mockResolvedValue({ ok: true, torrentId: 'uhd1' });
+      await mount({ kind: 'play' });
+      fireEvent.click(askBtn());
+      await act(async () => { fireEvent.click(primary()); });
+      // EXACT equality, and the one token apart from `fourK` that may differ from the
+      // un-pressed row is nothing: a cell that flipped aria-pressed without reaching this
+      // argument would be decoration, and the television would quietly ask for 1080p.
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request).toHaveBeenCalledWith({ mediaType: 'movie', tmdbId: 603, fourK: true });
+    });
+
+    it('the ask survives a failed Play, because it has not been answered yet', async () => {
+      request.mockResolvedValueOnce({ ok: false, reason: 'No seeders for this title.', maybeCreated: false });
+      await mount({ kind: 'play' });
+      fireEvent.click(askBtn());
+      await act(async () => { fireEvent.click(primary()); });
+      expect(askBtn()).toHaveAttribute('aria-pressed', 'true');
+      request.mockResolvedValueOnce({ ok: true, torrentId: 'uhd2' });
+      await act(async () => { fireEvent.click(primary()); });
+      expect(request).toHaveBeenLastCalledWith({ mediaType: 'movie', tmdbId: 603, fourK: true });
+    });
+
+    it.each<[TitleAction['kind'], TitleAction]>([
+      ['resume', { kind: 'resume', href: '/w/1', atSeconds: 60 }],
+      ['open', { kind: 'open', href: '/w/1' }],
+      ['preparing', { kind: 'preparing', torrentId: 't', progress: 1 }],
+      ['paused', { kind: 'paused', torrentId: 't' }],
+      ['unresolvedEpisode', { kind: 'unresolvedEpisode', href: '/w/1' }],
+      ['blocked', { kind: 'blocked', reason: 'Nope.' }],
+    ])('is ABSENT on %s, not disabled: `play` is the only kind that may start a download', async (_kind, action) => {
+      await mount(action);
+      expect(askOrNull()).toBeNull();
+      // And the row is exactly the cells it renders, so the absent cell is not a column the
+      // model can still walk onto.
+      expect(actionCells()).toHaveLength(2);
+      // AWAITED, not read straight after `mount`. `mount` resolves on the heading, and the
+      // ring is placed by `useFocusGrid`'s reconcile effect, which is PASSIVE: reading it on
+      // the strength of a wait for a different condition is a 2-in-20 flake, measured.
+      await waitFor(() => expect(ringed()).toHaveLength(1));
+    });
+  });
+
+  describe('the actions row changing shape under the ring', () => {
+    /** Get the ring onto the 4K cell: Play -> My List -> Ask for 4K. */
+    const ringOnAsk = () => {
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+    };
+
+    it('play -> preparing with the ring ON the 4K cell lands it on the LAST remaining cell', async () => {
+      // The cell unmounts while it holds DOM focus, which TitleScreen's contract says nothing
+      // in `actions` may do: an unmounted focused element drops focus to <body>, and a remote
+      // has no Tab key and no pointer to recover with.
+      request.mockResolvedValue({ ok: false, reason: 'x', maybeCreated: true });
+      await mount({ kind: 'play' });
+      await waitFor(() => expect(document.activeElement).toBe(primary()));
+      ringOnAsk();
+      expect(document.activeElement).toBe(askBtn());
+      stateFor.mockResolvedValue(stateOf({ kind: 'preparing', torrentId: 'made', progress: 3 }));
+      await act(async () => { fireEvent.click(primary()); });
+
+      expect(askOrNull()).toBeNull();
+      expect(actionCells()).toHaveLength(2);
+      // The LAST cell that still exists, not column 0: the viewer was at the right-hand end
+      // of the row, and parking the ring on Play would move them somewhere they did not go.
+      expect(ringed()).toEqual([listBtn()]);
+      expect(document.activeElement).toBe(listBtn());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('the same transition with no profile lands on Play, the only cell left', async () => {
+      profileHook.mockReturnValue({ profile: null, loading: false, select: vi.fn(), clear });
+      request.mockResolvedValue({ ok: false, reason: 'x', maybeCreated: true });
+      await mount({ kind: 'play' });
+      await waitFor(() => expect(document.activeElement).toBe(primary()));
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(askBtn());
+      stateFor.mockResolvedValue(stateOf({ kind: 'preparing', torrentId: 'made', progress: 3 }));
+      await act(async () => { fireEvent.click(primary()); });
+
+      const only = actionCells();
+      expect(only).toHaveLength(1);
+      expect(ringed()).toEqual(only);
+      expect(document.activeElement).toBe(only[0]);
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('blocked -> play APPENDS the cell, so the ring and DOM focus both stay put', async () => {
+      await mount({ kind: 'blocked', reason: 'Nope.' });
+      await waitFor(() => expect(document.activeElement).toBe(primary()));
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(listBtn());
+      const was = document.activeElement;
+      stateFor.mockResolvedValue(stateOf({ kind: 'play' }));
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check again' })); });
+
+      // Appended LAST. A cell inserted at or before the focused column would leave DOM focus
+      // on the element that just became column+1 while the model still pointed at the old
+      // column — and the next press would appear to do nothing.
+      expect(actionCells().map((el) => el.textContent)).toEqual(['Play', 'Add to My List', 'Ask for 4K']);
+      expect(document.activeElement).toBe(was);
+      expect(ringed()).toEqual([listBtn()]);
+      // And the next press really does move.
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(askBtn());
+    });
+
+    it('a row that shrank cannot be walked off: the declared count is the cells rendered', async () => {
+      // A declared count one too high parks the model on a column no element claims. DOM
+      // focus does not move (the stale element is gone from the hook's map), so only the
+      // RING is lost — which is all a remote has. The press that finds it is the one that
+      // walks to the end of the shortened row.
+      await mount({ kind: 'preparing', torrentId: 't', progress: 1 });
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Preparing… 1%' })));
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(listBtn());
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(ringed()).toEqual([listBtn()]);
+      expect(document.activeElement).toBe(listBtn());
     });
   });
 
@@ -329,12 +508,18 @@ describe('movie detail screen', () => {
       expect(router.push).toHaveBeenCalledWith('/bigscreen');
     });
 
-    it('focuses the primary control when loaded; Right reaches My List and Left returns', async () => {
+    it('focuses the primary control when loaded; Right walks My List then the 4K cell, Left returns', async () => {
       await mount();
       await waitFor(() => expect(document.activeElement).toBe(primary()));
       fireEvent.keyDown(window, { key: 'ArrowRight' });
       expect(document.activeElement).toBe(listBtn());
       fireEvent.keyDown(window, { key: 'ArrowRight' });
+      // The 4K cell is the row's THIRD cell, appended after My List, never inserted.
+      expect(document.activeElement).toBe(askBtn());
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(askBtn());
+      expect(ringed()).toEqual([askBtn()]);
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
       expect(document.activeElement).toBe(listBtn());
       fireEvent.keyDown(window, { key: 'ArrowLeft' });
       expect(document.activeElement).toBe(primary());
@@ -461,15 +646,31 @@ describe('movie detail screen', () => {
   });
 
   describe('no profile', () => {
-    it('has one cell and no My List control', async () => {
+    it('has no My List control, and the 4K cell takes its column', async () => {
       profileHook.mockReturnValue({ profile: null, loading: false, select: vi.fn(), clear });
       await mount();
       expect(screen.queryByRole('button', { name: /my list/i })).toBeNull();
       expect(wl.list).not.toHaveBeenCalled();
       expect(stateFor).toHaveBeenCalledWith({ mediaType: 'movie', tmdbId: 603, userId: null });
+      // Two cells, not three: the 4K cell is still APPENDED, so without My List it is col 1.
+      expect(actionCells()).toHaveLength(2);
+      await waitFor(() => expect(document.activeElement).toBe(primary()));
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(askBtn());
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(askBtn());
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(document.activeElement).toBe(primary());
+    });
+
+    it('really has ONE cell on a kind that offers no 4K ask', async () => {
+      profileHook.mockReturnValue({ profile: null, loading: false, select: vi.fn(), clear });
+      await mount({ kind: 'paused', torrentId: 't4' });
+      expect(actionCells()).toHaveLength(1);
       await waitFor(() => expect(document.activeElement).toBe(primary()));
       fireEvent.keyDown(window, { key: 'ArrowRight' });
       expect(document.activeElement).toBe(primary());
+      expect(ringed()).toEqual([primary()]);
     });
   });
 
@@ -522,5 +723,38 @@ describe('/bigscreen/movie/[id]: a recheck that lands after the viewer has left'
     });
     expect(clear).not.toHaveBeenCalled();
     expect(router.replace).not.toHaveBeenCalled();
+  });
+});
+
+describe('the 4K label is named by the 404 copy in another file', () => {
+  // Two files hold one fact. This screen labels the control "Ask for 4K"; the
+  // `withheld`-only 404 copy in `_data/title.ts` tells the viewer to "Press Ask for 4K to
+  // try one". Reword either alone and the message sends them to a control that no longer
+  // answers to that name — a lie of exactly the kind this surface exists to avoid, and one
+  // no behavioural test sees, because the two strings never meet at runtime.
+  //
+  // Pinned by SOURCE TEXT, not by a shared constant, because a Next.js App Router page may
+  // only export `default` and the framework's own names: adding one fails the generated
+  // route types with `TS2344 … not assignable to type 'never'`. Same instrument as
+  // `legacy-target.test.ts`, which also judges this surface by reading it.
+  const read = (p: string) => readFileSync(join(process.cwd(), 'src/app/(bigscreen)', p), 'utf8');
+
+  it('derives the label from the page and finds it in the 404 copy', () => {
+    const pageSrc = read('bigscreen/movie/[id]/page.tsx');
+    const m = pageSrc.match(/const FOURK_LABEL = '([^']+)'/);
+    // Re-derived rather than retyped: if the label changes, this test follows it and then
+    // fails on the copy below, which is the whole point.
+    expect(m, 'FOURK_LABEL literal not found — did the declaration move?').not.toBeNull();
+    const label = m![1];
+    expect(label.length).toBeGreaterThan(0);
+
+    // The label must really be what the button renders, or the pin guards a dead constant.
+    expect(pageSrc).toContain(`{FOURK_LABEL}`);
+
+    const titleSrc = read('_data/title.ts');
+    expect(
+      titleSrc,
+      `the withheld-only 404 copy in _data/title.ts must name the control "${label}"`,
+    ).toContain(`Press ${label}`);
   });
 });

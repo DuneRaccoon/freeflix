@@ -20,6 +20,14 @@
 # production
 /build
 
+# TV codec diag clips (stage 8, /bigscreen/diag)
+# Four 1080p sample clips, one AV variable each, served by Next.js static at /samples/*.
+# They are BINARIES and they do not belong in this repository; the exact ffmpeg command line
+# for each one is in docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md. The diag
+# page renders an explicit "FILE NOT PRESENT" state when they are absent, which is the state
+# this checkout is in.
+/public/samples/
+
 # misc
 .DS_Store
 *.pem

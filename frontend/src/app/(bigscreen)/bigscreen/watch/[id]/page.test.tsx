@@ -24,6 +24,7 @@ import type { StreamingInfo, StreamingProgress, TorrentStatus, VideoFile } from 
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
+import { requestTitle, takeFourKAsk } from '../../../_data/title';
 import { PROGRESS_CADENCE_MS } from '../../../_data/useWatchProgress';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import WatchPage from './page';
@@ -54,7 +55,10 @@ vi.mock('@/services/streaming', () => ({
   },
 }));
 vi.mock('@/services/torrents', () => ({
-  torrentsService: { getTorrentStatus: vi.fn(), listTorrents: vi.fn() },
+  // `downloadCatalogMovie` is here so the 4K-ask rows below can press the ask THROUGH
+  // `requestTitle` — the code that writes the carrier — rather than seeding it. A
+  // test-only seeder would pass with the write deleted.
+  torrentsService: { getTorrentStatus: vi.fn(), listTorrents: vi.fn(), downloadCatalogMovie: vi.fn() },
 }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 
@@ -271,6 +275,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   sessionStorage.clear();
   localStorage.clear();
+  // The 4K-ask carrier is MODULE state, so it outlives a render and would leak between
+  // rows: a recorded-but-unconsumed ask would make the next row's arrival disclose. Drained
+  // rather than reset, because draining is the same call the route makes.
+  takeFourKAsk(PACK);
+  takeFourKAsk('other');
   nav.params.current = { id: PACK };
   nav.search.current = new URLSearchParams();
   Element.prototype.scrollIntoView = vi.fn();
@@ -318,6 +327,55 @@ async function playing(opts: { duration?: number } = {}) {
   expect(video(), 'the player mounted').not.toBeNull();
   const handle = await metadata(opts);
   return { view, ...handle };
+}
+
+/**
+ * Wait, boundedly, for the focus ring to come to rest on a cell whose label matches.
+ *
+ * WHAT WAS ACTUALLY OBSERVED, AND WHAT WAS NOT — because the obvious explanation for it
+ * is one I tried and FALSIFIED, and a comment asserting it would be the kind of confident
+ * wrong story this suite exists to stop.
+ *
+ * Observed: looping this file alone, the two rows below passed 27 runs, then failed **8
+ * runs consecutively**, both reporting the SCRUB CELL where the transport row was
+ * expected, then passed 12 more. The window coincided with concurrent edits to the shared
+ * focus layer by another task on this branch.
+ *
+ * NOT observed, though it was the first hypothesis: CPU starvation. With twelve spinning
+ * processes and a load average of 48, the pre-wait version of these rows passed 14 of 14.
+ * So "the macrotask missed its turn because the box was busy" is measured FALSE here, and
+ * the consecutive window is unexplained on this tree.
+ *
+ * Kept anyway, as a belt rather than as a diagnosis. The fragility of the SHAPE is real
+ * and confirmed independently: `mount()` resolves after a fixed number of MICROTASK
+ * flushes, while the grid places the ring in a PASSIVE effect React schedules as a
+ * MACROTASK (`useFocusGrid.ts`'s reconcile effect, deps `[shape, …]`, re-running when
+ * `loadedmetadata` grows the scrub row), so no number of `await act(async () => {})`
+ * guarantees it has run — and the task-8 agent measured 2 failures in 20 runs from the
+ * same "read the ring straight after mount" shape in its own file. Waiting for the
+ * condition costs two lines; being wrong about it costs the one assertion that justifies
+ * the re-arm contract change.
+ *
+ * NOT `waitFor`: under this file's fake timers it polls a clock nothing advances and dies
+ * at its own 5s limit instead of failing with the assertion (see the header). This drives
+ * act boundaries AND the fake clock, 1ms at a time, so whichever mechanism React used to
+ * schedule the effect gets a turn — 50ms in total, well short of the 1s stall tick and
+ * the 10s re-measure, so it cannot perturb what the rows are about.
+ *
+ * IT WAITS; IT DOES NOT ASSERT. Timing out returns quietly and leaves the caller's own
+ * assertions to fail with the real diagnostic — so a mutation that parks the ring on the
+ * wrong cell for good still reddens both rows. That is deliberately verified rather than
+ * argued: forcing `rowCounts[0]` to be non-empty at mount (which lands the ring on the
+ * scrub cell permanently) reddens both of them.
+ */
+async function untilRingOn(label: RegExp, tries = 50) {
+  for (let i = 0; i < tries; i++) {
+    const el = document.activeElement as HTMLElement | null;
+    if (ring().length === 1 && ring()[0] === el && label.test(el?.textContent ?? '')) return;
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+  }
 }
 
 // ===================================================================================
@@ -459,6 +517,7 @@ describe('arriving', () => {
     // A count one too high parks the model on a cell no element claims, and there is no Tab
     // key to escape with.
     await playing();
+    await untilRingOn(/Pause|Play/); // see the helper: the placement is a macrotask
     expect.soft(ring()).toHaveLength(1);
     expect.soft(ring()[0]).toBe(document.activeElement);
     // ...and the ring lands on the transport row, not the scrub bar: the scrub row is
@@ -651,6 +710,70 @@ describe('the auto-hide', () => {
     expect.soft(hidden()).toBe(false);
   });
 
+  it('a refused hide is RETRIED, so the band goes away once the note has been read', async () => {
+    // THE WHOLE JUSTIFICATION FOR CHANGING `useRevealOnKey`'s CONTRACT, so it is asserted
+    // rather than assumed. The quiet period used to be armed only by a key press, and a
+    // refusal spent it: the player's notes run 8s against a 5s period, so one press while
+    // a note was up left the band over the picture FOR THE REST OF THE FILM, with nothing
+    // on a remote able to put it away. That was already live on the reduced-resume path
+    // before stage 8 existed; the arrival disclosure only made it reachable on more
+    // titles. `onHide` now reports the refusal and the period is served again.
+    //
+    // THE PLAYHEAD HAS TO KEEP MOVING, and that is not decoration: frozen, the stall
+    // watcher escalates after ~2s and "Lost the stream" claims the one line by
+    // PRECEDENCE, so `mayHide` would stay false for a reason that has nothing to do with
+    // the note and this row would pass with the re-arm deleted.
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '720p' }));
+    const { seek } = await playing();
+    expect.soft(screen.queryByText(/^Playing the 720p/), 'the note is up').not.toBeNull();
+
+    down(); // any non-Back press arms the quiet period; it does not answer the note
+    for (let s = 1; s <= 11; s++) {
+      seek(s);
+      await act(async () => {
+        fireEvent.timeUpdate(video()!);
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      if (s === 6) {
+        // Past the 5s period: the hide was refused while the note was on screen, so the
+        // band is still up — and the refusal must not have been the last word.
+        expect.soft(hidden(), 'refused while the note was up').toBe(false);
+        expect.soft(screen.queryByText(/^Playing the 720p/), 'because it was still saying it').not.toBeNull();
+      }
+    }
+    // The note cleared at 8s and the re-served period fell due at 10s.
+    expect.soft(screen.queryByText(/^Playing the 720p/), 'the note has gone').toBeNull();
+    expect.soft(hidden(), 'and so has the band').toBe(true);
+  });
+
+  it('and the same rescue reaches the REDUCED-RESUME note, which had the defect first', async () => {
+    // The parked finding, closed and proved rather than inferred from the row above. This
+    // path needed no stage-8 code to reach: a resume the download has not caught up with
+    // prints an 8s sentence on arrival, and one press inside that window used to leave
+    // the band over the film permanently. Same `mayHide`, same quiet period, so the fix
+    // covers both — but "covers both" is exactly the kind of claim that is wrong once.
+    nav.search.current = new URLSearchParams('file=0');
+    svc.getProgressByMovie.mockResolvedValue(progressRow({ current_time: 2000 }));
+    const { seek } = await playing();
+    expect.soft(screen.queryByText(/^Carrying on from/), 'the reduction is on screen').not.toBeNull();
+
+    down();
+    for (let s = 1; s <= 11; s++) {
+      seek(1425 + s);
+      await act(async () => {
+        fireEvent.timeUpdate(video()!);
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      if (s === 6) expect.soft(hidden(), 'refused while the sentence was up').toBe(false);
+    }
+    expect.soft(screen.queryByText(/^Carrying on from/)).toBeNull();
+    expect.soft(hidden(), 'the band goes away once the sentence has been read').toBe(true);
+  });
+
   it('does not hide while the title is paused', async () => {
     // Paused, the band is the only thing on screen telling the viewer anything.
     await playing();
@@ -757,6 +880,7 @@ describe('Back', () => {
 describe('the control surface', () => {
   it('Play/Pause is relabelled, never swapped, and the label follows the EVENT', async () => {
     await playing();
+    await untilRingOn(/Pause|Play/); // this row asserts the ring, so it waits for it
     const el = cell(/Pause/);
     await act(async () => {
       fireEvent.click(el);
@@ -975,6 +1099,226 @@ describe('during a recovery', () => {
     });
     expect.soft(at(), 'and the restore did not reverse it').toBe(1190);
     vi.unstubAllGlobals();
+  });
+});
+
+// ===================================================================================
+// 4c. Say what actually arrived
+// ===================================================================================
+
+/**
+ * THE TWO SENTENCES BUILT FROM `status.quality`, and the field next to it that would
+ * make both of them silently empty for ever.
+ *
+ * `chosen_quality` is set on the download RESPONSE only (`api/torrents.py`); `to_status()`
+ * never populates it, so every poll this route makes answers null. Both rows below assert
+ * a sentence whose only input is the bucket, so reading the near-miss field reddens them
+ * together — which is the point: a disclosure that is always empty looks exactly like a
+ * title with nothing to disclose.
+ *
+ * WHAT THESE ROWS DO NOT CLAIM, because the route cannot know it: which bucket was ASKED
+ * FOR. The watch URL carries `{id}` and `?file=` and nothing else, `router.push` carries
+ * no state, and `TorrentStatus` has no requested-quality field — so a 1080p row is a
+ * 1080p ask and a downgraded 4K ask at once. The disclosure therefore fires only for a
+ * bucket this television NEVER asks for, which is the strongest honest statement
+ * available from the row alone.
+ */
+describe('what actually arrived', () => {
+  /**
+   * The band's own message line, found by its TEXT and then checked structurally.
+   *
+   * NEITHER `getByRole('status')` NOR `querySelector('.bs-player__hint')` IDENTIFIES IT,
+   * and both were tried first: `ScrubBar` renders a SECOND
+   * `<p class="bs-player__hint" role="status">` into the same band (`ScrubBar.tsx:157`),
+   * so `getByRole('status')` threw "found multiple elements" and the `querySelector`
+   * negative matched the scrub cell's hint — an element that is never the subject and is
+   * sometimes empty, which would have failed the "says nothing" rows for the wrong
+   * reason and passed them for the wrong reason once the scrub row went away mid-recovery.
+   * This is the "matcher satisfied by more than one node" shape, found a third time in
+   * this stage.
+   */
+  function bandHint(text: RegExp) {
+    const node = screen.getByText(text);
+    expect(node.className, 'the subject is the band message, not the scrub hint').toBe('bs-player__hint');
+    expect(node.parentElement?.className ?? '').toMatch(/bs-player__bar/);
+    return node;
+  }
+
+  /**
+   * Spend the whole ladder with a probe that answers 2xx — the `decode` verdict: the
+   * bytes are there and the element still refused them. Five errors, because the bound is
+   * four rungs and the attempt past the last one is what latches `exhausted`.
+   */
+  async function exhaustedOnDecode(quality: string) {
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    await playing();
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        fireEvent.error(video()!);
+      });
+    }
+  }
+
+  it('the decode verdict names the bucket on a 4K file', async () => {
+    // The one place a bucket changes what the viewer can DO about it: a 2160p file this
+    // panel refuses can be re-asked in HD, which is not true of a 1080p file it refuses.
+    // Scoped to the hint node rather than the body: `Stop` is also a control label, and a
+    // row-wide matcher that two nodes satisfy is the trap task 10 hit in this stage.
+    await exhaustedOnDecode('2160p');
+    expect.soft(bandHint(/cannot play it/).textContent).toBe(
+      'This 4K file is on the box, but this television cannot play it. Press Stop to leave.',
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('and does not invent one on a file that is not 4K', async () => {
+    // The other half of the pair, and the reason the first row cannot be satisfied by a
+    // hard-coded sentence: drop the bucket test and this row stays green while the one
+    // above reddens; hard-code "4K" and this one reddens instead.
+    await exhaustedOnDecode('1080p');
+    const note = bandHint(/cannot play it/);
+    expect.soft(note.textContent).toBe(
+      'The file is on the box, but this television cannot play it. Press Stop to leave.',
+    );
+    expect.soft(note.textContent).not.toMatch(/4K/);
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Press the 4K ask for real, through the code that writes the carrier. NOT a seeded
+   * map: a seeder keeps passing with `rememberFourKAsk` deleted from `startDownload`,
+   * which is the one line that makes the main case sayable at all.
+   */
+  async function pressFourK(torrentId: string, tmdbId: number) {
+    torrents.downloadCatalogMovie.mockResolvedValue(statusRow({ id: torrentId }) as never);
+    const r = await requestTitle({ mediaType: 'movie', tmdbId, fourK: true });
+    expect(r.ok, 'the press succeeded, so the ask was recorded').toBe(true);
+  }
+
+  it('THE MAIN CASE: a 4K press answered with HD says so, once, on arrival', async () => {
+    // Health outranks the quality bucket in the selector, so this is the COMMON outcome
+    // of the 4K opt-in, not an edge case — and a control labelled "Ask for 4K" that
+    // quietly produces HD is the defect `unresolvedEpisode` exists to prevent.
+    await pressFourK(PACK, 603);
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '1080p' }));
+    await playing();
+    expect.soft(bandHint(/^You asked for 4K/).textContent).toBe('You asked for 4K — this is the 1080p release.');
+    // It claims nothing about WHY: no 2160p release existing, none being healthy, and
+    // every one being device-refused all arrive here identically.
+    expect.soft(bandHint(/^You asked for 4K/).textContent).not.toMatch(/unavailable|not available|none|seed/i);
+  });
+
+  it('a 4K press answered with 4K says nothing: there is nothing to disclose', async () => {
+    await pressFourK(PACK, 604);
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '2160p' }));
+    await playing();
+    expect(screen.queryByText(/You asked for 4K|^Playing the/)).toBeNull();
+  });
+
+  it('the ask is answered ONCE: the second arrival at the same URL is told nothing', async () => {
+    // Open/Resume returns the viewer to this very URL later in the same page session.
+    // Without the eviction the second visit re-announces a press already answered —
+    // "the second play inherits the first play's disclosure", which looks like a feature.
+    await pressFourK(PACK, 605);
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '1080p' }));
+    const first = await mount();
+    await metadata();
+    expect.soft(screen.queryByText(/^You asked for 4K/), 'said on the arrival it is about').not.toBeNull();
+    first.unmount();
+
+    await mount();
+    await metadata();
+    expect.soft(screen.queryByText(/^You asked for 4K/), 'and not again').toBeNull();
+  });
+
+  it('the answer is per torrent id, not once per player', async () => {
+    // The falsifiable half of the one-take ref. Keying it on "ever taken" instead of on
+    // the id — or dropping `torrentId` from the effect's deps — leaves the second title
+    // unasked-about, and this row reddens. (The ref's OTHER half, surviving a StrictMode
+    // double-invoke, is not falsifiable in this harness: deleting the ref outright left
+    // all 49 rows green. The reason it stays is written on the ref itself.)
+    await pressFourK('other', 609);
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '1080p' }));
+    const view = await mount();
+    await metadata();
+    expect.soft(screen.queryByText(/^You asked for 4K/), 'no ask was recorded for this one').toBeNull();
+
+    nav.params.current = { id: 'other' };
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ id: 'other', quality: '1080p' }));
+    await act(async () => {
+      view.rerender(<WatchPage />);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    await metadata();
+    expect.soft(screen.queryByText(/^You asked for 4K/), 'and this one was asked about on its own').not.toBeNull();
+  });
+
+  it('a cold load says nothing, and that is the honest answer rather than a gap', async () => {
+    // No press in this page session — a reload, a deep link, the set waking on this URL.
+    // The ask is genuinely unknown, so a sentence about it would be a sentence about a
+    // press that may never have happened.
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '1080p' }));
+    await playing();
+    expect(screen.queryByText(/You asked for 4K|^Playing the/)).toBeNull();
+  });
+
+  it('a bucket this television never asks for is disclosed on arrival', async () => {
+    // `title.ts` asks 1080p, or 2160p on the per-title opt-in. A 720p row is therefore
+    // something other than what was asked for whichever press started it — the one
+    // downgrade the row can prove without knowing the ask.
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '720p' }));
+    await playing();
+    expect.soft(bandHint(/^Playing the/).textContent).toBe(
+      'Playing the 720p release — lower than this television asked for.',
+    );
+  });
+
+  it.each(['1080p', '2160p'])(
+    'a %s release arrived, which is what this surface asks for, so it says nothing',
+    async (quality) => {
+      // NON-VACUITY, and it is load-bearing twice over: a line on every ordinary arrival
+      // would also be a line the auto-hide may not fade out from under (see `mayHide`),
+      // so the band would sit over the picture on every title. A hard-coded disclosure
+      // reddens here.
+      torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality }));
+      await playing();
+      expect.soft(screen.queryByText(/^Playing the/), 'nothing to disclose, so nothing said').toBeNull();
+      // And the line is EMPTY, not merely different: the `<p>` is rendered only for a
+      // non-empty message, so the band holds the scrub cell's hint and nothing else.
+      expect.soft(document.querySelectorAll('.bs-player__bar > .bs-player__hint')).toHaveLength(1);
+    },
+  );
+
+  it('says it once: by the clock, and by the viewer answering it', async () => {
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '720p' }));
+    const { seek } = await playing();
+    expect.soft(screen.queryByText(/^Playing the 720p release/)).not.toBeNull();
+
+    // A press is the viewer answering the note, whatever the press was.
+    await act(async () => {
+      fireEvent.click(cell('Back 10s'));
+    });
+    expect.soft(screen.queryByText(/^Playing the 720p release/), 'answered by the press').toBeNull();
+
+    // And on a title nobody touches, by the clock. THE PLAYHEAD HAS TO KEEP MOVING: with
+    // it frozen the stall watcher escalates after ~2s and "Lost the stream" takes this one
+    // line by PRECEDENCE, so a disclosure that never cleared would look cleared. That is
+    // the trap the resume-note row records at the bottom of this file.
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '480p' }));
+    nav.params.current = { id: 'other' };
+    await mount();
+    const again = await metadata();
+    expect.soft(screen.queryByText(/^Playing the 480p release/)).not.toBeNull();
+    for (let i = 1; i <= 9; i++) {
+      seek(i);
+      again.seek(i);
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+    }
+    expect.soft(screen.queryByText(/^Playing the 480p release/), 'cleared, not masked').toBeNull();
+    expect.soft(document.querySelector('.bs-player__hint')?.textContent ?? '').not.toMatch(/Lost the stream|Buffering/);
   });
 });
 

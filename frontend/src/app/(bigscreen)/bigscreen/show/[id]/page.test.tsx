@@ -58,6 +58,19 @@ async function mount() {
   await waitFor(() => expect(screen.queryByText('Checking this episode…')).toBeNull());
   return view;
 }
+/**
+ * Wait for the ring to be PLACED, which is the condition a focus assertion really needs.
+ *
+ * `useFocusGrid` puts the ring on screen from the passive reconciliation effect
+ * (`_focus/useFocusGrid.ts:265`), and React schedules passive effects rather than running
+ * them in the commit — so the ring can land a macrotask after the markup it belongs to.
+ * A wait for the MARKUP (a heading, an episode count) is therefore not a wait for the ring,
+ * and `await act(async () => {})` does not close the gap either: once React has handed the
+ * work to its own Scheduler the act queue is empty, so act returns without waiting for it.
+ * Only polling for the ring itself holds, however many ticks the Scheduler takes.
+ */
+const ringPlaced = () =>
+  waitFor(() => expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1));
 const epButtons = () => screen.queryAllByRole('button', { name: /^\d+\s/ });
 const seasonBtn = (n: number) => screen.getByRole('button', { name: new RegExp(`Season ${n}`) });
 
@@ -149,6 +162,7 @@ describe('show detail screen', () => {
     getSeason.mockImplementation(async (_id, n) => season(n, n === 1 ? 3 : 1));
     await mount();
     await waitFor(() => expect(epButtons()).toHaveLength(3));
+    await ringPlaced();
     act(() => seasonBtn(1).focus());
     // Walk to the last episode, back up to the picker, across to season 2 and open it: the
     // episode rows shrink from 3 to 1 underneath the picker.
@@ -161,6 +175,9 @@ describe('show detail screen', () => {
     fireEvent.click(seasonBtn(2));
     await waitFor(() => expect(epButtons()).toHaveLength(1));
     await screen.findByText(/S2 · E1/);
+    // The row the ring was on has gone; only the passive reconciliation puts it somewhere
+    // else, so wait for that rather than for the markup that triggered it.
+    await ringPlaced();
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement!.isConnected).toBe(true);
   });
@@ -236,6 +253,12 @@ describe('show detail screen', () => {
     it('a second press while one is being asked is ignored', async () => {
       await mount();
       await waitFor(() => expect(epButtons()).toHaveLength(3));
+      // The default control's own lookup must have ANSWERED before the mock is rearmed:
+      // `mount()`'s "Checking this episode…" wait is true before that lookup starts as well
+      // as after it, so a still-pending default lookup would swallow the mockReturnValueOnce
+      // below, the press would get the resolved default instead, and `pressing` would be
+      // clear again in time for the second press to go through.
+      await screen.findByText(/S1 · E1/);
       stateFor.mockClear();
       const d = deferred<ReturnType<typeof stateOf>>();
       stateFor.mockReturnValueOnce(d.promise);
@@ -352,15 +375,21 @@ describe('show detail screen', () => {
     it('a Play the box satisfies with a located pack file goes to ?file=', async () => {
       request.mockResolvedValue({ ok: true, torrentId: 'pk', fileIndex: 6 });
       await mount();
-      fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+      // `mount()`'s "Checking this episode…" wait is true BEFORE the lookup starts too, so
+      // it is not a wait for the control. Wait for the button this test presses.
+      fireEvent.click(await screen.findByRole('button', { name: 'Play' }));
       await waitFor(() => expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=6'));
     });
 
     it('a Play satisfied by a pack whose files are unreadable re-asks and discloses, never navigates', async () => {
       request.mockResolvedValue({ ok: true, torrentId: 'pk', unresolved: true });
       await mount();
+      // The button first: `mount()`'s "Checking this episode…" wait is true before the
+      // default lookup starts as well as after it, so re-mocking straight after `mount()`
+      // can replace the answer that lookup is still waiting for — and then there is no Play.
+      const play = await screen.findByRole('button', { name: 'Play' });
       stateFor.mockResolvedValue(stateOf({ kind: 'unresolvedEpisode', href: '/bigscreen/watch/pk' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+      fireEvent.click(play);
       expect(await screen.findByRole('note')).toHaveTextContent(/may be a different episode/i);
       expect(router.push).not.toHaveBeenCalled();
     });
@@ -421,6 +450,7 @@ describe('show detail screen', () => {
       await mount();
       expect(screen.getByText(/no seasons/i)).toBeInTheDocument();
       expect(getSeason).not.toHaveBeenCalled();
+      await ringPlaced();
       const home = screen.getByRole('button', { name: /home/i });
       expect(home).toHaveAttribute('tabindex', '0');
       expect(document.activeElement).toBe(home);
@@ -436,6 +466,10 @@ describe('show detail screen', () => {
       getSeason.mockResolvedValue(season(1, 0));
       await mount();
       await screen.findByText(/no episodes listed/i);
+      // Before the press, not after: the grid's FIRST reconciliation (the passive effect at
+      // `useFocusGrid.ts:265`) starts from NO_TARGET rather than from the current target, so
+      // it puts the ring back on row 0 and discards a setFocus that ran before it.
+      await ringPlaced();
       const other = screen.getByRole('button', { name: /pick another season/i });
       fireEvent.click(other);
       expect(document.activeElement).toBe(seasonBtn(1));
@@ -493,7 +527,8 @@ describe('show detail screen', () => {
     profileHook.mockReturnValue({ profile: null, loading: false, select: vi.fn(), clear });
     await mount();
     expect(recent).not.toHaveBeenCalled();
-    expect(stateFor).toHaveBeenCalledWith(expect.objectContaining({ userId: null }));
+    // The lookup is what `mount()`'s second wait fails to wait for, so wait for the call.
+    await waitFor(() => expect(stateFor).toHaveBeenCalledWith(expect.objectContaining({ userId: null })));
   });
 
   it('a recheck on a blocked default control re-asks the state', async () => {

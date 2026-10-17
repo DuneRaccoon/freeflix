@@ -14,7 +14,7 @@ import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { statusOf } from '../../../_data/httpStatus';
-import { PREPARING, READY } from '../../../_data/title';
+import { PREPARING, READY, takeFourKAsk } from '../../../_data/title';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useWatchProgress, watchIdentity } from '../../../_data/useWatchProgress';
 import { useBackKey } from '../../../_focus/useBackKey';
@@ -99,6 +99,33 @@ const INFO_REFRESH_MS = 10_000;
  * starting is the event that makes the sentence true, not the one that answers it.
  */
 const RESUME_NOTE_MS = 8000;
+
+/**
+ * THE BUCKET THAT ACTUALLY ARRIVED, and the two sentences that say so.
+ *
+ * `status.quality` IS THE ONE FIELD TO READ, and the near-miss is the whole hazard:
+ * `chosen_quality` is the field whose NAME says what you want and whose VALUE is always
+ * null — `api/torrents.py` sets it on the download RESPONSE only, while `to_status()`
+ * (`database/models/torrents.py:57-84`) never populates it, so every poll this route
+ * makes answers null and a disclosure built on it is silently empty for ever.
+ * `_data/title.ts` records the same fact for the same reason.
+ *
+ * WHAT THE ROW CAN AND CANNOT SAY. `quality` is the bucket of the release the selector
+ * CHOSE (`chosen.quality or request.quality`), not the bucket that was ASKED FOR, and
+ * nothing on this route carries the ask: the watch URL is `/bigscreen/watch/{id}?file=N`
+ * and nothing else (`_data/watchHref.ts`), `router.push` carries no state, and
+ * `TorrentStatus` has no requested-quality field. So "you asked for 4K and got HD" is NOT
+ * sayable here — a 1080p row is a 1080p ask and a downgraded 4K ask at once,
+ * indistinguishable. Rather than guess, this says only what arrived, and only when what
+ * arrived is a bucket this television NEVER asks for (`title.ts` asks 1080p, or 2160p on
+ * the per-title opt-in). That keeps it silent on the ask it cannot read and non-vacuous
+ * on the one it can — and silence on an ordinary arrival is load-bearing twice over,
+ * because a line in this slot is a line `mayHide` may not fade out from under.
+ */
+const BELOW_ANY_ASK: ReadonlySet<string> = new Set(['720p', '480p']);
+
+/** Named, because the decode verdict needs the same test. */
+const BUCKET_4K = '2160p';
 
 type Arrival =
   | { k: 'loading' }
@@ -245,6 +272,35 @@ function WatchScreen() {
   // The player's own state lives HERE, not in `Playing`: Back's level is derived from
   // `visible` and `editOpen`, and the heartbeat needs the playhead. `Playing` owns the
   // element and the engines, and reports.
+  /**
+   * Did the press that started this torrent ask for 4K? `_data/title.ts` is the only
+   * thing that knows, and it answers ONCE — so the answer is taken here and held, never
+   * re-read per render.
+   *
+   * ONE TAKE PER TORRENT ID, keyed on the id rather than on "ever": the `id` in the ref
+   * is what makes a title change ask again, and a test pins that half.
+   *
+   * THE REF'S OTHER HALF IS DELIBERATELY UNFALSIFIABLE HERE, MEASURED RATHER THAN
+   * ASSUMED. Deleting it entirely leaves the suite green (49/49), because `render()` is
+   * not wrapped in StrictMode and `[torrentId]` already prevents a re-run — so no fixture
+   * in this harness can produce the double-invoke. It stays for two reasons that do not
+   * depend on this suite: StrictMode double-invokes an effect on the SAME instance in
+   * dev, and the second pass would read an emptied slot and write `false` over the `true`
+   * the first pass took; and the sibling arrival effect three dozen lines down is keyed
+   * `[torrentId, attempt]`, so "add `attempt` here too" is one plausible edit away from
+   * spending the ask on a retry press. Recorded instead of covered by a green test.
+   *
+   * A genuine remount (a reload) starts with an empty ref AND an empty slot, which is the
+   * cold-load case — the ask is unknown, and nothing is claimed about it.
+   */
+  const [askedFourK, setAskedFourK] = useState(false);
+  const askTakenFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (askTakenFor.current === torrentId) return;
+    askTakenFor.current = torrentId;
+    setAskedFourK(takeFourKAsk(torrentId));
+  }, [torrentId]);
+
   const [visible, setVisible] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [position, setPosition] = useState(0);
@@ -503,6 +559,7 @@ function WatchScreen() {
         <Playing
           src={src}
           status={arrival.status}
+          askedFourK={askedFourK}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
           // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never
           // refreshed, so a `Playing` that remounts for any reason would otherwise seek back
@@ -575,6 +632,7 @@ function WatchScreen() {
 function Playing({
   src,
   status,
+  askedFourK,
   contiguous,
   resumeAtSeconds,
   position,
@@ -591,6 +649,8 @@ function Playing({
 }: {
   src: string;
   status: TorrentStatus;
+  /** The press that started this torrent asked for 2160p. False also means "unknown". */
+  askedFourK: boolean;
   contiguous: ContiguousRun | null;
   resumeAtSeconds: number;
   position: number;
@@ -611,6 +671,17 @@ function Playing({
   const [failure, setFailure] = useState<StreamFailure | null>(null);
   const [recovery, setRecovery] = useState<RecoveryStatus>({ kind: 'idle' });
   const [resumeNote, setResumeNote] = useState('');
+  /**
+   * The arrival disclosure's window: open on arrival, closed by time or by the viewer's
+   * first press, exactly like the resume note and for the same reason (it must be
+   * readable at three metres, and it must not be readable for the rest of the film).
+   *
+   * A BOOLEAN WINDOW, NOT A STORED SENTENCE: the sentence is derived from the row inside
+   * `messageFor`, so the field it is derived FROM is what a mutation lands on. A string
+   * set once at arrival would keep reporting the first poll's bucket, and would survive
+   * reading the wrong field at all.
+   */
+  const [discloseArrival, setDiscloseArrival] = useState(true);
 
   // Held in a ref so the engine's one-shot `onStatus` closure always calls the current
   // props, rather than the ones the first render happened to have.
@@ -684,8 +755,10 @@ function Playing({
     (action: TransportAction) => {
       const video = ref.current;
       if (!video) return;
-      // A press is the viewer answering the note, whatever the press was.
+      // A press is the viewer answering the note, whatever the press was — and whichever
+      // of the two notes is up.
       setResumeNote('');
+      setDiscloseArrival(false);
       switch (action) {
         case 'playPause':
           if (playing) video.pause();
@@ -734,13 +807,22 @@ function Playing({
     return () => clearTimeout(timer);
   }, [resumeNote]);
 
+  // The same clock for the arrival disclosure, re-armed per `src` so a title change gets
+  // its own one — unconditionally, because the window has to close whether or not this
+  // row's bucket was worth naming (a row that changes bucket mid-poll must not reopen it).
+  useEffect(() => {
+    setDiscloseArrival(true);
+    const timer = setTimeout(() => setDiscloseArrival(false), RESUME_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [src]);
+
   // --- the auto-hide ---------------------------------------------------------------
   /**
    * Suppressed while the title is paused, while an edit is open, and while a message is on
    * screen: all three are states in which the band is the only thing telling the viewer
    * what is going on.
    */
-  const message = messageFor({ failure, recovery, stall, status, resumeNote });
+  const message = messageFor({ failure, recovery, stall, status, resumeNote, discloseArrival, askedFourK });
   const mayHide = playing && !editOpen && message === '';
   const mayHideRef = useRef(mayHide);
   useLayoutEffect(() => {
@@ -748,8 +830,14 @@ function Playing({
   });
 
   const reveal = useCallback(() => onVisible(true), [onVisible]);
+  // REPORTS THE REFUSAL, so the quiet period is served again instead of being spent on a
+  // hide this screen was never going to allow. Without the return value a note that
+  // outlives the period (8s against 5s) left the band over the picture for the rest of
+  // the film — see `useRevealOnKey`'s own header for the contract.
   const hide = useCallback(() => {
-    if (mayHideRef.current) onVisible(false);
+    if (!mayHideRef.current) return false;
+    onVisible(false);
+    return true;
   }, [onVisible]);
   useRevealOnKey({ visible, onReveal: reveal, onHide: hide });
 
@@ -948,21 +1036,35 @@ function messageFor({
   stall,
   status,
   resumeNote,
+  discloseArrival,
+  askedFourK,
 }: {
   failure: StreamFailure | null;
   recovery: RecoveryStatus;
   stall: 'ok' | 'frozen' | 'buffering';
   status: TorrentStatus;
   resumeNote: string;
+  /** The arrival disclosure's one-shot window; see `BELOW_ANY_ASK` and `Playing`. */
+  discloseArrival: boolean;
+  /** This client's own 4K press, taken from `title.ts`. False also means "unknown". */
+  askedFourK: boolean;
 }): string {
   if (failure?.kind === 'session') return 'This television needs to be paired again. Taking you back to pairing.';
   if (failure?.kind === 'badRequest') {
     return 'The box could not make sense of this request. Press Stop and start the title again.';
   }
   if (recovery.kind === 'exhausted') {
-    return failure?.kind === 'decode'
-      ? 'The file is on the box, but this television cannot play it. Press Stop to leave.'
-      : 'The stream could not be kept going. Press Try again, or Stop to leave.';
+    if (failure?.kind !== 'decode') {
+      return 'The stream could not be kept going. Press Try again, or Stop to leave.';
+    }
+    // THE VERDICT NAMES THE BUCKET. `_player/classify.ts:27-31` records that `decode` is
+    // honest rather than a guess dressed up — the bytes are there and the element still
+    // failed — and the bucket is the single most useful thing to add to it: on a 2160p
+    // file the viewer has a press that changes the answer (ask for this title in HD
+    // instead), which is not true of a 1080p file this panel refuses.
+    return status.quality === BUCKET_4K
+      ? 'This 4K file is on the box, but this television cannot play it. Press Stop to leave.'
+      : 'The file is on the box, but this television cannot play it. Press Stop to leave.';
   }
   if (recovery.kind === 'scheduled' || recovery.kind === 'reloading') {
     return `Lost the stream — trying again (attempt ${recovery.attempt}).`;
@@ -977,5 +1079,25 @@ function messageFor({
         return 'Buffering…';
     }
   }
-  return resumeNote;
+  if (resumeNote !== '') return resumeNote;
+  // LAST, AND ONCE. The reduced-resume sentence is the more urgent of the two and both
+  // are about the same arrival, so it takes the line while it is up; this one is what is
+  // left to say afterwards. `discloseArrival` is the window, so a title whose bucket is
+  // worth naming does not sit on this line for the length of the film.
+  if (discloseArrival) {
+    // THE MAIN CASE, and the reason this task exists: health outranks the bucket, so a
+    // 4K press answered with a 1080p release is the COMMON outcome. The ask is known
+    // here only because `title.ts` carried it; it names what was asked and what arrived
+    // and claims NOTHING about why — no 2160p release existed, none was healthy, and
+    // every one of them being device-refused all land here identically.
+    if (askedFourK && status.quality !== BUCKET_4K) {
+      return `You asked for 4K — this is the ${status.quality} release.`;
+    }
+    // And the case where no ask is known at all (a cold load, a reload, a deep link):
+    // a bucket this television never asks for is a downgrade whichever press made it.
+    if (BELOW_ANY_ASK.has(status.quality)) {
+      return `Playing the ${status.quality} release — lower than this television asked for.`;
+    }
+  }
+  return '';
 }

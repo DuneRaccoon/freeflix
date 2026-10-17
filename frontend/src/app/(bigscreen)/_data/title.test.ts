@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamingProgress, TorrentStatus, VideoFile } from '@/types';
 
@@ -10,7 +12,7 @@ vi.mock('@/services/torrents', () => ({
 
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
-import { requestTitle, resumeTitle, titleStateFor } from './title';
+import { requestTitle, resumeTitle, takeFourKAsk, titleStateFor } from './title';
 
 const getProgress = vi.mocked(streamingService.getProgressByMovie);
 const getFiles = vi.mocked(streamingService.getFiles);
@@ -548,6 +550,74 @@ describe('requestTitle', () => {
     expect(r).not.toMatch(/no sources/i);
     expect(r).toMatch(/not found|recogni[sz]e/i);
   });
+
+  /**
+   * ONE ROW PER 404 DETAIL THE BOX CAN SEND, the two pre-existing ones above included.
+   *
+   * THE TWO DEVICE DETAILS ARE READ OFF `api/torrents.py` RATHER THAN RETYPED, because
+   * the thing being asserted is a contract across the wire, and a hand-copied fixture
+   * pins only this side of it: a copy edit in `_device_refusal` would leave every
+   * assertion here green while the television showed the wrong sentence. Same instrument
+   * as `legacy-target.test.ts`'s token pin, same reason.
+   */
+  describe('a capability refusal (stage 8)', () => {
+    const PY = join(process.cwd(), '..', 'backend', 'app', 'api', 'torrents.py');
+
+    /** `_device_refusal`'s returned string literals, implicit concatenation joined. */
+    const refusals = (): string[] => {
+      const src = readFileSync(PY, 'utf8');
+      const start = src.indexOf('def _device_refusal');
+      expect(start, `_device_refusal is gone from ${PY}`).toBeGreaterThan(-1);
+      const body = src.slice(start, src.indexOf('@dataclass', start));
+      // Skip the docstring: it quotes the television's own copy, so its literals would
+      // otherwise be read as refusals.
+      const doc = body.indexOf('"""');
+      const code = body.slice(body.indexOf('"""', doc + 3) + 3);
+      return [...code.matchAll(/return\s*\(?((?:\s*"[^"]*")+)\s*\)?/g)].map((m) =>
+        [...m[1].matchAll(/"([^"]*)"/g)].map((s) => s[1]).join(''),
+      );
+    };
+
+    it('sends exactly two details, and BOTH still match /no torrents/i', () => {
+      // THE BELT, asserted on its own so the ordering below reads as deliberate rather
+      // than accidental. These two properties are what make the pair of defences fail in
+      // opposite directions:
+      //   - this row holds => losing the new branch degrades to the MILD, true "No
+      //     sources found for this title yet.", never to the lie about an unknown title;
+      //   - the rows below hold => the new branch sits AHEAD of /no torrents/i, so the
+      //     specific sentence is what the viewer actually gets.
+      // Move the new branch after /no torrents/i and only the rows below redden; delete
+      // the "no torrents" substring from either detail and only this row does.
+      const details = refusals();
+      expect(details).toHaveLength(2);
+      for (const d of details) expect(d, d).toMatch(/no torrents/i);
+    });
+
+    it('4K-only (every refusal `withheld`) names the press that can still work', async () => {
+      const [withheldOnly] = refusals();
+      expect(withheldOnly).toMatch(/only 4k/i);
+      const r = await reason(httpError(404, withheldOnly));
+      expect(r).toBe('Only 4K sources exist for this title. Press Ask for 4K to try one.');
+      // NOT the branch below it, which is the mutation this ordering exists to survive.
+      expect(r).not.toMatch(/no sources found for this title yet/i);
+    });
+
+    it('anything this panel cannot decode promises nothing, because nothing here would help', async () => {
+      const incapable = refusals()[1];
+      expect(incapable).not.toMatch(/only 4k/i);
+      const r = await reason(httpError(404, incapable));
+      expect(r).toBe('No sources this television can play.');
+      expect(r).not.toMatch(/4k|press/i);
+      expect(r).not.toMatch(/no sources found for this title yet/i);
+    });
+
+    it('a 404 that is not a device refusal is untouched by the new branch', async () => {
+      // The guard against a branch keyed too loosely: these are the two details that were
+      // already on the wire and they must still map exactly where they did.
+      expect(await reason(httpError(404, 'No torrents found'))).toBe('No sources found for this title yet.');
+      expect(await reason(httpError(404, 'Show not found'))).toBe("The box doesn't recognise this title.");
+    });
+  });
   it('the box is busy', async () => {
     expect(await reason(httpError(429))).toMatch(/busy/i);
     expect(await reason(httpError(503, 'Too many active downloads'))).toMatch(/busy/i);
@@ -588,6 +658,88 @@ describe('requestTitle maybeCreated', () => {
     download.mockResolvedValue({} as never);
     const r = await requestTitle({ mediaType: 'movie', tmdbId: 604 });
     expect(!r.ok && r.maybeCreated).toBe(true);
+  });
+});
+
+/**
+ * THE ONE CHANNEL ON THIS SURFACE THAT CARRIES THE ASK, as opposed to what arrived.
+ *
+ * The watch route cannot work it out: the URL is `{id}` plus an optional `?file=`, the
+ * push carries no state, `TorrentStatus` has no requested-quality field and
+ * `chosen_quality` is null on every poll. Without this map the COMMON outcome of the 4K
+ * opt-in — health outranks the bucket, so a 4K press is usually answered with 1080p — is
+ * silent, which is the defect `unresolvedEpisode` exists to prevent.
+ *
+ * Every row here is about a LIE THE MAP COULD TELL, not about the happy path.
+ */
+describe('the 4K ask carrier', () => {
+  it('a 4K press records the id it produced, and a 1080p press records nothing', async () => {
+    download.mockResolvedValue(torrent({ id: 'uhd1' }));
+    await requestTitle({ mediaType: 'movie', tmdbId: 603, fourK: true });
+    download.mockResolvedValue(torrent({ id: 'hd1' }));
+    await requestTitle({ mediaType: 'movie', tmdbId: 604 });
+    // Both halves, because a map that answered true for everything would pass the first.
+    expect(takeFourKAsk('uhd1')).toBe(true);
+    expect(takeFourKAsk('hd1')).toBe(false);
+  });
+
+  it('answers ONCE: the second navigation to the same watch URL is told nothing', async () => {
+    // THE LIE THIS EVICTION EXISTS TO PREVENT. Open/Resume sends the viewer back to the
+    // same `/bigscreen/watch/{id}` later in the same page session, and a press that has
+    // already been answered must not be re-announced there — "the second play inherits
+    // the first play's disclosure" would look exactly like a feature.
+    download.mockResolvedValue(torrent({ id: 'uhd2' }));
+    await requestTitle({ mediaType: 'movie', tmdbId: 605, fourK: true });
+    expect(takeFourKAsk('uhd2')).toBe(true);
+    expect(takeFourKAsk('uhd2')).toBe(false);
+  });
+
+  it('a second press of the same title gets its own answer, never the first press\'s', async () => {
+    // `POST /download` mints a fresh uuid4 per press with no dedupe, so a re-press is a
+    // DIFFERENT id — the map is keyed on the torrent, so the HD re-press cannot inherit.
+    download.mockResolvedValue(torrent({ id: 'first' }));
+    await requestTitle({ mediaType: 'movie', tmdbId: 606, fourK: true });
+    download.mockResolvedValue(torrent({ id: 'second' }));
+    await requestTitle({ mediaType: 'movie', tmdbId: 606 });
+    expect(takeFourKAsk('second')).toBe(false);
+    expect(takeFourKAsk('first')).toBe(true);
+  });
+
+  it('a 4K press that failed records nothing, including a 2xx with no id', async () => {
+    download.mockRejectedValue(httpError(404, 'No torrents this television can play'));
+    const refused = await requestTitle({ mediaType: 'movie', tmdbId: 607, fourK: true });
+    expect(refused.ok).toBe(false);
+    download.mockResolvedValue({} as never);
+    const noId = await requestTitle({ mediaType: 'movie', tmdbId: 608, fourK: true });
+    expect(noId.ok).toBe(false);
+    // Nothing to key on, so nothing recorded — and no entry left to be collected later.
+    expect(takeFourKAsk('')).toBe(false);
+    expect(takeFourKAsk('undefined')).toBe(false);
+  });
+
+  it('does not grow without bound: an ask nobody reads is eventually dropped', async () => {
+    // NOTHING GUARANTEES A READER. A press the viewer backs out of before the player
+    // mounts leaves its entry behind, and the only collector is this cap — so an
+    // uncapped map is a leak for the life of the page.
+    const ids = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6'];
+    for (const id of ids) {
+      download.mockResolvedValue(torrent({ id }));
+      await requestTitle({ mediaType: 'movie', tmdbId: 700 + ids.indexOf(id), fourK: true });
+    }
+    const remembered = ids.filter((id) => takeFourKAsk(id));
+    // The oldest go first (Map insertion order), and the most recent press — the one a
+    // player is most likely about to ask about — must always survive.
+    expect(remembered).toEqual(['a3', 'a4', 'a5', 'a6']);
+  });
+
+  it('a tv 4K press records the pack it was answered with', async () => {
+    // The pack lookup is a second round trip after the id is known, so recording has to
+    // happen before it: a `/files` failure must not be able to lose the ask.
+    download.mockResolvedValue(torrent({ id: 'pk4k', media_type: 'tv', season: 1, episode: null }));
+    getFiles.mockRejectedValue(new Error('no metadata yet'));
+    const r = await requestTitle({ mediaType: 'tv', tmdbId: 1399, season: 1, episode: 2, fourK: true });
+    expect(r).toEqual({ ok: true, torrentId: 'pk4k', unresolved: true });
+    expect(takeFourKAsk('pk4k')).toBe(true);
   });
 });
 

@@ -626,9 +626,15 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    background-image under a plain gradient scrim, static, no per-frame effect (spec §9).
    The inset is the body's own padding, so nothing interactive or textual sits outside it.
    Focus targets are .bs-btn (min-height 60px).
-   COMBINING: every .bs-title__* class is a layout part used ALONE on its own element.
-   .bs-btn (+ .bs-btn--ghost) is the only combination, exactly as home already uses it; do
-   not add a modifier to .bs-btn from this block. */
+   COMBINING: every .bs-title__* class is a layout part used ALONE on its own element,
+   except the two the movie screen's 4K cell adds (stage 8): .bs-title__action +
+   .bs-title__action--ask on the cell, the .bs-card + .bs-card--poster base-plus-modifier
+   shape; and .bs-title__toggle beside .bs-btn .bs-btn--ghost on the control, which colours a
+   pressed state only and sets no geometry the base rules own — the .bs-list__toggle shape.
+   Both toggles' PRESSED declarations are one grouped rule rather than two copies; it is
+   defined in the My List block, where it was first needed, and that block says why.
+   .bs-btn (+ .bs-btn--ghost) is otherwise the only combination, exactly as home already
+   uses it; do not add a modifier to .bs-btn from this block. */
 .bs-title {
   position: relative;
   min-height: 760px;
@@ -671,6 +677,34 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-title__actions { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
 .bs-title__action { display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
+/* The movie screen's 4K cell (stage 8). Narrow, and its width RESERVED rather than capped.
+   Two separate reasons, both measured in Chromium at 1920x1080 against this file, not
+   reasoned about:
+
+   1. A FIXED BASIS, so pressing the toggle cannot reflow the row. .bs-title__actions is
+      `flex-wrap: wrap`, and a cell sized to its content grows when the pressed note appears
+      (164px -> 464px uncapped). That pushes the row past the 1100px .bs-title__body and onto
+      a second VISUAL line which the focus model still calls row 0: Right then appears to move
+      the ring downwards, and the control the viewer just pressed drops a line under the ring —
+      the "a press must not nudge what is beside it" rule .bs-list__toggle's transparent
+      border exists for, one order of magnitude larger. With `flex: 0 0 200px` the row is
+      554px pressed or not. The press changes the cell's HEIGHT only (60px -> 173px, the note
+      wrapping to three lines), downward into empty space, which is what the two alert lines
+      beside it already do.
+   2. 200px specifically, because that is what keeps the single-failure states on one line.
+      The sibling cells are capped at 640px (.bs-title__action) and the longest reasons reach
+      it: with the primary showing "The box is busy with other downloads…" the row is 1094px
+      at 200px, 1100px at 206px and WRAPS at 240px. That matters more than it looks — the 404
+      refusal copy is "Only 4K sources exist for this title. Press Ask for 4K to try one.",
+      so the state that sends a viewer to this control is one of the long-alert states.
+   The reserve is invisible: this cell is always LAST, so the 36px it holds beyond the button
+   is trailing space at the end of the row.
+   What no width fixes: both cells printing a failure at once (1242px). Each is capped at
+   640px, so 640 + 640 + a third cell cannot fit 1100px whatever this value is. On this screen
+   that costs appearance only — the movie screen has exactly one focus row, so nothing is
+   unreachable and Up/Down have nowhere to skip to. Widening .bs-title__body, or moving the
+   alerts out of the row, would change the show screen too; named follow-up, not stage 8. */
+.bs-title__action--ask { flex: 0 0 200px; align-items: flex-start; }
 .bs-title__note { font-size: 24px; line-height: 1.4; color: var(--gold-lite); margin: 0; }
 .bs-title__alert { font-size: 24px; line-height: 1.4; color: var(--danger); margin: 0; }
 .bs-title__below { padding: 0 var(--safe-x) var(--safe-y); }
@@ -816,9 +850,22 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    the mode on changes only colour: a border appearing on press would widen the control by
    2px and nudge the link beside it, which under a 4px focus ring reads as the screen moving.
    Colour is the least of the four signals anyway — the label becomes "Done", every card
-   gains a Remove badge, and the status line says what a press will now do. */
+   gains a Remove badge, and the status line says what a press will now do.
+   THE PRESSED RULE IS SHARED WITH THE MOVIE SCREEN'S 4K TOGGLE (.bs-title__toggle, stage 8),
+   not copied to it: a third identical set of pressed declarations is a third thing to keep in
+   step, and the two are the same control in two places — a .bs-btn whose pressed state is read
+   off the aria-pressed it needs anyway. (.bs-show__season's copy is NOT folded in: that one is
+   self-contained, carrying its own geometry, so it has no .bs-btn underneath to agree with.)
+   Only the UNPRESSED border differs, and each differs for its own reason, which is why that
+   half is two rules: My List's toggle sits on the filled .bs-btn (border: 0), so it carries a
+   transparent one; the 4K cell sits on .bs-btn--ghost, which already draws a hairline, so it
+   carries the hairline. Either way the border exists in BOTH states and only its colour
+   changes, which is the point — a border appearing on press would widen the control by 2px.
+   The rule lives here because this is where it was first needed; the title block's own
+   COMBINING note points at it. */
 .bs-list__toggle { border: 1px solid transparent; }
-.bs-list__toggle[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
+.bs-title__toggle { border: 1px solid var(--hairline); }
+.bs-list__toggle[aria-pressed="true"], .bs-title__toggle[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
 .bs-list__fail { color: var(--danger); }
 
 /* --- the player: video, scrim, band, transport row, scrub cell ----------------- */

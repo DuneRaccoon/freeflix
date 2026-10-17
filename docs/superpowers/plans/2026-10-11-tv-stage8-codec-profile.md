@@ -119,6 +119,83 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**From task 8 — the prescribed rescue mutation cannot fail, and the repo had already written down
+why in a file this plan cites.** "Delete the rescue → the unmount-while-focused row reddens"
+measured **63/63 green**: `useFocusGrid`'s reconcile effect (`_focus/useFocusGrid.ts:265-301`) re-runs
+on a row-count change and `clampTarget` (`_focus/model.ts:65-69`) clamps the column to the row's last
+item — **the same cell the rescue names**. And `bigscreen/list/page.tsx:371-372` says it outright:
+*"Removing just this `setFocus` fails NO test — the hook's own fallback reaches the same cell."* This
+plan cited that very file for the append-last rule and missed the note beside it. The rescue is
+**kept**, because deleting it is a no-op while **mis-specifying it is a regression** (hard-coding
+col 0 reddens a row), and the measurement is written onto it.
+
+- **A related, sharper lesson:** written the natural way, the rescue also silently repaired a
+  *declared count larger than the cells rendered*, which made the count-drift mutation unfalsifiable
+  too. Gating it on an actual shrink restores the test. **A rescue that fixes more than the thing it
+  is for stands in for a test of something else.**
+- **A Next.js App Router `page.tsx` may not export a shared constant.** Adding one fails the
+  generated route types (`TS2344 … not assignable to type 'never'`). Discovered while pinning the
+  4K label; the pair is pinned by source text instead, the same instrument `legacy-target.test.ts`
+  uses on this surface.
+- **The coupling that pin exists for:** task 9's `withheld`-only 404 copy reads "Press **Ask for 4K**
+  to try one" and names task 8's button label verbatim. Two files, one fact, and **no behavioural
+  test can see it because the two strings never meet at runtime.** Now pinned, and the pin is
+  mutation-checked in both directions.
+- **`PrimaryAction`'s `request` prop did not declare `fourK`, and the call compiled anyway**, because
+  a *named* value is accepted structurally while only a fresh inline literal is refused. The viewer's
+  4K ask was travelling through a contract that denied its existence, so a refactor there which
+  reassembled the argument would have dropped it **silently, with the control still showing as
+  pressed**. Prop widened; the stale workaround comment rewritten rather than left to mislead.
+- **Nothing in this repo can check the stylesheet.** Deleting the new width rule and un-sharing the
+  pressed rule both leave `test:tv` fully green — the only CSS guards are the GPU-construct ban and
+  the token pin. The browser measurement below is the only evidence for that half, which is why it
+  was taken rather than judged.
+- **The flex-wrap question was measured in Chromium and it changed the implementation.** A
+  `max-width` was the wrong tool: the cell grows 164 → 464px on press and pushes the row onto a
+  second line. `flex: 0 0 200px` + `align-items: flex-start` reserves the width, so the row is 554px
+  **pressed or not** and the press only grows the cell downward into empty space. It wraps at 240px
+  and fits exactly at 206px. This matters more than it looks, because the 404 copy above actively
+  sends the viewer to this control *while* a long alert is on screen. What no value fixes: both
+  sibling cells printing a failure at once needs 1242px against a 1100px body — appearance only, since
+  the movie screen has one focus row, and recorded as a named follow-up.
+- **`vi.clearAllMocks()` does not reset implementations**, so a test that dies mid-way leaves queued
+  `mockResolvedValueOnce` behaviour for the next one. Worth knowing before trusting a multi-failure
+  mutation run in that file.
+
+**From task 9 — the watch route cannot know the ask, so task 8's state table was not implementable
+as written, and the obvious fallback is a regression on the common path.** Verified five ways:
+`watchHref.ts:14-15` is the only watch-URL builder and emits `{id}` plus an optional `?file=N`;
+`PrimaryAction.tsx:144` pushes no quality; `router.push` carries no component state; `TorrentStatus`
+has no requested-quality field; and `to_status()` (`database/models/torrents.py:57-84`) writes
+`quality`, which is **what arrived**. So a 1080p row is a 1080p ask and a downgraded 4K ask at once,
+indistinguishable.
+
+**And the fallback this plan suggested — disclose the arrived bucket on every non-2160p row — pins
+the control band over the picture for the rest of the film.** `mayHide` requires `message === ''`,
+and `useRevealOnKey.ts:76-94` arms the hide timer **only** on a key press and does **not** re-arm
+when `onHide` finds it suppressed — so an 8s note outlives the 5s quiet period and the press that
+would have hidden the band is already spent. Measured: hard-coding the line reddened the two
+pre-existing auto-hide rows as well as the two non-vacuity rows. **That is why "a 1080p press
+landing 1080p must say nothing" is load-bearing twice over.**
+
+**Resolution:** a module-scoped `Map<torrentId, boolean>` in `title.ts`, written by `startDownload`
+(which knows both the flag and the resulting id) and read by the watch route — no query parameter,
+no shared-type field, and **silence on a cold load is the honest answer rather than a limitation**,
+because the ask genuinely is unknown then. Plus a **one-line fix to the re-arm**, authorised
+deliberately: the same suppression defect is **live today on the resume-note path**, independent of
+stage 8, so fixing it improves the existing player rather than merely unblocking this stage.
+
+**Two more loose-matcher traps, both hit before anything was asserted:** `getByRole('status')`
+throws "found multiple elements" and `.bs-player__hint` answers the **wrong node**, because
+`ScrubBar.tsx:157` renders a second one into the same band. The `querySelector` form would have
+failed the "says nothing" rows for the wrong reason and, once the scrub row vanishes mid-recovery,
+**passed** them for the wrong reason.
+
+**And the single most useful process note of the stage: a mutation that did not apply is
+indistinguishable from a mutation that cannot fail.** A `perl` replace silently failed to match and
+came back green; re-done with an asserting Python replace, it reddened. **Verify that every mutation
+actually applied — by grep or assertion — before believing a green result.**
+
 **From task 6 — the plan's 404 precedence was unsafe, and the implementer's reading is the one that
 shipped.** Corrected at the source above. Verified at the function: `{'withheld'}` → the 4K
 sentence; `{'incapable'}` and `{'withheld','incapable'}` → the weaker one; and **all three contain
@@ -1161,9 +1238,11 @@ single point of failure.
 And disclosure on the watch route, which needs no new fetch: the whole row already reaches the
 player as `status={arrival.status}` at `:505` and is read field-wise by the message builder at
 `:955`/`:971`. Two strings: the `decode` verdict names the bucket ("this 4K file…"), and a 4K press
-that produced a non-2160p row says so once on arrival. Use **`status.quality`**, which
+that produced a non-2160p row says so once on arrival. **The verdict's honesty paragraph is
+`(bigscreen)/_player/classify.ts:26-33`** — the plan cited `:27-30` and a path under `bigscreen/`. Use **`status.quality`**, which
 `to_status()` carries on every poll — **not** `chosen_quality`, which is set only on the download
-response (`api/torrents.py:124`) and is null on every poll, as `title.ts:296` already records.
+response (`api/torrents.py:183`, computed at `:162`) and is null on every poll, as the
+`titleStateFor` docstring at `title.ts:313` records and `title.test.ts:296` asserts.
 
 - [ ] **Step 1:** the 404 branch, then the two arrival strings.
 

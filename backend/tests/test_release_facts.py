@@ -220,8 +220,14 @@ ROWS = [
         ),
     ),
     (
-        "dv-profile-8",
-        "Movie.2021.2160p.DV.P8.HEVC.DDP5.1-GRP",
+        # GLUED, deliberately. The dotted `DV.P8` spelling is carried by the BARE `dv`
+        # alternative (its right boundary tolerates the following `.`), so this row named
+        # the `dv[-. _]?p?8` branch while never exercising it: deleting that branch changed
+        # 0 of ~2,165 test parses. `DVP8` is the only spelling that needs it, and without
+        # this row a boundary rework could drop it and silently stop R5's 30-point
+        # Dolby-Vision penalty from firing on it, with the suite still green.
+        "dv-profile-8-glued",
+        "Movie.2021.2160p.DVP8.HEVC.DDP5.1-GRP",
         _facts(
             audio=frozenset({"eac3"}), video_family="hevc", dynamic_range="dv", resolution=2160
         ),
@@ -291,10 +297,30 @@ ROWS = [
         _facts(video_family="hevc", resolution=2160),
     ),
     # Interlaced is not a resolution, for the same reason ``parse_quality`` refuses it.
+    # WHAT EXCLUDES IT is the pattern's required literal ``p`` -- NOT a right boundary. That
+    # distinction is the whole of the two rows below, so do not "tidy" this into a lookahead.
     (
         "480i-is-not-a-resolution",
         "Show.2020.480i.HDTV.XviD-GRP",
         _facts(video_family="xvid", container_guess="avi"),
+    ),
+    # A RESOLUTION GLUED TO THE NEXT TOKEN, which EZTV, MeGusta, SPLiCE and MAZE all ship:
+    # 12 of the 888 titles cached in this install, 10 of them 2160p. A ``(?![a-z])`` on
+    # ``_RESOLUTION_TOKEN`` rejected the ``H`` of ``2160pHD`` under IGNORECASE and left
+    # ``resolution=None`` -- which made BOTH of the profile's only two rejects structurally
+    # unreachable (R1 and R2 key on ``facts.resolution``) while R9 still paid its bonus, so
+    # an un-opted-in 4K release was PROMOTED past bucket-correct 1080p rows instead of being
+    # withheld. These two rows are the whole coverage for that: before them the fix changed
+    # 0 of ~2,165 test-string parses, in either direction.
+    (
+        "glued-2160pHD-is-still-a-2160-resolution",
+        "The Odyssey 2026 2160pHD TELESYNC HEVC AAC2 0-SPLiCE",
+        _facts(audio={"aac"}, video_family="hevc", resolution=2160),
+    ),
+    (
+        "glued-1080pHD-is-still-a-1080-resolution",
+        "Moana 2026 1080pHD WEB Eng Multi Subs EZTV",
+        _facts(resolution=1080),
     ),
     (
         "no-resolution-token-at-all",
@@ -358,7 +384,9 @@ def test_enum_and_fixture_table_sizes_are_pinned():
     assert len(VIDEO_FAMILIES) == 4, VIDEO_FAMILIES
     assert len(DYNAMIC_RANGES) == 3, DYNAMIC_RANGES
     assert len(BIT_DEPTHS) == 3, BIT_DEPTHS
-    assert len(ROWS) == 42
+    # 42 at task 2; 44 after the two glued-resolution rows the whole-branch review's
+    # critical finding required (a lookahead had made both profile rejects unreachable).
+    assert len(ROWS) == 44
     assert len(SELECTOR_FIXTURE_TITLES) == 8
     ids = [row_id for row_id, _, _ in ROWS]
     assert len(set(ids)) == len(ids), "duplicate row ids hide one of the two rows"

@@ -428,6 +428,45 @@ def test_equal_cost_candidates_keep_their_pre_profile_order_exactly():
     assert {c.health for c in out} == {"healthy", "low", "dead"}
 
 
+def test_the_bytes_third_of_stability_is_preserved_within_a_bucket():
+    """The ``bytes`` third of "bucket/seeds/bytes survives byte-for-byte", which had no
+    fixture at all.
+
+    Every other ``_ranked`` call site in this file passes 2-tuples, so ``_hit``'s
+    ``byts=BYTES`` default gave **every** profiled candidate identical bytes -- including in
+    the test above, whose docstring names bytes. The claim was therefore a third
+    unfalsifiable: appending ``pair[0].bytes`` to the second sort key left the 300-test
+    capability/selector set at **300 passed, identical to baseline**. That mutant is not
+    equivalent -- it makes a 0-byte release the ``/download`` auto-pick over a healthy real
+    one at equal seeds, which is exactly what ``_effective_bytes`` exists to prevent -- and
+    it is the same mutation a review agent left behind in the working tree once, where
+    nothing in the suite would have caught it.
+
+    This is the stage's signature defect a third time: task 1 found the first sort's ``-1``
+    sentinel inert, and the second sort was then built with bytes held constant everywhere.
+    """
+    specs = [(A_1080, 30, 2_000_000), (A_1080, 30, 1_000_000), (A_1080, 30, 0)]
+    candidates = _ranked(specs, "1080p")
+    assert [c.bytes for c in candidates] == [2_000_000, 1_000_000, 0], "pre-profile order"
+    out = apply_profile(candidates, PROFILE_ID, allow_2160p=False)
+    assert [c.bytes for c in out] == [2_000_000, 1_000_000, 0]
+
+
+def test_bytes_can_never_outrank_the_quality_bucket():
+    """Cross-bucket, so a bytes term cannot be lifted *above* the bucket either.
+
+    The correct-direction bytes term is still a bug in that slot: the second sort may only
+    refine ``(rejected, health)``, and anything it adds before the first sort's bucket
+    position reorders candidates the ask already settled.
+    """
+    specs = [(A_1080, 30, 0), (A_720, 30, 5_000_000_000)]
+    candidates = _ranked(specs, "1080p")
+    assert [c.quality for c in candidates] == ["1080p", "720p"], "pre-profile order"
+    out = apply_profile(candidates, PROFILE_ID, allow_2160p=False)
+    assert [c.quality for c in out] == ["1080p", "720p"]
+    assert [c.bytes for c in out] == [0, 5_000_000_000]
+
+
 # --------------------------------------------------------------------------------------
 # Costs: the penalty has to move something, or it is decoration
 # --------------------------------------------------------------------------------------

@@ -384,7 +384,13 @@ _R1 = Rule(
         "rank_candidates consults health before the quality bucket, and bucket_order makes "
         "2160p the FIRST downgrade target for a 1080p ask, so a 2160p candidate sits at "
         "bucket index 1 while a 720p sits at 2. No cost term placed below health can reach "
-        "that - a 2160p with the maximum penalty still outranks the 720p. Without the "
+        "that WHEN THE 2160p IS THE HEALTHIER CANDIDATE, which is the common case; at "
+        "EQUAL health a large cost would order correctly and lose only the `withheld` "
+        "mark, which is the field /download's auto-pick skip actually reads. The earlier "
+        "wording here claimed no cost could ever reach it, and that is false - measured "
+        "with R1 re-typed as a cost of 200 and of 1,000,000, the equal-health pair orders "
+        "correctly both times. The reject is still right, because the mark is what the "
+        "endpoint and the television read. Without the "
         "reject the stage merges green and still hands the set a 2160p release for a 1080p "
         "ask. Unknown resolution is free: only a parsed 2160 fires."
     ),
@@ -457,7 +463,10 @@ _R4 = Rule(
         "question. Its own weight, above R3's: a lossless track is a bigger decode ask "
         "than a lossy one, so if either plays it is likelier to be plain DTS. Shadowed for "
         "the same reason as R3, settled by its own reading (19, a real file rather than a "
-        "clip, because a DTS-HD MA sample is in the library already)."
+        "clip, because ffmpeg's `dca` encoder produces DTS CORE only and cannot mux a "
+        "DTS-HD MA or TrueHD track - the readings sheet's own reason, where this used to "
+        "assert that such a sample was already in the library, which nothing supports and "
+        "which could not explain why a clip is impossible anyway)."
     ),
 )
 
@@ -490,9 +499,14 @@ _R6 = Rule(
     settled_by=("20",),
     why=(
         "**In force rather than shadowed, and the weakness is recorded here instead of in "
-        "the effect.** §7.2's own parenthetical scopes this penalty to '2022 LCDs', a "
-        "class this QNED is not in - so on its own evidence it would be a candidate for "
-        "shadow. It stays in force because §11.2, the one written definition of this "
+        "the effect.** LG's AV1 caveat was MODEL-DEPENDENT across the 2022 LCD lines, so "
+        "its applicability to this QNED99 is uncertain - hence `inferred`, hence reading "
+        "20. (This used to read that §7.2 'scopes this penalty to 2022 LCDs, a class this "
+        "QNED is not in'. Both halves were wrong: §3.1 reasons that a 75-inch 2022 LG IS "
+        "an LCD, and the pre-rewrite §7.2 asserted per-model variation WITHIN that class "
+        "rather than excluding this panel - and this branch's own §7.2 rewrite deleted the "
+        "quoted text entirely.) It stays in force because §11.2, the one written definition "
+        "of this "
         "stage's selector test, requires the profile to 'penalise AV1', and a "
         "non-reordering term would contradict it. Reading 20 retires or re-justifies it. "
         "av1 was already in `_CODEC`, so the input works today."
@@ -508,7 +522,9 @@ _R7 = Rule(
     state=STATE_IN_FORCE,
     settled_by=("22",),
     why=(
-        "§7.2 says 'container outside .mkv/.mp4/.ts -> heavy penalty', but **the real "
+        "§7.2 said 'container outside .mkv/.mp4/.ts -> heavy penalty' BEFORE this branch's own "
+        "§7.2 rewrite replaced that table (so the quote is historical, not current), but "
+        "**the real "
         "container is not knowable here**: the provider returns seven keys and no file "
         "list, a season pack's torrent name is a directory name, and nothing in the image "
         "can probe a file before the decision is made. So this is named a **codec proxy**, "
@@ -758,7 +774,10 @@ def apply_profile(
     stable sort over the output of ``rank_candidates``, which ordered by
     ``(health, bucket, seeds, bytes)``:
 
-    * ``health_rank`` is the first element of **both** keys and Python's sort is stable, so
+    * the second key's prefix ``(rejected, health_rank)`` **refines** the first key's
+      leading ``health_rank`` — it is this key's *second* element, not its first, and the
+      earlier wording said "first element of both keys", which is simply false — and
+      Python's sort is stable, so
       the capability term lands exactly **between health and the quality bucket** by
       construction — no weight tuning, no arithmetic bound, no fifth element in the
       selector — and bucket/seeds/bytes order inside each (reject, health) group survives
@@ -767,7 +786,10 @@ def apply_profile(
       This is also why the 4K opt-out (R1) must be a reject rather than a weight:
       ``bucket_order`` makes 2160p the *first* downgrade target for a 1080p ask, so a 2160p
       sits at bucket index 1 against a 720p at 2, and no cost placed below health can reach
-      it. Mutating R1 to a cost reddens the opt-out rows; that is the arithmetic.
+      it **when the 2160p is the healthier candidate**. At equal health a large cost orders
+      correctly and loses only the ``withheld`` mark — so the reject earns its place by the
+      mark, not by arithmetic alone. Mutating R1 to a cost reddens the opt-out rows, whose
+      own docstrings carry the health-mismatch qualifier.
     * ``capability_cost`` is :attr:`Verdict.cost` — signed, summed over the **in-force**
       matches only, penalties positive and bonuses negative, so **lower is better** and the
       sort is ascending. Shadow and skipped rules contribute 0 and reorder nothing; they

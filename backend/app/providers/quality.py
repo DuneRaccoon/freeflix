@@ -134,8 +134,11 @@ _HI10 = re.compile(r"(?<![a-z0-9])hi[-. _]?10[-. _]?p?(?![a-z])", re.IGNORECASE)
 # Written from scratch rather than split off ``_HDR``, which is lossy rather than absent:
 # it *does* match a bare ``DV`` token, and misses exactly ``DoVi``, ``HLG`` and dotted
 # ``Dolby.Vision`` (``\s*`` does not match ``.``, and a scene name is dotted).
-# ``dv`` is last in its own alternation and keeps a letter-intolerant right boundary, which
-# is what stops ``DVDRip`` and ``DVD`` from being read as Dolby Vision.
+# The LETTER-INTOLERANT RIGHT BOUNDARY is what stops ``DVDRip`` and ``DVD`` from being read
+# as Dolby Vision, and it is pinned. The position of ``dv`` within its own alternation is
+# NOT load-bearing and must not be described as though it were: all five alternatives carry
+# the same label and ``_first_match`` discards the span, so moving ``dv`` to the front
+# changes 0 of ~2,165 test parses. Measured — the same lesson as the audio block above.
 _DYNAMIC_RANGE_PATTERNS: Tuple[Tuple[str, Any], ...] = (
     ("dv", re.compile(
         r"(?<![a-z0-9])(?:dovi|dolby[-. _]?vision|dv[-. _]?p?8|profile[-. _]?8|dv)(?![a-z])",
@@ -164,8 +167,20 @@ _REMUX = re.compile(r"(?<![a-z0-9])remux(?![a-z])", re.IGNORECASE)
 
 # An explicit ``NNNNp`` token wins over the ``4k|uhd`` marketing proxy, which is the one
 # behaviour ``_QUALITY_PATTERNS`` gets backwards. ``480i`` is deliberately not a
-# resolution: interlaced content is not what the bucket or the profile means.
-_RESOLUTION_TOKEN = re.compile(r"(?<!\d)(2160|1080|720|480)p(?![a-z])", re.IGNORECASE)
+# resolution: interlaced content is not what the bucket or the profile means, and the
+# required literal ``p`` is what excludes it -- not a right boundary.
+#
+# NO RIGHT BOUNDARY HERE, AND THAT IS THE WHOLE POINT. A ``(?![a-z])`` looks harmless beside
+# the other patterns and was actively harmful: under IGNORECASE it rejects the ``H`` of
+# ``2160pHD``, a spelling EZTV, MeGusta, SPLiCE and MAZE all ship (12 of 888 real cached
+# titles, 10 of them 2160p). Because every reject in the profile keys on
+# ``facts.resolution``, that glued form made BOTH of the only two rules allowed to refuse a
+# file -- R1 ``withheld-2160p`` and R2 ``dts-family-at-2160p`` -- structurally unreachable,
+# while R9 still paid its bonus: an un-opted-in 4K release was not merely admitted but
+# PROMOTED past bucket-correct 1080p rows. Measured before and after; dropping the lookahead
+# fixes all 12 and changes nothing else in the 888. A resolution token is a number glued to
+# a ``p``; what follows it is somebody else's token, not a reason to disbelieve this one.
+_RESOLUTION_TOKEN = re.compile(r"(?<!\d)(2160|1080|720|480)p", re.IGNORECASE)
 _RESOLUTION_PROXY = re.compile(r"(?<![a-z0-9])(?:4k|uhd)(?![a-z])", re.IGNORECASE)
 
 

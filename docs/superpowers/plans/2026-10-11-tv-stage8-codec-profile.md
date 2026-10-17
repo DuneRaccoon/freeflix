@@ -119,6 +119,26 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**From task 6 — the plan's 404 precedence was unsafe, and the implementer's reading is the one that
+shipped.** Corrected at the source above. Verified at the function: `{'withheld'}` → the 4K
+sentence; `{'incapable'}` and `{'withheld','incapable'}` → the weaker one; and **all three contain
+"no torrents"**, so `title.ts`'s `reasonFor` degrades to "No sources found for this title yet."
+rather than to the lie "The box doesn't recognise this title."
+
+Also verified independently: a **misspelled** `client` key raises `extra_forbidden` and a bad
+**value** raises `literal_error`, both 422. Without `extra='forbid'` the misspelling would have been
+silently dropped for a 200 with unprofiled ranking — the failure mode that looks exactly like
+success.
+
+**A process finding, and it nearly cost a bad commit.** The review fan-out was stopped mid-run when
+the session ended, and it left a **production mutation unrestored** in `capability.py`: an extra
+`pair[0].bytes` appended to `apply_profile`'s sort key, which defeats the stable-sort guarantee the
+whole stage rests on. `git status` showed the file as merely "modified", indistinguishable from
+legitimate work. It was caught only by diffing **every** production file before committing. **Any
+agent authorised to mutate production code to test falsifiability must be assumed to have left a
+mutation behind if it did not report**, and the pre-commit check is a per-file `git diff`, never a
+glance at `git status`.
+
 **From task 7 — the mutation this plan called "the most important in the task" cannot fail**, and
 the leak it was supposed to detect had **no automated guard at all**. All three web test files mock
 `@/services/torrents` wholesale, so the eleven payload assertions never execute the real service;
@@ -927,8 +947,16 @@ distinct details, both of which **must contain "no torrents"** so they degrade s
 `title.ts:382-385`:
 
 - every candidate `withheld`-only → `"Only 4K sources exist for this title — no torrents this
-  television can play in HD"` (it names an action the viewer can take, so it wins a mixed case);
+  television can play in HD"`;
 - any candidate `incapable` → `"No torrents this television can play"`.
+
+**On a MIXED set the weaker sentence wins, and this plan originally said the opposite.** It claimed
+the 4K copy "wins a mixed case" because it names an action the viewer can take. That is wrong: if
+any candidate is `incapable`, "Only 4K sources exist — press 4K" is a **false instruction**, because
+pressing 4K would surface a release this panel cannot decode. The weaker sentence is true whatever
+mix is present, and this precedence then agrees with
+`capability.REJECT_PRECEDENCE = ('incapable', 'withheld')` instead of contradicting it. Shipped as:
+the 4K copy only when the refusal set is exactly `{'withheld'}`. Verified at the function.
 
 Genuinely empty hits keep the **unchanged** `"No torrents found"`.
 

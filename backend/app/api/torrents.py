@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Body, Path, BackgroundTasks, Depends
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
 from pathlib import Path as PathLib
 from sqlalchemy.orm import Session
 
@@ -15,7 +15,8 @@ from app.models import (
 from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
 from app.services import movies as movie_service
 from app.services import tv as tv_service
-from app.services.torrents_select import select_best, available_qualities, rank_candidates
+from app.services.torrents_select import rank_candidates
+from app.services.capability import apply_profile
 from app.providers import catalog
 from app.torrent.manager import torrent_manager
 from app.config import settings
@@ -28,6 +29,40 @@ def _human_size(num: int) -> str:
         if size < 1024 or unit == "TB":
             return f"{size:.1f} {unit}"
         size /= 1024
+
+
+#: The profile ids a device may send. Spelled out rather than derived from
+#: services.capability.PROFILES at import time: a Literal needs literal members, and a
+#: typo here is caught by the endpoint tests, which assert both the accepted id and a 422
+#: for a garbage one. Mirrors models.TorrentRequest.client -- change both together.
+_ClientProfile = Literal['lg-webos22-floor']
+
+
+def _device_refusal(candidates: List[TorrentCandidate]) -> str:
+    """The 404 detail when a capability profile refused every candidate.
+
+    **Both strings contain "no torrents"**, because the television's error mapping keys on
+    exactly that substring (``_data/title.ts``'s ``reasonFor``: a 404 whose detail matches
+    ``/no torrents/i`` becomes "No sources found for this title yet.", and anything else
+    becomes "The box doesn't recognise this title." -- a lie about a title that exists).
+    So a 404 copy edit here is a viewer-visible change on the TV; keep the substring.
+
+    **The precedence, and the one open question in it.** The 4K copy is claimed only when
+    every refusal is ``withheld`` -- a 2160p release the viewer could unlock by pressing 4K.
+    Any other label, ``incapable`` above all, falls to the weaker sentence, which is true
+    whatever mix of labels is present. That matches ``capability.REJECT_PRECEDENCE``
+    ("incapable", "withheld") and the comment beside it, which names this copy rule.
+    The stage-8 plan states the same conditions and then, in the same sentence, says the 4K
+    copy "wins a mixed case" -- the opposite. Shipped as written here, with the safer claim
+    on the mixed set; flipping it is this one predicate plus the name of its test.
+    """
+    verdicts = {c.device_verdict for c in candidates}
+    if verdicts == {"withheld"}:
+        return (
+            "Only 4K sources exist for this title "
+            "— no torrents this television can play in HD"
+        )
+    return "No torrents this television can play"
 
 
 @dataclass
@@ -79,7 +114,12 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
         chosen_bytes: int = 0
 
         if request.magnet:
-            # Explicit magnet from the picker: use verbatim, trust the requested bucket.
+            # BYPASS 1, deliberate and pinned (tests/test_download_select.py's
+            # test_download_explicit_magnet_used_verbatim): an explicit magnet from a
+            # picker never reaches rank_candidates, so no capability profile is applied
+            # to it either. The viewer chose this exact release off a list that already
+            # showed them its device marks; honouring it is the point. Unreachable from
+            # the television, which sends no magnet.
             chosen_magnet = request.magnet
             chosen_quality = request.quality
         else:
@@ -90,15 +130,34 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
             )
             if not candidates:
                 raise HTTPException(status_code=404, detail="No torrents found")
+            # The device profile annotates and re-orders; it never filters. `client` is
+            # None for every browser, and that path returns this very list object.
+            candidates = apply_profile(
+                candidates, request.client,
+                allow_2160p=(request.quality == '2160p'),
+            )
             chosen = None
             if request.source_id:
+                # BYPASS 2, deliberate: an explicit source_id is honoured even when the
+                # profile refused it, for the same reason as bypass 1. Unreachable today
+                # -- both web pickers send `magnet` AND `source_id`, so bypass 1 fires
+                # first, and the television sends neither.
                 chosen = next(
                     (c for c in candidates if c.source_id == request.source_id), None
                 )
             if chosen is None:
                 # No explicit pick (or it was stale) -> ranked top pick (best healthy
-                # downgrade). No hard 422: the user always gets the best available.
-                chosen = candidates[0]
+                # downgrade), skipping anything this device cannot or must not play.
+                # No hard 422: the user always gets the best available. device_verdict is
+                # truthy iff refused and None when accepted OR when no profile ran, so
+                # with client=None this is candidates[0] exactly as before.
+                chosen = next((c for c in candidates if not c.device_verdict), None)
+            if chosen is None:
+                # Candidates existed and the profile refused all of them. A distinct 404
+                # from "No torrents found", which still means what it always did.
+                raise HTTPException(
+                    status_code=404, detail=_device_refusal(candidates)
+                )
             chosen_magnet = chosen.magnet
             chosen_quality = chosen.quality or request.quality
             chosen_bytes = chosen.bytes
@@ -136,16 +195,29 @@ async def get_sources(
     media_type: str = Query("movie", description="'movie' or 'tv'"),
     season: Optional[int] = Query(None, ge=0),
     episode: Optional[int] = Query(None, ge=1),
+    client: Optional[_ClientProfile] = Query(
+        None, description="Capability profile id of the calling device (stage 8)"),
 ):
-    """Ranked, health-classified candidate sources for a title (consumed by the picker)."""
+    """Ranked, health-classified candidate sources for a title (consumed by the picker).
+
+    `client` annotates and re-orders for one device and **filters nothing**: the list is
+    advisory, and the web's alternatives modal and in-player switcher are both guarded on
+    a non-empty list, so dropping rows would make the web play a refused release with no
+    warning rather than offer a better one. Refusing is /download's job. A Literal, not a
+    bare str like `quality` beside it: an unvalidated name would reach apply_profile and
+    raise ValueError, which the error middleware renders as an opaque 500.
+    """
     try:
         if media_type == "tv":
             if season is None:
                 raise HTTPException(status_code=422, detail="season is required for TV sources")
             if episode is not None:
-                return await tv_service.episode_candidates(tmdb_id, season, episode, quality)
-            return await tv_service.season_candidates(tmdb_id, season, quality)
-        return await movie_service.get_candidates(tmdb_id, quality)
+                candidates = await tv_service.episode_candidates(tmdb_id, season, episode, quality)
+            else:
+                candidates = await tv_service.season_candidates(tmdb_id, season, quality)
+        else:
+            candidates = await movie_service.get_candidates(tmdb_id, quality)
+        return apply_profile(candidates, client, allow_2160p=(quality == '2160p'))
     except HTTPException:
         raise
     except Exception as e:

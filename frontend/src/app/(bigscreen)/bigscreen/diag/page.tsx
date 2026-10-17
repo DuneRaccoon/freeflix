@@ -175,6 +175,13 @@ type Clip = { id: string; file: string; label: string; mime: string; note: strin
 /**
  * One variable each, and clip 4 is the control.
  *
+ * ONE VARIABLE MEANS ONE: clips 1 and 2 carry the control's E-AC3 track, not AC3, so the
+ * only thing that changes between clip 4 and them is libx264 -> libx265. They were first
+ * written with `-c:a ac3` against the control's `-c:a eac3`, which is two codec variables --
+ * and plain AC3 is itself unmeasured on this panel, so a red clip 1 could have been an HEVC
+ * verdict or an AC3 verdict and reading 16 would have been unattributable. Caught by the
+ * whole-branch review before any reading was taken.
+ *
  * Clip 4 reproduces the only AV combination this project has ever measured (the 2026-10-07
  * sitting: a 1080p H.264 MKV with a DDP5.1 / E-AC3 track, streamed off a ~26%-complete
  * torrent). So a red row *there* means the instrument, the mux or the file is wrong — not the
@@ -187,16 +194,16 @@ type Clip = { id: string; file: string; label: string; mime: string; note: strin
 const CLIPS: Clip[] = [
   {
     id: 'c1',
-    file: 'clip1-1080p-hevc-main8-ac3.mkv',
-    label: 'Clip 1 — 1080p HEVC Main 8-bit + AC3',
-    mime: 'video/x-matroska; codecs="hvc1.1.6.L120.B0,ac-3"',
-    note: 'Reading 16 — gates R9 and the 4K opt-in. HEVC decode is accepted on documentation alone.',
+    file: 'clip1-1080p-hevc-main8-eac3.mkv',
+    label: 'Clip 1 — 1080p HEVC Main 8-bit + E-AC3',
+    mime: 'video/x-matroska; codecs="hvc1.1.6.L120.B0,ec-3"',
+    note: 'Reading 16 — gates R9 and the 4K opt-in. HEVC decode is accepted on documentation alone. E-AC3, not AC3, so the ONLY variable against clip 4 is the video codec.',
   },
   {
     id: 'c2',
-    file: 'clip2-1080p-hevc-main10-ac3.mkv',
-    label: 'Clip 2 — 1080p HEVC Main10 + AC3',
-    mime: 'video/x-matroska; codecs="hvc1.2.4.L120.B0,ac-3"',
+    file: 'clip2-1080p-hevc-main10-eac3.mkv',
+    label: 'Clip 2 — 1080p HEVC Main10 + E-AC3',
+    mime: 'video/x-matroska; codecs="hvc1.2.4.L120.B0,ec-3"',
     note: 'Reading 17 — R9 names Main and Main10 in one breath; they are different decoder profiles.',
   },
   {

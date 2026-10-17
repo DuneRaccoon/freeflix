@@ -119,6 +119,60 @@ from: that is the `Torrent` DB row, hazard 15, and it stays out of scope.
 and dotted `Dolby.Vision` (`\s*` does not match `.`). So R5's input is **lossy, not absent**;
 "no input today" overstates it and the docstring must not repeat that.
 
+**From the whole-branch review (82 agents, six dimensions, three refuters per finding) — one
+critical, and the suite could not see either blocker.** Both fixed in `c7176aa`; the full list of
+eleven survivors, with the refuters' dissent, is in the run's synthesis.
+
+- **CRITICAL: a `(?![a-z])` on `_RESOLUTION_TOKEN` made BOTH profile rejects unreachable on a real
+  naming family.** Under IGNORECASE it rejected the `H` of `2160pHD`, leaving `resolution=None` —
+  and every reject keys on `facts.resolution`, so R1 and R2 could not fire while R9 still paid its
+  bonus. An un-opted-in 4K release was **promoted** past bucket-correct 1080p rows: for one real
+  title, position 30 of 43 → 3 of 43 with `device_verdict=None`, while its normally-spelled sibling
+  was correctly withheld. **12 of the 888 cached titles use the glued form** (EZTV, MeGusta, SPLiCE,
+  MAZE), 10 of them 2160p. Zero coverage in both directions before the fix.
+- **The `bytes` third of the ordering claim had no fixture — this stage's signature defect, a third
+  time.** Every `_ranked` call site passed 2-tuples, so every profiled candidate had identical
+  bytes, *including in the test whose docstring names bytes*. Appending `pair[0].bytes` to the key
+  left 300 tests at 300 passed — **byte-for-byte the mutation a dead agent left in this working
+  tree**, which nothing in the suite would have caught. Now closed in both directions, because the
+  *correct*-direction term is also a bug in that slot.
+- R1's `why` claimed no cost could ever reach a 2160p: false at equal health, measured at costs of
+  200 and 1,000,000. The reject earns its place by the `withheld` **mark**, which is what
+  `/download` reads. The same docstring called `health_rank` "the first element of both keys" when
+  it is the second.
+- R4 asserted a DTS-HD MA sample was "in the library already" — unsupported, and unable to explain
+  why a *clip* is impossible anyway. R6 and R7 quoted §7.2 text **this branch's own rewrite
+  deleted**, and R6's claim ran backwards on its source (§3.1 reasons a 75-inch 2022 LG *is* an LCD).
+- **Pre-sitting, now fixed: clips 1 and 2 changed two AV variables, not one.** They carried
+  `-c:a ac3` against the control's `-c:a eac3`, and plain AC3 is itself unmeasured here — so a red
+  reading 16 could have been an HEVC verdict *or* an AC3 verdict, and gate A would have been
+  unattributable. Both now carry the control's audio, so the only variable is `libx264 → libx265`.
+  **This had to land before the sitting, not before the merge.**
+
+**Follow-ups the review raised and this stage does not close:**
+
+- **R8 reads no bit depth**, so a positively-named 10-bit H.264 (`Hi10P`, which the parser folds
+  into `h264` and sets depth 10 for) earns tier A — the largest bonus — and crosses a bucket ahead
+  of a documented HEVC release. Two corpus rows hit it. §7.2 specifies R8 with no depth term and
+  §3.2 enumerates profiles only on the HEVC row, so High 10 is *unaddressed* rather than excluded;
+  whether it belongs in tier A, tier B or nowhere turns on readings 16/17/23.
+- **R2 is a deny-list where §3.2's Ultra HD row is an allow-list**, so a 2160p FLAC or MP3 release
+  is admitted and unmarked once 4K is opted in — all three 2160p *Seven Samurai* rows in the corpus
+  are FLAC. Capped at minor because the allow-list's positive half *is* implemented as R8/R9's
+  bonus, so such a row loses to any permitted-audio peer; only the no-alternative case leaks. The
+  remedy is a **costed** rule with `basis='inferred'` plus a new reading row — **not** a wider R2,
+  which `BASIS_CEILING` forbids and a test pins to exactly two rejects. `opus` must be excluded from
+  any such rule, because the parser reads it off the film title *Opus*.
+- `DDPA 5.1` parses to an **empty** audio set (`ddp` dies on the `A`, `dd` on the `P`), so four real
+  2160p HEVC DV releases forfeit R9's bonus to a spelling. Unreachable today — all four are 0-seed
+  and `health_rank` precedes cost — and nothing is *contradicted*, since unknown is documented as
+  free. Same class: `H265MA` → `video_family=None`; `XvidHD` → `container_guess=None`, which exempts
+  one real row from R7's 200 while six siblings take it.
+- **The one design question this stage left unexamined**, and the review is right to name it:
+  `facts.remux` is parsed and **read by no rule**, while R10 ships inert for want of a bitrate — and
+  a `REMUX` token is the strongest bitrate signal available at selection time. Whether a remux-flag
+  proxy could give R10 a costed, `inferred`-basis input is worth deciding, with its own reading row.
+
 **From task 8 — the prescribed rescue mutation cannot fail, and the repo had already written down
 why in a file this plan cites.** "Delete the rescue → the unmount-while-focused row reddens"
 measured **63/63 green**: `useFocusGrid`'s reconcile effect (`_focus/useFocusGrid.ts:265-301`) re-runs

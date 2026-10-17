@@ -457,7 +457,7 @@ describe('/bigscreen/diag: the codec instrument cannot report a blank', () => {
       expect(player('c1'), 'no element was mounted, so nothing was asked to decode').toBeNull();
     });
     expect(cellText('c1', 'HTTP'), 'the raw status is the reading').toBe(
-      'HEAD /samples/clip1-1080p-hevc-main8-ac3.mkv -> 404 Not Found',
+      'HEAD /samples/clip1-1080p-hevc-main8-eac3.mkv -> 404 Not Found',
     );
     // The prose below the table, which is what tells the operator this is not a codec result.
     // Measured: with only a row-wide /FILE NOT PRESENT/ match, deleting the words from the CELL
@@ -473,7 +473,7 @@ describe('/bigscreen/diag: the codec instrument cannot report a blank', () => {
     await loadClip('c2');
 
     await waitFor(() => expect(player('c2')).not.toBeNull());
-    expect(player('c2')).toHaveAttribute('src', '/samples/clip2-1080p-hevc-main10-ac3.mkv');
+    expect(player('c2')).toHaveAttribute('src', '/samples/clip2-1080p-hevc-main10-eac3.mkv');
     expect(cellText('c2', 'File present?')).toBe('yes');
   });
 

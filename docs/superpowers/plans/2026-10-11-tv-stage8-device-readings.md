@@ -186,19 +186,19 @@ ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=24:duration=20 \
        -f lavfi -i sine=frequency=440:duration=20 \
        -c:v libx265 -preset medium -pix_fmt yuv420p \
        -x265-params profile=main \
-       -c:a ac3 -b:a 192k -ac 2 \
-       -shortest frontend/public/samples/clip1-1080p-hevc-main8-ac3.mkv
+       -c:a eac3 -b:a 256k -ac 2 \
+       -shortest frontend/public/samples/clip1-1080p-hevc-main8-eac3.mkv
 ```
 
-**Clip 2 — 1080p HEVC Main10 + AC3** *(written down, NOT RUN)* — one variable away from clip 1:
+**Clip 2 — 1080p HEVC Main10 + E-AC3** *(written down, NOT RUN)* — one variable away from clip 1:
 
 ```bash
 ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=24:duration=20 \
        -f lavfi -i sine=frequency=440:duration=20 \
        -c:v libx265 -preset medium -pix_fmt yuv420p10le \
        -x265-params profile=main10 \
-       -c:a ac3 -b:a 192k -ac 2 \
-       -shortest frontend/public/samples/clip2-1080p-hevc-main10-ac3.mkv
+       -c:a eac3 -b:a 256k -ac 2 \
+       -shortest frontend/public/samples/clip2-1080p-hevc-main10-eac3.mkv
 ```
 
 **Clip 3 — 1080p H.264 + DTS 5.1** *(written down, NOT RUN)* — the video is deliberately the
@@ -264,7 +264,18 @@ H.264 and HEVC at 2160p and H.264 2160p releases are rare. That is a rule-table 
 removal on the TV's movie screen, not a weight change.
 
 **Read it together with the control.** A red 16 with a red clip 4 is an instrument fault. A red 16
-with a **green** clip 4 is the panel, because the two clips differ in exactly one variable.
+with a **green** clip 4 is the panel, because the two clips differ in exactly one variable —
+the **video codec**, and nothing else.
+
+**That was not true until 2026-10-18, and the correction is the reason this row can be read at
+all.** Clips 1 and 2 were written with `-c:a ac3 -b:a 192k` against the control's
+`-c:a eac3 -b:a 256k`, i.e. **two codec variables plus a bitrate**. Plain AC3 is itself unmeasured
+on this panel — `capability.py` says so where R8 records its one measured run — so a red clip 1
+could have been an HEVC verdict *or* an AC3 verdict, and gate A would have been unattributable.
+Both clips now carry the control's audio, so the only thing that changes between clip 4 and clips
+1/2 is `libx264` → `libx265`. The set still has no H.264+AC3 clip and no plain-AC3 reading, which
+is a gap recorded here rather than closed: AC3 remains unmeasured, and no rule depends on it that
+E-AC3 does not already satisfy.
 
 **Measurement vs assumption today:** pure assumption. Nothing on this television has decoded HEVC,
 and the stage-7 sheet already carries "HEVC / H.265 decodes" as a named assumption pointing here.

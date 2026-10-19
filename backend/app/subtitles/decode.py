@@ -66,7 +66,7 @@ REFUSAL_ENCODING_UNKNOWN = "encoding-unknown"
 #     Russian cp1251, 7 cues              1.0000   <- refused, correctly
 #     Polish  cp1250, 7 cues              0.0613   <- accepted (and mangled;
 #                                                     see the blind spot below)
-#     Turkish cp1254, 5 cues              0.1491   <- accepted (blind spot)
+#     Turkish cp1254, 3 cues              0.1343   <- accepted (blind spot)
 #     French  cp1252, 2 cues              0.1522   <- accepted, correctly
 #     French  cp1252, the 4-letter "Cafe" 0.2500   <- accepted, correctly
 #
@@ -74,9 +74,11 @@ REFUSAL_ENCODING_UNKNOWN = "encoding-unknown"
 # moving the number:
 #
 # 1. It detects a wrong SCRIPT, not a wrong CODEPAGE within Latin. Turkish
-#    cp1254 read as cp1252 scores 0.1491 and sails through with its
+#    cp1254 read as cp1252 scores 0.1343 and sails through with its
 #    `g-breve s-cedilla I-dot dotless-i` mangled. A threshold low enough to
-#    catch it would refuse real French and Polish files.
+#    catch it (below 0.1343) would refuse the real French file above, which
+#    scores 0.1522. The Polish file is not part of that argument: at 0.0613 it
+#    is below the Turkish row and would survive such a move.
 # 2. It aggregates over a FILE, and it is weakest on short ones. A single
 #    heavily diacritic Polish line measures 0.50 *on its own* and would be
 #    refused if the gate ran per line; the same text inside a 7-cue file

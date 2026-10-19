@@ -81,6 +81,25 @@ UTF16_BE_NO_BOM = _ASCII_CUE.encode("utf-16-be")
 UTF16_LE_BOM = b"\xff\xfe" + UTF16_LE_NO_BOM
 UTF16_BE_BOM = b"\xfe\xff" + UTF16_BE_NO_BOM
 
+# The same trap one rung further down: BOM-less UTF-16 with ONE non-ASCII
+# character. `\xe9\x00` is an invalid UTF-8 continuation, so unlike the
+# ASCII-only rows above these bytes fall PAST rung 2 — and cp1251 and cp1252
+# both decode them without raising, into a NUL-riddled string whose density is
+# 0.2500, i.e. INSIDE the gate. So here the NUL guards on the owner rung and
+# the cp1252 rung are the only thing between the viewer and a file of
+# `C\x00a\x00f\x00é\x00`, and nothing else in this module can reach them:
+# measured, deleting either guard left all 46 other tests green.
+UTF16_LE_NO_BOM_ACCENTED = "1\r\n00:00:01,000 --> 00:00:02,000\r\nCafé\r\n".encode(
+    "utf-16-le"
+)
+
+# A UTF-32 LE file. Its BOM's first two bytes ARE `codecs.BOM_UTF16_LE`, so it
+# matches the FIRST rung and decodes as UTF-16 without raising, into a
+# NUL-riddled string. `decode.py`'s BOM-table comment names this case and says
+# "the NUL guard below refuses" it; the two UTF-16 BOM rows above cannot test
+# that sentence, because they decode cleanly.
+UTF32_LE_BOM = b"\xff\xfe\x00\x00" + _ASCII_CUE.encode("utf-32-le")
+
 # (d) Seven cues of hand-authored Russian dialogue, cp1251. Measured: not valid
 # UTF-8; cp1252 decodes it WITHOUT error (cp1251's Russian letters live at
 # 0xA8/0xB8 and 0xC0-0xFF, all of which cp1252 defines), density 1.0000. So the
@@ -169,6 +188,8 @@ ALL_FIXTURES = {
     "utf16_be_no_bom": UTF16_BE_NO_BOM,
     "utf16_le_bom": UTF16_LE_BOM,
     "utf16_be_bom": UTF16_BE_BOM,
+    "utf16_le_no_bom_accented": UTF16_LE_NO_BOM_ACCENTED,
+    "utf32_le_bom": UTF32_LE_BOM,
     "cp1251_russian": CP1251_RUSSIAN,
     "cp1250_polish": CP1250_POLISH,
     "cp1254_turkish": CP1254_TURKISH,
@@ -278,6 +299,42 @@ def test_bomless_utf16_is_refused_although_it_decodes_as_valid_utf8(name):
     assert reason == REFUSAL_ENCODING_UNKNOWN
 
 
+@pytest.mark.parametrize("declared", [None, "cp1251"])
+def test_bomless_utf16_with_one_accent_is_refused_by_the_lower_nul_guards(
+    declared, monkeypatch
+):
+    """The NUL check sits on four rungs; only rung 2's had a fixture.
+
+    Mutation that must redden: drop `"\\x00" not in text` from the owner rung
+    (the `cp1251` arm) or from the cp1252 rung (both arms). Measured: these
+    bytes fail UTF-8 strict, so rung 2 never answers them; cp1251 and cp1252
+    both decode them WITHOUT raising; and the result's non-ASCII letter density
+    is 0.2500, inside the gate — so the density gate does not catch this one
+    and the guard is on its own. Before this test, deleting either guard left
+    every other test in this module green.
+    """
+    monkeypatch.setattr(settings, "subtitle_encoding", declared)
+    text, reason = decode_subtitle(UTF16_LE_NO_BOM_ACCENTED)
+    assert text is None
+    assert reason == REFUSAL_ENCODING_UNKNOWN
+
+
+def test_utf32_matching_the_utf16_bom_is_refused_not_served_full_of_nuls():
+    """`codecs.BOM_UTF16_LE` is a PREFIX of the UTF-32 LE BOM.
+
+    So a UTF-32 file matches the first rung, decodes as UTF-16 without raising,
+    and yields alternating characters and NULs. That is the outcome the BOM
+    table's comment in `decode.py` calls honest "because the NUL guard below
+    refuses" it — this is the test of that sentence, and before it the guard
+    had none.
+
+    Mutation that must redden: drop `or "\\x00" in text` from the BOM rung.
+    """
+    text, reason = decode_subtitle(UTF32_LE_BOM)
+    assert text is None
+    assert reason == REFUSAL_ENCODING_UNKNOWN
+
+
 # --- (d) the density gate -----------------------------------------------------
 
 
@@ -323,7 +380,10 @@ def test_turkish_cp1254_is_accepted_and_mangled_which_is_the_gates_blind_spot():
     `ğ ş İ ı` silently replaced by
     `ð þ Ý ý`. Pinned so that the next person to touch the
     threshold sees what it does NOT buy: lowering it far enough to catch this
-    would refuse real French (0.1522) and Polish (0.0613) files.
+    (below 0.1343) would refuse the real French file above, which scores
+    0.1522. The Polish file is NOT part of that argument — at 0.0613 it sits
+    below the Turkish row and would survive such a move; French alone is what
+    bounds this threshold from below.
     """
     text, reason = decode_subtitle(CP1254_TURKISH)
     assert reason is None
@@ -339,8 +399,11 @@ def test_non_ascii_letter_density_counts_letters_and_only_letters():
     Mutation that must redden: divide by `len(text)` instead of by the letter
     count. An SRT is roughly half timestamps and cue numbers, so that change
     scales every density down by a factor that depends on how chatty the file
-    is — the Russian file's 1.0000 becomes ~0.55 and a threshold tuned on one
-    file stops meaning anything on another.
+    is, and a threshold tuned on one file stops meaning anything on another.
+    MEASURED on this module's own Russian fixture: 171 non-ASCII letters over
+    489 characters is 0.3497, so its 1.0000 falls to just UNDER the 0.35 limit
+    and the file is accepted — which is why the Cyrillic row above reddens
+    under this mutation too.
     """
     assert non_ascii_letter_density("Café") == pytest.approx(0.25)
     # Digits, spaces and punctuation are in neither the numerator nor the

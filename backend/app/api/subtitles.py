@@ -536,12 +536,39 @@ async def get_subtitle_vtt(
     # mutation the `.ass` row below discriminates. D17: `.ass`/`.ssa` are listed
     # and never converted, so the picker can say the format out loud instead of
     # staying silent about a file the viewer can see in the release.
+    #
+    # The reason is NOT read off the row, and the `or row["reason"]` fallback
+    # that used to stand here is GONE. Do not restore it as a defensive `or`:
+    # the lister fills `unsupported-format` in only `if reason is None`
+    # (`manager.py:1522-1523`), so a non-convertible row whose stat raised a
+    # NON-ABSENCE `OSError` carries `convertible: False` together with
+    # `reason: "unreadable"` — and the fallback then answered **415
+    # `{"reason": "unreadable"}`**, a pair this handler's own matrix above
+    # forbids twice over ("unreadable" is listed there as a 404, and it is not
+    # one of the four 415 reasons). Measured through the REAL lister with a
+    # 300-character name component: `os.path.getsize` raises ENAMETOOLONG
+    # (errno 36, not `FileNotFoundError`), `present_at_declared_size` reports
+    # `(False, "unreadable")`, and the row arrives as
+    # `{format: ass, convertible: False, reason: unreadable}`.
+    #
+    # A format refusal is PERMANENT and outranks a transient read failure: an
+    # `.ass` is not servable whether or not its stat succeeded, so
+    # `unsupported-format` is the true and stable answer for that row. That is
+    # also why the gate stays here rather than hoisting the `unreadable` 404
+    # above it — that order would answer 404 for a format this route will never
+    # serve even when the file IS readable, which is both less informative and
+    # dependent on a stat race.
     if not row["convertible"]:
-        return _refused(row["reason"] or sidecars.REASON_UNSUPPORTED_FORMAT)
+        return _refused(sidecars.REASON_UNSUPPORTED_FORMAT)
 
     # The lister already met an `OSError` that was not absence (a permission, a
-    # device error). That does not clear by waiting, so it is not a 503 — and
-    # `ready` is False for it, which is why this is checked FIRST.
+    # device error). That does not clear by waiting, so it is not a 503. This is
+    # checked SECOND, *after* the format gate — the comment that stood here said
+    # "which is why this is checked FIRST", which was simply wrong about its own
+    # position; see the format gate above for why that gate outranks this one.
+    # `ready` is False for such a row, so without this branch the `ready` gate
+    # below would answer the retryable 503 and the television would poll a file
+    # that is never going to open.
     if row["reason"] == sidecars.REASON_UNREADABLE:
         raise HTTPException(
             status_code=404,

@@ -41,16 +41,24 @@ gate, and that row is here too: such a torrent has no live handle, so the lister
 answers `unknown` and the route 404s before any read.
 
 The fakes are hand-written rather than imported from `test_subtitles_list.py` or
-`test_sidecar_lister.py`, which is this stage's own precedent — the list file's
-header and `test_stage9_leaves_the_selectors_alone.py` both say they copy rather
-than import, for the same reason: the handles there carry no file CONTENT, and
-every row below turns on the bytes on disk. This file's handle carries no
-`piece_priority`, no `file_priority` and no recorder either, which is its own
-small gate: a route that reached for one would raise `AttributeError` here
-rather than pass.
+`test_sidecar_lister.py`, which is this stage's own precedent:
+`test_subtitles_list.py:42-45` says it copies rather than imports too. Its
+reason is NOT this file's reason, and the distinction is kept because a
+borrowed justification is how a fake ends up unfit for its new file — that
+file's `_Handle` lacks the `get_file_priorities`, `piece_priority` and recorder
+its POST needs, whereas the reason here is that the handles there carry no file
+CONTENT and every row below turns on the bytes on disk.
+(`test_stage9_leaves_the_selectors_alone.py` is cited for this by
+`test_subtitles_list.py:44-45` and says nothing of the kind — it explains why
+its own fake RECORDS `file_priority`. The claim is not repeated here.)
+
+This file's handle carries no `piece_priority`, no `file_priority` and no
+recorder either, which is its own small gate: a route that reached for one
+would raise `AttributeError` here rather than pass.
 """
 import contextlib
 import os
+import re
 import types
 from pathlib import Path
 
@@ -261,6 +269,28 @@ GROWS = [
 GROWS_SUB = 1
 GROWS_CONTENT = {"Show/Subs/E01.fr.srt": GROWS_SOURCE}
 
+# The row whose TWO refusals disagree, and the only layout in which the REAL
+# lister emits it: a non-convertible extension whose stat fails with something
+# that is not absence. The name component is 300 characters, over every
+# mainstream filesystem's 255-byte NAME_MAX, so `os.path.getsize` raises
+# ENAMETOOLONG (errno 36) and `present_at_declared_size` reports
+# `(False, "unreadable")` — and because the lister fills `unsupported-format`
+# in only `if reason is None` (`manager.py:1522-1523`), the row carries
+# `convertible: False` WITH `reason: "unreadable"`.
+#
+# HAZARD, measured in a one-off container: the parent directories must EXIST.
+# Path resolution is left-to-right, so a missing `Subs/` answers errno 2
+# (`FileNotFoundError`) before the long component is ever reached, the reason
+# comes back None, the lister fills `unsupported-format` itself — and the row
+# below would then pass for the wrong reason, against the exact bug it exists
+# to catch. That is why it asserts the lister's row before asking the route.
+LONG_ASS_NAME = "n" * 300 + ".ass"
+LONG_ASS = [
+    ("Show/Show.S01E01.mkv", 2 * PL, False),                   # 0
+    (f"Show/Subs/{LONG_ASS_NAME}", len(ASS_SOURCE), False),    # 1
+]
+LONG_ASS_SUB = 1
+
 
 @pytest.fixture(autouse=True)
 def isolate(monkeypatch, override_get_db):
@@ -367,14 +397,47 @@ def _get(tid, index):
     return client.get(VTT.format(tid=tid, index=index))
 
 
+# The emitter's output shape, pinned by `subtitles/vtt.py:27-29`: `HH:MM:SS.mmm
+# --> HH:MM:SS.mmm`, one space each side of the arrow, HH at least two digits,
+# MM and SS exactly two, the fraction exactly three. ANCHORED on purpose — see
+# `_cue_count`.
+_VTT_TIMING = re.compile(
+    r"^\d{2,}:\d{2}:\d{2}\.\d{3} --> \d{2,}:\d{2}:\d{2}\.\d{3}$")
+
+
 def _cue_count(body: str) -> int:
     """Cues counted from TIMING LINES, the way the browser finds them.
 
-    `body.count('-->')` would be a different number: a payload line containing
-    an arrow is escaped to `--&gt;` precisely because an unescaped one yields a
-    cue whose text is the empty string, which PASSES a cue-count check (D19).
+    **The docstring that stood here was wrong, and so was the review finding
+    that only half-corrected it.** It claimed `body.count('-->')` "would be a
+    different number" because `_render_payload` escapes a payload arrow to
+    `--&gt;` (`vtt.py:223`). Measured, against a one-cue body whose payload is
+    `he said a --> b`:
+
+        real emitter    count('-->') = 1   this helper = 1
+        mutant emitter  count('-->') = 2   this helper = 1
+        mutant emitter, UNANCHORED ` --> ` line scan = 2
+
+    So against the real emitter the two forms agree, exactly as the review
+    said — but the unanchored scan this helper used to be did not discriminate
+    the mutant either, because `he said a --> b` contains ` --> ` and the scan
+    counted it as a cue. That is the D19 failure mode in person: `vtt.py:55-58`
+    records that an unescaped payload arrow yields a cue whose `text` is empty,
+    so "the cue still exists and a cue-count check still passes while the line
+    is gone from the picture". A counter that is fooled the same way is not a
+    cue counter. Hence the anchor.
+
+    **Its one call site cannot see the escape at all, and the first draft of
+    this docstring claimed otherwise.** `SRT_SOURCE` has no payload arrow in
+    it, so neither the count nor the `body == SRT_EXPECTED` equality beside it
+    constrains `vtt.py:223`: measured, deleting that line leaves every row in
+    THIS file green and reddens two rows in `test_subtitle_vtt.py`
+    (`test_an_arrow_in_a_payload_line_is_escaped` and the `srt-arrow-in-payload`
+    grammar case), which is where the escape is owned. So the honest claim for
+    this helper is "a cue count a payload line cannot inflate" — a guard for the
+    200 rows that come after, not an instrument for anything asserted today.
     """
-    return sum(1 for line in body.split("\n") if " --> " in line)
+    return sum(1 for line in body.split("\n") if _VTT_TIMING.match(line))
 
 
 # ==========================================================================
@@ -546,6 +609,53 @@ def test_an_ass_sidecar_is_a_415_naming_the_format_without_reading_it(
     assert reads == [], (
         "the .ass refusal must come from the lister's row, not from opening the "
         "file: the row is the only thing that knows the stage refuses the format"
+    )
+
+
+def test_a_non_convertible_row_is_refused_by_its_format_not_by_its_stat(pack):
+    """A non-convertible row is refused by its FORMAT, unconditionally.
+
+    This row exists because the route used to answer
+    `_refused(row["reason"] or REASON_UNSUPPORTED_FORMAT)`, and a row can carry
+    both `convertible: False` and `reason: "unreadable"` — so that fallback
+    answered **415 `{"reason": "unreadable"}`**, which the handler's own
+    documented matrix forbids twice: it lists "unreadable" as a 404 and names
+    four 415 reasons that do not include it. Nothing in the suite constrained
+    it, and swapping the two gates was a GREEN mutation.
+
+    The decision this row pins: the extension is a PERMANENT refusal and
+    outranks a transient read failure. An `.ass` is not servable whether or not
+    its stat succeeded, so `unsupported-format` is the true and stable answer,
+    and the format gate stays FIRST — which also keeps the property it was put
+    first for, that an `.ass` is refused from the ROW before any read.
+
+    **The reason string is the whole instrument. The status alone cannot see
+    this bug** — the old code answered 415 here too, with the wrong reason in
+    it. `reads == []` is deliberately NOT asserted: it is true under both
+    mutations this row must catch (the restored `or` returns without reading,
+    and the swapped gate raises without reading), so it would be decoration
+    here; the `.ass` row above owns that claim, where it discriminates.
+
+    Both expected strings are spelled out as LITERALS rather than taken from
+    `sidecars`, so that renaming a constant cannot quietly turn either side of
+    this comparison into the other.
+    """
+    with pack("t-long-ass", rows=LONG_ASS, on_disk=False) as p:
+        (p.save_path / "Show" / "Subs").mkdir(parents=True, exist_ok=True)
+        # Non-vacuity, and the guard against the HAZARD above: the real lister
+        # must really produce the disagreeing row. If it stops doing so, this
+        # fails here rather than passing below for the wrong reason.
+        coverage, rows = torrent_manager.list_sidecars(p.tid)
+        assert coverage == "listed", (coverage, rows)
+        row = next(r for r in rows if r["index"] == LONG_ASS_SUB)
+        assert (row["format"], row["convertible"], row["reason"]) == (
+            "ass", False, "unreadable"), row
+        r = _get(p.tid, LONG_ASS_SUB)
+    assert r.status_code == 415, r.text
+    assert r.json() == {"reason": "unsupported-format"}, (
+        "a non-convertible row must be refused by its format: answering its "
+        "`unreadable` stat failure here is a status/reason pair the route's own "
+        "matrix forbids, and it is transient where the format is permanent"
     )
 
 

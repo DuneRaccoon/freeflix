@@ -187,6 +187,33 @@ export function cellLabel(state: SubtitleCellState): string {
   return SUBTITLE_CELL_LABELS[state];
 }
 
+/**
+ * The three cell states a CHOSEN sidecar reaches, or `null` when nothing is chosen.
+ *
+ * `null` rather than a state, so the caller's own list-derived answer (`loading`,
+ * `unavailable`, `none`, `off`) stays the single source for the unchosen case instead of
+ * being restated here. The cell therefore has exactly one chooser of states, and this
+ * function's whole job is the part that depends on the choice.
+ *
+ * `fault` IS THE `<track>` ELEMENT'S OWN ERROR and it outranks readiness, because by the
+ * time the element has failed, `ready` is a measurement that has been overtaken: the bytes
+ * were there and the load still did not produce cues. A 415 the box cannot decode reads the
+ * same way to the viewer and the same way here.
+ *
+ * NOT CONSULTED: `convertible`. A non-convertible entry is rendered in the picker as a
+ * focusable row that is not selectable, so it never becomes the chosen one — the rule lives
+ * there and in the element's own mount gate, and stating it a third time here would make
+ * each of the three deletable without a red test. Named rather than duplicated.
+ */
+export function chosenCellState(
+  chosen: SubtitleTrack | null,
+  fault: boolean,
+): SubtitleCellState | null {
+  if (chosen === null) return null;
+  if (fault) return 'unreadable';
+  return chosen.ready ? 'on' : 'fetching';
+}
+
 /** How long between polls. The backend sends `Retry-After: 2` on its own not-ready answer. */
 export const SUBTITLE_POLL_MS = 2000;
 

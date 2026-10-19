@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
-import type { StreamingInfo, SubtitleList, TorrentStatus, VideoFile } from '@/types';
+import type { StreamingInfo, SubtitleList, SubtitleTrack, TorrentStatus, VideoFile } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { streamAdvice } from '@/lib/player/streamRecovery';
@@ -14,7 +14,7 @@ import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { statusOf } from '../../../_data/httpStatus';
-import { cellLabel, type SubtitleCellState } from '../../../_data/subtitles';
+import { cellLabel, chosenCellState, type SubtitleCellState } from '../../../_data/subtitles';
 import { PREPARING, READY, takeFourKAsk } from '../../../_data/title';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useWatchProgress, watchIdentity } from '../../../_data/useWatchProgress';
@@ -28,6 +28,7 @@ import { fileIndex, streamSrc } from '../../../_player/fileIndex';
 import { formatTime } from '../../../_player/formatTime';
 import { ScrubBar, scrubRowCount } from '../../../_player/ScrubBar';
 import { clampSeek, type ContiguousRun } from '../../../_player/seekBoundary';
+import { SubtitleTrackElement } from '../../../_player/SubtitleTrackElement';
 import {
   MEDIA_TWINS,
   TransportBar,
@@ -177,12 +178,13 @@ function byteAt(
 }
 
 /**
- * Which of the eight cell states the sidecar list puts the Subtitles cell in.
+ * Which of the eight cell states the sidecar list and the viewer's choice put the cell in.
  *
- * FOUR OF THE EIGHT ARE REACHABLE FROM A LIST ALONE, and the other four describe a sidecar
- * the viewer has chosen, which nothing on this surface can do yet. So this covers `loading`,
- * `unavailable`, `none` and `off`, and the picker's press is what will reach `fetching`, `on`,
- * `unreadable` and `noCues`.
+ * THE CHOICE IS ASKED FIRST, and it answers only when there is one: `chosenCellState` returns
+ * `null` for the unchosen case so the list-derived arms below stay the single statement of
+ * what a list alone means. `on`, `fetching` and `unreadable` live there; `noCues` is reachable
+ * from nothing on this surface yet — a WebVTT body with no cues is refused by the route with a
+ * 415, so the state exists for the day the television learns that from a sibling read.
  *
  * `coverage: "listed"` IS `off` EVEN WITH NOTHING OFFERABLE. A release that ships only an
  * `.ass` is listed, and `none in this release` would be a false sentence about it — the file
@@ -195,7 +197,13 @@ function byteAt(
  * was declined deliberately, but the one answer this may not produce is a cell that says
  * nothing at all.
  */
-function subtitleCellState(read: SubtitleRead): SubtitleCellState {
+function subtitleCellState(
+  read: SubtitleRead,
+  chosen: SubtitleTrack | null,
+  trackFault: boolean,
+): SubtitleCellState {
+  const chosenState = chosenCellState(chosen, trackFault);
+  if (chosenState !== null) return chosenState;
   if (read.k === 'loading') return 'loading';
   if (read.k === 'failed') return 'unavailable';
   if (read.list.coverage === 'none') return 'none';
@@ -428,11 +436,30 @@ function WatchScreen() {
    * backend log; a viewer's next press is the same either way.
    */
   const [subtitleRead, setSubtitleRead] = useState<SubtitleRead>({ k: 'loading' });
+  /**
+   * THE CHOSEN SIDECAR'S OWN FILE INDEX, and the element's error.
+   *
+   * THE ONLY PRODUCER IS THE PICKER, WHICH IS A LATER TASK — the transport cell's press is a
+   * committed no-op and its row pins that pressing it changes nothing. So `chosen` is `null`
+   * for every state this route can reach today, and the `<track>`'s own rules are proved
+   * where they live (`_player/SubtitleTrackElement.test.tsx`, `chosenCellState`) rather than
+   * through this screen. `page.track.test.tsx` says so in those words and pins what is left:
+   * that the one mount sits inside the `<video>` and is not mapped over a list.
+   *
+   * CLEARED WITH THE READ, in the same effect and for the same reason: an index is only
+   * meaningful against the list it came from, so a new title or a new episode must not carry
+   * a choice — on a season pack the chosen index is another episode's file entirely. The
+   * element's fault goes with it, because a fresh track has not failed yet.
+   */
+  const [chosenIndex, setChosenIndex] = useState<number | null>(null);
+  const [trackFault, setTrackFault] = useState(false);
   const arrived = arrival.k === 'ok';
   useEffect(() => {
     // Before the guard: a new arrival or a new file invalidates the old answer, and a stale
     // `off` on a title whose list has not been read yet is a claim nothing measured.
     setSubtitleRead({ k: 'loading' });
+    setChosenIndex(null);
+    setTrackFault(false);
     if (!torrentId || !arrived) return;
     let cancelled = false;
     void (async () => {
@@ -650,15 +677,24 @@ function WatchScreen() {
   if (phase === 'playing' && arrival.k === 'ok') {
     const src = streamSrc(torrentId, index);
     if (src) {
+      // THE WHOLE LIST, not `offerable(...)`: the element's own mount gate is the one place
+      // `convertible` is read, and filtering here would state that rule twice.
+      const chosen =
+        subtitleRead.k === 'ok' && chosenIndex !== null
+          ? subtitleRead.list.subtitles.find((e) => e.index === chosenIndex) ?? null
+          : null;
       // Both halves from the one state, so the attribute and the words can never disagree
       // about which state the screen believes it is in.
-      const subtitleState = subtitleCellState(subtitleRead);
+      const subtitleState = subtitleCellState(subtitleRead, chosen, trackFault);
       const subtitles: SubtitleCellView = { stateId: subtitleState, note: cellLabel(subtitleState) };
       return (
         <Playing
           src={src}
+          torrentId={torrentId}
           status={arrival.status}
           subtitles={subtitles}
+          track={chosen}
+          onTrackUnreadable={() => setTrackFault(true)}
           askedFourK={askedFourK}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
           // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never
@@ -731,8 +767,11 @@ function WatchScreen() {
  */
 function Playing({
   src,
+  torrentId,
   status,
   subtitles,
+  track,
+  onTrackUnreadable,
   askedFourK,
   contiguous,
   resumeAtSeconds,
@@ -749,6 +788,8 @@ function Playing({
   onStop,
 }: {
   src: string;
+  /** For the `<track>`'s URL, which is spelled on this side from the file index. */
+  torrentId: string;
   status: TorrentStatus;
   /**
    * What the Subtitles cell says. IT GOES TO THE CELL AND NOWHERE ELSE — never into
@@ -757,6 +798,13 @@ function Playing({
    * measured exactly that, and a subtitle state is steady by nature.
    */
   subtitles: SubtitleCellView;
+  /**
+   * The chosen sidecar, or null for Off. The route owns the choice; this component owns the
+   * one conjunct the route cannot see, `recovery.kind === 'reloading'`.
+   */
+  track: SubtitleTrack | null;
+  /** The `<track>` element's own load failure, reported up so the cell can say so. */
+  onTrackUnreadable: () => void;
   /** The press that started this torrent asked for 2160p. False also means "unknown". */
   askedFourK: boolean;
   contiguous: ContiguousRun | null;
@@ -1102,7 +1150,22 @@ function Playing({
           onEnded(true);
         }}
         onError={onError}
-      />
+      >
+        {/* EXACTLY ONE `<track>`, AND IT HAS TO BE IN HERE. A text track is a child of the
+            media element; the same element rendered as a sibling of the `<video>` is inert
+            and nothing on this surface would report it. One mount, never a `.map` over the
+            offerable entries: two `<track default>` elements both reach `showing` and Blink
+            enforces no winner, so a second element is two cue lines on the picture rather
+            than a wrong one. The element's own rules — the mount gate, the two `kind` arms,
+            the key that makes a switch a remount, and `onErrorCapture` — live in
+            `SubtitleTrackElement` with its own suite. */}
+        <SubtitleTrackElement
+          torrentId={torrentId}
+          chosen={track}
+          reloading={recovery.kind === 'reloading'}
+          onUnreadable={onTrackUnreadable}
+        />
+      </video>
       {/* The scrim FADES WITH THE BAND, on the same `visible` flag and never on `playing`.
           It exists to make the band legible, and native text-track cues paint inside the
           video element's box — the other `z-index: -1` layer, earlier in source order — so

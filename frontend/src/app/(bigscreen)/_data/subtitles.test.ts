@@ -32,6 +32,7 @@ import {
   SUBTITLE_POLL_ATTEMPTS,
   SUBTITLE_POLL_MS,
   cellLabel,
+  chosenCellState,
   offerable,
   pickerRowCounts,
   pickerRows,
@@ -263,6 +264,45 @@ describe('the cell\'s words', () => {
       expect(cellLabel(state)).toBe(SUBTITLE_CELL_LABELS[state]);
     }
   });
+});
+
+/**
+ * The three states a CHOSEN sidecar reaches. Task 13's half of the cell.
+ *
+ * It lives here, as a pure function, for the reason the `<track>` element lives in its own
+ * component: nothing on the television can choose a sidecar until the picker lands, so a
+ * chosen-state branch written inside the route would ship unreachable from every test that
+ * renders the route. These three rows are the instrument until then.
+ */
+describe('the chosen sidecar’s own cell state', () => {
+  it('answers null when nothing is chosen, whatever the element did', () => {
+    // BOTH fault arms, because `fault` is a latch the route clears with the choice: a version
+    // that asked about the fault BEFORE asking whether anything is chosen would say
+    // `unreadable` over an Off cell, and one arm cannot see that.
+    expect.soft(chosenCellState(null, false), 'nothing chosen').toBeNull();
+    expect.soft(chosenCellState(null, true), 'nothing chosen, stale fault').toBeNull();
+  });
+
+  it('is `on` once the bytes are measured here, and `fetching` until then', () => {
+    // The two are not interchangeable: `fetching` is a sidecar whose admission is still
+    // running, and the viewer's next press differs — waiting, against turning it off.
+    expect.soft(chosenCellState(track(4, { ready: true }), false)).toBe('on');
+    expect.soft(chosenCellState(track(4, { ready: false }), false)).toBe('fetching');
+  });
+
+  it('the element’s own failure outranks readiness, both ways round', () => {
+    // By the time the `<track>` has failed, `ready` is a measurement that has been overtaken:
+    // the bytes were there and the load still produced nothing. BOTH readiness values,
+    // because the ready one alone is also green under "drop the fault check and return `on`".
+    expect.soft(chosenCellState(track(4, { ready: true }), true), 'ready and failed').toBe('unreadable');
+    expect.soft(chosenCellState(track(4, { ready: false }), true), 'unready and failed').toBe('unreadable');
+  });
+
+  // REFUSED, AND NAMED SO IT IS NOT ADDED BACK: a row asserting that none of the three
+  // answers is one of the four states a list alone decides. The two rows above already pin
+  // the exact values, so that assertion is logically implied by them — every mutation it
+  // could catch reddens them first — and it would be a fourth row that cannot fail dressed
+  // as the contract with the caller. The contract is in `chosenCellState`'s own header.
 });
 
 /** A reader over a script of answers, recording every call and every wait. */

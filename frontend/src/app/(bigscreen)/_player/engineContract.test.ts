@@ -247,6 +247,11 @@ const DELIBERATELY_DIFFERENT: Record<string, string> = {
   'no source switcher':
     'one stream per title on this surface; sources/currentSourceId/onSelectSource are '
     + 'a pointer-era affordance and there is no second URL to switch to',
+  'native text track':
+    'the TV mounts one native `<track default>` and lets Blink render the cues; the web\'s '
+    + 'CC button is permanently aria-disabled with tabIndex -1 and that surface mounts no '
+    + 'track element at all, so the converter\'s output is never seen in a devtools-bearing '
+    + 'browser before the television sees it',
 };
 
 /** Each divergence, as something observable in the two sources. */
@@ -265,6 +270,31 @@ const DIVERGENCE_CHECKS: Record<string, (web: string, tv: string, tvAll: string)
     web.includes('!video.paused') && !tv.includes('.paused'),
   'no source switcher': (web, tv) =>
     web.includes('onSelectSource') && !tv.includes('onSelectSource') && !tv.includes('currentSourceId'),
+  /**
+   * `code(tvAll)`, NOT `tvAll`, AND THAT IS A MEASURED CORRECTION RATHER THAN A STYLE.
+   *
+   * `tvAll` is handed to these predicates as RAW source — `tvSources()` joins the files
+   * without stripping anything — and the raw TV surface ALREADY matched `/<track\b/` before
+   * this stage rendered one: `_data/subtitles.ts`'s header explains why the URL is built from
+   * the torrent's own file index "so a `<track>` that spent its one and only load on the
+   * wrong file" cannot happen. Measured: raw joined source matches, comment-stripped source
+   * did not. So the obvious spelling of this predicate was GREEN under the mutation it exists
+   * to catch (add the entry, do not add the element), which is the shape this stage keeps
+   * finding. Every other entry here reads `tv`, which `playerCode()` has already stripped;
+   * this one has to reach outside `_player/` for the route, the way `preload` does, and so
+   * has to do its own stripping.
+   *
+   * The TV half is positive (an element exists) and the web half is negative (none does),
+   * which is the opposite polarity from `preload` — hence both halves, not one.
+   */
+  'native text track': (web, _tv, tvAll) =>
+    // ONE REGEX SPANNING BOTH ATTRIBUTES, not two `includes`. `aria-disabled="true"` appears
+    // TWICE in the web player, so a bare `includes` for it stays true after the CC button's
+    // own copy is removed — the second occurrence would carry the clause. Bounded to the same
+    // element, with the unique label as the anchor.
+    /aria-label="Audio and subtitles \(coming soon\)"[\s\S]{0,240}aria-disabled="true"/.test(web)
+    && !/<track\b/.test(web)
+    && /<track\b/.test(code(tvAll)),
 };
 
 describe('DELIBERATELY_DIFFERENT', () => {
@@ -280,14 +310,21 @@ describe('DELIBERATELY_DIFFERENT', () => {
     for (const k of keys) expect(DELIBERATELY_DIFFERENT[k].length).toBeGreaterThan(30);
   });
 
-  it('has exactly six divergences, counted absolutely', () => {
+  it('has exactly seven divergences, counted absolutely', () => {
     // THE WEAKNESS NON-EMPTINESS AND SET-EQUALITY LEAVE: deleting a key from BOTH maps
     // removes that divergence's own `it.each` row and both of the guards above still pass, so
     // the list can be shortened in lockstep with the thing that checks it. An absolute count
-    // is the fix, the same one `describeScrub.test.ts` uses for the six `SeekReason`s: a
-    // seventh divergence or a deleted sixth has to be a deliberate edit here.
-    expect.soft(Object.keys(DIVERGENCE_CHECKS)).toHaveLength(6);
-    expect.soft(Object.keys(DELIBERATELY_DIFFERENT)).toHaveLength(6);
+    // is the fix, the same one `describeScrub.test.ts` uses for the six `SeekReason`s: an
+    // eighth divergence or a deleted seventh has to be a deliberate edit here.
+    //
+    // THE OTHER DIRECTION IS WHAT THIS NUMBER CANNOT DO, said out loud because stage 9 is the
+    // first stage to add one: both maps are additive BY HAND, so a new divergence appearing in
+    // the two players does not redden anything here — the count only catches an edit to the
+    // maps, never the drift the maps are about. Stage 9 moved it from 6 to 7 for the native
+    // `<track>`; whoever adds the eighth moves it again, and nothing but this comment asks
+    // them to.
+    expect.soft(Object.keys(DIVERGENCE_CHECKS)).toHaveLength(7);
+    expect.soft(Object.keys(DELIBERATELY_DIFFERENT)).toHaveLength(7);
   });
 
   it('names exactly the divergences that have a check', () => {

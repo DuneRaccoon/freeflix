@@ -1,8 +1,12 @@
 """Pairing a sidecar subtitle to its video, and guessing its language. PURE.
 
-No I/O, no libtorrent session, no DB, no persistence, no `settings` read. Everything
+No libtorrent session, no DB, no persistence, no `settings` read. Every RETURN VALUE
 here is a function of the strings it is handed, which is why it is the one part of
-stage 9 that can be tested exhaustively.
+stage 9 that can be tested exhaustively. ONE exception, added in review and named
+rather than hidden: a pairing rung that refuses an ambiguous match writes a line at
+INFO (`_decline`). That is a write to the log and nothing else — it changes no answer —
+and it is here because a silent fall-through is exactly how `pair()` shipped with two
+rungs that returned on the first of several matches.
 
 Two mechanisms, both from the stage 9 plan:
 
@@ -28,6 +32,8 @@ it reports is the rung it took, and that the measured traps are avoided.
 import re
 from pathlib import PurePosixPath
 from typing import Any, List, Mapping, Optional, Sequence, Tuple
+
+from loguru import logger
 
 from app.providers.episodes import parse_episode
 
@@ -281,6 +287,22 @@ def _below_root(rel_path: str, root: Optional[str]) -> str:
 
 # ------------------------------------------------------------------------ pairing
 
+def _decline(rung: str, sub_rel: str, claimants: Sequence[int]) -> None:
+    """Say, at INFO, that a rung refused an ambiguous match and fell through.
+
+    The count is the point. "Nothing matched" and "three videos matched" are different
+    facts about the same `none`, and only the second one says the parse is not
+    discriminating. The rung and the sidecar are named because this line is the only
+    trace a refusal leaves — `pair()`'s return value cannot distinguish a rung that
+    declined from a rung that never fired.
+    """
+    logger.info(
+        f"sidecar pairing: rung {rung!r} declined {sub_rel!r} — "
+        f"{len(claimants)} videos claim it (indices {sorted(claimants)}); "
+        f"falling through to the next rung"
+    )
+
+
 def pair(rel_path: str,
          video_files: Sequence[Mapping[str, Any]]) -> Tuple[Optional[int], str]:
     """Pair a sidecar at `rel_path` to one of `video_files`.
@@ -290,12 +312,23 @@ def pair(rel_path: str,
     `rel_path` (see `_entry_rel_path`). Returns `(video_index | None, pair_source)`
     with `pair_source` one of `PAIR_SOURCES`.
 
+    **Rungs 1, 2 and 3 all REFUSE an ambiguous match.** A rung takes an answer only
+    when exactly ONE video claims the sidecar; when two or more do, it logs at INFO
+    (`_decline`) and falls through to the next rung, which may still resolve the same
+    sidecar uniquely. Rungs 4 and 5 cannot be ambiguous: rung 4 is only reached when
+    the torrent has exactly one video, and rung 5 claims nothing.
+
+    This RE-DECIDES D20's rung contract, which specified the refusal for rung 3 only.
+    Review measured what rungs 1 and 2 did instead — see the comment on rung 1 — and
+    the rule is that a rung which can be wrong must not outrank the rung that checks.
+
     The five rungs, in order (D20):
 
     1. `stem` — the sidecar's basename stem, with tag tokens peeled, equals a video's
-       basename stem.
+       basename stem. Refused when more than one video's stem matches.
     2. `dir`  — the sidecar's nearest ancestor directory NAME equals a video's
-       basename stem. Cannot use `parse_episode`: measured,
+       basename stem. Refused when more than one video's stem matches. Cannot use
+       `parse_episode`: measured,
        `parse_episode("Subs/E01.srt")` is None, because `_SXXEYY` is
        `[Ss](\\d{1,2})[\\s._-]?[Ee](\\d{1,3})` and a bare `E01` matches neither it nor
        `_XNOTATION`. The directory's whole NAME is used, not `Path(...).stem`, because
@@ -323,19 +356,46 @@ def pair(rel_path: str,
     # carries no language or `forced` tag, so peeling one would only ever lose a real
     # token. Both the sidecar's raw and peeled forms are offered, so
     # `Movie.2020.en.srt` reaches `Movie.2020.mkv` and `Movie.2020.srt` still does.
+    #
+    # CORRECTED IN REVIEW, and this re-decides D20: this loop used to `return` on the
+    # FIRST match without looking for a second, and so did rung 2. Measured against the
+    # shipped module, on the exact multi-season "Complete" shape D20 cites to justify
+    # rung 2 existing at all:
+    #
+    #   videos  = [0: "Show.Complete/Season 2/E01.mkv",
+    #              1: "Show.Complete/Season 1/E01.mkv"]
+    #   pair("Show.Complete/Season 1/E01.en.srt", videos)             -> (0, "stem")
+    #   pair("Show.Complete/Season 1/Subs/E01/2_English.srt", videos) -> (0, "dir")
+    #   pair("Show.Complete/Season 1/E01.en.srt", reversed(videos))   -> (1, "stem")
+    #
+    # Season TWO's file for a Season 1 sidecar; flipping with file-index order; and
+    # reported as `stem`, which `track_label` renders as a plain "English" with nothing
+    # to confess. The one failure this module exists to make visible, made invisible by
+    # the two rungs that run before the one that guards against it. So both collect
+    # every claimant and take an answer only when there is exactly one.
+    stem_matches = []
     for index, vrel in videos:
         vstem_tokens = _tokens(PurePosixPath(_parts(vrel)[-1]).stem)
         if vstem_tokens and vstem_tokens in sub_candidates:
-            return index, "stem"
+            stem_matches.append(index)
+    if len(stem_matches) == 1:
+        return stem_matches[0], "stem"
+    if stem_matches:
+        _decline("stem", sub_rel, stem_matches)
 
-    # Rung 2 — the nearest ancestor directory.
+    # Rung 2 — the nearest ancestor directory. Same refusal, same reason.
     if len(sub_segs) >= 2:
         dir_tokens = _tokens(sub_segs[-2])
         if dir_tokens:
+            dir_matches = []
             for index, vrel in videos:
                 vstem_tokens = _tokens(PurePosixPath(_parts(vrel)[-1]).stem)
                 if vstem_tokens and vstem_tokens == dir_tokens:
-                    return index, "dir"
+                    dir_matches.append(index)
+            if len(dir_matches) == 1:
+                return dir_matches[0], "dir"
+            if dir_matches:
+                _decline("dir", sub_rel, dir_matches)
 
     # Rung 3 — the episode number, below the torrent root, agreeing with the video.
     root = _torrent_root([sub_rel] + [vrel for _, vrel in videos])
@@ -352,6 +412,8 @@ def pair(rel_path: str,
         # it. `none` is the honest answer.
         if len(agreeing) == 1:
             return agreeing[0], "parse"
+        if len(agreeing) > 1:
+            _decline("parse", sub_rel, agreeing)
 
     # Rung 4 — a single-video torrent.
     if len(videos) == 1:

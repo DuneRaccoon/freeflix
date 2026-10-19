@@ -381,7 +381,7 @@ def _cue_count(body: str) -> int:
 # (a)/(b)/(f) The 200: its type, its caching, and its actual text
 # ==========================================================================
 
-def test_the_body_is_the_converted_cues_and_not_a_header(pack):
+def test_the_body_is_the_converted_cues_and_not_a_header(pack, reads):
     """The whole body, hand-typed, with the cue count asserted separately.
 
     "200 and the body starts with WEBVTT" is FORBIDDEN as a success criterion in
@@ -403,6 +403,19 @@ def test_the_body_is_the_converted_cues_and_not_a_header(pack):
     assert "5 &lt; 6 and <i>7</i> &amp; 8" in body
     assert "Café fermé" in body
     assert "{" not in body and "," not in body.split("\n")[2]
+    # THE POSITIVE CONTROL for the three `reads == []` rows below. Measured in
+    # review: replacing `_read_sidecar_bytes(...)` with an inline
+    # `open(row["path"], "rb")` — the very thing that function's docstring says
+    # it is deliberately not — leaves all 22 rows green, because nothing else in
+    # this file asserts that the spy ever records anything. Without this line the
+    # `.ass`, containment and 401 rows can go vacuous under a refactor, and they
+    # are the sole instrument for "resolution goes through the lister" on the
+    # `.ass` row (measured by the implementer). Resolved on both sides because
+    # the row's own `path` comes back through `sidecars.contained_path`'s
+    # `resolve()` and `tmp_path` may sit under a symlink.
+    expected_read = Path(os.path.normpath(
+        str(p.save_path / "Pack.S01/Subs/Pack.S01E01.en.srt"))).resolve()
+    assert [Path(x) for x in reads] == [expected_read], reads
 
 
 def test_the_content_type_is_hard_coded_webvtt(pack):
@@ -475,6 +488,12 @@ def test_a_sidecar_whose_span_is_not_held_is_a_retryable_503(pack):
         r = _get(p.tid, GOOD)
     assert r.status_code == 503
     assert r.headers["Retry-After"] == "2"
+    # `_not_ready`'s docstring argues for this header by name ("the very next
+    # second may answer 200 from the same URL") and nothing claimed it: measured
+    # in review, deleting `Cache-Control` from BOTH refusal helpers left all 22
+    # rows green. A cached 503 is a `Retry-After` the television obeys and then
+    # gets the stale refusal back from its own cache.
+    assert r.headers["Cache-Control"] == "no-store"
     assert r.content == b"", (
         "the 503 must be bodiless: a body here reaches a <track> as a malformed "
         "cue file, and the one thing it must not look like is a successful load"
@@ -520,6 +539,10 @@ def test_an_ass_sidecar_is_a_415_naming_the_format_without_reading_it(
         r = _get(p.tid, ASS)
     assert r.status_code == 415
     assert r.json() == {"reason": "unsupported-format"}
+    # The 415's own `no-store`, for the same reason as the 503's: a refusal that
+    # a later `fetch` or a wider `subtitle_convertible_extensions` can turn into
+    # a 200 lives at this URL, and nothing else in this file claimed the header.
+    assert r.headers["Cache-Control"] == "no-store"
     assert reads == [], (
         "the .ass refusal must come from the lister's row, not from opening the "
         "file: the row is the only thing that knows the stage refuses the format"

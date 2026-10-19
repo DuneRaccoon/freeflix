@@ -178,6 +178,15 @@ Five rungs: basename stem after stripping a trailing language / `forced` / `sdh`
 * **Rungs 1 and 2 break several claimants by DIRECTORY PROXIMITY** — the number of leading path segments a claimant's directory shares with the sidecar's — and take the **strictly greatest** scorer, reported as a sixth source **`near`**, suffix `English (nearest of several matches)`, which joins `dir`/`parse` in appending `· guessed`. `near` rather than `stem`/`dir` because the suffix table exists so the television can confess how an episode was identified, and "its name matched one video" and "its name matched several and I took the closest" are different confidences. It is **order-independent by construction**: the maximal SET is computed and its size checked, because `max()` over a list returns the first maximal element, which is the order-dependence the finding was about.
 * **A tie proximity cannot break still declines** and falls through, with its INFO line. **Rung 3 does not use the tiebreak at all** — its claimants agree on a number the parse has already shown it cannot discriminate, so proximity there is a second guess stacked on a first. Scope pinned by `test_the_parse_rung_does_not_use_the_proximity_tiebreak`, which is the only row that can see it.
 * **The cost, recorded rather than discovered later:** rung 1's proximity answer pre-empts rung 3, so a sidecar rung 3 would have resolved by episode agreement is reported as the weaker `near` (same index; measured). That contradicts `f049a5f`'s own rule that a rung which can be wrong must not outrank the rung that checks, and the alternative — defer the proximity candidate until rung 3 has failed — was declined because it moves a rung's answer outside the rung. `test_proximity_pre_empts_the_parse_rung_where_both_could_resolve` is where a reversal has to come and edit.
+* **AND THE COST IS BIGGER THAN "same index", measured in the review round that followed.** "(same index; measured)" above is true of the two fixtures it was measured on and **false in general**, and the generalisation of it that reached a test docstring ("in every shape where both can resolve they agree, because a rung-1 ambiguity means the video basenames are bare and identical") is false too: the episode can live in a segment proximity does not read — the sidecar's own **basename**, or any segment past the one the shared prefix stops at. Enumerated over **720,657 coherent two-video layouts** in a one-off container, **68** resolve to a *different index* under proximity than under the parse, 3 of them with both videos on one convention. The clean case, measured against both modules and pinned by `test_proximity_outranks_the_parse_rung_even_when_it_contradicts_the_sidecars_name`:
+
+      videos  0: Show.Complete/Season 1/Show.S01E01/E01.mkv     below-root parse (1, 1)
+              1: Show.Complete/Season 2/Show.S02E01/E01.mkv     below-root parse (2, 1)
+      sidecar    Show.Complete/Season 1/Subs/E01/Show.S02E01.en.srt   parse (2, 1)
+      8708913 -> (1, "parse")   CORRECT, order-independent
+      HEAD    -> (0, "near")    WRONG season's file, order-independent
+
+  Rung 2 fires because the sidecar's parent folder is the bare `E01`, which both videos' basenames match; proximity then reads only the leading segments, where this sidecar says `Season 1`, while the sidecar's own name says `S02E01`. A season's `Subs/` tree holding another season's sidecar is a packer's misfile, which is the thing a pairing ladder exists to survive. **So this is not only a weaker label — it is a right answer traded for a wrong one**, rendered `English (nearest of several matches)` with no error anywhere, which is the exact failure the paragraph above says the exposed rung exists to make visible. The deferred alternative answers `(1, "parse")` here. **Left as a rung-order DECISION for the plan's owner, not fixed in the review**; the row above and the new one are where a reversal comes and edits.
 
 `pair_source ∈ {stem, dir, near, parse, single, none}` is returned **and rendered**, which is the graft no design proposed and the epistemic panel named: for `Pack/Pack.S01E03.en.srt`, skipping the stem rung still yields episode (1,3) via the parse rung, so without the exposed rung that mutation cannot be discriminated at all. And a mis-paired sidecar is the one failure in this stage with no error anywhere — valid VTT, correct readiness, true sentence about everything except whose episode it is. So the picker row says `English` for a `stem`/`single` pairing and `English (matched by folder)` / `English (nearest of several matches)` / `English (matched by episode number)` for `dir`/`near`/`parse`, and the cell's sub-line appends `· guessed` in those three cases.
 
@@ -453,7 +462,11 @@ running it. Three shapes recurred, and they are worth recognising on sight:
 * **A guard duplicated, so deleting either copy is green.** Task 4's null rule was stated twice —
   "collect the winners, then add every null" says the same thing as "never group a null" — and
   with two statements of one rule neither deletion reddens. It is now a single `continue`
-  (`backend/app/subtitles/naming.py:518`), with the shape written beside it at `:504-512`.
+  (`backend/app/subtitles/naming.py:674`), with the shape written beside it at `:660-668`.
+  (Both line numbers RE-RESOLVED in the following review round: `fa4d806` inserted the proximity
+  tiebreak above them and moved the `continue` from `:518` to `:674`, and a citation that still
+  reads `:518` now lands in the middle of rung 1. Checked by opening every `naming.py:NNN` in
+  this document.)
 
 **The six findings a reviewer reported rather than fixed, each with the decision taken and the
 commit that implements it.** All five sibling commits are in `git log --oneline master..HEAD`;
@@ -575,7 +588,8 @@ none is missing.
   constant's own escape hatch ("if a real device ever shows the file arriving later, raise it")
   is the mitigation, not a test.
 * **Task 4's X2 is undiscriminable by any realistic fixture and is annotated rather than tested**
-  (`backend/app/subtitles/naming.py:247-253`): the `len(segs) < 2` conjunct in `_common_root` can
+  (`backend/app/subtitles/naming.py:265-271`, moved from `:247-253` by `fa4d806`): the
+  `len(segs) < 2` conjunct in `_torrent_root` (named `_common_root` here by mistake) can
   only change an answer for a top-level file named exactly like the folder every other file sits
   under. Named there rather than claimed.
 

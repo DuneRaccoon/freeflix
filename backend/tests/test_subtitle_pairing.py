@@ -24,8 +24,10 @@ twice: rungs 1 and 2 break several claimants by DIRECTORY PROXIMITY and take the
 only when the deepest-shared claimant is unique; a tie proximity cannot break declines
 and falls through, as does every rung-3 ambiguity. Each half has its own fixture, each
 fixture says which half, and ``test_the_answer_does_not_depend_on_the_order_of_the_video_files``
-covers every one of them in both file orders.
+covers every one of them across EVERY permutation of its video list.
 """
+import itertools
+
 import pytest
 
 from app.subtitles import naming
@@ -437,20 +439,84 @@ def test_proximity_pre_empts_the_parse_rung_where_both_could_resolve():
     These are the two fixtures the fall-through rows used before the tiebreak existed.
     Rung 1 (and rung 2) now resolve them by proximity, so rung 3 — which would have
     reached the SAME index by checking the episode number below the torrent root, and
-    reported the stronger `parse` — never runs. The index is unchanged and right; the
-    reported provenance is weaker than the one available.
+    reported the stronger `parse` — never runs. FOR THESE TWO FIXTURES the index is
+    unchanged and right and only the reported provenance is weaker; read the next
+    paragraph before generalising that, because it was generalised once already.
 
-    That is the conservative direction (the row under-claims rather than over-claims),
-    and in every shape where both can resolve they agree, because a rung-1 ambiguity
+    For THESE two fixtures the direction is conservative — the row under-claims rather
+    than over-claims. CORRECTED IN REVIEW: this docstring used to generalise that, and
+    said "in every shape where both can resolve they agree, because a rung-1 ambiguity
     means the video basenames are bare and identical and the episode therefore lives in
-    the same folder proximity measures. The alternative — carry the proximity candidate
-    forward and use it only if rung 3 finds nothing — keeps the stronger label and was
-    NOT taken, because it moves a rung's answer outside the rung. Recorded as this
-    decision's cost in the plan (D20 and C5's finding 1), and this row is where a future
-    reversal has to come and edit.
+    the same folder proximity measures." **That universal is false**, and the row below
+    this one is the measured counterexample: the premise fails whenever the episode
+    lives in a segment proximity does NOT measure — the sidecar's own basename, or a
+    folder deeper than the one the shared prefix stops at. Enumerated over 720,657
+    coherent two-video layouts in a one-off container, 68 of them resolve to a
+    DIFFERENT index under proximity than under the parse, 3 of those with both videos
+    following one convention.
+
+    The alternative — carry the proximity candidate forward and use it only if rung 3
+    finds nothing — keeps the stronger label, and on the counterexample below keeps the
+    right FILE as well. It was NOT taken, because it moves a rung's answer outside the
+    rung. Recorded as this decision's cost in the plan (D20 and C5's finding 1), and
+    this row plus the next are where a future reversal has to come and edit.
     """
     assert pair(FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "near")
     assert pair(FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "near")
+
+
+# WHAT THE PRE-EMPTION COSTS WHEN THE PATHS DISAGREE, found by a review that enumerated
+# the pre-emption instead of reasoning about it. A complete-series pack with per-episode
+# folders; the subtitles for Season 2's episode are filed under Season 1's `Subs/` tree,
+# which is a misfile a packer makes and the pairing ladder exists to survive.
+#
+#   videos  0: .../Season 1/Show.S01E01/E01.mkv   below-root parse (1, 1), dir-depth 2
+#           1: .../Season 2/Show.S02E01/E01.mkv   below-root parse (2, 1), dir-depth 1
+#   sidecar    .../Season 1/Subs/E01/Show.S02E01.en.srt   below-root parse (2, 1)
+#
+# Rung 2 fires first: the sidecar's parent folder is the bare `E01`, which BOTH videos'
+# basenames match, so proximity breaks it — and proximity reads only the leading
+# segments, where this sidecar says `Season 1`. Rung 3 would have read the sidecar's own
+# basename, `Show.S02E01`, and agreed with exactly one video. Measured, in a one-off
+# container, against both modules:
+#
+#   8708913 (before the tiebreak): (1, "parse")  <- Season 2's file, order-independent
+#   HEAD    (after  the tiebreak): (0, "near")   <- Season 1's file, order-independent
+#
+# So the tiebreak does not only trade a label here: it trades a CORRECT pairing for a
+# wrong one, rendered `English (nearest of several matches)`, with no error anywhere —
+# the exact failure D20 says this module exists to make visible. Pinned rather than
+# fixed because the fix is a rung-order decision (defer the proximity candidate until
+# rung 3 has failed) that this review does not own. A reversal reddens this row, which
+# is the point of writing it down.
+#
+# HAND-AUTHORED, like every fixture here. What makes it a counterexample and not
+# adversarial nonsense: both videos follow ONE convention, at one depth, and no single
+# path contradicts itself. Only the sidecar's LOCATION contradicts its NAME.
+MISFILED_SEASON_VIDEOS = [
+    {"index": 0, "rel_path": "Show.Complete/Season 1/Show.S01E01/E01.mkv",
+     "size": 800_000_000},
+    {"index": 1, "rel_path": "Show.Complete/Season 2/Show.S02E01/E01.mkv",
+     "size": 800_000_000},
+]
+MISFILED_SIDECAR = "Show.Complete/Season 1/Subs/E01/Show.S02E01.en.srt"
+# The same layout with the sidecar filed where its name says it belongs. The control
+# matters: without it, the row above is also green for a tiebreak that always answers
+# index 0, and "proximity picked the wrong one" would be indistinguishable from
+# "proximity picked the first one".
+WELL_FILED_SIDECAR = "Show.Complete/Season 2/Subs/E01/Show.S02E01.en.srt"
+
+
+def test_proximity_outranks_the_parse_rung_even_when_it_contradicts_the_sidecars_name():
+    """The pre-emption changes the INDEX, not just the label. See the note above."""
+    assert pair(MISFILED_SIDECAR, MISFILED_SEASON_VIDEOS) == (0, "near")
+    assert pair(MISFILED_SIDECAR, list(reversed(MISFILED_SEASON_VIDEOS))) == (0, "near")
+
+    # The control, filed correctly: proximity and the parse agree on the file, and only
+    # the reported source is weaker. Both rows are needed — see the note above.
+    assert pair(WELL_FILED_SIDECAR, MISFILED_SEASON_VIDEOS) == (1, "near")
+    assert pair(WELL_FILED_SIDECAR,
+                list(reversed(MISFILED_SEASON_VIDEOS))) == (1, "near")
 
 
 def test_the_answer_does_not_depend_on_the_order_of_the_video_files():
@@ -459,11 +525,19 @@ def test_the_answer_does_not_depend_on_the_order_of_the_video_files():
     an answer that depends on it is a coin flip wearing a rung's name. Before the first
     fix, the first two pairs below answered index 0 forward and index 1 reversed.
 
-    Equality of the two answers is the whole assertion on purpose: it holds whether the
-    honest answer is `none` (the tie pairs), a proximity resolution or a `parse`, and it
-    reddens both under the first-match revert and under a tiebreak written as
-    `max(claimants, key=depth)` — which returns the first maximal element and so flips
-    with the list whenever the greatest depth is shared.
+    EVERY PERMUTATION, not a reversal. CORRECTED IN REVIEW: this row used to compare
+    `videos` against `list(reversed(videos))`, which for the three-claimant fixture is
+    2 of its 6 orderings — and a two-element sample is the weakest instrument there is
+    for a property stated over all of them. `itertools.permutations` costs nothing here
+    (the widest fixture has three videos) and turns "these two orders agree" into the
+    claim actually being made: `pair()` is a function of its inputs as a SET.
+
+    One distinct answer across all orderings is the whole assertion on purpose: it
+    holds whether the honest answer is `none` (the tie pairs), a proximity resolution
+    or a `parse`, and it reddens both under the first-match revert and under a tiebreak
+    written as `max(claimants, key=depth)` — which returns the first maximal element
+    and so flips with the list whenever the greatest depth is shared. Measured under
+    that mutation: 5 of the 10 cases below go order-dependent.
     """
     cases = [
         (AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS),
@@ -475,11 +549,15 @@ def test_the_answer_does_not_depend_on_the_order_of_the_video_files():
         (FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS),
         (TIE_FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS),
         (TIE_FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS),
+        (MISFILED_SIDECAR, MISFILED_SEASON_VIDEOS),
     ]
     for sidecar, videos in cases:
-        forward = pair(sidecar, videos)
-        backward = pair(sidecar, list(reversed(videos)))
-        assert forward == backward, f"{sidecar} answered {forward} / {backward}"
+        answers = {pair(sidecar, list(order))
+                   for order in itertools.permutations(videos)}
+        assert len(answers) == 1, (
+            f"{sidecar} answered {sorted(answers)} across "
+            f"{len(list(itertools.permutations(videos)))} orderings"
+        )
 
 
 def test_proximity_breaks_the_tie_identically_in_either_file_order():

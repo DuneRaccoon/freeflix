@@ -53,6 +53,11 @@ COVERAGE_UNKNOWN = "unknown"
 # `info` dict and `lt.read_resume_data(...).ti` is None for every blob this
 # application has ever written. A `source: "resume"` arm becomes possible only
 # after the stage-7 `save_info_dict` repair, and adding it is purely additive.
+# NOTHING REFERENCES THIS YET, and that is stated so it is not mistaken for a
+# tested constant: `list_sidecars` returns `(coverage, entries)` and D5's
+# `source` field belongs to task 8's envelope. The same is true of this module's
+# re-exports in `app/subtitles/__init__.py` — `manager.py` imports the submodule
+# directly, so deleting that block is a green mutation (measured in review).
 SOURCE_SESSION = "session"
 
 # The request-time listed set. HARD-CODED, and the reason is above.
@@ -97,11 +102,20 @@ def listed_extension(rel_path: str) -> Optional[str]:
 def is_convertible(ext: str) -> bool:
     """Whether the WebVTT route will actually convert this extension.
 
-    Settings-driven on purpose, and it is NOT the ASS guard: moving `.ass` into
-    `subtitle_convertible_extensions` makes this True and is refused instead by
-    `vtt.py`'s own format check (plan task 2(d)). `.ass`/`.ssa` are listed and
-    never converted (D17) so the picker can say the format out loud rather than
-    stay silent about a file the viewer can see in the release.
+    Settings-driven on purpose, and it is NOT the ASS guard — and neither is
+    anything else in production, which is the part worth stating exactly.
+    `vtt.py`'s format check reads the SAME setting (`vtt.py:293`), so moving
+    `.ass` into `subtitle_convertible_extensions` flips both at once. MEASURED:
+    with `.ass` in that set, `to_webvtt(<an ASS body>, ".ass")` answers
+    `reason="no-cues"`, not `"unsupported-format"` — the body goes through the
+    SRT parser and yields zero cues. So the body is still never served, but this
+    row would advertise `convertible: true` with `reason: None` and the refusal
+    would arrive at the television under a different name. What plan task 2(d)
+    actually promises is that the move reddens task 6's ASS-refusal ROW; that is
+    a test, not a runtime guard, and an earlier draft of this docstring claimed
+    the second. `.ass`/`.ssa` are listed and never converted (D17) so the picker
+    can say the format out loud rather than stay silent about a file the viewer
+    can see in the release.
     """
     configured = {
         str(e).strip().lower()

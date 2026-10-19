@@ -1290,9 +1290,20 @@ class TorrentManager:
         """Every sidecar subtitle file this torrent's LIVE metadata declares.
 
         Returns `(coverage, entries)` — never a bare list. `coverage` is
-        `"listed"` (metadata read, at least one sidecar), `"none"` (metadata
-        read, this release ships none) or `"unknown"` (no live handle, no
-        metadata yet, or a libtorrent call raised). D6: `/files` already answers
+        `"listed"` (metadata read, at least one LISTABLE sidecar), `"none"`
+        (metadata read, nothing listable in it) or `"unknown"` (no live handle,
+        no metadata yet, or a libtorrent call raised). `"none"` carries TWO
+        meanings and the narrower sentence "this release ships none" is not one
+        of them: the policy below also answers `"none"` for a release whose
+        every sidecar it excluded — over `subtitle_max_bytes`, outside
+        `settings.subtitle_extensions`, or escaping the save path.
+        `test_an_oversized_sidecar_is_not_listed` and
+        `test_narrowing_the_configured_set_drops_a_listed_extension` pin that
+        second meaning deliberately, so the television's cell can read `none`
+        where the truth is `excluded`. It is still not `"unknown"`, because the
+        metadata WAS read and the answer is measured rather than absent; drawing
+        the distinction would need a fourth value, which is a UI decision this
+        task does not get to take. D6: `/files` already answers
         `200 []` with three meanings and this repo's own suite records that it
         "means 'not ready, or evicted' and never 'this pack has no episodes'"
         (`test_finished_torrent_streamable.py:226-230`), so a fourth bare empty
@@ -1418,6 +1429,13 @@ class TorrentManager:
                 "reason": reason,
             })
 
+        # DEAD AS WRITTEN, and said here rather than left to be discovered: the
+        # loop above walks `range(num_files)` so `rows` is already in strictly
+        # increasing index order, and deleting this line is a GREEN mutation
+        # (measured in review). It is kept the way the pad-file check above is
+        # kept — because the ordering is a promise the route makes and the next
+        # hand to touch this loop should not have to re-derive that the walk is
+        # what keeps it — and no test claims this line, only the order.
         rows.sort(key=lambda r: r["index"])
         coverage = sidecars.COVERAGE_LISTED if rows else sidecars.COVERAGE_NONE
         return coverage, rows

@@ -182,7 +182,7 @@ def present_at_declared_size(path, size: int) -> Tuple[bool, Optional[str]]:
       `file_progress()` reports the full size. That is `(False, None)`: not
       ready, and not an error, because task 7's flush is what fixes it.
     * a SHORT file is the sparse-write case stage 7's gate 3 exists for
-      (`manager.py:1274-1285`): libtorrent writes at offsets in sparse storage
+      (`manager.py:1398-1409`): libtorrent writes at offsets in sparse storage
       mode, so a partial file already reports its full length with holes that
       read back as zeros.
     * any other `OSError` is REPORTED, never raised (plan task 3): the dev

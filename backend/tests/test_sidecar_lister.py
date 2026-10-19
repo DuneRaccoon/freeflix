@@ -36,10 +36,13 @@ The fakes are hand-written here rather than imported from
 a `files()` accessor and a `status().save_path` that none of the shared fakes
 carry, and because `test_stage9_leaves_the_selectors_alone.py` deliberately copies
 rather than imports for the same reason. One test uses a REAL `lt.torrent_info`:
-the memo-isolation row cannot be written any other way (see its docstring).
+the `_resume_video_files` isolation row in section (f) cannot be written any
+other way (see its docstring). Section (g) is about the OTHER memo,
+`_contiguous_runs`, and needs no real torrent.
 """
 import contextlib
 import os
+import time
 import types
 
 import libtorrent as lt
@@ -116,6 +119,12 @@ class _Handle:
     state that matters here: it is what a HELD-but-unflushed sidecar reports, and
     it is why a lister that believed `file_progress` alone would call a part file
     ready.
+
+    `calls` records every `have_piece` index asked for, which is how the memo
+    rows below witness a WALK rather than a cache hit — the same instrument
+    `test_contiguous_available.py`'s `_Pieces` fake carries, for the same reason:
+    on the ARM box a miss is up to `_CONTIGUOUS_MAX_PIECES` pybind calls and
+    "the entry survived" means nothing if the next ask re-walks anyway.
     """
 
     def __init__(self, ti, save_path, *, have=True, progress=None,
@@ -126,6 +135,7 @@ class _Handle:
         self._progress = progress
         self._metadata = metadata
         self._raises = raises
+        self.calls = []
 
     def has_metadata(self):
         return self._metadata
@@ -144,6 +154,7 @@ class _Handle:
         return [self._ti.file_at(i).size for i in range(self._ti.num_files())]
 
     def have_piece(self, piece):
+        self.calls.append(piece)
         if callable(self._have):
             return bool(self._have(piece))
         return bool(self._have)
@@ -396,7 +407,7 @@ def test_a_held_but_unflushed_sidecar_is_not_ready(tmp_path):
 def test_a_short_file_is_not_ready(tmp_path):
     """(c3) Present is not enough — the size must match the metadata.
 
-    Stage 7's gate 3 shape (`manager.py:1274-1285`), reused by shape rather than by
+    Stage 7's gate 3 shape (`manager.py:1398-1409`), reused by shape rather than by
     call. A truncated sidecar fails SILENTLY downstream: a WebVTT parser discards a
     malformed trailing cue and renders what precedes it, so the viewer loses the
     last stretch of the film and nobody files a bug.
@@ -626,3 +637,151 @@ def test_the_lister_does_not_answer_from_the_resume_video_file_memo(
     assert [e["index"] for e in entries] == [sub_index]
     assert entries[0]["format"] == "srt"
     assert entries[0]["ready"] is True
+
+
+# ==========================================================================
+# (g) The lister stays out of `contiguous_available`'s SHARED memo
+# ==========================================================================
+#
+# Task 3's review, finding 4. `_contiguous_runs` is keyed
+# `(torrent_id, file_index, at_piece)` so a sidecar's answer cannot COLLIDE with
+# the video's — D7 says so — but key isolation is not CAPACITY isolation: the
+# overflow policy is a whole-dict `.clear()` above 64 entries
+# (`manager.py:2030-2031`) and the lister asks the question once per sidecar. So
+# listing subtitles could evict the run the seek boundary and `/info` are polling
+# (`api/streaming.py:450`), at up to `_CONTIGUOUS_MAX_PIECES` = 4096 `have_piece`
+# pybind calls per miss on the ARM box. The fix is one keyword-only flag,
+# `memoize=False`, that neither READS nor WRITES the memo, and the two rows below
+# pin the two halves separately because neither can see the other's mutation.
+#
+# MEASURED, and the reason this fixture is a four-episode pack rather than the
+# review's bare 20: twenty sidecars in one call cannot overflow a 64-entry dict,
+# and REPEATED polling of the same torrent cannot either — the second call
+# recomputes the SAME keys, so the dict stops growing at the sidecar count.
+# Measured with the fix reverted and the fixture cut to 20: the "did not grow"
+# assertion reddens (21 entries), and every SURVIVAL assertion stays GREEN —
+# the video's run was still cached, because nothing had overflowed. So a
+# 20-sidecar fixture can see the lister WRITING but not the eviction the finding
+# is about. Eviction needs 65 distinct keys in flight, which D4's own
+# 20-language case supplies the moment the release is a season pack:
+# 4 episodes x 20 languages = 80. Both assertion kinds are kept because each
+# sees a mutation the other does not.
+
+def _lang_pack(episodes=4, languages=20):
+    """D4's 20-language `Subs/` tree, on a four-episode pack.
+
+    Videos first and sidecars after, so no sidecar sits at index 0 and the video
+    this test caches is not the file the lister visits.
+    """
+    rows = [("Pack.S01/info.nfo", 1024, False)]
+    for ep in range(1, episodes + 1):
+        rows.append((f"Pack.S01/Pack.S01E{ep:02d}.mkv", 2 * PIECE_LENGTH, False))
+        rows.append(("Pack.S01/.pad/16320", 16320, True))
+    for ep in range(1, episodes + 1):
+        for n in range(languages):
+            rows.append(
+                (f"Pack.S01/Subs/Pack.S01E{ep:02d}.l{n:02d}.srt", 2048, False))
+    return rows
+
+
+def test_listing_sidecars_does_not_evict_the_videos_cached_run(
+        tmp_path, monkeypatch):
+    """The WRITE half: 80 sidecars, and the video's cached run is still there.
+
+    All four assertions are needed and all four are live. "The entry survived"
+    alone passes a fixture that simply never overflowed, so the entry COUNT is
+    asserted too (measured: at 20 sidecars the count is the ONLY one that
+    reddens). And a surviving key means nothing if the next ask re-walks anyway,
+    so the pybind counter is asserted as well — measured on its own, with the
+    three assertions above it deleted and `memoize=False` dropped at the call
+    site, it reddens at `1 == 0`: one `have_piece` call where the cache should
+    have answered. That walk is the cost the memo exists to avoid, and on the ARM
+    box it is up to `_CONTIGUOUS_MAX_PIECES` = 4096 of those calls.
+    """
+    # Long TTL so "the entry survived" cannot be confused with "the entry
+    # expired between the two asks" on a slow box.
+    monkeypatch.setattr(manager_mod, "_CONTIGUOUS_TTL_S", 1000.0)
+    rows = _lang_pack()
+    sidecars_in_fixture = sum(1 for r in rows if r[0].endswith(".srt"))
+    assert sidecars_in_fixture == 80 > 64, (
+        "the fixture must really be able to overflow the 64-entry memo")
+    save_path = _pack_on_disk(tmp_path, rows=rows)
+    ti = _TI(rows)
+    handle = _Handle(ti, save_path)
+    video_index = 1
+    assert rows[video_index][0].endswith(".mkv")
+
+    with loaded("t-capacity", handle):
+        # What /info does while the title is on screen: the seek boundary's own
+        # answer, measured and then cached under the VIDEO's key.
+        video_run = torrent_manager.contiguous_available("t-capacity", video_index, 0)
+        assert video_run is not None and video_run["complete"] is True
+        memo_before = dict(torrent_manager._contiguous_runs)
+        assert len(memo_before) == 1, memo_before
+        [(video_key, video_cached)] = memo_before.items()
+
+        coverage, entries = _call("t-capacity")
+
+        spent = len(handle.calls)
+        again = torrent_manager.contiguous_available("t-capacity", video_index, 0)
+        cost_of_asking_again = len(handle.calls) - spent
+
+    assert coverage == "listed"
+    assert len(entries) == 80, "every sidecar is listed, so every one asked"
+    # The entry SURVIVES, and it is the same object, so it was neither cleared
+    # nor silently rewritten.
+    assert video_key in torrent_manager._contiguous_runs
+    assert torrent_manager._contiguous_runs[video_key] is video_cached, (
+        "the cached (stamp, result) tuple itself, so a re-insert under the same "
+        "key is not mistaken for survival")
+    # And the memo did not GROW: without the count, the survival assertion above
+    # passes any fixture that stayed under the cap.
+    assert len(torrent_manager._contiguous_runs) == 1, (
+        f"the lister wrote {len(torrent_manager._contiguous_runs) - 1} entries "
+        f"into the shared memo"
+    )
+    # Surviving as a usable cache entry, not merely as a key.
+    assert cost_of_asking_again == 0, "the cached video run cost a fresh walk"
+    assert again == video_run
+
+
+def test_the_lister_never_answers_a_sidecar_from_the_shared_memo(
+        tmp_path, monkeypatch):
+    """The READ half: a cached `complete` is not a measurement.
+
+    `memoize=False` skips both halves, and this is the row that says so — a
+    write-only skip leaves the lister serving an answer up to
+    `_CONTIGUOUS_TTL_S` old to the honesty gate that decides whether the
+    television spends the `<track>`'s one and only load. The seeded entry claims
+    the sidecar is complete; the handle says no piece is held; the file is on
+    disk at its declared size, so the OTHER conjunct cannot be what refuses.
+    """
+    monkeypatch.setattr(manager_mod, "_CONTIGUOUS_TTL_S", 1000.0)
+    save_path = _pack_on_disk(tmp_path)
+    ti = _TI(PACK)
+    handle = _Handle(ti, save_path, have=False)
+    at_piece = ti.file_at(4).offset // PIECE_LENGTH
+    poisoned_key = ("t-poison", 4, at_piece)
+    poisoned = {
+        "file_index": 4,
+        "file_size": 2048,
+        "piece_length": PIECE_LENGTH,
+        "run_start": 0,
+        "run_end": 2048,
+        "complete": True,
+        "measured_against": "metadata",
+    }
+    torrent_manager._contiguous_runs[poisoned_key] = (time.monotonic(), poisoned)
+
+    with loaded("t-poison", handle):
+        coverage, entries = _call("t-poison")
+
+    by_index = {e["index"]: e for e in entries}
+    assert coverage == "listed"
+    assert os.path.getsize(save_path / PACK[4][0]) == 2048, (
+        "the on-disk conjunct must be satisfied, or it is what answers False")
+    assert by_index[4]["ready"] is False, (
+        "a cached `complete` is not a measurement, and the pieces are not held")
+    assert by_index[5]["ready"] is False, "nothing is held in this fixture"
+    # Not read, and not rewritten either: the same object, untouched.
+    assert torrent_manager._contiguous_runs[poisoned_key][1] is poisoned

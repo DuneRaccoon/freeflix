@@ -230,7 +230,10 @@ class TorrentManager:
         # contiguous_available's memo: {(torrent_id, file_index, at_piece):
         # (monotonic_stamp, result)}. Keyed on the PIECE containing the offset,
         # so a player polling a moving playhead still hits it. See
-        # _CONTIGUOUS_TTL_S.
+        # _CONTIGUOUS_TTL_S. SHARED, and evicted by a whole-dict `.clear()`
+        # above 64 entries, which is why a bulk caller passes
+        # `contiguous_available(..., memoize=False)` — distinct keys protect the
+        # ANSWERS here, not the capacity.
         self._contiguous_runs: Dict[Tuple[str, int, int], Tuple[float, Dict[str, Any]]] = {}
 
         # Initialize the database
@@ -1530,7 +1533,16 @@ class TorrentManager:
 
             # The two conjuncts, in one expression, so neither can be dropped
             # without the other reading as an obvious orphan.
-            run = self.contiguous_available(torrent_id, i, 0)
+            #
+            # `memoize=False` keeps this loop out of the SHARED memo, whose
+            # overflow policy is a whole-dict `.clear()` above 64 entries: one
+            # entry per sidecar is 20 per call for the 20-language tree D4's
+            # span cap exists for, and 80 on a four-episode pack — which clears
+            # the video's cached run and costs the seek boundary a 4096-call
+            # walk. The lister's own walk is one or two `have_piece` calls, so it
+            # loses nothing by measuring every time. Measured in
+            # `test_sidecar_lister.py`'s section (g), both halves separately.
+            run = self.contiguous_available(torrent_id, i, 0, memoize=False)
             run_complete = bool(run and run.get("complete"))
             present, reason = sidecars.present_at_declared_size(abs_path, size)
             ready = run_complete and present
@@ -1888,7 +1900,8 @@ class TorrentManager:
 
     def contiguous_available(self, torrent_id: str,
                              file_index: Optional[int] = None,
-                             at_bytes: int = 0) -> Optional[Dict[str, Any]]:
+                             at_bytes: int = 0,
+                             *, memoize: bool = True) -> Optional[Dict[str, Any]]:
         """The contiguous downloaded run CONTAINING `at_bytes`, in file bytes.
 
         The seek boundary's only data source. /info's `downloaded`/`progress` are
@@ -1928,6 +1941,28 @@ class TorrentManager:
         today, deliberately: the alternative (os.path.getsize) is a stat call this
         walk does not make, and the live path always has metadata. It exists so a
         client can tell what it is reading rather than having to assume.
+
+        `memoize=False` NEITHER READS NOR WRITES `self._contiguous_runs`, and the
+        reason is CAPACITY isolation rather than key isolation. The memo's keys
+        already cannot collide — `(torrent_id, file_index, at_piece)` — but its
+        overflow policy is a whole-dict `.clear()` above 64 entries
+        (`_finish`, `:2030-2031`), so a caller that inserts MANY keys at once
+        evicts every other caller's. `list_sidecars` is that caller: it asks this
+        question once per sidecar, which for the 20-language `Subs/` tree D4's span
+        cap exists for is 20 entries per call on a single-episode release and 80
+        on a four-episode pack. Twenty does not reach the cap; eighty crosses it
+        and the `.clear()` takes the WHOLE dict, including the run the SEEK
+        BOUNDARY (`api/streaming.py:450`) and `/info` are polling while a title
+        is on screen — each miss there costing a walk of up to
+        `_CONTIGUOUS_MAX_PIECES` (4096) `have_piece` pybind calls on the ARM box.
+        The lister pays nothing for opting out: a sidecar spans one or two
+        pieces, so the walk it repeats is one or two `have_piece` calls.
+
+        Neither-read-nor-write rather than write-only-skip, because one flag with
+        one meaning is testable; "reads the cache but never fills it" is a third
+        behaviour nobody asked for, and a read-only lister would still serve an
+        answer measured up to `_CONTIGUOUS_TTL_S` ago to the honesty gate that
+        decides whether the television loads a `<track>`.
         """
         entry = self.active_torrents.get(torrent_id)
         if entry is None:
@@ -1972,9 +2007,10 @@ class TorrentManager:
             # is on screen and each miss costs a walk.
             cache_key = (torrent_id, idx, at_piece)
             now = time.monotonic()
-            cached = self._contiguous_runs.get(cache_key)
-            if cached is not None and (now - cached[0]) < _CONTIGUOUS_TTL_S:
-                return dict(cached[1])
+            if memoize:
+                cached = self._contiguous_runs.get(cache_key)
+                if cached is not None and (now - cached[0]) < _CONTIGUOUS_TTL_S:
+                    return dict(cached[1])
 
             def _finish(run_start: int, run_end: int, complete: bool) -> Dict[str, Any]:
                 result = {
@@ -1986,9 +2022,14 @@ class TorrentManager:
                     "complete": complete,
                     "measured_against": "metadata",
                 }
-                if len(self._contiguous_runs) > 64:
-                    self._contiguous_runs.clear()
-                self._contiguous_runs[cache_key] = (now, result)
+                # The whole-dict eviction the `memoize` flag exists for: a caller
+                # inserting one key per sidecar would clear the seek boundary's
+                # own entry, so a bulk caller opts out of BOTH halves above and
+                # here rather than relying on its keys not colliding.
+                if memoize:
+                    if len(self._contiguous_runs) > 64:
+                        self._contiguous_runs.clear()
+                    self._contiguous_runs[cache_key] = (now, result)
                 return dict(result)
 
             # Fast path for the common finished-but-still-loaded case, which is

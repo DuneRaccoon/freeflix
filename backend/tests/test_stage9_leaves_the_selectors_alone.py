@@ -139,7 +139,7 @@ class _ForbiddenCall(BaseException):
     """Raised by the fake's `prioritize_files`.
 
     `BaseException` on purpose. Every libtorrent call in `manager.py` is individually
-    wrapped in `except Exception: pass` (`_deadline_pieces` at `:1933-1939` is the idiom
+    wrapped in `except Exception: pass` (`_deadline_pieces` at `:2249-2255` is the idiom
     task 7 copies), so an `Exception` raised here would be SWALLOWED by the code under
     test. Measured against a stand-in that did exactly that: with `BaseException` the
     raise escapes and names the offence; with `Exception` the raise is swallowed and the

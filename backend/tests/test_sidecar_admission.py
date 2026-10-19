@@ -600,7 +600,7 @@ def test_the_flush_reports_the_file_landing_at_its_declared_size(tmp_path):
 def test_a_short_file_is_not_a_landed_file(tmp_path):
     """Sparse storage means a partial file can already report its full length.
 
-    Stage 7's gate 3 (`manager.py:1375-1391`, the `on_disk != match["size"]`
+    Stage 7's gate 3 (`manager.py:1398-1409`, the `on_disk != match["size"]`
     arm) exists for exactly this: libtorrent
     writes at offsets, so a half-written file has holes that read back as zeros.
     A flush that tested only `os.path.exists` would hand the `<track>` a

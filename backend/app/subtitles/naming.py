@@ -415,14 +415,19 @@ def pair(rel_path: str,
     **No rung ever guesses between equals.** A rung takes an answer when exactly ONE
     video claims the sidecar. When two or more do:
 
-    * **rungs 1 and 2 try DIRECTORY PROXIMITY** — each claimant is scored by how many
-      leading path segments its directory shares with the sidecar's, and the claimant
-      whose score is strictly the greatest wins, reported as **`near`** rather than as
-      `stem`/`dir` so the television can say it picked the closest of several rather
-      than the only one. The scoring is a pure function of the two paths and therefore
-      ORDER-INDEPENDENT — `_nearest_claimant` computes the maximal SET and checks its
-      size, because `max()` over a list silently returns the first maximal element,
-      which is exactly the order-dependence this mechanism removes.
+    * **rungs 1 and 2 try DIRECTORY PROXIMITY, and HOLD the answer** — each claimant is
+      scored by how many leading path segments its directory shares with the sidecar's,
+      and the claimant whose score is strictly the greatest wins, reported as **`near`**
+      rather than as `stem`/`dir` so the television can say it picked the closest of
+      several rather than the only one. The scoring is a pure function of the two paths
+      and therefore ORDER-INDEPENDENT — `_nearest_claimant` computes the maximal SET and
+      checks its size, because `max()` over a list silently returns the first maximal
+      element, which is exactly the order-dependence this mechanism removes.
+      **A held answer is used only after rung 3 has had its turn and found nothing**
+      (rung 3b). Returning it immediately let a guess pre-empt a check and was measured
+      to change the INDEX, not merely the label, on 68 of 720,657 enumerated two-video
+      layouts — see the comment on rung 1 for the worked misfile. Rung 1's held
+      candidate outranks rung 2's.
     * **an UNBREAKABLE TIE still declines.** When the greatest score is shared by two
       or more claimants, the rung logs at INFO (`_decline`) and falls through to the
       next rung, which may still resolve the same sidecar uniquely.
@@ -435,21 +440,24 @@ def pair(rel_path: str,
     Rungs 4 and 5 cannot be ambiguous: rung 4 is only reached when the torrent has
     exactly one video, and rung 5 claims nothing.
 
-    This RE-DECIDES D20's rung contract TWICE, in two review rounds. D20 specified the
-    refusal for rung 3 only; the first round measured what rungs 1 and 2 did instead
-    (see the comment on rung 1) and made them refuse; the second round measured that
-    refusing is not the best available answer when the paths themselves say which video
-    is meant, and added the tiebreak. The rule is that a rung which can be wrong must
-    not outrank the rung that checks, and that silence is better than a wrong answer
-    but worse than a right one.
+    This RE-DECIDES D20's rung contract THREE times, in three review rounds. D20
+    specified the refusal for rung 3 only; the first round measured what rungs 1 and 2
+    did instead (see the comment on rung 1) and made them refuse; the second round
+    measured that refusing is not the best available answer when the paths themselves
+    say which video is meant, and added the tiebreak; the third round measured that
+    returning the tiebreak's answer immediately OVERRODE rung 3 and picked the wrong
+    season's file on a misfiled sidecar, and deferred it to rung 3b. Two rules came out
+    of that, in this order of priority: **a rung that can be wrong must not outrank the
+    rung that checks**, and silence is better than a wrong answer but worse than a right
+    one. The second rule is what the tiebreak is for; the first is why it waits.
 
-    The five rungs, in order (D20):
+    The rungs, in order (D20, as re-decided):
 
     1. `stem` — the sidecar's basename stem, with tag tokens peeled, equals a video's
-       basename stem. Several matches are broken by proximity (`near`), and refused
-       when proximity ties.
+       basename stem. Several matches are broken by proximity, whose answer is HELD for
+       rung 3b rather than returned, and refused when proximity ties.
     2. `dir`  — the sidecar's nearest ancestor directory NAME equals a video's
-       basename stem. Same tiebreak, same refusal. Cannot use
+       basename stem. Same tiebreak, same hold, same refusal. Cannot use
        `parse_episode`: measured,
        `parse_episode("Subs/E01.srt")` is None, because `_SXXEYY` is
        `[Ss](\\d{1,2})[\\s._-]?[Ee](\\d{1,3})` and a bare `E01` matches neither it nor
@@ -459,6 +467,10 @@ def pair(rel_path: str,
     3. `parse` — `parse_episode` over the segments BELOW the torrent root, required to
        agree with the paired video's own parse, and refused outright when more than one
        video agrees.
+    3b. `near` — the proximity answer rung 1 or rung 2 held back, now that the parse has
+       declined. Never overrides rung 3: a sidecar whose own name names an episode is
+       answered by that name, and one whose name says nothing is answered by where it
+       sits.
     4. `single` — a one-video torrent. There is nothing else it could belong to.
     5. `none`  — unpaired. Still listed, with no episode claimed.
     """
@@ -507,6 +519,27 @@ def pair(rel_path: str,
     # shape, and refusing there yielded NO subtitle for every sidecar in it. Honest
     # silence beats a wrong answer; a right answer beats both. So an ambiguous claim is
     # broken by proximity (`near`), and only a tie proximity cannot break declines.
+    # CORRECTED A THIRD TIME, and this is the form that ships: a proximity answer is
+    # HELD, not returned. Returning it here let a GUESS pre-empt a CHECK — rung 3 reads
+    # the sidecar's own name, and proximity reads only where the packer filed it.
+    # Enumerated over 720,657 coherent two-video layouts, 68 answer a DIFFERENT INDEX
+    # under proximity than under the parse, and the measured counterexample is a
+    # packer's misfile, which is the case a pairing ladder exists to survive:
+    #
+    #   videos  0: "Show.Complete/Season 1/Show.S01E01/E01.mkv"   dir-depth 2
+    #           1: "Show.Complete/Season 2/Show.S02E01/E01.mkv"   dir-depth 1
+    #   sidecar    "Show.Complete/Season 1/Subs/E01/Show.S02E01.en.srt"
+    #
+    # Rung 2 fires (both basenames match the bare `E01` parent folder), proximity reads
+    # the leading segments and sees `Season 1`, and the answer is index 0 — while the
+    # sidecar's own name says `S02E01` and rung 3 agrees with exactly one video, index
+    # 1. So `held_near` carries the candidate past rung 3 and is used only if the parse
+    # finds nothing. This restores the rule the first correction stated and the second
+    # one broke: A RUNG THAT CAN BE WRONG MUST NOT OUTRANK THE RUNG THAT CHECKS. The
+    # two reviewer fixtures above are unaffected (rung 3 cannot parse `Season 1/E01`),
+    # so nothing is lost by deferring, and holding costs one local variable.
+    held_near: Optional[int] = None
+
     stem_matches = []
     for index, vrel in videos:
         vstem_tokens = _tokens(PurePosixPath(_parts(vrel)[-1]).stem)
@@ -517,8 +550,9 @@ def pair(rel_path: str,
     if stem_matches:
         nearest = _nearest_claimant("stem", sub_rel, stem_matches, rel_by_index)
         if nearest is not None:
-            return nearest, "near"
-        _decline("stem", sub_rel, stem_matches, tied=True)
+            held_near = nearest
+        else:
+            _decline("stem", sub_rel, stem_matches, tied=True)
 
     # Rung 2 — the nearest ancestor directory. Same tiebreak, same refusal, same
     # reasons. The two rungs are separate loops with separate guards on purpose:
@@ -536,9 +570,14 @@ def pair(rel_path: str,
                 return dir_matches[0], "dir"
             if dir_matches:
                 nearest = _nearest_claimant("dir", sub_rel, dir_matches, rel_by_index)
-                if nearest is not None:
-                    return nearest, "near"
-                _decline("dir", sub_rel, dir_matches, tied=True)
+                if nearest is None:
+                    _decline("dir", sub_rel, dir_matches, tied=True)
+                elif held_near is None:
+                    # Rung 1's held candidate outranks rung 2's, for the same reason an
+                    # unambiguous `stem` outranks an unambiguous `dir`: the sidecar's own
+                    # name is stronger evidence than the folder it sits in. Only reachable
+                    # when BOTH rungs were ambiguous and both broke by proximity.
+                    held_near = nearest
 
     # Rung 3 — the episode number, below the torrent root, agreeing with the video.
     root = _torrent_root([sub_rel] + [vrel for _, vrel in videos])
@@ -565,6 +604,16 @@ def pair(rel_path: str,
             return agreeing[0], "parse"
         if len(agreeing) > 1:
             _decline("parse", sub_rel, agreeing)
+
+    # Rung 3b — the proximity answer rung 1 or rung 2 held back, used ONLY now that the
+    # parse has had its turn and found nothing. This is the whole of the third
+    # correction: the guess is still available, it just no longer outranks the check.
+    # Note what it does NOT do — it never overrides rung 3. A sidecar whose own name
+    # names an episode is answered by that name; a sidecar whose name says nothing is
+    # answered by where it sits. `near` is reported either way, so the television
+    # confesses the weaker provenance in the label it already renders.
+    if held_near is not None:
+        return held_near, "near"
 
     # Rung 4 — a single-video torrent.
     if len(videos) == 1:

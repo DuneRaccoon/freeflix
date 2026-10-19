@@ -410,9 +410,9 @@ FALLTHROUGH_DIR_SIDECAR = "Show/Pack.S01E01/E01/3_English.srt"
 
 # The same two videos, with the sidecars moved into a top-level `Subs/` tree so that
 # both per-episode folders are EQUIDISTANT from them (depths {0: 1, 1: 1}). These are
-# NEW paths: the two above now resolve by proximity at rung 1/2 (which is what
-# `test_proximity_pre_empts_the_parse_rung_where_both_could_resolve` records), so
-# falling through needs an ambiguity proximity cannot break. What this pair pins is
+# NEW paths: for the two above, rungs 1/2 find a unique nearest and HOLD it (which is
+# what `test_a_held_proximity_answer_does_not_pre_empt_the_parse_rung` records), so a
+# rung declining outright needs an ambiguity proximity cannot break. What this pair pins is
 # unchanged — proximity ties, the rung declines, and rung 3, which reads `Pack.S01E01`
 # below the torrent root, resolves the same sidecar correctly. Make a declining rung
 # return `(None, "none")` on the spot and these two go `none`.
@@ -433,36 +433,77 @@ def test_an_ambiguous_directory_falls_through_to_a_rung_that_can_resolve_it():
     assert pair(TIE_FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "parse")
 
 
-def test_proximity_pre_empts_the_parse_rung_where_both_could_resolve():
-    """WHAT THIS DECISION COSTS, pinned rather than left to be discovered.
+# BOTH RUNGS AMBIGUOUS, BOTH BROKEN BY PROXIMITY, AND THE TWO ANSWERS DIFFER — the only
+# shape in which rung 1's held candidate outranking rung 2's is observable at all. Four
+# videos, two episodes across two seasons; the sidecar is NAMED `E01` and sits in an
+# `E02` folder, which is a packer's misfile of exactly the kind the ladder exists to
+# survive.
+#
+#   rung 1  claimants {0, 1} (both stems are `E01`)  dir-depths {0: 1, 1: 2} -> HOLD 1
+#   rung 2  claimants {2, 3} (parent folder is `E02`) dir-depths {2: 1, 3: 2} -> would be 3
+#   rung 3  `parse_episode("Season 2/E02/E01.en.srt")` is None — a bare `E01` matches
+#           neither `_SXXEYY` nor `_XNOTATION` — so the parse declines and rung 3b runs.
+#
+# Index 1 is Season 2's `E01.mkv`: the sidecar's own NAME decides which episode, and
+# where it sits decides which season. Without the precedence guard the answer is index
+# 3, Season 2's `E02.mkv` — the right season and the WRONG EPISODE, with a folder
+# overriding the file's own name. Same rule as everywhere else in this ladder, applied
+# between two guesses instead of between a guess and a check.
+PRECEDENCE_VIDEOS = [
+    {"index": 0, "rel_path": "Show/Season 1/E01.mkv", "size": 800_000_000},
+    {"index": 1, "rel_path": "Show/Season 2/E01.mkv", "size": 800_000_000},
+    {"index": 2, "rel_path": "Show/Season 1/E02.mkv", "size": 800_000_000},
+    {"index": 3, "rel_path": "Show/Season 2/E02.mkv", "size": 800_000_000},
+]
+PRECEDENCE_SIDECAR = "Show/Season 2/E02/E01.en.srt"
+
+
+def test_the_stem_rungs_held_answer_outranks_the_directory_rungs():
+    """Rung 1 holds a proximity answer and rung 2 must not overwrite it.
+
+    FOUND BY MUTATION, not by design: the precedence guard shipped with a comment
+    claiming this and nothing in the suite could see it — dropping the `held_near is
+    None` condition left all 51 rows green. See the note above for why this layout is
+    the only one that discriminates (both rungs ambiguous, both resolvable by proximity,
+    and resolving to DIFFERENT videos — which needs the two rungs to match disjoint sets
+    of videos, i.e. the sidecar's stem and its parent folder naming different episodes).
+
+    Asserted in every file order, because a four-video fixture has 24 of them and the
+    whole point of `_nearest_claimant`'s maximal-set shape is that none of them matters.
+    """
+    answers = {pair(PRECEDENCE_SIDECAR, list(order))
+               for order in itertools.permutations(PRECEDENCE_VIDEOS)}
+    assert answers == {(1, "near")}, f"answered {sorted(answers)} across 24 orderings"
+
+
+def test_a_held_proximity_answer_does_not_pre_empt_the_parse_rung():
+    """THE THIRD CORRECTION, and the row a reversal has to come and edit.
 
     These are the two fixtures the fall-through rows used before the tiebreak existed.
-    Rung 1 (and rung 2) now resolve them by proximity, so rung 3 — which would have
-    reached the SAME index by checking the episode number below the torrent root, and
-    reported the stronger `parse` — never runs. FOR THESE TWO FIXTURES the index is
-    unchanged and right and only the reported provenance is weaker; read the next
-    paragraph before generalising that, because it was generalised once already.
+    Rungs 1 and 2 find an ambiguity in both and break it by proximity — but the answer
+    is HELD, not returned, so rung 3 still runs, reads the episode number below the
+    torrent root, agrees with exactly one video and reports the stronger `parse`.
 
-    For THESE two fixtures the direction is conservative — the row under-claims rather
-    than over-claims. CORRECTED IN REVIEW: this docstring used to generalise that, and
-    said "in every shape where both can resolve they agree, because a rung-1 ambiguity
-    means the video basenames are bare and identical and the episode therefore lives in
-    the same folder proximity measures." **That universal is false**, and the row below
-    this one is the measured counterexample: the premise fails whenever the episode
-    lives in a segment proximity does NOT measure — the sidecar's own basename, or a
-    folder deeper than the one the shared prefix stops at. Enumerated over 720,657
-    coherent two-video layouts in a one-off container, 68 of them resolve to a
-    DIFFERENT index under proximity than under the parse, 3 of those with both videos
-    following one convention.
+    Why the hold exists at all: returning the proximity answer immediately was measured
+    to change the INDEX, not merely the label. Enumerated over 720,657 coherent
+    two-video layouts, 68 answer a different index under proximity than under the parse,
+    and the row below this one is a worked counterexample where proximity picks the
+    WRONG season's file. The docstring this replaces claimed the two always agree
+    ("a rung-1 ambiguity means the video basenames are bare and identical and the
+    episode therefore lives in the same folder proximity measures") — that universal was
+    false, and the enumeration is what falsified it.
 
-    The alternative — carry the proximity candidate forward and use it only if rung 3
-    finds nothing — keeps the stronger label, and on the counterexample below keeps the
-    right FILE as well. It was NOT taken, because it moves a rung's answer outside the
-    rung. Recorded as this decision's cost in the plan (D20 and C5's finding 1), and
-    this row plus the next are where a future reversal has to come and edit.
+    So the rule, in priority order: a rung that can be wrong must not outrank the rung
+    that checks; and silence is better than a wrong answer but worse than a right one.
+    The tiebreak serves the second rule, the hold serves the first.
+
+    This row is NOT the one that pins the tiebreak doing anything — the proximity answer
+    is invisible here precisely because rung 3 answers first.
+    `test_proximity_breaks_the_tie_identically_in_either_file_order` is where a held
+    answer is actually consumed (rung 3 cannot parse a bare `Season 1/E01`).
     """
-    assert pair(FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "near")
-    assert pair(FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "near")
+    assert pair(FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "parse")
+    assert pair(FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "parse")
 
 
 # WHAT THE PRE-EMPTION COSTS WHEN THE PATHS DISAGREE, found by a review that enumerated
@@ -507,16 +548,34 @@ MISFILED_SIDECAR = "Show.Complete/Season 1/Subs/E01/Show.S02E01.en.srt"
 WELL_FILED_SIDECAR = "Show.Complete/Season 2/Subs/E01/Show.S02E01.en.srt"
 
 
-def test_proximity_outranks_the_parse_rung_even_when_it_contradicts_the_sidecars_name():
-    """The pre-emption changes the INDEX, not just the label. See the note above."""
-    assert pair(MISFILED_SIDECAR, MISFILED_SEASON_VIDEOS) == (0, "near")
-    assert pair(MISFILED_SIDECAR, list(reversed(MISFILED_SEASON_VIDEOS))) == (0, "near")
+def test_the_parse_rung_outranks_proximity_when_the_two_contradict_each_other():
+    """THE COUNTEREXAMPLE THAT DECIDED THE RUNG ORDER, and now the row that pins it.
 
-    # The control, filed correctly: proximity and the parse agree on the file, and only
-    # the reported source is weaker. Both rows are needed — see the note above.
-    assert pair(WELL_FILED_SIDECAR, MISFILED_SEASON_VIDEOS) == (1, "near")
+    A misfiled sidecar: its own name says `S02E01`, the packer filed it under Season
+    1's `Subs/` tree. Rung 2 fires (the bare `E01` parent folder matches BOTH videos'
+    basenames) and proximity reads only the leading segments, where the sidecar says
+    `Season 1` — so proximity answers index 0, Season 1's file. Rung 3 reads the
+    sidecar's own basename and agrees with exactly one video, index 1. The name is the
+    stronger evidence, so `parse` wins and the sidecar reaches the episode it is
+    actually for.
+
+    Measured under the immediate-return form this replaces: `(0, "near")` in both file
+    orders, i.e. the wrong season's file, reported under a source whose label confesses
+    only that it was "the nearest of several matches". That is the failure D20 says the
+    exposed rung exists to make visible, produced by the ladder itself.
+
+    Both the misfile and the control now answer index 1, and that is the point rather
+    than a weakness: name and location disagree in the first and agree in the second,
+    and the answer is the same because the name decides both times. The control still
+    earns its place — it is what makes "the parse won" distinguishable from "a tiebreak
+    that always answers index 1".
+    """
+    assert pair(MISFILED_SIDECAR, MISFILED_SEASON_VIDEOS) == (1, "parse")
+    assert pair(MISFILED_SIDECAR, list(reversed(MISFILED_SEASON_VIDEOS))) == (1, "parse")
+
+    assert pair(WELL_FILED_SIDECAR, MISFILED_SEASON_VIDEOS) == (1, "parse")
     assert pair(WELL_FILED_SIDECAR,
-                list(reversed(MISFILED_SEASON_VIDEOS))) == (1, "near")
+                list(reversed(MISFILED_SEASON_VIDEOS))) == (1, "parse")
 
 
 def test_the_answer_does_not_depend_on_the_order_of_the_video_files():

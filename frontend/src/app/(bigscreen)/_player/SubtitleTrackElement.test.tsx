@@ -108,13 +108,16 @@ describe('the one <track>', () => {
     // the element hardcoding the string and the helper's format changed, only this row
     // reddens.
     expect.soft(el.getAttribute('src')).toBe(subtitleTrackSrc(TORRENT, 9));
-    // THE TWO ARGUMENT SWAPS THE FIXTURE EXISTS TO CATCH, asserted as non-equalities so they
-    // are not merely implied by the row above: `video_index` is 2 and the wire `url` names
-    // neither index.
-    expect.soft(el.getAttribute('src'), 'not the paired video’s index').not.toBe(
-      subtitleTrackSrc(TORRENT, 2),
-    );
-    expect.soft(el.getAttribute('src'), 'not the backend’s own url field').not.toBe(row(9).url);
+    // TWO `not.toBe` ROWS REFUSED, AND NAMED SO THEY ARE NOT ADDED BACK — one against
+    // `subtitleTrackSrc(TORRENT, 2)` (the paired video's index) and one against the wire
+    // `url`. They were shipped with a comment saying they were "not merely implied by the
+    // row above"; they are. `toBe('…/subtitles/9')` implies `not.toBe` of every other
+    // string, and both refused values differ from it, so no mutation can redden either row
+    // while the exact-value row above stays green. MEASURED: with the src built from
+    // `video_index` the exact-value row and the non-equality row fail together, and there is
+    // no mutation for which the non-equality row is the instrument. What those two swaps
+    // rest on is the FIXTURE — `index` 9, `video_index` 2 and a `url` naming neither, stated
+    // in limit 2 of this file's header — not on an assertion that cannot fail.
     expect.soft(el.getAttribute('kind')).toBe('subtitles');
     expect.soft(el.getAttribute('srclang')).toBe('en');
     expect.soft(el.getAttribute('label')).toBe('English');

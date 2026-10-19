@@ -311,6 +311,36 @@ describe('the route’s source, for the mount no render can reach', () => {
     expect.soft(mountIsInsideVideo(src), 'and it is the media element’s child').toBe(true);
   });
 
+  /** The mount's own attribute list: from `<SubtitleTrackElement` to its closing `/>`. */
+  function mountRegion(src: string): string {
+    const at = src.indexOf('<SubtitleTrackElement');
+    if (at < 0) return '';
+    const end = src.indexOf('/>', at);
+    return end < 0 ? '' : src.slice(at, end + 2);
+  }
+
+  it('the mount-region slice is a slice of the real mount', () => {
+    // THE POSITIVE CONTROL for the instrument below: an empty slice would make both of its
+    // rows pass by matching nothing, which is the shape this branch keeps finding.
+    expect.soft(mountRegion('<video>\n</video>'), 'no mount at all').toBe('');
+    expect.soft(mountRegion(code(PAGE)), 'the real mount').toContain('torrentId=');
+  });
+
+  it('hands the element the choice and takes back its fault', () => {
+    // MEASURED, AND THIS IS WHY THESE TWO ROWS EXIST. With `chosen={null}` hard-coded at
+    // this mount the `<track>` can never appear on the television in any future state, and
+    // with `onUnreadable={() => {}}` the cell can never reach `unreadable` — and BOTH
+    // mutations left all 1469 rows of `npm run test:tv` green. The row below pins that the
+    // cell READS `chosen` and `trackFault`; nothing pinned that the element is handed the
+    // one or reports the other, which is the stage-7 inert-repair shape with a comment over
+    // it claiming the composition was pinned.
+    const region = mountRegion(code(PAGE));
+    expect.soft(region, 'the chosen entry reaches the element').toMatch(/chosen=\{\s*track\s*\}/);
+    expect.soft(region, 'and its load failure comes back up').toMatch(
+      /onUnreadable=\{\s*onTrackUnreadable\s*\}/,
+    );
+  });
+
   it('wires the two things the element cannot see for itself', () => {
     const src = code(PAGE);
     // THE RECOVERY CONJUNCT IS THE ROUTE'S TO PASS. `recovery` is `Playing`'s own state, the

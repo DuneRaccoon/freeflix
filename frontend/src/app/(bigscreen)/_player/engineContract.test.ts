@@ -288,11 +288,16 @@ const DIVERGENCE_CHECKS: Record<string, (web: string, tv: string, tvAll: string)
    * which is the opposite polarity from `preload` — hence both halves, not one.
    */
   'native text track': (web, _tv, tvAll) =>
-    // ONE REGEX SPANNING BOTH ATTRIBUTES, not two `includes`. `aria-disabled="true"` appears
-    // TWICE in the web player, so a bare `includes` for it stays true after the CC button's
-    // own copy is removed — the second occurrence would carry the clause. Bounded to the same
-    // element, with the unique label as the anchor.
-    /aria-label="Audio and subtitles \(coming soon\)"[\s\S]{0,240}aria-disabled="true"/.test(web)
+    // ONE REGEX SPANNING ALL THREE ATTRIBUTES, not three `includes`. `aria-disabled="true"`
+    // and `tabIndex={-1}` each appear TWICE in the web player, so a bare `includes` for
+    // either stays true after the CC button's own copy is removed — the second occurrence
+    // would carry the clause. Bounded to the same element, with the unique label as the
+    // anchor. `tabIndex` IS IN HERE BECAUSE THE REASON ABOVE NAMES IT: the entry promises
+    // "permanently aria-disabled with tabIndex -1", and the review measured that deleting
+    // that attribute left this predicate green and the whole suite green with it — a half of
+    // the stated reason with no proof beside it. Measured gaps in the real file: 15 chars to
+    // `aria-disabled`, 115 to `tabIndex`.
+    /aria-label="Audio and subtitles \(coming soon\)"[\s\S]{0,240}aria-disabled="true"[\s\S]{0,240}tabIndex=\{-1\}/.test(web)
     && !/<track\b/.test(web)
     && /<track\b/.test(code(tvAll)),
 };

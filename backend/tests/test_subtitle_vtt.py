@@ -123,6 +123,40 @@ SRT_FONT_TAG = (
     '<font color="#ffffff">Spoken</font>\n'
 )
 
+# A payload carrying two tag-SHAPED runs whose names are NOT in the pass-through
+# set, beside one that is. `<v` and `<i` are both prefixes of a known tag name,
+# so this is the fixture the word boundary in `_KNOWN_TAG` exists for; without
+# it, `<video>` and `<item>` reach the television as tags Blink will swallow.
+SRT_UNKNOWN_TAGS = (
+    "1\n00:00:01,000 --> 00:00:02,000\n"
+    "<video> and <item> and <i>real</i>\n"
+)
+
+# A DVD-rip SRT: the timing line carries an X1/X2/Y1/Y2 tail. These really exist
+# (VobSub-era rippers emitted them) and the whole cue is lost if the tail stops
+# the line being recognised as a timing line at all.
+SRT_DVD_CUE_SETTINGS = (
+    "1\n"
+    "00:00:01,000 --> 00:00:02,000  X1:100 X2:600 Y1:420 Y2:470\n"
+    "Kept\n"
+)
+
+# A real `.vtt` cue setting, which is the same shape from the other direction.
+VTT_CUE_SETTINGS = (
+    "WEBVTT\n"
+    "\n"
+    "00:00:01.000 --> 00:00:02.000 line:85% align:middle\n"
+    "Kept\n"
+)
+
+# `MM:SS.mmm`, the hours field absent - a form a real `.vtt` is allowed to use
+# and the reason `_TIMESTAMP_PATTERN`'s hours group is optional.
+VTT_NO_HOURS_FIELD = "WEBVTT\n\n00:15.000 --> 00:16.000\nNo hours field\n"
+
+# A one- and a two-digit fraction. A short fraction is a DECIMAL FRACTION of a
+# second, not a count of milliseconds: `.5` is 500 ms, not 5 ms.
+VTT_SHORT_FRACTION = "WEBVTT\n\n00:00:01.5 --> 00:00:02.25\nShort fraction\n"
+
 # Cue 2's whole payload is a positioning override, so there is nothing left to
 # show once the braces are stripped.
 SRT_BRACE_ONLY_CUE = (
@@ -207,6 +241,11 @@ _SUCCESS_FIXTURES = [
     ("srt-both-escapes", SRT_BOTH_ESCAPES, ".srt"),
     ("srt-brace-prefix", SRT_BRACE_PREFIX, ".srt"),
     ("srt-font-tag", SRT_FONT_TAG, ".srt"),
+    ("srt-unknown-tags", SRT_UNKNOWN_TAGS, ".srt"),
+    ("srt-dvd-cue-settings", SRT_DVD_CUE_SETTINGS, ".srt"),
+    ("vtt-cue-settings", VTT_CUE_SETTINGS, ".vtt"),
+    ("vtt-no-hours-field", VTT_NO_HOURS_FIELD, ".vtt"),
+    ("vtt-short-fraction", VTT_SHORT_FRACTION, ".vtt"),
     ("srt-brace-only-cue", SRT_BRACE_ONLY_CUE, ".srt"),
     ("srt-bad-durations", SRT_BAD_DURATIONS, ".srt"),
 ]
@@ -226,7 +265,7 @@ def test_the_grammar_check_is_applied_to_every_success_fixture():
 
     A parametrised grammar check over an empty or shrinking list passes forever.
     """
-    assert len(_SUCCESS_FIXTURES) >= 11
+    assert len(_SUCCESS_FIXTURES) >= 16
 
 
 # ------------------------------------------------------------- byte-exact rows
@@ -341,6 +380,91 @@ def test_a_font_tag_survives_verbatim():
     assert result.text == (
         "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
         '<font color="#ffffff">Spoken</font>\n'
+    )
+    assert result.cue_count == 1
+
+
+def test_a_tag_shaped_run_that_is_not_a_known_tag_is_escaped():
+    """The word boundary in ``_KNOWN_TAG``, which had no instrument.
+
+    ``<v`` and ``<i`` are prefixes of two pass-through names, so without the
+    ``\\b`` the allow-list matches ``<video>`` and ``<item>`` and emits them
+    verbatim - a tag Blink swallows along with its text. Deleting the boundary
+    left all 38 rows of this file green, which is why this row exists. Note the
+    closing ``>`` is NOT escaped: a bare ``>`` is legal WebVTT text and the
+    converter only ever touches ``<``.
+    """
+    result = to_webvtt(SRT_UNKNOWN_TAGS, ".srt")
+    assert result.text == (
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
+        "&lt;video> and &lt;item> and <i>real</i>\n"
+    )
+    assert result.cue_count == 1
+
+
+@pytest.mark.parametrize(
+    "text,fmt,expected",
+    [
+        (
+            SRT_DVD_CUE_SETTINGS,
+            ".srt",
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nKept\n",
+        ),
+        (
+            VTT_CUE_SETTINGS,
+            ".vtt",
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nKept\n",
+        ),
+    ],
+    ids=["dvd-rip-X1-X2-tail", "real-vtt-cue-settings"],
+)
+def test_a_timing_line_with_a_tail_still_yields_its_cue(text, fmt, expected):
+    """Two readings of the plan's ``Does not strip DVD-rip cue settings``.
+
+    The CUE SURVIVES, which is the part with teeth: anchoring the timing-line
+    regex just after the second timestamp - the obvious "be stricter" edit - left
+    every row of this file green while turning every DVD-rip sidecar and every
+    real `.vtt` with cue settings into a flat ``no-cues`` refusal. That mutation
+    is this row's reason to exist.
+
+    The tail does NOT survive into the output, and that is deliberate and
+    contrary to the letter of the plan's ``Does not`` line: the prescribed output
+    grammar is anchored at both ends, so carrying the tail across would redden
+    the plan's own property assertion. The timing line is re-emitted from the
+    parsed fields; nothing here searches for the tail or deletes it.
+    """
+    result = to_webvtt(text, fmt)
+    assert result.text == expected
+    assert result.cue_count == 1
+
+
+def test_a_timestamp_with_no_hours_field_is_accepted_and_hours_are_emitted():
+    """``MM:SS.mmm`` in, ``HH:MM:SS.mmm`` out.
+
+    Input leniency is deliberately wider than output strictness, and this is the
+    half of it with no fixture before: making the hours group mandatory left all
+    38 rows green, so "a `.vtt` may be ``MM:SS.mmm``" was a docstring claim with
+    no test. An absent hours field is also one of the five Chromium 155
+    leniencies D19 refuses to lean on, so it must not survive to the output.
+    """
+    result = to_webvtt(VTT_NO_HOURS_FIELD, ".vtt")
+    assert result.text == (
+        "WEBVTT\n\n00:00:15.000 --> 00:00:16.000\nNo hours field\n"
+    )
+    assert result.cue_count == 1
+
+
+def test_a_short_fraction_is_a_decimal_fraction_not_a_millisecond_count():
+    """``.5`` is 500 ms and ``.25`` is 250 ms, not 5 ms and 25 ms.
+
+    `_normalise_timestamp` left-justifies the fraction to three digits for this
+    reason, and the comment saying so had no test: replacing the pad with a bare
+    ``int(fraction)`` left all 38 rows green and shifted every short-fraction cue
+    to within 25 ms of the start of its second.
+    """
+    result = to_webvtt(VTT_SHORT_FRACTION, ".vtt")
+    assert result.text == (
+        "WEBVTT\n\n00:00:01.500 --> 00:00:02.250\nShort fraction\n"
     )
     assert result.cue_count == 1
 

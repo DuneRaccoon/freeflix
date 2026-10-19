@@ -338,6 +338,36 @@ list is also a *different* list. Measured with the equality assertion temporaril
 — but it is not the sole instrument, and a later task must not drop the equality on the strength of
 that sentence.
 
+### C3 — C2's baseline hazard recurred as a stale number, and task 6's reported count is 46 low
+
+Found reviewing task 6. The task-6 report says "Baseline re-measured at task start: **1453**
+collected (1450 passed, 3 skipped) with a clean `git status` — matches C2's figure", and derives
+**1491** collected as the figure attributable to the task. Both are wrong, and the reason is the
+one C2 warned about from the other side: 1453 is C2's own number for the tree after tasks 1 + 2,
+and it was carried forward rather than re-measured. Three commits of task 1/2 review fixes and the
+whole of **task 5 (53 tests)** landed in between.
+
+Measured in isolated `git worktree`s, so no sibling's uncommitted work is in the figure:
+
+```
+e488660 (task 6's parent, task 5 in)          1499 collected
+fbfb0eb (task 6)                              1537 collected / 1534 passed / 3 skipped
+be88ee9 (task 4)                              1569 collected / 1566 passed / 3 skipped
+baked image, no -v mount                      1437 collected   (unchanged since C2)
+```
+
+So **task 6 adds 38 and the suite after it is 1537, not 1491.** The report's "1453 + 38 + 60 = 1551
+closes exactly" closes only because two errors cancel: the baseline is 46 low and task 4's
+then-uncommitted snapshot was counted as 60 where its committed form collects **32**
+(`test_subtitle_pairing.py` 14 + `test_subtitle_language.py` 18).
+
+**The lesson C2 should have carried and now does: a baseline is a number you measure, in a
+worktree at the parent commit, not a number you quote.** `git worktree add --detach <dir> <sha>`
+plus `docker compose run --rm -v "$WT/backend/tests:/opt/freeflix/tests" -v
+"$WT/backend/app:/opt/freeflix/app" backend python -m pytest --collect-only -q` is immune to every
+sibling in the working tree, which `git status --short` alone is not — during this review the
+shared tree was mutated by two other agents mid-measurement.
+
 ---
 
 ## What ships inert or absent, and what the television shows instead

@@ -1,4 +1,5 @@
 'use client';
+import type { SubtitleCellState } from '../_data/subtitles';
 import type { FocusProps } from '../_focus/useFocusGrid';
 import type { MediaKeyAction } from '../_focus/useMediaKeys';
 
@@ -32,6 +33,19 @@ import type { MediaKeyAction } from '../_focus/useMediaKeys';
  * before the focused column would leave DOM focus on the element that just became column 1
  * while the model still points at column 0, and the next press would appear to do nothing.
  *
+ * THE SUBTITLES CELL IS UNCONDITIONAL, and that is the same rule read from the other end.
+ * The sidecar list resolves asynchronously, over a band that may already be on screen and
+ * may already carry Retry — so a cell that appeared when the list answered would be an
+ * insertion at column 4 of a row whose focus may be at column 4 or 5, which is the defect
+ * described just above. It is therefore always rendered, in the middle of the row, and only
+ * what it SAYS depends on the list. Its state rides in an `aria-hidden` sub-line, because the
+ * cell's accessible name has to stay exactly `Subtitles` for the queries in this directory's
+ * tests (and for anything that ever reads this surface aloud); the words themselves belong to
+ * `_data/subtitles.cellLabel`, which this component does not call and must not second-guess.
+ * It has no `MEDIA_TWINS` entry on purpose: no subtitle key code has ever been read off this
+ * television (device reading 34), and `MEDIA_TWINS` is keyed on the hook's action union, so
+ * the absence costs nothing and claims nothing.
+ *
  * Stop is the row's non-Back exit as well as the Stop key's twin: the only key number this
  * project has ever read off the set is 461 for Back, and `useBackKey.ts` records even that
  * as unverified. It reports an action rather than navigating itself, because the position
@@ -40,7 +54,14 @@ import type { MediaKeyAction } from '../_focus/useMediaKeys';
  */
 
 /** The cells this row can contain. One id per control, and the ids are the labels' keys. */
-export type TransportCellId = 'playPause' | 'back10' | 'back60' | 'forward60' | 'stop' | 'retry';
+export type TransportCellId =
+  | 'playPause'
+  | 'back10'
+  | 'back60'
+  | 'forward60'
+  | 'subtitles'
+  | 'stop'
+  | 'retry';
 
 /**
  * What a press MEANS — the cell ids, plus the two DISCRETE transport intents a remote has
@@ -77,6 +98,11 @@ export const TRANSPORT_CELLS: readonly TransportCell[] = [
   { id: 'back10', label: 'Back 10s', variant: 'ghost' },
   { id: 'back60', label: 'Rewind 1 min', variant: 'ghost' },
   { id: 'forward60', label: 'Forward 1 min', variant: 'ghost' },
+  // IN THE MIDDLE, AND ALWAYS HERE. Not appended, because `RETRY_CELL`'s append is the one
+  // growth this row's focus model tolerates and a second appender would make "last" a race;
+  // not conditional, because the list it describes resolves while the row is on screen. See
+  // the header.
+  { id: 'subtitles', label: 'Subtitles', variant: 'ghost' },
   { id: 'stop', label: 'Stop', variant: 'ghost' },
 ];
 
@@ -115,9 +141,30 @@ export const TWIN_CELL: Record<TransportAction, TransportCellId> = {
   back10: 'back10',
   back60: 'back60',
   forward60: 'forward60',
+  subtitles: 'subtitles',
   stop: 'stop',
   retry: 'retry',
 };
+
+/**
+ * What the Subtitles cell SAYS — decided by the screen, rendered verbatim here.
+ *
+ * TWO FIELDS AND NO LOGIC, deliberately. `note` arrives already rendered (the screen asks
+ * `_data/subtitles.cellLabel`), so there is one place the eight phrasings live and this
+ * component cannot drift from it; `stateId` is the same answer in machine-readable form, put
+ * on the cell as `data-subtitles` so a test can read which state the screen believes it is in
+ * without matching prose. A single field would force one of the two to be derived from the
+ * other, and a test that re-derived the words it is checking checks nothing.
+ *
+ * NO LANGUAGE AND NO COUNT. The row is `flex-wrap: nowrap`, so an overflowed cell is one the
+ * D-pad can focus and the viewer cannot see; `cellLabel`'s signature (a state and nothing
+ * else) is what forecloses interpolating a language into it, and the chosen language is
+ * visible in the picker, where there is room for it.
+ */
+export interface SubtitleCellView {
+  stateId: SubtitleCellState;
+  note: string;
+}
 
 export function transportCells(opts: { retry: boolean }): readonly TransportCell[] {
   return opts.retry ? [...TRANSPORT_CELLS, RETRY_CELL] : TRANSPORT_CELLS;
@@ -138,6 +185,7 @@ export function TransportBar({
   focusProps,
   playing,
   retry = false,
+  subtitles,
   onAction,
 }: {
   /** The grid row this row occupies; every cell is a column of it. */
@@ -147,21 +195,47 @@ export function TransportBar({
   playing: boolean;
   /** Append the Retry cell. */
   retry?: boolean;
+  /**
+   * What the Subtitles cell says. OPTIONAL, and its absence changes nothing about the row:
+   * the cell is there either way and simply says nothing, which is what a surface that has
+   * not asked for a list yet should show. Optional also because six existing renders in this
+   * directory's tests predate it, and a required field would have turned a cell's sub-line
+   * into a compile error in files that are not about subtitles at all.
+   */
+  subtitles?: SubtitleCellView;
   onAction: (action: TransportAction) => void;
 }) {
   return (
     <div className="bs-player__row" role="group" aria-label="Playback controls">
-      {transportCells({ retry }).map((cell, col) => (
-        <button
-          key={cell.id}
-          type="button"
-          className={cell.variant === 'ghost' ? 'bs-btn bs-btn--ghost' : 'bs-btn'}
-          {...focusProps(row, col)}
-          onClick={() => onAction(cell.id)}
-        >
-          {labelFor(cell, { playing })}
-        </button>
-      ))}
+      {transportCells({ retry }).map((cell, col) => {
+        const view = cell.id === 'subtitles' ? subtitles : undefined;
+        return (
+          <button
+            key={cell.id}
+            type="button"
+            className={cell.variant === 'ghost' ? 'bs-btn bs-btn--ghost' : 'bs-btn'}
+            {...focusProps(row, col)}
+            onClick={() => onAction(cell.id)}
+            // Absent on every other cell, and absent on this one until the screen has an
+            // answer: `undefined` writes no attribute at all, so "no state yet" and "state
+            // `loading`" are different things in the DOM as well as in the model.
+            data-subtitles={view?.stateId}
+          >
+            {labelFor(cell, { playing })}
+            {/* `aria-hidden` IS LOAD-BEARING, not tidiness: the cell's accessible name is
+                computed from its contents, so an announced sub-line would rename the control
+                from `Subtitles` to `Subtitles off` — and every exact-name query for it, here
+                and in the route's suite, would stop finding it. `.bs-player__commit` is the
+                ScrubBar's own sub-line class, reused rather than reinvented, so this adds no
+                rule to a stylesheet that is outside PostCSS. */}
+            {view !== undefined && (
+              <span className="bs-player__commit" aria-hidden="true">
+                {view.note}
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

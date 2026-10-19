@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
-import type { StreamingInfo, TorrentStatus, VideoFile } from '@/types';
+import type { StreamingInfo, SubtitleList, TorrentStatus, VideoFile } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { streamAdvice } from '@/lib/player/streamRecovery';
@@ -14,6 +14,7 @@ import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { statusOf } from '../../../_data/httpStatus';
+import { cellLabel, type SubtitleCellState } from '../../../_data/subtitles';
 import { PREPARING, READY, takeFourKAsk } from '../../../_data/title';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useWatchProgress, watchIdentity } from '../../../_data/useWatchProgress';
@@ -27,7 +28,13 @@ import { fileIndex, streamSrc } from '../../../_player/fileIndex';
 import { formatTime } from '../../../_player/formatTime';
 import { ScrubBar, scrubRowCount } from '../../../_player/ScrubBar';
 import { clampSeek, type ContiguousRun } from '../../../_player/seekBoundary';
-import { MEDIA_TWINS, TransportBar, transportCellCount, type TransportAction } from '../../../_player/TransportBar';
+import {
+  MEDIA_TWINS,
+  TransportBar,
+  transportCellCount,
+  type SubtitleCellView,
+  type TransportAction,
+} from '../../../_player/TransportBar';
 import { useStallWatch } from '../../../_player/useStallWatch';
 
 /**
@@ -133,6 +140,17 @@ type Arrival =
   | { k: 'gone' }
   | { k: 'ok'; status: TorrentStatus; files: VideoFile[] };
 
+/**
+ * The sidecar list read. THREE STATES, because `null` would be two of them at once — the
+ * list that has not answered and the list that answered badly are different sentences on
+ * the Subtitles cell, and the whole reason D6 put `coverage` in the envelope is that a bare
+ * empty answer already carries too many meanings on this backend.
+ */
+type SubtitleRead =
+  | { k: 'loading' }
+  | { k: 'failed' }
+  | { k: 'ok'; list: SubtitleList };
+
 type Boundary =
   | { k: 'unknown' }
   | { k: 'ready'; info: StreamingInfo }
@@ -156,6 +174,33 @@ function byteAt(
   // CBR arithmetic over a VBR file, exactly as the boundary's own conversion is: this only
   // has to land in the right REGION of the file, which is the whole point of asking at all.
   return Math.max(0, Math.min(size - 1, Math.floor((seconds / totalSeconds) * size)));
+}
+
+/**
+ * Which of the eight cell states the sidecar list puts the Subtitles cell in.
+ *
+ * FOUR OF THE EIGHT ARE REACHABLE FROM A LIST ALONE, and the other four describe a sidecar
+ * the viewer has chosen, which nothing on this surface can do yet. So this covers `loading`,
+ * `unavailable`, `none` and `off`, and the picker's press is what will reach `fetching`, `on`,
+ * `unreadable` and `noCues`.
+ *
+ * `coverage: "listed"` IS `off` EVEN WITH NOTHING OFFERABLE. A release that ships only an
+ * `.ass` is listed, and `none in this release` would be a false sentence about it — the file
+ * is there, in the release, and the box simply cannot convert it. The picker is where that is
+ * said out loud, with the format and the reason on the row; the cell says only that nothing
+ * is showing, which is true.
+ *
+ * ANYTHING THAT IS NOT `listed` OR `none` IS `unavailable`, including a coverage value this
+ * build has never heard of. Three is the whole set today (`SubtitleCoverage`) and a fourth
+ * was declined deliberately, but the one answer this may not produce is a cell that says
+ * nothing at all.
+ */
+function subtitleCellState(read: SubtitleRead): SubtitleCellState {
+  if (read.k === 'loading') return 'loading';
+  if (read.k === 'failed') return 'unavailable';
+  if (read.list.coverage === 'none') return 'none';
+  if (read.list.coverage !== 'listed') return 'unavailable';
+  return 'off';
 }
 
 const detailOf = (err: unknown): string | undefined => {
@@ -356,6 +401,56 @@ function WatchScreen() {
   const chosenFile = files?.find((f) => f.index === index) ?? null;
   const identity = watchIdentity({ status: arrival.k === 'ok' ? arrival.status : null, file: chosenFile });
 
+  // --- the sidecar list -------------------------------------------------------------
+  /**
+   * ONE READ PER (TITLE, FILE), AND NO POLL. The Subtitles cell has to say something from
+   * the moment the band exists, so "has not answered yet" is a state of its own here rather
+   * than an empty list: `{k:'loading'}` is `checking`, and an empty `subtitles` array with
+   * `coverage: "none"` is the quite different `none in this release`. Waiting for a chosen
+   * sidecar's bytes is a poll (`_data/subtitles.pollSubtitles`) and belongs to the press that
+   * chooses one, not here.
+   *
+   * KEYED ON THE RESOLVED FILE INDEX, and gated on the arrival, because `index` is undefined
+   * until `/files` answers and the list the television wants is the one filtered to the
+   * episode on screen. Reading before the arrival settles would ask for the whole pack's
+   * sidecars and then ask again — two libtorrent file walks for one answer.
+   *
+   * `allow401` IS NOT OPTIONAL HERE. Without it apiClient's rejection interceptor
+   * hard-navigates to `/bigscreen/pair` from inside its own handler, behind a module-scoped
+   * flag it never resets — so one 401 on a subtitle list would take the viewer out of the
+   * film, and a subtitle list is never worth that. `saveProgress` opts out for the same
+   * reason and `services/streaming.subtitles.test.ts` is where the opt-out is proved.
+   *
+   * EVERY FAILED READ IS `unavailable`, and that is deliberate rather than lazy: the eight
+   * cell states are the eight things the television can say, `unreadable` means a sidecar
+   * this box cannot decode, and a cell left saying `checking` for the rest of the film would
+   * be the only one of the eight that is a lie. An operator who needs the difference has the
+   * backend log; a viewer's next press is the same either way.
+   */
+  const [subtitleRead, setSubtitleRead] = useState<SubtitleRead>({ k: 'loading' });
+  const arrived = arrival.k === 'ok';
+  useEffect(() => {
+    // Before the guard: a new arrival or a new file invalidates the old answer, and a stale
+    // `off` on a title whose list has not been read yet is a claim nothing measured.
+    setSubtitleRead({ k: 'loading' });
+    if (!torrentId || !arrived) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await streamingService.getSubtitles(torrentId, index, { allow401: true });
+        if (!cancelled) setSubtitleRead({ k: 'ok', list });
+      } catch {
+        // Deliberately not narrowed. A 404 (unknown torrent), a 401 (dead session, which the
+        // flag above kept from navigating), a 503 and a service that is not there at all all
+        // mean the same thing to the one cell that reads this: nothing to offer.
+        if (!cancelled) setSubtitleRead({ k: 'failed' });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [torrentId, index, arrived]);
+
   const progress = useWatchProgress({
     userId,
     torrentId,
@@ -555,10 +650,15 @@ function WatchScreen() {
   if (phase === 'playing' && arrival.k === 'ok') {
     const src = streamSrc(torrentId, index);
     if (src) {
+      // Both halves from the one state, so the attribute and the words can never disagree
+      // about which state the screen believes it is in.
+      const subtitleState = subtitleCellState(subtitleRead);
+      const subtitles: SubtitleCellView = { stateId: subtitleState, note: cellLabel(subtitleState) };
       return (
         <Playing
           src={src}
           status={arrival.status}
+          subtitles={subtitles}
           askedFourK={askedFourK}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
           // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never
@@ -632,6 +732,7 @@ function WatchScreen() {
 function Playing({
   src,
   status,
+  subtitles,
   askedFourK,
   contiguous,
   resumeAtSeconds,
@@ -649,6 +750,13 @@ function Playing({
 }: {
   src: string;
   status: TorrentStatus;
+  /**
+   * What the Subtitles cell says. IT GOES TO THE CELL AND NOWHERE ELSE — never into
+   * `messageFor`. `mayHide` is `playing && !editOpen && message === ''`, so a steady sentence
+   * in that slot pins the 480px band over the picture for the rest of the film; stage 8
+   * measured exactly that, and a subtitle state is steady by nature.
+   */
+  subtitles: SubtitleCellView;
   /** The press that started this torrent asked for 2160p. False also means "unknown". */
   askedFourK: boolean;
   contiguous: ContiguousRun | null;
@@ -790,6 +898,14 @@ function Playing({
           // Reported, never navigated from inside the cell: the position has to be flushed
           // before anything leaves the player.
           onStop();
+          return;
+        case 'subtitles':
+          // NOTHING YET, AND THIS CASE EXISTS TO SAY SO. The cell ships unconditionally
+          // ahead of the picker that answers it (the list resolves asynchronously, so a cell
+          // that arrived with the list would be a mid-row insertion), and the press is
+          // therefore a deliberate no-op until the picker lands. It is not "handled": a
+          // reviewer reading this switch should see an unfinished control, not a finished
+          // one, and no test here claims a press does anything.
           return;
         default:
           return;
@@ -1024,6 +1140,7 @@ function Playing({
           focusProps={grid.focusProps}
           playing={playing}
           retry={retryable}
+          subtitles={subtitles}
           onAction={act}
         />
       </div>

@@ -150,15 +150,64 @@ class _ForbiddenCall(BaseException):
 
 
 TID = "t-stage9-gate"
-SUB_INDEX = 1
+
+# FOUR files, and the sidecar under test is index 2. Every term of that is a
+# measurement, because the two-file fixture this replaced could not see an
+# argument swap (task 1 review findings 5/6):
+#
+# * `SUB_INDEX != 1` and `!= 0`, i.e. the index differs from BOTH priorities the
+#   flush passes, so the asserted `(index, priority)` tuples are not degenerate.
+#   Measured on the old `SUB_INDEX = 1` fixture: swapping the arguments of the
+#   flush's raising call (`file_priority(1, idx)`) left all 4 rows GREEN, because
+#   `(1, 1)` is its own transpose.
+# * MID-torrent — neither the first file nor the last. Measured on the old
+#   fixture, where the sidecar was last: hard-coding the flushed index to
+#   `num_files() - 1` left all 4 rows GREEN, so "the flush touches the sidecar's
+#   own index" and "the flush touches the last index" were the same claim.
+# * A NON-ZERO, piece-UNALIGNED offset, so a dropped `fi.offset` term computes
+#   some other file's pieces. This is also the shape task 7's own mutate list
+#   demands, and the 20000-byte sidecar in front of it is what makes that offset
+#   unaligned rather than a multiple of the piece length.
+#
+# The video stays OUT of the sidecar's span on purpose — it is the one file at a
+# non-zero priority, so a span touching it is gate 4's refusal rather than an
+# admission. 8 MiB at a 32 KiB piece ends exactly on a piece boundary, which is
+# what keeps it clear. NOTHING IN THIS FILE WOULD NOTICE IF IT DID NOT, and that
+# is measured rather than assumed: with `SIZES[0]` a thousand bytes longer, so
+# the film reaches into piece 256, gate 4 refuses and all 5 rows stay GREEN —
+# because a gate-4 refusal is a measured NO-OP reported as `admitted == 0` with
+# NO refusal reason (C1), and the flush, which has no gate 4, still records its
+# two calls. Gate 4's own row lives in `test_sidecar_admission.py`, where it
+# belongs; this comment is here so the next reader does not mistake this gate
+# for a second witness to it.
+SUB_INDEX = 2
 
 
 class _GateTI:
-    """Two files: a video at index 0 and a sidecar at index 1, the sidecar at a NON-ZERO
-    offset so a dropped `fi.offset` term computes the wrong span."""
+    """A realistic four-file release: the film, two sidecars and a release note.
 
-    PATHS = ["Show.S01E01/E01.mkv", "Show.S01E01/Subs/E01.en.srt"]
-    SIZES = [8 * 1024 * 1024, 40 * 1024]
+    Layout, with a 32 KiB piece (offsets are cumulative, as `file_at` computes):
+
+        idx 0  Show.S01E01/E01.mkv            8 MiB   offset 0          pieces 0-255
+        idx 1  Show.S01E01/Subs/E01.fr.srt    20000 B offset 8388608    piece  256
+        idx 2  Show.S01E01/Subs/E01.en.srt    40960 B offset 8408608    pieces 256-257
+        idx 3  Show.S01E01/RARBG.txt          1024 B  offset 8449568    piece  257
+
+    So the sidecar under test spans two pieces (inside
+    `subtitle_admit_max_pieces`), starts at an offset that is neither zero nor a
+    multiple of the piece length, shares its first piece with another
+    priority-0 file and its last with a third, and the only file at a non-zero
+    priority (the film) is clear of the span. See the SUB_INDEX comment above
+    for which mutation each of those properties exists to redden.
+    """
+
+    PATHS = [
+        "Show.S01E01/E01.mkv",
+        "Show.S01E01/Subs/E01.fr.srt",
+        "Show.S01E01/Subs/E01.en.srt",
+        "Show.S01E01/RARBG.txt",
+    ]
+    SIZES = [8 * 1024 * 1024, 20000, 40 * 1024, 1024]
     PIECE_LENGTH = 32 * 1024
 
     def num_files(self):
@@ -208,7 +257,10 @@ class _GateHandle:
         self.file_priority_calls.append((index, priority))
 
     def get_file_priorities(self):
-        return [7, 0]
+        # The film is wanted; both sidecars and the release note are deselected,
+        # which is what `prioritize_video_files` leaves behind (and what gate 3
+        # and gate 4 both read).
+        return [7, 0, 0, 0]
 
     def piece_priority(self, piece, priority):
         self.piece_priority_calls.append((piece, priority))
@@ -266,15 +318,69 @@ def test_admission_and_flush_make_exactly_two_file_priority_calls(tmp_path, monk
     inst._resume_video_files = {}
 
     inst.list_sidecars(TID)
-    inst.admit_sidecar_pieces(TID, SUB_INDEX)
+    admission = inst.admit_sidecar_pieces(TID, SUB_INDEX)
     inst.flush_sidecar_file(TID, SUB_INDEX)
 
+    # Non-vacuity for the ADMISSION arm, and new with the four-file fixture: an
+    # admission that bailed at a gate makes no priority call of any kind, so
+    # "it called neither" would pass on a fixture the widening had broken. The
+    # refusal reason is the one thing that distinguishes the two. Its reach is
+    # measured and partial: gates 1, 2, 3 and 5 name a reason here (`SUB_INDEX`
+    # out of the file list reddens it with `no-such-sidecar`, a non-zero priority
+    # on the sidecar with `not-deselected`), while GATE 4 does not, because its
+    # refusal is C1's measured no-op and carries no reason at all. See the
+    # SUB_INDEX comment above for that measurement.
+    assert admission.refusal is None, (
+        f"the fixture tripped an admission gate ({admission.refusal}), so the two "
+        f"assertions below would hold for a reason that has nothing to do with "
+        f"stage 9's blast radius"
+    )
     assert handle.prioritize_files_calls == [], (
         "stage 9 re-shaped a whole file-priority vector — see plan D1"
     )
     assert handle.file_priority_calls == [(SUB_INDEX, 1), (SUB_INDEX, 0)], (
         "the flush is exactly file_priority(idx, 1) then file_priority(idx, 0) on the "
         "ONE sidecar index (C1 phase 2)"
+    )
+
+
+def test_the_gate_fixture_can_see_an_argument_swap():
+    """Non-degeneracy of the fixture itself, in its own row rather than trusted.
+
+    THE MUTATION THIS ROW ANSWERS IS A FIXTURE EDIT, not a production change, and
+    that is exactly why it is here: the fixture is the only thing that gives the
+    assertion above its discriminating power, and nothing else in the file would
+    notice it being weakened. Measured on the two-file `SUB_INDEX = 1` fixture
+    this replaced, which is the review finding that produced this row: swapping
+    the arguments of the flush's raising call (`file_priority(1, idx)`) left all
+    4 rows GREEN, because `(1, 1)` is its own transpose; hard-coding the flushed
+    index to `num_files() - 1` left all 4 rows GREEN, because the sidecar WAS the
+    last file. Only the third of the three, hard-coding the index to 0, reddened
+    there.
+
+    Measured both arms of this row too: `SUB_INDEX = 1`, `SUB_INDEX = 0`, a
+    `SUB_INDEX` at the last file and a piece-ALIGNED sidecar offset each redden
+    exactly one of the assertions below.
+    """
+    ti = _GateTI()
+    assert ti.num_files() >= 3, "a mid-torrent index needs at least three files"
+    assert SUB_INDEX not in (0, 1), (
+        "the sidecar's index must differ from BOTH priorities the flush passes "
+        "(1, then 0), or an asserted (index, priority) tuple cannot see a swap"
+    )
+    assert 0 < SUB_INDEX < ti.num_files() - 1, (
+        "the sidecar must be neither the first file nor the last, or 'the flush "
+        "touches the sidecar's index' and 'the flush touches index 0 / the last "
+        "index' are the same claim"
+    )
+    fi = ti.file_at(SUB_INDEX)
+    assert fi.offset > 0, "a sidecar at offset 0 cannot discriminate a dropped offset"
+    # Not a mutation of THIS file — the span arithmetic lives in task 7 and its
+    # own suite mutates it. This clause pins the layout the class docstring
+    # describes, so a later size edit cannot quietly align the sidecar to a piece
+    # boundary and leave that paragraph a claim with nothing behind it.
+    assert fi.offset % ti.piece_length() != 0, (
+        "the sidecar's offset must not be a multiple of the piece length"
     )
 
 

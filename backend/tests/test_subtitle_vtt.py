@@ -176,6 +176,33 @@ SRT_BRACE_ONLY_CUE = (
     "2\n00:00:03,000 --> 00:00:04,000\n{\\an8}\n"
 )
 
+# PADDED CUE TEXT, which no fixture above carried: leading and trailing spaces on
+# one line and a leading tab on the next. Real sidecars are full of this - a
+# hand-retimed `.srt` keeps whatever the editor left behind, and a conversion
+# from a two-column format pads to a column width. Nothing before this fixture
+# looked at `_render_payload`'s `line.strip()`, so deleting it was green
+# (mutation N5 of task 6's review, reported and not fixed there).
+SRT_PADDED_PAYLOAD = (
+    "1\n"
+    "00:00:01,000 --> 00:00:02,000\n"
+    "   Padded on both sides   \n"
+    "\tTabbed in, trailing space \n"
+)
+
+# The same strip from the other side, and the half the byte-exact row above
+# cannot reach: cue 2's payload is a positioning override followed by spaces, so
+# the brace run leaves WHITESPACE rather than nothing. Without the strip that
+# residue is truthy, the cue survives the `if not line` drop, and the television
+# is handed a cue whose text is three spaces - visible as a cue that holds the
+# scrim up over a blank line, not as an error. `SRT_BRACE_ONLY_CUE` above cannot
+# discriminate it: its payload is exactly `{\an8}`, which the brace run empties
+# completely.
+SRT_BRACE_RUN_PLUS_PADDING = (
+    "1\n00:00:01,000 --> 00:00:02,000\nKept\n"
+    "\n"
+    "2\n00:00:03,000 --> 00:00:04,000\n{\\an8}   \n"
+)
+
 # One cue with end == start, one with end < start, one sound. Blink keeps the
 # first two as invisible dead weight, so only the converter can remove them.
 SRT_BAD_DURATIONS = (
@@ -260,6 +287,8 @@ _SUCCESS_FIXTURES = [
     ("vtt-short-fraction", VTT_SHORT_FRACTION, ".vtt"),
     ("srt-brace-only-cue", SRT_BRACE_ONLY_CUE, ".srt"),
     ("srt-bad-durations", SRT_BAD_DURATIONS, ".srt"),
+    ("srt-padded-payload", SRT_PADDED_PAYLOAD, ".srt"),
+    ("srt-brace-run-plus-padding", SRT_BRACE_RUN_PLUS_PADDING, ".srt"),
 ]
 
 
@@ -276,8 +305,11 @@ def test_the_grammar_check_is_applied_to_every_success_fixture():
     """Non-vacuity, in its own row rather than trusted.
 
     A parametrised grammar check over an empty or shrinking list passes forever.
+
+    The floor was 17 and is 19 with the two padded-payload fixtures; it only ever
+    goes up, because every number below it is a row somebody deleted.
     """
-    assert len(_SUCCESS_FIXTURES) >= 17
+    assert len(_SUCCESS_FIXTURES) >= 19
 
 
 # ------------------------------------------------------------- byte-exact rows
@@ -506,6 +538,54 @@ def test_a_short_fraction_is_a_decimal_fraction_not_a_millisecond_count():
 def test_a_cue_whose_whole_payload_is_a_brace_run_is_dropped():
     result = to_webvtt(SRT_BRACE_ONLY_CUE, ".srt")
     assert result.cue_count == 1, "the positioning-only cue must not be emitted"
+    assert result.text == "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nKept\n"
+
+
+def test_payload_lines_are_stripped_of_leading_and_trailing_whitespace():
+    """``_render_payload``'s ``line.strip()``, which had no instrument.
+
+    Mutation N5 of task 6's review: deleting the strip left all 50 rows of this
+    file green, because no fixture carried a padded payload line. Measured here,
+    and the reason the strip stays rather than going: padded cue text is ordinary
+    in real sidecars, and the emitted payload line IS the cue's text, so the
+    padding is either on the television or removed here. WHAT BLINK DOES WITH
+    LEADING WHITESPACE AT PAINT TIME IS NOT MEASURED ANYWHERE IN THIS REPOSITORY
+    and this row does not claim it - that uncertainty is the argument for
+    normalising rather than forwarding, which is the same argument the module
+    makes for emitting the strict grammar instead of leaning on a leniency.
+
+    NOT pinned here, and said so rather than implied: a trailing ``\\r``. Task
+    6's review calls the ``\\r`` a reason for the strip and it is not one -
+    ``_parse_cues`` normalises ``\\r\\n`` and lone ``\\r`` to ``\\n`` before any
+    payload line reaches ``_render_payload``, so no ``\\r`` can arrive here at
+    all (measured: a ``Line\\r\\r\\n`` body yields the payload ``Line`` with the
+    stray CR turned into a line break, under the strip and without it). The
+    grammar check's ``"\\r" not in body`` is what guards that, one layer up.
+    """
+    result = to_webvtt(SRT_PADDED_PAYLOAD, ".srt")
+    assert result.text == (
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
+        "Padded on both sides\n"
+        "Tabbed in, trailing space\n"
+    )
+    assert result.cue_count == 1
+
+
+def test_a_cue_left_whitespace_only_by_its_brace_run_is_dropped():
+    """The strip's second job, and the one with the worse failure.
+
+    ``{\\an8}   `` empties to three spaces rather than to nothing, so without the
+    strip the ``if not line`` drop does not fire: the cue survives with a payload
+    of whitespace and ``cue_count`` reads 2. That is a wrong answer that LOOKS
+    like a right one from every direction this file can see - the grammar check
+    passes it (two arrow lines for two cues), and `cue_count >= 1` is the route's
+    own readiness test (D19), so the count is the only instrument. Hence its own
+    row and an exact count rather than a `>= 1`.
+    """
+    result = to_webvtt(SRT_BRACE_RUN_PLUS_PADDING, ".srt")
+    assert result.cue_count == 1, (
+        "a cue whose payload is only a brace run and whitespace must be dropped"
+    )
     assert result.text == "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nKept\n"
 
 

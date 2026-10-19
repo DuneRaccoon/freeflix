@@ -440,9 +440,13 @@ def test_the_span_cap_refuses_a_sidecar_too_big_to_admit(tmp_path):
     """`subtitle_admit_max_pieces` forecloses the padded worst case STRUCTURALLY.
 
     `total_wanted` rises by only the file's bytes, but the download cost is whole
-    pieces: a 20-language `Subs/` tree on a pad-aligned torrent at an 8 MiB piece
-    is 1.6 GiB, so §7.5's "(kilobytes)" is wrong by four orders of magnitude. A
-    kilobyte fixture cannot discriminate the cap, so this one is 40 MB.
+    pieces — `N_sidecars * piece_length`. On a pad-aligned torrent at an 8 MiB
+    piece a 20-language `Subs/` tree is 20 * 8 MiB = 160 MiB, and ~1.6 GiB needs
+    the ~200 sidecars of a 20-language x ~10-episode season pack; either way
+    §7.5's "(kilobytes)" is wrong by orders of magnitude. (This docstring said
+    1.6 GiB for the 20-language tree, 10x off; corrected by plan C5. This file
+    was NOT in C5's own list of sites to fix — found by grep while fixing them.)
+    A kilobyte fixture cannot discriminate the cap, so this one is 40 MB.
     """
     rows = [
         ("Movie/Movie.mkv", 4 * PIECE, False),

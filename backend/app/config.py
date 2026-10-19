@@ -178,11 +178,17 @@ class Settings(BaseSettings):
     # `extra_pieces * piece_length`, NOT the file's size: measured 0 extra pieces
     # on an unpadded v1 torrent, but one whole piece per sidecar on a pad-aligned
     # one (libtorrent 2.0's own `create_torrent` pads by default, as does
-    # qBittorrent, and every v2/hybrid torrent must) — ~1.6 GiB for a 20-language
-    # `Subs/` tree at an 8 MiB piece. So the cap is on the SPAN, which forecloses
-    # that case PER SIDECAR, structurally instead of by budget. It bounds ONE
-    # admission, not the total: D4 is "one sidecar per POST" and stage 9 adds no
-    # aggregate cap, so N presses still cost N spans.
+    # qBittorrent, and every v2/hybrid torrent must). So the bill is
+    # `N_sidecars * piece_length`, and the arithmetic is left visible here
+    # because this comment carried it WRONG by 10x until plan correction C5:
+    # a 20-language `Subs/` tree at an 8 MiB piece is 20 * 8 MiB = 160 MiB, and
+    # ~1.6 GiB needs ~200 sidecars — a 20-language x ~10-episode SEASON PACK,
+    # which is just as real a release but is not what "a 20-language tree" says.
+    # Neither the conclusion nor this cap changes: the cost is piece-shaped, not
+    # byte-shaped (160 MiB of pieces for ~600 KB of text), so the cap is on the
+    # SPAN and forecloses the padded case PER SIDECAR, structurally instead of
+    # by budget. It bounds ONE admission, not the total: D4 is "one sidecar per
+    # POST" and stage 9 adds no aggregate cap, so N presses still cost N spans.
     subtitle_admit_max_pieces: int = 4
     # If the admitted span is not held inside this budget the admission is
     # withdrawn. It must be: an admitted piece that never arrives holds the

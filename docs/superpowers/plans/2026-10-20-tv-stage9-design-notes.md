@@ -125,9 +125,12 @@ re-checked at retraction because `_prioritize_window`'s relax branch sets `piece
 
 **The cost is piece-shaped, not byte-shaped.** §7.5's "(kilobytes)" is wrong by up to four orders of
 magnitude: the marginal cost is `extra_pieces × piece_length` — measured 0 on an unpadded v1
-torrent, one full piece per sidecar on a pad-aligned one, i.e. 1.6 GiB for a 20-language `Subs/`
-tree at an 8 MiB piece. libtorrent 2.0's own `create_torrent` pads by default, as does qBittorrent,
-and every v2/hybrid torrent must. → **D4**'s 4-piece span cap forecloses it structurally.
+torrent, one full piece per sidecar on a pad-aligned one, i.e. **N sidecars × `piece_length`**:
+**20 × 8 MiB = 160 MiB** for a 20-language `Subs/` tree, and **~1.6 GiB** only at the ~200 sidecars
+of a 20-language × ~10-episode season pack. libtorrent 2.0's own `create_torrent` pads by default,
+as does qBittorrent, and every v2/hybrid torrent must. → **D4**'s 4-piece span cap forecloses it
+structurally. (This record read 1.6 GiB for the 20-language tree, 10× off; corrected by the plan's
+C5. Neither the conclusion nor the cap changes.)
 
 **Nine malformed WebVTT shapes load silently.** `readyState 2`, `load` fired, `error` **not** fired,
 **zero cues** — and it is per-cue. A payload line containing `-->` yields a cue with `text === ""`

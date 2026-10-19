@@ -105,8 +105,12 @@ def test_admission_bounds_and_encoding_defaults():
     """The shipped admission bounds, and no configured encoding override.
 
     The span cap is the structural half of the cost control: admitting a sidecar
-    costs ``extra_pieces * piece_length``, so a pad-aligned 20-language ``Subs/``
-    tree is ~1.6 GiB at an 8 MiB piece however small the files are. The budget is
+    costs ``extra_pieces * piece_length``, so a pad-aligned tree costs
+    ``N_sidecars * piece_length`` however small the files are — at an 8 MiB piece,
+    20 * 8 MiB = 160 MiB for a 20-language ``Subs/`` tree, and ~1.6 GiB only at
+    the ~200 sidecars of a 20-language x ~10-episode season pack. (This docstring
+    said ~1.6 GiB for the 20-language tree, 10x off; corrected by plan C5, which
+    changed neither the conclusion nor these asserted values.) The budget is
     the other half — an admitted piece that never arrives holds the torrent below
     100% forever. ``subtitle_encoding`` ships as ``None``: with no owner override
     the decode ladder refuses rather than serving mojibake.

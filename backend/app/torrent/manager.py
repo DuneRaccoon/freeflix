@@ -2451,9 +2451,13 @@ class TorrentManager:
         A piece-level admission survives the same call untouched.
 
         The span cap is on PIECES, not bytes: `total_wanted` rises by only the
-        file's size but the download cost is whole pieces, so a pad-aligned
-        20-language `Subs/` tree at an 8 MiB piece is 1.6 GiB. §7.5's
-        "(kilobytes)" is wrong by up to four orders of magnitude.
+        file's size but the download cost is whole pieces — `N_sidecars *
+        piece_length` on a pad-aligned torrent. At an 8 MiB piece that is
+        20 * 8 MiB = 160 MiB for a 20-language `Subs/` tree, and ~1.6 GiB only
+        at the ~200 sidecars of a 20-language x ~10-episode season pack. (This
+        docstring said 1.6 GiB for the 20-language tree, 10x off; corrected by
+        plan C5, which changed neither the conclusion nor the cap.) §7.5's
+        "(kilobytes)" is still wrong by orders of magnitude either way.
 
         Idempotent, and a no-op off session. `admitted == 0` with no refusal is a
         success — see SidecarAdmission.

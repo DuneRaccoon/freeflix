@@ -45,7 +45,7 @@ Four measured reasons to touch neither, from `/private/tmp/claude-501/-Users-ben
 1. **A changed `prioritize_files` list recomputes the whole torrent's piece priorities and wipes `_prioritize_window`'s raised window.** `handle.file_priority(i, p)` does the same. Re-applying an **identical** list does not. `prioritize_video_files`' list is a pure function of the file set and `settings.video_extensions` — `file_index` only picks `target_index` for piece prioritisation — so after the first play it re-applies an identical list on every Range request. Making the admitted set depend on the watched file would put that recompute on every request and every episode switch.
 2. **A short list re-admits rather than deselects.** `prioritize_files([1,0,0])` on a 5-file torrent whose pre-state was `[1,0,0,0,0]` yields `[1,0,0,4,0]` — the tail goes to libtorrent's **default 4**, silently, with no error. On a 40-file pack that is the padded worst case arriving by accident.
 3. **The progress gate is the severe one.** `status.progress` is wanted-progress; `manager.py:328` writes it straight to the row. A widened wanted set whose bytes never arrive holds the torrent below 100% forever: `downloading` is in `ACTIVE_DOWNLOAD_STATES` (`states.py:4-7`), so one of the Pi's two slots is held (`main.py:57`) and the nav badge never clears (`api/activity.py:36`); `lt.torrent_finished_alert` (`:486`) never fires so `release_stream_force_start` (`:494`) never runs; and — the one that matters most — **`get_completed_video_file_info`'s gate 2 is `if state not in ON_DISK_STATES or progress < 100` at `:1250`**, so the title loses the only path that serves it after a restart. A file-level admission trades subtitles for the television's main content.
-4. **The cost is piece-shaped, not byte-shaped.** §7.5's "(kilobytes)" is wrong by up to four orders of magnitude: the marginal cost is `extra_pieces × piece_length` — measured 0 on an unpadded v1 torrent, one full piece per sidecar on a pad-aligned one (libtorrent 2.0's own `create_torrent` pads by default, as does qBittorrent, and every v2/hybrid torrent must), i.e. 1.6 GiB for a 20-language `Subs/` tree at an 8 MiB piece.
+4. **The cost is piece-shaped, not byte-shaped.** §7.5's "(kilobytes)" is wrong by up to four orders of magnitude: the marginal cost is `extra_pieces × piece_length` — measured 0 on an unpadded v1 torrent, one full piece per sidecar on a pad-aligned one (libtorrent 2.0's own `create_torrent` pads by default, as does qBittorrent, and every v2/hybrid torrent must), i.e. **N sidecars × `piece_length`**: **20 × 8 MiB = 160 MiB** for a 20-language `Subs/` tree, and **~200 × 8 MiB ≈ 1.6 GiB** for a 20-language × ~10-episode season pack. (**C5 corrected this**: the figure read 1.6 GiB for the 20-language tree, which is 10× off — 1.6 GiB needs ~200 sidecars, not 20. The conclusion is unchanged, and so is the cap.)
 
 The mechanism instead is **two-phase, and C1 above is the measurement that shapes it.** Phase 1 is `handle.piece_priority(p, 7)` + `handle.set_piece_deadline(p, 0)` over the sidecar's own piece span — the same two calls `_deadline_pieces` already makes at `manager.py:1936-1937`. Measured: raising a piece wholly inside a deselected file widens `total_wanted` by exactly that file's bytes, leaves every file priority untouched, and — the property that decides the shape — **survives `prioritize_video_files`' next call**, because that vector is a pure function of the file set and libtorrent does not recompute from an identical list. But phase 1 alone leaves the bytes in a `.<infohash>.parts` part file that nothing can read, so phase 2 is a **flush**: once the span is held, one `file_priority(idx, 1)` moves them into the save path with `redownloaded=0`, and one `file_priority(idx, 0)` puts the priority back. Those two calls each wipe `_prioritize_window`'s raised window (measured on unheld pieces), which is transient because the repo re-asserts it per chunk, and they are the whole reason admission is not file-level from the start: a file-level admission makes the selector's next call a *changed* list, which undoes the admission and takes the playhead's window with it. **Designs 2's and the spec's position loses** because it buys a background pre-fetch nobody asked for at the price of reason 3; **Design 1's seam inside `wait_for_first_chunk` loses** because that function has exactly one caller, `api/streaming.py:334`, the shared `GET /video` path the web player drives too, so every web stream open would widen that torrent's wanted set with no subtitle UI to show for it.
 
@@ -65,7 +65,7 @@ Gate 4 also doubles as the no-op detector: on an unpadded torrent the sidecar sh
 
 ### D4. Admission is bounded three ways and retracted on a budget.
 
-`subtitle_admit_max_pieces = 4` forecloses the 1.6 GiB padded case per-sidecar structurally rather than by budget. `total_wanted` rises by only the file's bytes, but the download cost is whole pieces, so the cap is on the **span**, not on the size. One sidecar per POST.
+`subtitle_admit_max_pieces = 4` forecloses the padded case — 160 MiB for a 20-language tree, ~1.6 GiB for a 20-language season pack at ~200 sidecars (C5) — per-sidecar structurally rather than by budget. `total_wanted` rises by only the file's bytes, but the download cost is whole pieces, so the cap is on the **span**, not on the size. One sidecar per POST.
 
 Two exits, and they are different calls:
 
@@ -166,7 +166,7 @@ BOM sniff (`utf-8-sig`, UTF-16 LE/BE with BOM) → UTF-8 strict **and** `"\x00" 
 
 Nine distinct malformed shapes load as `readyState 2` + `load` fired + `error` **not** fired + **zero cues**, and it is per-cue. A payload line containing `-->` yields a cue with `text === ""` that **passes** a cue-count check. And a naive converter turns a loud failure into a quiet one: raw ASS, an empty file and a header-less file all fire a real `error`; wrap any of them in `WEBVTT\n\n` and they become silent zero-cue successes.
 
-So: `WEBVTT\n\n`, LF endings, `HH:MM:SS.mmm --> HH:MM:SS.mmm` with exactly one space each side, HH ≥ 2 digits, MM/SS exactly two digits in 0–59, fraction exactly three. **Two carries** — seconds ≥ 60 into minutes *and* minutes ≥ 60 into hours, because `00:00:75,000` and `00:75:01,000` are separately measured silent zeros. Strip `\{[^}]*\}` **before** escaping (`{\an8}Top line` renders the braces literally). Escape `&` unconditionally (`A &notreal; B` renders `A ¬real; B` via a legacy semicolon-less entity). Escape `<` **except** where it opens or closes one of `i b u ruby rt v lang c` — a blanket `html.escape()` puts the literal text `<i>` on screen for the whole film. Do **not** strip `<font …>` (Blink drops the tag, keeps the text) or DVD-rip cue-setting junk (measured harmless). Drop cues with `end <= start` (Blink keeps them as invisible dead weight; only the converter can remove them). Escape any `-->` in a payload line. Refuse on zero cues. And lean on **no** measured leniency — Chromium 155 accepts no blank line after the magic, no spaces around the arrow, 1-digit hours, CR-only endings and an absent hours field; the set is Chromium 120 and those five are the parts most likely to differ.
+So: `WEBVTT\n\n`, LF endings, `HH:MM:SS.mmm --> HH:MM:SS.mmm` with exactly one space each side, HH ≥ 2 digits, MM/SS exactly two digits in 0–59, fraction exactly three. **Two carries** — seconds ≥ 60 into minutes *and* minutes ≥ 60 into hours, because `00:00:75,000` and `00:75:01,000` are separately measured silent zeros. Strip `\{[^}]*\}` **before** escaping (`{\an8}Top line` renders the braces literally). Escape `&` unconditionally (`A &notreal; B` renders `A ¬real; B` via a legacy semicolon-less entity). Escape `<` **except** where it opens or closes one of `i b u ruby rt v lang c` — a blanket `html.escape()` puts the literal text `<i>` on screen for the whole film. Do **not** strip `<font …>` (Blink drops the tag, keeps the text). A **cue-setting tail** — DVD-rip `X1:100 X2:200 …` junk, or a real `.vtt`'s own `align:`/`line:` settings — is **tolerated on input and not reproduced on output**, and the distinction is the whole point (C5): nothing here hunts for the tail, the cue it trails still parses (measured harmless, pinned by `test_a_timing_line_with_a_tail_still_yields_its_cue`; anchoring the timing-line regex just after the second timestamp — the obvious "be stricter" edit — turns every DVD-rip sidecar and every settings-bearing `.vtt` into a flat `no-cues` refusal), but the output timing line is re-emitted from the parsed fields under a grammar anchored at **both** ends, so the tail cannot survive — carrying it across would redden this decision's own property assertion. Drop cues with `end <= start` (Blink keeps them as invisible dead weight; only the converter can remove them). Escape any `-->` in a payload line. Refuse on zero cues. And lean on **no** measured leniency — Chromium 155 accepts no blank line after the magic, no spaces around the arrow, 1-digit hours, CR-only endings and an absent hours field; the set is Chromium 120 and those five are the parts most likely to differ.
 
 ### D20. The pairing ladder reports which rung it took.
 
@@ -278,7 +278,8 @@ survives the stage unmodified. **D3's gate 4 survives with a sharper job**: it g
 *success* retraction is file-level and needs no gate. When gate 4 refuses because a wanted video
 file shares the piece, the bytes are already coming and the admission is a measured **no-op**.
 **D4's span cap survives** — `total_wanted` rises by the file's bytes but the download cost is whole
-pieces, so a pad-aligned 20-language tree is still the 1.6 GiB case. **D7 changes**: a held piece is
+pieces, so a pad-aligned 20-language tree is still `20 × piece_length` = 160 MiB at an 8 MiB piece,
+and a 20-language season pack (~200 sidecars) is the ~1.6 GiB case (C5). **D7 changes**: a held piece is
 not a readable file, so readiness is `contiguous_available(...)["complete"]` **and** the file present
 at its declared size — stage 7's gate 3 shape at `manager.py:1274-1285`. Tasks 1, 3, 7, 8 and 9 are
 edited below; 2, 4, 5, 6 and 10–16 are untouched.
@@ -424,6 +425,134 @@ and set `torrent_manager._loop` the way `test_await_pieces_async.py:35` does, be
 `start_update_task` (`manager.py:387`) is a startup event no module-level `TestClient`
 ever runs and `await_pieces_async` begins with `self._loop.create_future()`.
 
+### C5 — The review round: ~20 more assertions that could not fail, six findings that needed a decision, and a 10× figure that had reached production
+
+Nine adversarial reviews, one per task, each required to redden what it read. **Yield: ~20
+assertions that could not fail**, in a stage whose plan prescribed a mutation for every
+assertion and whose **Notes** open on the 34+ that stage 8 found. Prescribing mutation is not
+running it. Three shapes recurred, and they are worth recognising on sight:
+
+* **A comment asserting a mechanism nothing tests.** Task 1's fake claimed a branch guard that
+  deleting the fake's own fields left green (`6e39688`); task 6's N1/N2 input-leniency claims
+  (`7df20f3`, `79273c6`); task 9's `reads` recorder had no positive control at all — replacing
+  `_read_sidecar_bytes` with an inline `open()`, the exact refactor its docstring exists to
+  prevent, left all 22 rows green, while one of those rows' `reads == []` was the **sole**
+  instrument for "resolution goes through the lister" (`c2bd47b`).
+* **A fixture where both branches agree, so deleting either is green.** Task 7's span fixture was
+  two files with the sidecar last at index 1 — and 1 is also the flush's first priority, so the
+  asserted `[(1, 1), (1, 0)]` was its own transpose: an argument swap and "the last index" were
+  both blind (`fa43e8e`, four files now, sidecar at index 2, piece-unaligned). Task 6's `&` row
+  had every `&` already bare, so the unconditional escape had no instrument (`79273c6`).
+* **A guard duplicated, so deleting either copy is green.** Task 4's null rule was stated twice —
+  "collect the winners, then add every null" says the same thing as "never group a null" — and
+  with two statements of one rule neither deletion reddens. It is now a single `continue`
+  (`backend/app/subtitles/naming.py:518`), with the shape written beside it at `:504-512`.
+
+**The six findings a reviewer reported rather than fixed, each with the decision taken and the
+commit that implements it.** All five sibling commits are in `git log --oneline master..HEAD`;
+none is missing.
+
+1. **Task 4, finding 1 — rungs 1 and 2 returned on the first match.** Measured on the
+   multi-season "Complete" shape D20 cites to justify rung 2: a Season 1 sidecar paired to
+   Season **2**'s episode, flipping with file-index order, and reported as `stem`, which
+   `track_label` renders as a plain "English" with nothing to confess. **Decision: a rung that can
+   be wrong must not outrank the rung that checks.** Rungs 1 and 2 collect every claimant and
+   return only on exactly one, otherwise **falling through** (a later rung still resolves per-episode
+   folders). This re-decides D20 and says so in `pair()`'s docstring. `f049a5f`.
+2. **Task 1 findings 5/6 and task 6 — two test-only degeneracies**, above. `fa43e8e`. It also
+   corrects the brief that commissioned it: of the three mutations said to be green, **two were**.
+3. **Task 9, finding 3 — the format gate consulted `row["reason"]`,** so a non-convertible row
+   whose stat raised a non-absence `OSError` answered `415 {"reason": "unreadable"}` — a pair the
+   route's own matrix forbids. **Decision: a non-convertible row is refused by its FORMAT,
+   unconditionally**; the format gate stays first and no longer reads the reason, because an
+   extension is a permanent refusal and must outrank a transient read failure. `48a3539`.
+4. **Task 7, finding 5 — the gate-4-refused retraction cleared the PLAYHEAD's deadlines.**
+   `reset_piece_deadline` ran over the whole span before the gate-4 re-check, i.e. over pieces gate
+   4 had just identified as a wanted video file's — reachable with no admission of ours to withdraw.
+   **Decision: the retraction touches only pieces the admission could have raised.** Gate 4 is
+   re-checked first on **both** exits and a refusal makes the call a true no-op. Finding 6, the same
+   commit: `SidecarAdmission`'s docstring claimed "`refusal` is a 409: the admission did not happen",
+   false for `SIDECAR_REFUSAL_NO_DRIVER`. `b04ec3b`.
+5. **Task 3, finding 4 — the lister filled the SHARED `_contiguous_runs` memo,** whose overflow
+   policy is `if len(...) > 64: clear()`: a four-episode pack with D4's 20-language tree inserts 80
+   keys in one call and the `.clear()` takes the seek boundary's own cached run with it. Key
+   isolation (D7) is not capacity isolation. **Decision: `contiguous_available` takes a keyword-only
+   `memoize`, and `memoize=False` neither reads nor writes** — not write-only-skip, because a
+   read-only lister would still hand a cached `complete` to the honesty gate. `fd615ff`.
+6. **Task 6 finding 2 and task 2 finding 5 — this plan was wrong about shipped behaviour and about
+   its own arithmetic.** Fixed in this entry's own commit, below.
+
+**This plan's three corrections.**
+
+* **The cue-setting tail: `:169` and task 6's `Does not` list at `:692` said the converter does not
+  strip it, which read as a description of the output.** It is not. The converter **tolerates** a tail
+  on **input** — nothing hunts for it, the cue still parses, and
+  `test_a_timing_line_with_a_tail_still_yields_its_cue` pins exactly that (anchoring the timing-line
+  regex just after the second timestamp turns every DVD-rip sidecar and every settings-bearing `.vtt`
+  into a flat `no-cues` refusal) — and does not **reproduce** it on output, because the prescribed
+  output grammar is anchored at both ends and the timing line is re-emitted from the parsed fields.
+  The implementer disclosed this as its own correction #3 and was right. Both sites now make the
+  input/output distinction explicit; tasks 8, 9 and 16 read that line as a description of the
+  converter. `<font …>` stays in the `Does not` list — that one is true and tested.
+* **The 1.6 GiB figure was 10× off, and it had reached production as a cap's justification.** 20
+  sidecars × an 8 MiB piece is **160 MiB**. ~1.6 GiB needs ~200 sidecars — a 20-language × ~10-episode
+  **season pack**, which is a real release but is not what "a 20-language `Subs/` tree" says. The
+  figure stood at **eight** sites and was inherited verbatim from this plan into five of them. All
+  eight now state `N_sidecars × piece_length` with the arithmetic visible: this plan's `:48`, `:68`
+  and `:281`; `2026-10-20-tv-stage9-design-notes.md:126-132`; `backend/app/config.py:177-192`, the
+  cap's stated justification; `backend/tests/test_subtitle_config.py:107-113`; and
+  `backend/app/torrent/manager.py:2453-2460`. The eighth was found by grep rather than named in the
+  correction's own list: `backend/tests/test_sidecar_admission.py:442-449`. **Nothing follows from the correction**:
+  the cost is still piece-shaped and not byte-shaped (160 MiB of pieces for ~600 KB of text), §7.5's
+  "(kilobytes)" is still wrong by orders of magnitude, and `subtitle_admit_max_pieces = 4` is
+  unchanged and is not re-opened on the strength of this. **Measured, and the reason it spread:
+  nothing could see it.** The suite is 1705 passed at `fd615ff` with the wrong figure standing in all
+  four backend files; the cap's *value* is asserted (`== 4`, `test_subtitle_config.py:120`) but its
+  *justification* is prose, so a 10x arithmetic error in a production comment is invisible to every
+  instrument in this repo. Check the arithmetic by reading it, which is why it is now written out.
+* **C2's baseline needed no fix.** Task 2's review reported "C2 declares the backend baseline to be
+  1446, but I measured 1441 pre-task-2". Re-read in full: C2 part 1 is headed "The 1441 baseline is
+  right", states `8619e0f` = 1441, and records 1446 only as task 1's own *wrong* first measurement
+  with the reason it was wrong; C3 carries the lesson forward. C2 was self-corrected during the review
+  round and the reviewer read a transient state. No wrong figure remains in either document — checked
+  by grep over every four-digit count in both.
+
+**Two decisions taken NOT to change anything. Grounds recorded so they are not re-opened.**
+
+* **`coverage` keeps THREE values.** Task 3's review finding 2 is right on the facts: `none` is
+  returned both when a release ships no sidecar and when every sidecar was **excluded** (over
+  `subtitle_max_bytes`, outside `subtitle_extensions`, or escaping the save path), so the television
+  reads "none" where the truth is "excluded". A fourth value is **declined**: the two cases are
+  indistinguishable in what the **viewer** can do about them, and the operator already has the
+  distinction — the lister logs each exclusion by name and reason at INFO. The docstring is already
+  honest about it. The frontend half (tasks 10–16) is not built, so this is the **cheap** moment to
+  reverse it; a device reading that shows a real release reading "none" for the excluded reason is
+  grounds to add the value, and after task 12 ships it is not.
+* **The WebVTT route stays `async def`.** Task 9's review finding 5 measured a 4.02 MB SRT costing
+  **173 ms of CPU** in `to_webvtt`, on the event loop that also serves `/video` Range requests —
+  several times worse on ARM; a typical 100 KB sidecar is ~4 ms. Dropping `async` to get the
+  threadpool would also move `list_sidecars`' libtorrent calls there, which is a thread-safety
+  decision with a blast radius past stage 9. **Parked as a stage-10 item**, with the 173 ms recorded
+  here so stage 10 does not have to re-measure it.
+
+**The low-severity items left standing, so they are not lost.**
+
+* **Gate 4's overlap boundary is green in the conservative direction only** (task 7, F3): a fixture
+  that over-refuses is not distinguished from one that refuses correctly. Now *incidentally*
+  reddened by the `SHARED_LAST_PIECE` fixture added for the last-piece row
+  (`backend/tests/test_sidecar_admission.py:113-118`, used at `:371-395`) — incidentally, which is
+  not the same as pinned.
+* **`f_size <= 0` (`backend/app/torrent/manager.py:2427`) and the flush's `contained_path`
+  (`:2585`) have no row** (task 7, F4).
+* **`_SIDECAR_FLUSH_WAIT_S`' comment (`backend/app/torrent/manager.py:88-95`) states libtorrent
+  2.0's missing write cache as settled fact when it is unmeasured here** (task 7, F7). The
+  constant's own escape hatch ("if a real device ever shows the file arriving later, raise it")
+  is the mitigation, not a test.
+* **Task 4's X2 is undiscriminable by any realistic fixture and is annotated rather than tested**
+  (`backend/app/subtitles/naming.py:247-253`): the `len(segs) < 2` conjunct in `_common_root` can
+  only change an answer for a top-level file named exactly like the folder every other file sits
+  under. Named there rather than claimed.
+
 ---
 
 ## What ships inert or absent, and what the television shows instead
@@ -560,7 +689,7 @@ Two sets, per D17, each with its rationale in a comment, including why `.sub`/`.
 
 `to_webvtt(text, fmt) -> ConvertResult(text, cue_count, reason)`, per D19. `.ass`/`.ssa` → `reason="unsupported-format"`, `cue_count=0`. `.vtt` reparsed and re-emitted.
 
-**Does not:** use ffmpeg. Does not convert ASS/SSA. Does not strip `<font …>` or DVD-rip cue settings. Does not emit a `line:` cue setting. Does not lean on any measured Chromium 155 leniency. Does not cache. Does not touch `get_mime_type` or `VIDEO_MIME_TYPES`.
+**Does not:** use ffmpeg. Does not convert ASS/SSA. Does not strip `<font …>`. Does not **hunt for** a cue-setting tail either — a DVD-rip `X1/X2` tail or a real `.vtt`'s own settings are tolerated on **input** (the cue still parses; no code here searches for the tail or deletes it) and are not reproduced on **output**, because the emitted timing line is re-built from the parsed fields under a both-ends-anchored grammar. Tasks 8, 9 and 16 read this line as a description of the converter: it is about input tolerance, never about output fidelity (C5). Does not emit a `line:` cue setting. Does not lean on any measured Chromium 155 leniency. Does not cache. Does not touch `get_mime_type` or `VIDEO_MIME_TYPES`.
 
 **Mutate.** **Every expected VTT is typed by hand and never captured from a run** — `backend/tests/test_release_corpus.py:35` already records that a corpus produced by the code under test "proves only that the parser is deterministic." Property assertions over every fixture, because nothing in this repo can run a WebVTT parser (D19, **What no test can settle**): first line exactly `WEBVTT`; every timing line matches `^(?:\d{2,}:)?[0-5]\d:[0-5]\d\.\d{3} --> (?:\d{2,}:)?[0-5]\d:[0-5]\d\.\d{3}$`; no comma in a timing line; no payload line contains `-->`; `cue_count > 0`. Mutations: emit the SRT comma → the regex and the comma assertion redden, and that is the only instrument there is. Remove the **seconds** carry → the `00:00:75,000` row reddens. Remove the **minutes** carry → the **separate** `00:75:01,000` row reddens; one fixture cannot discriminate both. Leave a payload `-->` unescaped → reddens, and this is a data-loss guard, not hygiene: measured, the payload is swallowed and the cue renders blank with `text === ""`, so it **passes** a cue-count check. Byte-exact rows for one hand-typed 3-cue SRT (CRLF, numeric ids, an `<i>`, an `&`, a bare `<`, an accented character) and one `.vtt` with comma timings; mutation: two spaces around the arrow → reddens. Escaping, two rows opposite ways: `5 < 6 and <i>7</i> & 8` → `5 &lt; 6 and <i>7</i> &amp; 8`. Mutation: `html.escape()` the payload → the `<i>` row reddens; mutation: escape nothing → the `&lt;`/`&amp;` row reddens; **the fixture must carry both or neither mutation discriminates.** `{\an8}Top` → `Top`; mutation: drop the strip → reddens. A payload that is only `{\an8}` → cue dropped. `end <= start` → dropped; assert the exact `cue_count`. Four refusal fixtures with four reasons (empty, whitespace-only, an ASS body, a 6 MB body) → mutation: return `"WEBVTT\n\n"` on zero cues → all four redden, **and this is the most important mutation in the stage**: measured, a raw empty or header-less file fires a real `error` event while `WEBVTT\n` loads at `readyState 2` with 0 cues and **no event at all**, so wrapping converts a loud failure into an unobservable one. `.ass` with `fmt=".ass"` → `reason="unsupported-format"`; mutation: route it through the SRT parser → `cue_count 0, reason None`, i.e. a header-only success → the reason assertion reddens. **Forbidden as a success criterion anywhere in this file: "200 and the body starts with WEBVTT."**
 

@@ -967,10 +967,11 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 /* Faded, never unmounted and never display:none — see the COMBINING note above. The
    gradient is ~0.82 alpha at 45% of 480px, so there is no cue position inside the video
    box that clears it; fading it is the whole fix, and it is the normal state (the band is
-   hidden for almost the entire film). With the band UP, a cue may still sit behind the
-   transport row, which is position: relative at z-index: auto and therefore paints above
-   both -1 layers: that is left unsolved on purpose, with no ::cue rule and no `line:`
-   guess, because no reading from the set has scoped it. */
+   hidden for almost the entire film). With the band UP, a cue may still sit behind the BAND,
+   which is the element carrying `position: relative` with no z-index of its own and therefore
+   paints above both -1 layers at z-index: auto; .bs-player__row is static and stacks nothing
+   itself, so a z-index put THERE would do nothing. That is left unsolved on purpose, with no
+   ::cue rule and no `line:` guess, because no reading from the set has scoped it. */
 .bs-player__scrim--hidden { opacity: 0; }
 .bs-player__bar {
   position: relative;

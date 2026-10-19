@@ -60,6 +60,21 @@ const declarations = (body: string): string[] =>
     .map((d) => d.trim().replace(/\s+/g, ' '))
     .filter((d) => d !== '');
 
+/**
+ * Every index in the stylesheet where `selector` begins a rule OF ITS OWN, in source order.
+ *
+ * `rule()` above reads the FIRST match and knows nothing about the cascade, so "the rule
+ * exists and says `opacity: 0`" is not the same claim as "the declaration wins". Both ways of
+ * breaking that were measured green against every row in this file and the route's: a second
+ * copy of the modifier later in the sheet, and the modifier written BEFORE the rule it
+ * modifies with an `opacity` of its own on the base. Source order is the part of the cascade
+ * this file can see, so it is the part it checks.
+ */
+const ruleStarts = (selector: string): number[] => {
+  const escaped = selector.replace(/[.\-]/g, '\\$&');
+  return [...css.matchAll(new RegExp(`(?:^|\\n)${escaped}\\s*\\{`, 'g'))].map((m) => m.index);
+};
+
 /** One declaration's value, whitespace-normalised, or `null` when the rule omits it. */
 const decl = (body: string, prop: string): string | null => {
   const m = noComments(body).match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`));
@@ -169,12 +184,34 @@ describe('bigscreen.css, as the player relies on it', () => {
     //
     // ONE EXACT-EQUALITY ASSERTION, not the four matchers the `.bs-player__bar--hidden` row
     // above uses, and the difference is deliberate: it subsumes all three of that row's
-    // `not.toMatch` rules (nothing else is in the rule at all) and it is the only form that
-    // can see `opacity: 0.85`. The band's reason for opacity-only is hazard 4 — blurring
+    // `not.toMatch` rules (nothing else is in the rule at all) and it refuses `opacity: 0.85`
+    // without needing the `(?![.\d])` anchor that row now carries. The band's reason for
+    // opacity-only is hazard 4 — blurring
     // the focused control; the scrim holds no focus, so its reason is narrower and is the
     // fill rate: a 480px layer that disappears is a repaint where the point was a
     // composited fade.
     expect(declarations(rule('.bs-player__scrim--hidden'))).toEqual(['opacity: 0']);
+
+    // THE VISIBLE STATE, which the pin above cannot see either: the base rule declares no
+    // `opacity` at all, so the scrim is the initial 1 while the band is up and the modifier is
+    // the only thing that ever fades it. Measured: `opacity: 0` added to the BASE rule — a
+    // band with no legibility backing for the whole film, the exact inverse of what this task
+    // is for, and the task's own "does not change the visible state's appearance" — left all
+    // 83 rows of this file and the route's green.
+    expect.soft(
+      decl(rule('.bs-player__scrim'), 'opacity'),
+      'the base rule declares no opacity of its own',
+    ).toBeNull();
+
+    // AND THAT THE MODIFIER WINS. See `ruleStarts`: a rule that exists and says the right
+    // thing can still be dead. One copy, declared after the rule it modifies.
+    const baseAt = ruleStarts('.bs-player__scrim');
+    const modAt = ruleStarts('.bs-player__scrim--hidden');
+    expect.soft(baseAt, 'one .bs-player__scrim rule').toHaveLength(1);
+    expect.soft(modAt, 'one .bs-player__scrim--hidden rule').toHaveLength(1);
+    expect
+      .soft(modAt[0] > baseAt[0], 'the modifier is declared after the rule it modifies')
+      .toBe(true);
 
     // ...and the fade itself, which the rule above cannot see: without a transition the
     // 480px gradient snaps on and off under the band it is fading with.

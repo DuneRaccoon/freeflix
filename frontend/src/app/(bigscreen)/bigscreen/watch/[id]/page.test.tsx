@@ -823,6 +823,13 @@ describe('the scrim', () => {
     // unconditionally leaves the band-down half green.
     await playing();
     expect.soft(scrim(), 'the scrim is rendered').not.toBeNull();
+    // ONE node, not "at least one". `scrim()` is a `querySelector`, which returns the FIRST
+    // match: measured, a second unconditional `.bs-player__scrim` sibling added after this one
+    // left all 1391 rows of `test:tv` green while the television carried a gradient that never
+    // faded. The house idiom for this is task 13's `querySelectorAll('track').length === 1`.
+    expect
+      .soft(document.querySelectorAll('.bs-player__scrim'), 'exactly one scrim node')
+      .toHaveLength(1);
     expect.soft(hidden(), 'the band is up on arrival').toBe(false);
     expect.soft(scrimHidden(), 'and so is the scrim').toBe(false);
 

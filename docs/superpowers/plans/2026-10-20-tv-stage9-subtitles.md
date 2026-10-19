@@ -286,6 +286,58 @@ edited below; 2, 4, 5, 6 and 10–16 are untouched.
 **Probes:** `…/scratchpad/s9probe/probe_admit.py` (run 1, void), `probe_admit2.py` (run 2),
 `probe_flush.py` (run 3), `probe_retract.py` (run 4), `probe_race.py` (run 5).
 
+### C2 — The mounted-tests baseline measures OTHER agents' uncommitted work, and task 1's mutation (c) is unrunnable where it is prescribed
+
+Three measurements, from task 1.
+
+**1. The 1441 baseline is right; a backend count taken while another task is in flight is not.**
+Task 1's own first measurement said `1446 collected / 1446 passed` at what `git log` showed as
+`8619e0f` with a clean `git status`. That number was wrong, and the reason is structural: the house
+command mounts `backend/tests` from the **host working tree**, so it collects whatever test files
+another agent has written but not yet committed. Task 2 committed five minutes later (`39cd25f`,
+`test_subtitle_config.py` +5 tests, `test_content_guard_config.py` +0) and the arithmetic closes
+exactly — `1453` collected with task 1 and task 2 both in, minus task 1's **7** and task 2's **5**,
+is **1441**. The baked-image figure (`1437`, the same command without the `-v` mount) is a third
+number again and belongs to whenever the image was last built; it is not a baseline either.
+
+**So: `8619e0f` = 1441, and the tree after task 1 + task 2 = 1453 collected (1450 passed, 3
+skipped).** Task 1 contributes 7 tests, 3 of which skip until their subject exists. `test:tv` 1388,
+`npx vitest run` 2340 and `tsc` clean, unchanged — task 1 touches no frontend file. **Whoever takes
+the next task: `git log` and `git status` do not tell you whether a sibling task's files are under
+`backend/tests/`. `git status --short` naming an untracked test file you did not write is the only
+warning you get, and `ls backend/tests` against `git ls-files` is the check.**
+
+**2. Task 1's mutation (c) cannot be run in task 1.** It prescribes that "`list_sidecars(...)` and
+`admit_sidecar_pieces(...)` complete" under the forbidding fake, but `list_sidecars` lands in task 3
+and `admit_sidecar_pieces`/`flush_sidecar_file` in task 7, and task 1's own **Does not** forbids
+adding an `app/` file. The gate ships written-to-C1's-shape and `skipif`-guarded on
+`hasattr(TorrentManager, …)`, so it activates itself the moment task 7 lands; until then it reports
+as **skipped with the task named**, which is the visible record that it has not run. All four of
+(c)'s mutations were measured against **temporary stand-in** implementations inserted beside
+`_deadline_pieces` and removed afterwards (`…/scratchpad/standin.py`, four variants): the correct
+two-phase shape is accepted (gate green, not skipped), admission via `prioritize_files` reddens,
+a flush with `file_priority(idx, 7)` reddens, and a flush that omits the trailing `(idx, 0)`
+reddens. **Task 7 must re-run that gate unskipped** and fix the call signatures if its own differ.
+The two per-module source gates (`subtitles/sidecars.py`, `api/subtitles.py`) ship skipped for the
+same reason and were validated the same way: with temporary violating modules both parametrised
+cases redden and the skips disappear; with the same modules clean, both pass.
+
+Two sub-findings from the same run. The fake's `prioritize_files` raises a **`BaseException`**
+subclass, because the stand-in copied the repo's own `except Exception: pass` idiom and swallowed
+it; measured, the gate reddens either way, because the recorded-call assertion catches what the
+swallowed raise does not — the two assertions are independently sufficient, which is why both are
+kept. And the source-text gate must scan **code**, not file text: `app/subtitles/__init__.py`'s
+docstring names all three forbidden calls in order to forbid them, so the scan strips comments and
+docstrings via `ast.unparse` (the `legacy-target.test.ts:98-103` idiom, limit note included).
+Measured both arms: docstring mentions green, the same names as executable code red.
+
+**3. Mutation (a)'s "only instrument there is" is overstated.** The short-list mutation (build the
+vector from `get_video_files()` output) reddens the `== [7, 0, 0, 0]` equality too, because a short
+list is also a *different* list. Measured with the equality assertion temporarily removed: the
+`len(applied) == ti.num_files()` assertion reddens on its own, so it is live rather than decorative
+— but it is not the sole instrument, and a later task must not drop the equality on the strength of
+that sentence.
+
 ---
 
 ## What ships inert or absent, and what the television shows instead

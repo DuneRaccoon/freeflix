@@ -303,8 +303,12 @@ class SubtitleTrack(BaseModel):
     DELIBERATELY ABSENT and their absence is a decision:
 
     * **`mime_type`.** `/files` carries one (`api/streaming.py:497`) from
-      `get_mime_type`, whose table was measured in the real image as
-      `.srt -> text/plain`, `.ass -> audio/aac`, `.ssa -> None` (plan D10). An
+      `get_mime_type`, whose table was re-measured in the real image as
+      `.srt -> text/plain`, `.ass -> audio/aac`,
+      `.ssa -> application/octet-stream` (plan D10 says `None` for the last one;
+      that is `mimetypes.guess_type`'s answer, while `get_mime_type` ends in
+      `or 'application/octet-stream'` at `streaming.py:53` and so never returns
+      None — the wrong type arrives as a plausible string, not as an error). An
       `.ass` sidecar announced to the television as AAC audio is a lie the TV
       would act on, so the VTT route hard-codes `text/vtt; charset=utf-8` and
       nothing here guesses a type. With pydantic's DEFAULT `extra='ignore'` a
@@ -312,7 +316,7 @@ class SubtitleTrack(BaseModel):
       the test that forbids it would stay green — i.e. the guard would be
       unfalsifiable. Forbidding extras makes that mistake a loud 500 instead.
     * **`progress` / `downloaded`.** `_video_files_from_resume_data` hard-codes
-      `"downloaded": fi.size, "progress": 100.0` (`manager.py:1187-1188`) and its
+      `"downloaded": fi.size, "progress": 100.0` (`manager.py:1291-1292`) and its
       own docstring calls that a claim. `ready` is the measured answer (D7, two
       conjuncts) and the only one this model carries.
 

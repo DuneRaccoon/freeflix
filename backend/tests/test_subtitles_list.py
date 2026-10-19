@@ -21,9 +21,13 @@ What this file is really defending, in order of how badly it fails when wrong:
   task, so the response must arrive while `have_piece` is still False. A handler
   that awaited it would hold a request open for `subtitle_admit_budget_ms`.
 * **No `mime_type`, ever.** `/files` carries one from `get_mime_type`, whose table
-  was measured in this very image as `.srt -> text/plain`, `.ass -> audio/aac`,
-  `.ssa -> None` (plan D10). Telling the television an `.ass` sidecar is AAC audio
-  is a lie it would act on.
+  was RE-MEASURED in this very image as `.srt -> text/plain`,
+  `.ass -> audio/aac`, `.ssa -> application/octet-stream`. Telling the television
+  an `.ass` sidecar is AAC audio is a lie it would act on. (D10 and this file's
+  first draft both said `.ssa -> None`; that is `mimetypes.guess_type`'s answer,
+  not `get_mime_type`'s — `streaming.py:53` ends in
+  `or 'application/octet-stream'`, so it never returns None and the wrong value
+  arrives as a plausible string rather than as a validation error.)
 
 Both halves of task 8(d) are here in spirit and apart in fact: the behavioural
 spy below watches `prioritize_video_files` / `force_start_for_stream` through a
@@ -53,7 +57,7 @@ from httpx import ASGITransport, AsyncClient
 from app.config import settings
 from app.database.models.torrents import Torrent as DbTorrent
 from app.main import app
-from app.models import SubtitleTrack
+from app.models import SubtitleList, SubtitleTrack
 from app.torrent import manager as manager_mod
 from app.torrent.manager import torrent_manager
 
@@ -112,8 +116,10 @@ class _Handle:
     """A live handle that RECORDS every mutating libtorrent call it is asked for.
 
     `priorities` defaults to 7 for every video file and 0 for everything else —
-    `prioritize_video_files`' own vector (`manager.py:1404`/`:1410`), which is the
-    state a sidecar is really admitted from.
+    `prioritize_video_files`' own vector (`manager.py:1663`/`:1669`), which is the
+    state a sidecar is really admitted from. (Those two line numbers were
+    `:1404`/`:1410` in the plan, which measured them against `master`; task 7 added
+    ~260 lines above them in this file.)
     """
 
     def __init__(self, ti, save_path, *, have=True, priorities=None,
@@ -254,6 +260,28 @@ PACK = [
 E01_INDEX, E02_INDEX = 2, 3
 
 
+# A SECOND layout, added in review, because PACK above holds no two sidecars that
+# share a language INSIDE one `(video_index, convertible)` group. Against PACK the
+# two mis-grouping mutations redden — but so does nothing else: MEASURED, replacing
+# `_deduped`'s whole body with `return sorted(described, ...)` left all 26 rows
+# green, and so did grouping on `entry["index"]` (one row per group, so dedup can
+# never collapse anything). Three `.srt` for one language in one `Subs/` folder is
+# the ordinary shape of a packed Blu-ray rip, and D21 is the decision that the
+# picker offers ONE row per language.
+#
+# Two videos on purpose: with one, the pairing ladder's `single` rung catches
+# everything and no sidecar can ever report the `none` rung.
+DUPES = [
+    ("Show/Show.S01E01.mkv", 2 * PL, False),                 # 0
+    ("Show/Show.S01E02.mkv", 2 * PL, False),                 # 1
+    ("Show/Subs/Show.S01E01.en.srt", 2048, False),           # 2 shortest -> kept
+    ("Show/Subs/alt/Show.S01E01.en.srt", 2048, False),       # 3 longer -> superseded
+    ("Show/Subs/Show.S01E01.es.forced.srt", 3072, False),    # 4 only Spanish -> kept
+    ("Show/Subs/stray.de.srt", 1024, False),                 # 5 pairs with nothing
+]
+DUPES_VIDEO = 0
+
+
 @pytest.fixture
 def pack(tmp_path, override_get_db):
     """The pack above, on disk, with a DB row and a live handle."""
@@ -349,6 +377,9 @@ def test_a_live_pack_with_sidecars_is_listed_with_every_field(pack):
     assert [e["url"] for e in entries] == [
         f"/api/v1/streaming/{p.tid}/subtitles/{i}" for i in (4, 5, 6, 7)
     ]
+    # Every other size in this file is 2048, so the whole-entry equality above
+    # cannot tell a pass-through from a constant. Index 6 is the 3072-byte one.
+    assert [e["size"] for e in entries] == [2048, 2048, 3072, 2048]
 
 
 def test_a_live_pack_with_no_sidecars_is_none_and_not_a_404(pack):
@@ -491,6 +522,84 @@ def test_an_unconvertible_row_never_supersedes_a_servable_one(pack):
     assert by_index[5]["lang"] == by_index[7]["lang"] == "en"
 
 
+def test_two_english_sidecars_for_one_episode_collapse_to_one(pack):
+    """`_deduped` must actually DEDUPE, not merely group the right way.
+
+    The two rows above pin that the grouping key is not too COARSE. Nothing pinned
+    that any grouping happens at all, and review measured the consequence: with
+    PACK as the only fixture, `_deduped` reduced to `return sorted(described, ...)`
+    is green on every other row in this file, and the picker would then show one
+    "English" row per duplicate file.
+    """
+    with pack("t-dupes", rows=DUPES) as p:
+        body = _envelope(_get(p.tid, file_index=DUPES_VIDEO))
+    assert [e["index"] for e in body["subtitles"]] == [2, 4]
+    assert [e["lang"] for e in body["subtitles"]] == ["en", "es"]
+    # The SHORTER path wins (D21), so which of the two survives is decided rather
+    # than incidental: index 3 is the same file one directory deeper.
+    assert all(e["index"] != 3 for e in body["subtitles"])
+
+
+def test_a_surviving_forced_track_carries_its_flag(pack):
+    """`flags` is a pass-through and PACK never populates one.
+
+    Measured: with PACK alone, `"flags": []` hard-coded in `_describe` is green on
+    all 26 rows. The Spanish track is forced and is the ONLY Spanish one, so
+    dedup's prefer-non-forced rule cannot hide it from this assertion.
+    """
+    with pack("t-forced", rows=DUPES) as p:
+        body = _envelope(_get(p.tid, file_index=DUPES_VIDEO))
+    spanish = [e for e in body["subtitles"] if e["lang"] == "es"]
+    assert spanish, "the forced Spanish sidecar was dropped from the list"
+    assert spanish[0]["flags"] == ["forced"]
+
+
+def test_an_unpairable_sidecar_reports_the_none_rung_and_says_so_in_its_label(
+        pack):
+    """`pair_source` and `label` are pass-throughs too.
+
+    Every PACK row pairs by `stem` and resolves to English, so measured, both
+    `"pair_source": "stem"` and `"label": "English"` hard-coded in `_describe` are
+    green on all 26 rows. D20's whole point is that the row CONFESSES which rung
+    the pairing took, and `track_label` is what puts that confession on screen.
+    This is also the only row that exercises `_deduped`'s unpaired group.
+    """
+    with pack("t-unpaired", rows=DUPES) as p:
+        body = _envelope(_get(p.tid))
+    stray = [e for e in body["subtitles"] if e["index"] == 5]
+    assert stray, "the unpairable sidecar was dropped from the list"
+    assert stray[0]["video_index"] is None
+    assert stray[0]["pair_source"] == "none"
+    assert stray[0]["label"] == "German (unmatched)"
+    assert stray[0]["season"] is None and stray[0]["episode"] is None
+
+
+def test_a_sidecar_whose_span_is_not_held_is_listed_with_ready_false(pack):
+    """`ready` is the field the television mounts a `<track>` on.
+
+    D7 makes it MEASURED rather than claimed, but every list row in this file was
+    `ready: true` — so measured, `"ready": True` hard-coded in `_describe` was
+    green on all 26, and the television would mount a track on a file that is not
+    there. `have=False` leaves the piece span unheld while the file itself sits in
+    `save_path` at its declared size: the half of D7's conjunction that
+    `present_at_declared_size` cannot see on its own.
+    """
+    with pack("t-notready", rows=DUPES, have=False) as p:
+        body = _envelope(_get(p.tid))
+    assert body["subtitles"], "the fixture listed no sidecars"
+    assert all(e["ready"] is False for e in body["subtitles"])
+    # Not ready is not the same as not convertible: the row is still an offer.
+    assert all(e["convertible"] is True for e in body["subtitles"])
+
+
+def test_the_envelope_state_is_the_rows_own_state(pack):
+    """`state` is read off the DB row and every other row here is `downloading`,
+    so measured, hard-coding that one string was green on all 26."""
+    with pack("t-seeding", rows=DUPES, state="seeding", progress=100.0) as p:
+        body = _envelope(_get(p.tid))
+    assert body["state"] == "seeding"
+
+
 # ==========================================================================
 # (d) The read reaches for none of the streaming path's machinery
 # ==========================================================================
@@ -534,10 +643,13 @@ def test_an_ass_sidecar_is_listed_with_its_format_and_refusal(pack):
 
 
 def test_no_entry_carries_a_mime_type(pack):
-    """Measured in this image: `.srt -> text/plain`, `.ass -> audio/aac`,
-    `.ssa -> None` (D10). `/files` hands its rows a `mime_type` from exactly that
-    table (`api/streaming.py:497`); copying it here would tell the television an
-    `.ass` sidecar is AAC audio.
+    """Re-measured in this image: `.srt -> text/plain`, `.ass -> audio/aac`,
+    `.ssa -> application/octet-stream` (D10 says `None` for the last one, which is
+    `mimetypes.guess_type`'s answer rather than `get_mime_type`'s — the latter ends
+    in `or 'application/octet-stream'` at `streaming.py:53` and never returns None).
+    `/files` hands its rows a `mime_type` from exactly that table
+    (`api/streaming.py:497`); copying it here would tell the television an `.ass`
+    sidecar is AAC audio.
 
     THREE assertions, and the third is the one that keeps the other two
     falsifiable. MEASURED: with pydantic's default `extra='ignore'` on
@@ -558,6 +670,12 @@ def test_no_entry_carries_a_mime_type(pack):
     assert SubtitleTrack.model_config.get("extra") == "forbid", (
         "SubtitleTrack must forbid extra fields, or the two assertions above "
         "cannot fail: pydantic's default silently drops an unexpected kwarg"
+    )
+    # The ENVELOPE's config was unpinned until review measured it: deleting
+    # `extra='forbid'` from `SubtitleList` alone left all 26 rows green, so the
+    # same silent-drop hazard applied to every envelope field.
+    assert SubtitleList.model_config.get("extra") == "forbid", (
+        "SubtitleList must forbid extra fields for the same reason"
     )
 
 
@@ -762,7 +880,8 @@ async def test_the_post_returns_before_the_span_is_held(pack, monkeypatch):
 def test_a_non_integer_index_keeps_fastapis_default_422_body(pack):
     """The decision, pinned rather than left an omission.
 
-    `_BARE_422_PATHS` (`main.py:211-213`) blanks the body for the two routes a
+    `_BARE_422_PATHS` (`main.py:223-225` — `:211-213` before this task's own
+    `include_router` block moved it) blanks the body for the two routes a
     media decoder loads directly, because FastAPI's `{"detail": [...]}` reaches a
     `<video>` as corrupt media. A subtitle error body is never handed to a parser
     — it is the one thing a sibling `fetch` can actually read (D11) — so this path

@@ -172,7 +172,14 @@ So: `WEBVTT\n\n`, LF endings, `HH:MM:SS.mmm --> HH:MM:SS.mmm` with exactly one s
 
 Five rungs: basename stem after stripping a trailing language / `forced` / `sdh` / numeric token → nearest-ancestor-directory stem → `parse_episode` over segments **below the torrent root**, required to agree with the paired video's own parse → single-video torrent → unpaired. Rung 2 cannot use `parse_episode`: measured, `parse_episode("Subs/E01.en.srt")` is None, because `_SXXEYY` is `[Ss](\d{1,2})[\s._-]?[Ee](\d{1,3})` (`providers/episodes.py:6`) and a bare `E01` matches neither it nor `_XNOTATION`. The root must be **excluded**, not merely deprioritised: `parse_episode` is an `re.search` taking the first left-to-right match (`:14-16`), so a range-named root **overrides** a correct later segment — `Breaking.Bad.S01E01-07.1080p.BluRay/Subs/Breaking.Bad.S01E04/3_English.srt` parses to (1, 1). Ten of the 94 `shape=episode` rows in `backend/tests/data/releases.tsv` are range-named, and 0 of 119 `pack` rows parse any episode, so the trap set is exactly the releases most likely to ship a multi-sidecar `Subs/` tree.
 
-`pair_source ∈ {stem, dir, parse, single, none}` is returned **and rendered**, which is the graft no design proposed and the epistemic panel named: for `Pack/Pack.S01E03.en.srt`, skipping the stem rung still yields episode (1,3) via the parse rung, so without the exposed rung that mutation cannot be discriminated at all. And a mis-paired sidecar is the one failure in this stage with no error anywhere — valid VTT, correct readiness, true sentence about everything except whose episode it is. So the picker row says `English` for a `stem`/`single` pairing and `English (matched by folder)` / `English (matched by episode number)` for `dir`/`parse`, and the cell's sub-line appends `· guessed` in those two cases.
+**THE AMBIGUITY CONTRACT, re-decided twice while implementing, and this is the standing version** (`f049a5f`, then `fa4d806`). As written above, D20 specified a refusal for rung 3 only, and rungs 1 and 2 shipped returning the FIRST of several matches. Measured on the multi-season "Complete" shape this entry cites to justify rung 2 — `videos = [0: Show.Complete/Season 2/E01.mkv, 1: Show.Complete/Season 1/E01.mkv]` — a Season 1 sidecar paired to Season **2**'s episode, flipping with file-index order, reported as `stem`. `f049a5f` made both rungs collect every claimant and refuse unless exactly one. That left the shared-directory depths unread, and they answer: **{0: 1, 1: 2}** for both of the reviewer's sidecars (the basename one and the `Subs/E01/` one), measured in a one-off container — index 1, the correct file, order-independently. So the whole contract now reads:
+
+* A rung takes an answer when exactly **one** video claims the sidecar.
+* **Rungs 1 and 2 break several claimants by DIRECTORY PROXIMITY** — the number of leading path segments a claimant's directory shares with the sidecar's — and take the **strictly greatest** scorer, reported as a sixth source **`near`**, suffix `English (nearest of several matches)`, which joins `dir`/`parse` in appending `· guessed`. `near` rather than `stem`/`dir` because the suffix table exists so the television can confess how an episode was identified, and "its name matched one video" and "its name matched several and I took the closest" are different confidences. It is **order-independent by construction**: the maximal SET is computed and its size checked, because `max()` over a list returns the first maximal element, which is the order-dependence the finding was about.
+* **A tie proximity cannot break still declines** and falls through, with its INFO line. **Rung 3 does not use the tiebreak at all** — its claimants agree on a number the parse has already shown it cannot discriminate, so proximity there is a second guess stacked on a first. Scope pinned by `test_the_parse_rung_does_not_use_the_proximity_tiebreak`, which is the only row that can see it.
+* **The cost, recorded rather than discovered later:** rung 1's proximity answer pre-empts rung 3, so a sidecar rung 3 would have resolved by episode agreement is reported as the weaker `near` (same index; measured). That contradicts `f049a5f`'s own rule that a rung which can be wrong must not outrank the rung that checks, and the alternative — defer the proximity candidate until rung 3 has failed — was declined because it moves a rung's answer outside the rung. `test_proximity_pre_empts_the_parse_rung_where_both_could_resolve` is where a reversal has to come and edit.
+
+`pair_source ∈ {stem, dir, near, parse, single, none}` is returned **and rendered**, which is the graft no design proposed and the epistemic panel named: for `Pack/Pack.S01E03.en.srt`, skipping the stem rung still yields episode (1,3) via the parse rung, so without the exposed rung that mutation cannot be discriminated at all. And a mis-paired sidecar is the one failure in this stage with no error anywhere — valid VTT, correct readiness, true sentence about everything except whose episode it is. So the picker row says `English` for a `stem`/`single` pairing and `English (matched by folder)` / `English (nearest of several matches)` / `English (matched by episode number)` for `dir`/`near`/`parse`, and the cell's sub-line appends `· guessed` in those three cases.
 
 `precompute_episode_map` (`:1092-1102`) and `Torrent.precomputed_episodes` are not reused: built from `get_video_files` (`:1096`), so they hold no subtitle indices; video-indexed by contract (`streaming.py:426`); string-keyed; and `_persist_episode_map` writes only `if mapping:` so a movie stores nothing.
 
@@ -459,6 +466,25 @@ none is missing.
    be wrong must not outrank the rung that checks.** Rungs 1 and 2 collect every claimant and
    return only on exactly one, otherwise **falling through** (a later rung still resolves per-episode
    folders). This re-decides D20 and says so in `pair()`'s docstring. `f049a5f`.
+
+   **AND THAT DECISION WAS INCOMPLETE — the agent that made it said so, with a measurement, and it
+   was right.** Both rungs compare basename stems only and ignore where the sidecar **sits**. The
+   shared-directory depths for the two fixtures above are **{0: 1, 1: 2}** — measured in a one-off
+   container, for the basename sidecar and the `Subs/E01/` one alike — so index **1**, Season 1's
+   own file, is derivable uniquely and in either file order. Refusing therefore yielded **no
+   subtitle at all** for every sidecar in the layout D20 cites to justify rung 2, which is a very
+   common release shape. **Decision: rungs 1 and 2 break an ambiguous claim by DIRECTORY PROXIMITY
+   — the strictly greatest count of shared leading path segments — reported as a sixth
+   `pair_source`, `near`, with its own suffix; and they decline only when proximity cannot break it
+   either.** Order-independent by construction (the maximal set's size is checked, never
+   `max(claimants, key=…)`, which returns the first maximal element). Rung 3 keeps its outright
+   refusal. Honest silence beats a wrong answer; a right answer beats both. `fa4d806`, which
+   records in its own body the three things this costs: a guess now pre-empts rung 3's check (same
+   index, weaker reported source, pinned by a row), `near` does not say which rung guessed, and
+   mutation (3) of the brief's prescribed list — scoring the full paths instead of the directories
+   — is **green** and cannot be reddened by a realistic fixture, because the two scorings differ
+   only when a release ships a folder named exactly `E01.en.srt`. Annotated in `_nearest_claimant`
+   in the shape of task 4's X2, named rather than claimed.
 2. **Task 1 findings 5/6 and task 6 — two test-only degeneracies**, above. `fa43e8e`. It also
    corrects the brief that commissioned it: of the three mutations said to be green, **two were**.
 3. **Task 9, finding 3 — the format gate consulted `row["reason"]`,** so a non-convertible row

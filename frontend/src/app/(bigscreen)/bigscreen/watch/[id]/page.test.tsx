@@ -797,6 +797,71 @@ describe('the auto-hide', () => {
 });
 
 // ===================================================================================
+// 2b. The scrim
+// ===================================================================================
+
+describe('the scrim', () => {
+  /**
+   * WHY THESE ROWS ARE HERE AND NOT IN `_player/playerCss.test.tsx`: jsdom computes nothing
+   * from a linked stylesheet, so that file can prove the rules exist and only this one can
+   * prove the ROUTE ever asks for them — the same split the video element's class pin is
+   * written under ("plays the file the URL named").
+   *
+   * WHAT THE SCRIM IS FOR, so the coupling below is not mistaken for decoration: it is the
+   * other `z-index: -1` layer, later in source order than the video, and native text-track
+   * cues paint inside the video element's box. An always-on scrim therefore paints over
+   * every cue for the whole film, at ~0.82 alpha 45% of the way up its 480px — there is no
+   * cue position inside that box which clears it. Its only job is to make the BAND legible,
+   * so it goes when the band goes.
+   */
+  const scrim = () => document.querySelector('.bs-player__scrim') as HTMLElement | null;
+  const scrimHidden = () => !!scrim()?.classList.contains('bs-player__scrim--hidden');
+
+  it('fades with the band, in BOTH directions', async () => {
+    // BOTH DIRECTIONS IN ONE ROW, because each is blind to the other's mutation: dropping
+    // the conditional leaves the band-up half green, and applying the modifier
+    // unconditionally leaves the band-down half green.
+    await playing();
+    expect.soft(scrim(), 'the scrim is rendered').not.toBeNull();
+    expect.soft(hidden(), 'the band is up on arrival').toBe(false);
+    expect.soft(scrimHidden(), 'and so is the scrim').toBe(false);
+
+    // A press arms the quiet period; `useRevealOnKey` re-arms on nothing else.
+    down();
+    await tick(REVEAL_HIDE_MS + 100);
+
+    expect.soft(hidden(), 'the band faded').toBe(true);
+    // NOT unmounted. The stylesheet licenses unmounting the scrim (it holds no focus, unlike
+    // the band), and the route still does not: a 480px layer appearing and disappearing is a
+    // repaint where the point was a composited fade. Asserted on its own because a scrim
+    // that is absent also has no modifier class — the next line alone would redden with a
+    // diagnostic about the wrong thing.
+    expect.soft(scrim(), 'the scrim is still in the DOM').not.toBeNull();
+    expect.soft(scrimHidden(), 'and it faded with the band').toBe(true);
+
+    right(); // the press that only means "wake up"
+    expect.soft(hidden(), 'the band came back').toBe(false);
+    expect.soft(scrimHidden(), 'and the scrim came back with it').toBe(false);
+  });
+
+  it('tracks `visible` and NOT `playing`: paused, the band is up and so is the scrim', async () => {
+    // THE ONE REACHABLE STATE WHERE THE TWO FLAGS DISAGREE, and the only row that can see a
+    // `visible && playing` condition — which the row above passes in both halves. The band
+    // deliberately does not hide while paused (it is then the only thing on screen saying
+    // anything), so a scrim faded under a visible band is the band sitting on bare picture:
+    // the legibility problem the scrim exists for, inverted.
+    await playing();
+    await act(async () => {
+      fireEvent.click(cell(/Pause/));
+      fireEvent.pause(video()!);
+    });
+    await tick(REVEAL_HIDE_MS * 2);
+    expect.soft(hidden(), 'the band does not hide while paused').toBe(false);
+    expect.soft(scrimHidden(), 'so the scrim does not fade either').toBe(false);
+  });
+});
+
+// ===================================================================================
 // 3. Back
 // ===================================================================================
 

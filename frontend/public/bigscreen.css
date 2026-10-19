@@ -874,7 +874,7 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 
      .bs-player                      fixed, full-bleed, the film's own stacking context
        video.bs-player__video        absolute, z-index -1
-       .bs-player__scrim             absolute, bottom-anchored, z-index -1
+       .bs-player__scrim[--hidden]   absolute, bottom-anchored, z-index -1; fades WITH the band
        .bs-player__bar[--hidden]     the band: carries the safe inset, fades by opacity
          .bs-player__hint            the STREAM's line, when there is one to say (the route)
          .bs-player__hint            the scrub cell's reserved status line (ScrubBar)
@@ -917,8 +917,15 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      What .bs-msg is actually reused FOR is its reserved min-height — a line appearing
      unreserved nudges the control the ring is sitting on — so that is what this copies.
 
-   COMBINING: every class here is used ALONE on its own element, except the one modifier
-   .bs-player__bar + .bs-player__bar--hidden. The transport cells wear the existing .bs-btn
+   COMBINING: every class here is used ALONE on its own element, except TWO modifiers, and
+   they are driven by the SAME flag: .bs-player__bar + .bs-player__bar--hidden, and
+   .bs-player__scrim + .bs-player__scrim--hidden. The scrim's one job is to make the BAND
+   legible, so with the band hidden it has no job and a reason to go: native text-track
+   cues paint inside the video element's box, which is the other z-index: -1 layer, so an
+   always-on scrim paints over every cue for the whole film and the auto-hide alone does
+   not rescue them. Both modifiers set OPACITY ONLY, for different reasons — the band's is
+   hazard 4 (blurring the focused control), the scrim's is that a disappearing 480px layer
+   is a repaint where the point was a composited fade. The transport cells wear the existing .bs-btn
    (+ .bs-btn--ghost) unchanged, exactly as home and the detail screens do; no modifier is
    added to .bs-btn from this block. No positional selector: the three track layers are
    three named classes, and the played layer paints over the ready layer by source order,
@@ -953,7 +960,18 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   /* --ink written out as rgba, as .bs-hero__scrim does: a gradient needs the alpha stops
      and there is no colour-mix on this surface. */
   background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.82) 45%, rgba(10, 10, 11, 0) 100%);
+  /* The SAME curve as .bs-player__bar's, deliberately: the two layers move together, and
+     two durations would show the gradient outliving the band it exists for. */
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* Faded, never unmounted and never display:none — see the COMBINING note above. The
+   gradient is ~0.82 alpha at 45% of 480px, so there is no cue position inside the video
+   box that clears it; fading it is the whole fix, and it is the normal state (the band is
+   hidden for almost the entire film). With the band UP, a cue may still sit behind the
+   transport row, which is position: relative at z-index: auto and therefore paints above
+   both -1 layers: that is left unsolved on purpose, with no ::cue rule and no `line:`
+   guess, because no reading from the set has scoped it. */
+.bs-player__scrim--hidden { opacity: 0; }
 .bs-player__bar {
   position: relative;
   padding: var(--safe-y) var(--safe-x);

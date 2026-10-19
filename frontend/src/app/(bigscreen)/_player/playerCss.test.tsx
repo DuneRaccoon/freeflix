@@ -38,6 +38,34 @@ const hasRule = (selector: string): boolean => {
   return new RegExp(`(?:^|[\\n,])\\s*${escaped}\\s*[,{:]`).test(css);
 };
 
+/**
+ * A rule's declarations, whitespace-normalised, so a rule can be pinned to EXACTLY what it
+ * says rather than to what it contains.
+ *
+ * Measured, and the reason this exists: `/opacity:\s*0/` — the obvious matcher, and the one
+ * the `--hidden` rows were written with — is also true of `opacity: 0.01` and of
+ * `opacity: 0.85`. The second is a band (or a scrim) that never actually goes away, which is
+ * the whole defect the rule exists to prevent, invisible to its own test.
+ *
+ * COMMENTS ARE STRIPPED FIRST, and that is measured too rather than defensive: `rule()`
+ * hands back the raw body, this stylesheet comments its declarations inline, and a `/* … *\/`
+ * between two declarations made `decl` below return `null` for a property that was plainly
+ * there (the scrim's own `transition`, found by this row failing).
+ */
+const noComments = (body: string): string => body.replace(/\/\*[\s\S]*?\*\//g, '');
+
+const declarations = (body: string): string[] =>
+  noComments(body)
+    .split(';')
+    .map((d) => d.trim().replace(/\s+/g, ' '))
+    .filter((d) => d !== '');
+
+/** One declaration's value, whitespace-normalised, or `null` when the rule omits it. */
+const decl = (body: string, prop: string): string | null => {
+  const m = noComments(body).match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`));
+  return m === null ? null : m[1].trim().replace(/\s+/g, ' ');
+};
+
 const fp = (): ((row: number, col: number) => FocusProps) => () => ({
   tabIndex: -1,
   ref: () => {},
@@ -82,6 +110,7 @@ describe('bigscreen.css, as the player relies on it', () => {
       '.bs-player',
       '.bs-player__video',
       '.bs-player__scrim',
+      '.bs-player__scrim--hidden',
       '.bs-player__bar',
       '.bs-player__bar--hidden',
       '.bs-player__hint',
@@ -102,7 +131,10 @@ describe('bigscreen.css, as the player relies on it', () => {
     // effect never re-runs — so focus is on <body> permanently, on a surface with no Tab
     // key. `pointer-events: none` while a descendant has focus is banned outright by §8.3.
     const body = rule('.bs-player__bar--hidden');
-    expect.soft(body).toMatch(/opacity:\s*0/);
+    // `(?![.\d])` is not decoration: the bare `/opacity:\s*0/` this row shipped with is also
+    // true of `opacity: 0.85` — a band that stays legible over the picture for the whole
+    // film, which is this rule's own defect, passing its own test. Measured.
+    expect.soft(body).toMatch(/opacity:\s*0(?![.\d])/);
     expect.soft(body).not.toMatch(/display:\s*none/);
     expect.soft(body).not.toMatch(/visibility/);
     expect.soft(body).not.toMatch(/pointer-events/);
@@ -126,6 +158,35 @@ describe('bigscreen.css, as the player relies on it', () => {
     expect.soft(body).toMatch(/height:\s*\d+px/);
     expect.soft(body).not.toMatch(/inset:\s*0/);
     expect.soft(body).not.toMatch(/top:\s*0/);
+  });
+
+  it('the scrim fades with the band: opacity only, on the band’s own curve', () => {
+    // WHY THE SCRIM FADES AT ALL. `.bs-player__video` and `.bs-player__scrim` are both
+    // `z-index: -1` with the scrim later in source order, and native text-track cues paint
+    // inside the video element's box — so the scrim paints over every cue, and at ~0.82
+    // alpha at 45% of its 480px there is no cue position inside that box which clears it.
+    // The scrim's only job is to make the BAND legible; with the band hidden it has no job.
+    //
+    // ONE EXACT-EQUALITY ASSERTION, not the four matchers the `.bs-player__bar--hidden` row
+    // above uses, and the difference is deliberate: it subsumes all three of that row's
+    // `not.toMatch` rules (nothing else is in the rule at all) and it is the only form that
+    // can see `opacity: 0.85`. The band's reason for opacity-only is hazard 4 — blurring
+    // the focused control; the scrim holds no focus, so its reason is narrower and is the
+    // fill rate: a 480px layer that disappears is a repaint where the point was a
+    // composited fade.
+    expect(declarations(rule('.bs-player__scrim--hidden'))).toEqual(['opacity: 0']);
+
+    // ...and the fade itself, which the rule above cannot see: without a transition the
+    // 480px gradient snaps on and off under the band it is fading with.
+    const scrimT = decl(rule('.bs-player__scrim'), 'transition');
+    expect.soft(scrimT, 'the scrim declares a transition').toBe(
+      'opacity 180ms cubic-bezier(0.4, 0, 0.2, 1)',
+    );
+    // THE COUPLING, which the exact pin above cannot see and which is this assertion's own
+    // job: the two layers move TOGETHER, so the band's curve changing underneath is a
+    // gradient outliving the band it exists for. Mutating `.bs-player__bar`'s own
+    // transition reddens this line and nothing else in the suite.
+    expect.soft(scrimT, 'the same curve as the band’s').toBe(decl(rule('.bs-player__bar'), 'transition'));
   });
 
   it('reserves the hint line’s height without the double inset .bs-msg would bring', () => {

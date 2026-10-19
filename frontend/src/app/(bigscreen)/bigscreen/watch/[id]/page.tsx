@@ -987,7 +987,17 @@ function Playing({
         }}
         onError={onError}
       />
-      <div className="bs-player__scrim" aria-hidden="true" />
+      {/* The scrim FADES WITH THE BAND, on the same `visible` flag and never on `playing`.
+          It exists to make the band legible, and native text-track cues paint inside the
+          video element's box — the other `z-index: -1` layer, earlier in source order — so
+          a scrim that stays up paints over every cue for the whole film and the auto-hide
+          does not rescue them. Faded rather than unmounted: the stylesheet does license
+          unmounting it (it holds no focus), but a 480px layer appearing and disappearing is
+          a repaint where the point was a composited fade. */}
+      <div
+        className={visible ? 'bs-player__scrim' : 'bs-player__scrim bs-player__scrim--hidden'}
+        aria-hidden="true"
+      />
       {/* The band FADES; it is never unmounted and its counts never change. Its child order
           is written into the stylesheet's own block: the stream's hint, then the scrub cell
           (which brings its own hint and its row), then the transport row. The hint is

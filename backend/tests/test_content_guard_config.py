@@ -21,6 +21,16 @@ def test_fake_heuristics_off_by_default():
 
 
 def test_extensions_are_lowercased_with_dot():
+    # The single casing witness for every extension set in Settings, including
+    # stage 9's two subtitle sets: each is compared against an already-lowercased
+    # suffix, so one capital letter here makes an extension unmatchable with no
+    # error anywhere.
     s = Settings()
-    for ext in s.blocked_extensions | s.video_extensions:
+    sets = (
+        s.blocked_extensions
+        | s.video_extensions
+        | s.subtitle_extensions
+        | s.subtitle_convertible_extensions
+    )
+    for ext in sets:
         assert ext.startswith(".") and ext == ext.lower()

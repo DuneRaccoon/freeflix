@@ -15,7 +15,16 @@ Why ``pair_source`` is asserted everywhere rather than only the index: for
 ``Pack/Pack.S01E03.en.srt`` the stem rung and the parse rung AGREE on the answer, so
 deleting the stem rung changes no index and is invisible to an index-only assertion.
 The exposed rung is the only instrument that separates a correct answer from a
-correct-by-accident one.
+correct-by-accident one. The same holds for ``near``, added in the proximity round: the
+reviewer's two fixtures answer the RIGHT file under it, and the only thing that
+separates that from the pre-fix module's right-file-by-luck is which source is reported.
+
+THE AMBIGUITY RULE these rows pin, in one sentence, because it has been re-decided
+twice: rungs 1 and 2 break several claimants by DIRECTORY PROXIMITY and take the answer
+only when the deepest-shared claimant is unique; a tie proximity cannot break declines
+and falls through, as does every rung-3 ambiguity. Each half has its own fixture, each
+fixture says which half, and ``test_the_answer_does_not_depend_on_the_order_of_the_video_files``
+covers every one of them in both file orders.
 """
 import pytest
 
@@ -214,20 +223,28 @@ def test_every_pair_source_renders_a_distinct_sentence():
 
     `stem` and `single` share the plain label BY DECISION: in both cases the names say
     it outright, so there is nothing inferred to confess. The equality is asserted
-    rather than left implicit, so flipping it is a deliberate edit. The other three are
+    rather than left implicit, so flipping it is a deliberate edit. The other four are
     pairwise distinct, and a collapse is what this row exists to catch — "matched by
-    folder", "matched by episode number" and "unmatched" are three different things to
-    be told while deciding whether to trust what is on screen.
+    folder", "nearest of several matches", "matched by episode number" and "unmatched"
+    are four different things to be told while deciding whether to trust what is on
+    screen.
+
+    `near` is the one added in the proximity round, and it is a SEPARATE source rather
+    than a reuse of `stem`/`dir` for exactly this reason: "its name matched one video"
+    and "its name matched several and I took the closest" are different confidences,
+    and a viewer looking at the wrong episode's subtitles needs to be able to tell
+    which happened.
     """
     labels = {source: track_label("English", source) for source in PAIR_SOURCES}
 
     assert labels["stem"] == "English"
     assert labels["single"] == "English"
 
-    confessing = [labels["dir"], labels["parse"], labels["none"]]
+    confessing = [labels["dir"], labels["near"], labels["parse"], labels["none"]]
     assert labels["dir"] == "English (matched by folder)"
+    assert labels["near"] == "English (nearest of several matches)"
     assert labels["parse"] == "English (matched by episode number)"
-    assert len(set(confessing + [labels["stem"]])) == 4
+    assert len(set(confessing + [labels["stem"]])) == 5
     assert all(label.startswith("English") for label in labels.values())
 
 
@@ -240,10 +257,10 @@ def test_the_label_suffix_table_covers_every_pair_source():
         assert rendered.startswith("Unknown")
 
 
-# ----------------------------------------- ambiguity: rungs 1, 2 and 3 all refuse
+# -------------------- ambiguity: rungs 1 and 2 break it by proximity, or else refuse
 
 # REVIEW FINDING (task 4, finding 1) and the fixtures are the reviewer's own, measured
-# against the shipped module in a one-off container before the fix:
+# against the shipped module in a one-off container before the first fix:
 #
 #   pair(AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS)           -> (0, "stem")
 #   pair(AMBIGUOUS_DIR_SIDECAR,  AMBIGUOUS_SEASON_VIDEOS)           -> (0, "dir")
@@ -255,13 +272,24 @@ def test_the_label_suffix_table_covers_every_pair_source():
 # — a confident wrong pairing with no error anywhere — was produced by the two rungs
 # that run before the one that guards against it.
 #
+# `f049a5f` made both rungs collect every claimant and refuse unless exactly one, which
+# turned these two fixtures into `(None, "none")`. THE SECOND ROUND re-decided that, and
+# these are the rows that say so: both rungs compared basename stems only and ignored
+# where the sidecar SITS, and the shared-directory depths here are
+#
+#   {0: 1, 1: 2}   for BOTH sidecars  — measured in a one-off container
+#
+# so Season 1's file is derivable, uniquely and in either file order. Refusing yielded
+# NO subtitle for every sidecar in the layout D20 cites to justify rung 2 existing.
+#
 # HAND-AUTHORED like every fixture in this file, and the shape is D20's own: a
-# multi-season "Complete" pack with per-season folders and BARE episode basenames is
-# the layout D20 cites to justify rung 2 existing at all. What makes it ambiguous is
-# that both videos' basename stems are the same string, `E01`, and what makes it
-# unrecoverable is that the season lives only in a segment `parse_episode` cannot read
-# — measured, `parse_episode("Season 1/E01.en.srt")` is None, because `_SXXEYY` wants
-# `S<digits>` adjacent to `E<digits>` and the `/` breaks it.
+# multi-season "Complete" pack with per-season folders and BARE episode basenames. What
+# makes it ambiguous is that both videos' basename stems are the same string, `E01`, and
+# what makes PROXIMITY the only thing that can break it is that the season lives only in
+# a segment `parse_episode` cannot read — measured, `parse_episode("Season 1/E01.en.srt")`
+# is None, because `_SXXEYY` wants `S<digits>` adjacent to `E<digits>` and the `/`
+# breaks it, so rung 3 cannot resolve these and `near` is not a shortcut past a rung
+# that would have done better.
 AMBIGUOUS_SEASON_VIDEOS = [
     {"index": 0, "rel_path": "Show.Complete/Season 2/E01.mkv", "size": 900_000_000},
     {"index": 1, "rel_path": "Show.Complete/Season 1/E01.mkv", "size": 900_000_000},
@@ -270,28 +298,98 @@ AMBIGUOUS_STEM_SIDECAR = "Show.Complete/Season 1/E01.en.srt"
 AMBIGUOUS_DIR_SIDECAR = "Show.Complete/Season 1/Subs/E01/2_English.srt"
 
 
-def test_the_stem_rung_refuses_an_ambiguous_match():
-    """Two videos whose stems both equal the sidecar's: rung 1 declines.
+def test_the_stem_rung_breaks_an_ambiguous_match_by_directory_proximity():
+    """The reviewer's stem case, answering the RIGHT season's file.
 
-    The whole tuple is asserted, not just `source != "stem"`. The index is half the
-    claim — `(0, "parse")` would be the same wrong season's file under a more honest
-    name — and for this layout no later rung can read a `Season 1` folder, so `none` is
-    the only answer that is not a coin flip.
+    The whole tuple is asserted. The index is half the claim and the source is the
+    other half: `(1, "stem")` would be the right file wearing a confidence the module
+    did not earn, which is what this stage's whole `pair_source` graft exists to make
+    impossible, and it is the one thing that reddens when a proximity resolution is
+    reported as the rung that was ambiguous.
     """
-    index, source = pair(AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS)
-    assert source != "stem"
+    assert pair(AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS) == (1, "near")
+
+
+def test_the_directory_rung_breaks_an_ambiguous_match_by_directory_proximity():
+    """The reviewer's dir case. Pinned separately from the row above because the two
+    rungs are separate loops with separate tiebreak calls: reverting either one alone
+    leaves the other row green — measured, both ways, in the mutation round."""
+    assert pair(AMBIGUOUS_DIR_SIDECAR, AMBIGUOUS_SEASON_VIDEOS) == (1, "near")
+
+
+def test_a_proximity_resolved_pair_confesses_it_in_its_label():
+    """End to end, from the paths to the sentence on the television.
+
+    The two rows above pin what `pair()` returns; this one pins that the returned
+    source reaches the picker row as a DIFFERENT sentence from a unique match. Reporting
+    a proximity resolution as `stem`/`dir` renders the plain "English" — a row with
+    nothing to confess about a pairing that was chosen out of two candidates — and that
+    is the mutation this row exists to catch. The table-coverage row above catches the
+    other half (a new source with no suffix entry raises `KeyError` on the television,
+    in the one code path with no console).
+    """
+    _index, source = pair(AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS)
+    assert track_label("English", source) == "English (nearest of several matches)"
+    assert track_label("English", source) != track_label("English", "stem")
+
+    _index, source = pair(AMBIGUOUS_DIR_SIDECAR, AMBIGUOUS_SEASON_VIDEOS)
+    assert track_label("English", source) == "English (nearest of several matches)"
+    assert track_label("English", source) != track_label("English", "dir")
+
+
+# THE TIE. The same two-seasons-one-basename ambiguity, with the sidecar moved to a
+# top-level `Subs/` folder so it is EQUIDISTANT from both season folders: the shared
+# depths are {0: 1, 1: 1}, the greatest is shared, and proximity has nothing to say.
+# This is the half of the decision that did not change — an ambiguity the paths cannot
+# break still declines and falls through, and for this layout no later rung can read a
+# `Season 1` folder either, so `none` is the only answer that is not a coin flip.
+#
+# HAND-AUTHORED. A flat `Subs/` tree at the root of a multi-season pack is the same
+# convention as `DIR_FIXTURE_SIDECAR` above, one level higher.
+TIE_SEASON_VIDEOS = [
+    {"index": 0, "rel_path": "Show.Complete/Season 1/E01.mkv", "size": 900_000_000},
+    {"index": 1, "rel_path": "Show.Complete/Season 2/E01.mkv", "size": 900_000_000},
+]
+TIE_STEM_SIDECAR = "Show.Complete/Subs/E01.en.srt"
+TIE_DIR_SIDECAR = "Show.Complete/Subs/E01/2_English.srt"
+
+
+def test_the_stem_rung_refuses_an_ambiguity_proximity_cannot_break():
+    index, source = pair(TIE_STEM_SIDECAR, TIE_SEASON_VIDEOS)
+    assert source not in ("stem", "near")
     assert (index, source) == (None, "none")
 
 
-def test_the_directory_rung_refuses_an_ambiguous_match():
-    """The same two videos, reached through the folder instead of the basename.
-
-    Pinned separately from the row above because the two rungs are separate loops with
-    separate guards: reverting either one alone leaves the other row green.
-    """
-    index, source = pair(AMBIGUOUS_DIR_SIDECAR, AMBIGUOUS_SEASON_VIDEOS)
-    assert source != "dir"
+def test_the_directory_rung_refuses_an_ambiguity_proximity_cannot_break():
+    """Separate loop, separate tiebreak call, separate row — same reason as above."""
+    index, source = pair(TIE_DIR_SIDECAR, TIE_SEASON_VIDEOS)
+    assert source not in ("dir", "near")
     assert (index, source) == (None, "none")
+
+
+# THE MAXIMUM TIED AMONG THREE, which is a different arithmetic from the two-way tie
+# and the reason `_nearest_claimant` computes the maximal SET rather than asking whether
+# all the depths agree. Depths here are {0: 1, 1: 2, 2: 2}: not all equal, so an
+# implementation that declines only on "every claimant is equidistant" resolves this one
+# and returns a claimant chosen out of two equally near ones. Measured: that mutation
+# reddens this row and NOTHING else in this file or `test_subtitle_language.py`, so this
+# is its only instrument.
+#
+# HAND-AUTHORED and DELIBERATELY SYNTHETIC: its job is the arithmetic, not realism. Two
+# videos cannot tie at the deepest shared segment while sitting in the same folder (they
+# would need the same basename), so the third claimant has to be nested deeper, and
+# `Season 1/Extras/E01.mkv` is the least implausible way to write that.
+NESTED_TIE_VIDEOS = [
+    {"index": 0, "rel_path": "Show.Complete/Season 2/E01.mkv", "size": 900_000_000},
+    {"index": 1, "rel_path": "Show.Complete/Season 1/E01.mkv", "size": 900_000_000},
+    {"index": 2, "rel_path": "Show.Complete/Season 1/Extras/E01.mkv", "size": 90_000_000},
+]
+
+
+def test_a_maximum_tied_between_two_of_three_claimants_still_refuses():
+    assert pair(AMBIGUOUS_STEM_SIDECAR, NESTED_TIE_VIDEOS) == (None, "none")
+    assert pair(AMBIGUOUS_STEM_SIDECAR,
+                list(reversed(NESTED_TIE_VIDEOS))) == (None, "none")
 
 
 # The FALL-THROUGH, which is the other half of the decision: a rung that refuses
@@ -299,8 +397,8 @@ def test_the_directory_rung_refuses_an_ambiguous_match():
 # the same sidecar uniquely and correctly. Same two-videos-one-basename ambiguity as
 # above, but here the per-episode folders DO parse (`Pack.S01E01` / `Pack.S02E01`), so
 # rung 3 can tell the two apart where rungs 1 and 2 cannot. Measured, both of these
-# answered `(0, "stem")` / `(0, "dir")` before the fix — the right file by luck under
-# the wrong rung, and the wrong file when the list was reversed.
+# answered `(0, "stem")` / `(0, "dir")` before the first fix — the right file by luck
+# under the wrong rung, and the wrong file when the list was reversed.
 FALLTHROUGH_VIDEOS = [
     {"index": 0, "rel_path": "Show/Pack.S01E01/E01.mkv", "size": 800_000_000},
     {"index": 1, "rel_path": "Show/Pack.S02E01/E01.mkv", "size": 800_000_000},
@@ -308,41 +406,91 @@ FALLTHROUGH_VIDEOS = [
 FALLTHROUGH_STEM_SIDECAR = "Show/Pack.S01E01/E01.en.srt"
 FALLTHROUGH_DIR_SIDECAR = "Show/Pack.S01E01/E01/3_English.srt"
 
+# The same two videos, with the sidecars moved into a top-level `Subs/` tree so that
+# both per-episode folders are EQUIDISTANT from them (depths {0: 1, 1: 1}). These are
+# NEW paths: the two above now resolve by proximity at rung 1/2 (which is what
+# `test_proximity_pre_empts_the_parse_rung_where_both_could_resolve` records), so
+# falling through needs an ambiguity proximity cannot break. What this pair pins is
+# unchanged — proximity ties, the rung declines, and rung 3, which reads `Pack.S01E01`
+# below the torrent root, resolves the same sidecar correctly. Make a declining rung
+# return `(None, "none")` on the spot and these two go `none`.
+TIE_FALLTHROUGH_STEM_SIDECAR = "Show/Subs/Pack.S01E01/E01.en.srt"
+TIE_FALLTHROUGH_DIR_SIDECAR = "Show/Subs/Pack.S01E01/E01/3_English.srt"
+
 
 def test_an_ambiguous_stem_falls_through_to_a_rung_that_can_resolve_it():
-    """Rung 1 declines, rung 2's folder (`Pack.S01E01`) matches no video stem, and
-    rung 3 resolves it — so the answer is right AND says which rung earned it. This is
-    the row that pins falling through: making rung 1 return `(None, "none")` on
-    ambiguity instead of continuing turns this into `none`."""
-    assert pair(FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "parse")
+    """Rung 1 ties and declines, rung 2's folder (`Pack.S01E01`) matches no video stem,
+    and rung 3 resolves it — so the answer is right AND says which rung earned it."""
+    assert pair(TIE_FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "parse")
 
 
 def test_an_ambiguous_directory_falls_through_to_a_rung_that_can_resolve_it():
     """The same for rung 2: the sidecar's folder is the bare `E01`, which both videos
-    claim, and the episode below the torrent root resolves it to exactly one."""
-    assert pair(FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "parse")
+    claim and neither is nearer, and the episode below the torrent root resolves it to
+    exactly one."""
+    assert pair(TIE_FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "parse")
+
+
+def test_proximity_pre_empts_the_parse_rung_where_both_could_resolve():
+    """WHAT THIS DECISION COSTS, pinned rather than left to be discovered.
+
+    These are the two fixtures the fall-through rows used before the tiebreak existed.
+    Rung 1 (and rung 2) now resolve them by proximity, so rung 3 — which would have
+    reached the SAME index by checking the episode number below the torrent root, and
+    reported the stronger `parse` — never runs. The index is unchanged and right; the
+    reported provenance is weaker than the one available.
+
+    That is the conservative direction (the row under-claims rather than over-claims),
+    and in every shape where both can resolve they agree, because a rung-1 ambiguity
+    means the video basenames are bare and identical and the episode therefore lives in
+    the same folder proximity measures. The alternative — carry the proximity candidate
+    forward and use it only if rung 3 finds nothing — keeps the stronger label and was
+    NOT taken, because it moves a rung's answer outside the rung. Recorded as this
+    decision's cost in the plan (D20 and C5's finding 1), and this row is where a future
+    reversal has to come and edit.
+    """
+    assert pair(FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "near")
+    assert pair(FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS) == (0, "near")
 
 
 def test_the_answer_does_not_depend_on_the_order_of_the_video_files():
     """THE ROW WITH TEETH. `video_files` arrives in the torrent's own file-index order,
     which is a property of how the release was packed and not of what it contains, so
-    an answer that depends on it is a coin flip wearing a rung's name. Before the fix,
-    every pair below answered index 0 forward and index 1 reversed.
+    an answer that depends on it is a coin flip wearing a rung's name. Before the first
+    fix, the first two pairs below answered index 0 forward and index 1 reversed.
 
     Equality of the two answers is the whole assertion on purpose: it holds whether the
-    honest answer is `none` (the first two pairs) or a resolved file (the last two), and
-    it reddens under the first-match revert in both shapes.
+    honest answer is `none` (the tie pairs), a proximity resolution or a `parse`, and it
+    reddens both under the first-match revert and under a tiebreak written as
+    `max(claimants, key=depth)` — which returns the first maximal element and so flips
+    with the list whenever the greatest depth is shared.
     """
     cases = [
         (AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS),
         (AMBIGUOUS_DIR_SIDECAR, AMBIGUOUS_SEASON_VIDEOS),
+        (TIE_STEM_SIDECAR, TIE_SEASON_VIDEOS),
+        (TIE_DIR_SIDECAR, TIE_SEASON_VIDEOS),
+        (AMBIGUOUS_STEM_SIDECAR, NESTED_TIE_VIDEOS),
         (FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS),
         (FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS),
+        (TIE_FALLTHROUGH_STEM_SIDECAR, FALLTHROUGH_VIDEOS),
+        (TIE_FALLTHROUGH_DIR_SIDECAR, FALLTHROUGH_VIDEOS),
     ]
     for sidecar, videos in cases:
         forward = pair(sidecar, videos)
         backward = pair(sidecar, list(reversed(videos)))
         assert forward == backward, f"{sidecar} answered {forward} / {backward}"
+
+
+def test_proximity_breaks_the_tie_identically_in_either_file_order():
+    """Equality alone would be green if BOTH orders answered `none`, which is exactly
+    what the pre-tiebreak module did — so the reviewer's two cases get their value
+    asserted in both directions. Index 1 is Season 1's file, forward and reversed."""
+    for sidecar in (AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_DIR_SIDECAR):
+        forward = pair(sidecar, AMBIGUOUS_SEASON_VIDEOS)
+        backward = pair(sidecar, list(reversed(AMBIGUOUS_SEASON_VIDEOS)))
+        assert forward == (1, "near"), f"{sidecar} forward answered {forward}"
+        assert backward == (1, "near"), f"{sidecar} reversed answered {backward}"
 
 
 # Rung 3's own refusal — D20 specified it, and review measured that NOTHING pinned it:
@@ -362,6 +510,31 @@ DUAL_ENCODE_VIDEOS = [
 
 def test_the_parse_rung_refuses_two_videos_claiming_one_episode():
     assert pair("Pack/Subs/S01E03/3_English.srt", DUAL_ENCODE_VIDEOS) == (None, "none")
+
+
+# RUNG 3 DOES NOT GET THE TIEBREAK, and without this fixture that scope is invisible:
+# measured, extending `_nearest_claimant` to rung 3 left every other row in this file
+# green, including the row above (its two claimants sit in the same folder, so they are
+# equidistant from the sidecar and proximity ties anyway).
+#
+# HAND-AUTHORED: a dual-quality pack with per-quality folders, which is a real release
+# shape, and the only way two videos can agree on one parsed episode while sitting at
+# DIFFERENT depths from the sidecar. Both files parse to (1, 3) below the root `Show`,
+# the sidecar's own path parses to (1, 3), and the shared-directory depths are
+# {0: 2, 1: 1} — so a tiebreak at rung 3 would resolve this to index 0 and report
+# `near`. The decision is that it does not: rungs 1 and 2 break a tie between claimants
+# that each matched a NAME exactly, while rung 3's claimants agree on a number the parse
+# has already shown it cannot tell apart, and proximity there is a second guess stacked
+# on a first.
+PARSE_TIE_VIDEOS = [
+    {"index": 0, "rel_path": "Show/1080p/Pack.S01E03.mkv", "size": 2_000_000_000},
+    {"index": 1, "rel_path": "Show/720p/Pack.S01E03.mkv", "size": 900_000_000},
+]
+
+
+def test_the_parse_rung_does_not_use_the_proximity_tiebreak():
+    assert pair("Show/1080p/Subs/S01E03/3_English.srt",
+                PARSE_TIE_VIDEOS) == (None, "none")
 
 
 class _LogRecorder:
@@ -385,6 +558,10 @@ def test_a_rung_that_declines_on_ambiguity_says_so_at_info(monkeypatch):
     The count of claimants is asserted, not just the fact of a line, because "nothing
     matched" and "two videos matched" are different facts about the same `none` and only
     the second one says the parse is not discriminating.
+
+    The `tied` clause is asserted BOTH ways: rungs 1 and 2 reach a decline only after
+    proximity failed to separate the claimants, rung 3 declines without trying it, and
+    one sentence for both tells an operator that proximity was tried where it was not.
     """
     recorder = _LogRecorder()
     monkeypatch.setattr(naming, "logger", recorder)
@@ -393,20 +570,52 @@ def test_a_rung_that_declines_on_ambiguity_says_so_at_info(monkeypatch):
     assert pair("Pack/Pack.S01E03.en.srt", ORDER_VIDEOS) == (0, "stem")
     assert recorder.info_lines == []
 
-    assert pair(AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS) == (None, "none")
+    assert pair(TIE_STEM_SIDECAR, TIE_SEASON_VIDEOS) == (None, "none")
     assert len(recorder.info_lines) == 1
     line = recorder.info_lines[0]
     assert "'stem'" in line
-    assert AMBIGUOUS_STEM_SIDECAR in line
+    assert TIE_STEM_SIDECAR in line
     assert "2 videos claim it" in line
     assert "[0, 1]" in line
+    assert "proximity is tied" in line
 
     recorder.info_lines.clear()
-    assert pair(AMBIGUOUS_DIR_SIDECAR, AMBIGUOUS_SEASON_VIDEOS) == (None, "none")
+    assert pair(TIE_DIR_SIDECAR, TIE_SEASON_VIDEOS) == (None, "none")
     assert len(recorder.info_lines) == 1
     assert "'dir'" in recorder.info_lines[0]
+    assert "proximity is tied" in recorder.info_lines[0]
 
     recorder.info_lines.clear()
     assert pair("Pack/Subs/S01E03/3_English.srt", DUAL_ENCODE_VIDEOS) == (None, "none")
     assert len(recorder.info_lines) == 1
     assert "'parse'" in recorder.info_lines[0]
+    assert "proximity" not in recorder.info_lines[0]
+
+
+def test_a_rung_that_breaks_a_tie_by_proximity_says_so_at_info(monkeypatch):
+    """A proximity resolution is a GUESS that answers, and `pair()`'s return value says
+    only `near` — not which rung guessed, not which claimants lost, not by how much. The
+    operator's only trace is this line, so it carries all three.
+
+    Asserted rather than described because the whole mechanism is one INFO call in an
+    otherwise pure module: deleting it changes no answer anywhere, and nothing else in
+    this file would notice.
+    """
+    recorder = _LogRecorder()
+    monkeypatch.setattr(naming, "logger", recorder)
+
+    assert pair(AMBIGUOUS_STEM_SIDECAR, AMBIGUOUS_SEASON_VIDEOS) == (1, "near")
+    assert len(recorder.info_lines) == 1
+    line = recorder.info_lines[0]
+    assert "'stem'" in line
+    assert AMBIGUOUS_STEM_SIDECAR in line
+    assert "2 videos claimed it" in line
+    assert "[0, 1]" in line
+    assert "index 1 shares 2 leading path segment(s)" in line
+    assert "'near'" in line
+
+    recorder.info_lines.clear()
+    assert pair(AMBIGUOUS_DIR_SIDECAR, AMBIGUOUS_SEASON_VIDEOS) == (1, "near")
+    assert len(recorder.info_lines) == 1
+    assert "'dir'" in recorder.info_lines[0]
+    assert "index 1 shares 2 leading path segment(s)" in recorder.info_lines[0]

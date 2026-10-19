@@ -3,10 +3,13 @@
 No libtorrent session, no DB, no persistence, no `settings` read. Every RETURN VALUE
 here is a function of the strings it is handed, which is why it is the one part of
 stage 9 that can be tested exhaustively. ONE exception, added in review and named
-rather than hidden: a pairing rung that refuses an ambiguous match writes a line at
-INFO (`_decline`). That is a write to the log and nothing else — it changes no answer —
-and it is here because a silent fall-through is exactly how `pair()` shipped with two
-rungs that returned on the first of several matches.
+rather than hidden: a pairing rung that meets an ambiguous claim writes a line at
+INFO — either `_decline` (it refused and fell through) or `_nearest_claimant` (it
+broke the ambiguity by directory proximity). Those are writes to the log and nothing
+else — they change no answer — and they are here because a silent fall-through is
+exactly how `pair()` shipped with two rungs that returned on the first of several
+matches, and because a pairing reached by proximity is a guess an operator should be
+able to find after the fact.
 
 Two mechanisms, both from the stage 9 plan:
 
@@ -40,20 +43,35 @@ from app.providers.episodes import parse_episode
 # D21: tokens split on this and nothing else. Exact token match, never a substring.
 _TOKEN_SPLIT = re.compile(r"[._\-\s]+")
 
-# The five rungs of D20, in the order `pair()` tries them. `none` is the honest
-# bottom: an unpairable sidecar is still LISTED (the picker shows it), it simply
+# The five rungs of D20, in the order `pair()` tries them, PLUS `near`. `none` is the
+# honest bottom: an unpairable sidecar is still LISTED (the picker shows it), it simply
 # carries no episode and says so.
-PAIR_SOURCES = ("stem", "dir", "parse", "single", "none")
+#
+# `near` is NOT a sixth rung. It is how rungs 1 and 2 resolve an ambiguous claim — the
+# claimant whose directory sits closest to the sidecar's, taken only when that claimant
+# is unique — and it is listed immediately after the two rungs that can return it. It
+# is a separate source rather than `stem`/`dir` because the suffix table exists so the
+# television can confess how an episode was identified, and "its name matched exactly
+# one video" and "its name matched several and I took the closest" are different
+# confidences. A viewer looking at the wrong episode's subtitles needs to be able to
+# tell which of those happened.
+PAIR_SOURCES = ("stem", "dir", "near", "parse", "single", "none")
 
 # Rendered on the picker row (D20). `stem` and `single` deliberately share the plain
 # label: in both cases the filename or the torrent's shape names the video outright,
-# so there is nothing inferred to confess. `dir`, `parse` and `none` each get their own
-# words, because collapsing any two of them would make the television say the same
-# sentence about two different degrees of confidence.
+# so there is nothing inferred to confess. `dir`, `near`, `parse` and `none` each get
+# their own words, because collapsing any two of them would make the television say the
+# same sentence about two different degrees of confidence.
+#
+# `near` is the weakest of the four that confess, and its words say the thing that
+# makes it weak: SEVERAL videos claimed this sidecar and one of them was closer. D20's
+# cell sub-line appends `· guessed` for `dir` and `parse`; `near` joins them (tasks
+# 10-16 are not built, so no renderer has to be changed for that yet).
 _PAIR_SOURCE_SUFFIX = {
     "stem": "",
     "single": "",
     "dir": " (matched by folder)",
+    "near": " (nearest of several matches)",
     "parse": " (matched by episode number)",
     "none": " (unmatched)",
 }
@@ -287,7 +305,8 @@ def _below_root(rel_path: str, root: Optional[str]) -> str:
 
 # ------------------------------------------------------------------------ pairing
 
-def _decline(rung: str, sub_rel: str, claimants: Sequence[int]) -> None:
+def _decline(rung: str, sub_rel: str, claimants: Sequence[int],
+             tied: bool = False) -> None:
     """Say, at INFO, that a rung refused an ambiguous match and fell through.
 
     The count is the point. "Nothing matched" and "three videos matched" are different
@@ -295,12 +314,93 @@ def _decline(rung: str, sub_rel: str, claimants: Sequence[int]) -> None:
     discriminating. The rung and the sidecar are named because this line is the only
     trace a refusal leaves — `pair()`'s return value cannot distinguish a rung that
     declined from a rung that never fired.
+
+    `tied` says WHICH refusal this is. Rungs 1 and 2 reach a decline only after the
+    proximity tiebreak failed to separate the claimants, and rung 3 declines without
+    trying it at all; writing the same sentence for both would tell an operator that
+    proximity was tried where it was not.
     """
     logger.info(
         f"sidecar pairing: rung {rung!r} declined {sub_rel!r} — "
-        f"{len(claimants)} videos claim it (indices {sorted(claimants)}); "
-        f"falling through to the next rung"
+        f"{len(claimants)} videos claim it (indices {sorted(claimants)})"
+        + (" and directory proximity is tied between them" if tied else "")
+        + "; falling through to the next rung"
     )
+
+
+def _dir_segments(rel_path: str) -> Tuple[str, ...]:
+    """The DIRECTORY segments of a torrent-relative path: its parts, basename dropped.
+
+    The basename is dropped rather than kept because the thing being compared is WHERE
+    two files sit, and a sidecar's basename can never equal a video's (the extensions
+    differ), so keeping it would contribute a guaranteed mismatch at the end of every
+    comparison. For the realistic layouts in `test_subtitle_pairing.py` the two
+    scorings answer identically — see `_nearest_claimant`'s note on that mutation.
+    """
+    return _parts(rel_path)[:-1]
+
+
+def _shared_depth(a: Sequence[str], b: Sequence[str]) -> int:
+    """How many LEADING segments `a` and `b` have in common.
+
+    Leading, and stopping at the first difference: `Season 1` and `Season 2` under one
+    root share exactly one segment, which is the whole arithmetic the tiebreak rests
+    on. A set intersection or a suffix comparison would score some of these layouts
+    the same way and is not what "proximity" means here.
+    """
+    depth = 0
+    for left, right in zip(a, b):
+        if left != right:
+            break
+        depth += 1
+    return depth
+
+
+def _nearest_claimant(rung: str, sub_rel: str, claimants: Sequence[int],
+                      rel_by_index: Mapping[int, str]) -> Optional[int]:
+    """The ONE claimant sitting closest to the sidecar, or None when two tie for it.
+
+    Each claimant is scored by `_shared_depth` between its directory and the sidecar's.
+    The answer is the claimant whose score is strictly the greatest; when the greatest
+    score is shared by two or more claimants, this returns None and the caller declines
+    exactly as it did before the tiebreak existed.
+
+    ORDER-INDEPENDENT BY CONSTRUCTION, and that is the point of the shape rather than a
+    nicety. `max(claimants, key=...)` returns the FIRST maximal element, which is the
+    order-dependence this whole mechanism was added to remove: `video_files` arrives in
+    the torrent's own file-index order, a property of how the release was packed and
+    not of what it contains. So the MAXIMAL SET is computed and its size checked.
+    `max()` appears here only over the depth VALUES, where the answer is a number and
+    cannot depend on iteration order. Pinned by
+    `test_proximity_breaks_the_tie_identically_in_either_file_order`, not by this
+    paragraph.
+
+    ONE MUTATION IS ANNOTATED RATHER THAN TESTED, in the shape of X2 (`_torrent_root`):
+    scoring the shared prefix of the FULL paths, basenames included, instead of the
+    directories. Measured — it answers identically on every fixture in
+    `test_subtitle_pairing.py`, and that is not a gap in the fixtures. The two scorings
+    can only differ when one path's directory list runs out and the sidecar's whole
+    BASENAME equals the other path's next directory segment, i.e. when a release ships
+    a folder named exactly `E01.en.srt`. No realistic layout produces that, so it is
+    named here rather than claimed as tested.
+    """
+    sub_dir = _dir_segments(sub_rel)
+    depths = {
+        index: _shared_depth(sub_dir, _dir_segments(rel_by_index[index]))
+        for index in claimants
+    }
+    deepest = max(depths.values())
+    nearest = sorted(index for index, depth in depths.items() if depth == deepest)
+    if len(nearest) != 1:
+        return None
+    logger.info(
+        f"sidecar pairing: rung {rung!r} broke an ambiguous claim on {sub_rel!r} by "
+        f"directory proximity — {len(claimants)} videos claimed it "
+        f"(indices {sorted(claimants)}); index {nearest[0]} shares {deepest} leading "
+        f"path segment(s) with it and no other claimant shares as many; reported as "
+        f"'near', not as {rung!r}"
+    )
+    return nearest[0]
 
 
 def pair(rel_path: str,
@@ -312,22 +412,44 @@ def pair(rel_path: str,
     `rel_path` (see `_entry_rel_path`). Returns `(video_index | None, pair_source)`
     with `pair_source` one of `PAIR_SOURCES`.
 
-    **Rungs 1, 2 and 3 all REFUSE an ambiguous match.** A rung takes an answer only
-    when exactly ONE video claims the sidecar; when two or more do, it logs at INFO
-    (`_decline`) and falls through to the next rung, which may still resolve the same
-    sidecar uniquely. Rungs 4 and 5 cannot be ambiguous: rung 4 is only reached when
-    the torrent has exactly one video, and rung 5 claims nothing.
+    **No rung ever guesses between equals.** A rung takes an answer when exactly ONE
+    video claims the sidecar. When two or more do:
 
-    This RE-DECIDES D20's rung contract, which specified the refusal for rung 3 only.
-    Review measured what rungs 1 and 2 did instead — see the comment on rung 1 — and
-    the rule is that a rung which can be wrong must not outrank the rung that checks.
+    * **rungs 1 and 2 try DIRECTORY PROXIMITY** — each claimant is scored by how many
+      leading path segments its directory shares with the sidecar's, and the claimant
+      whose score is strictly the greatest wins, reported as **`near`** rather than as
+      `stem`/`dir` so the television can say it picked the closest of several rather
+      than the only one. The scoring is a pure function of the two paths and therefore
+      ORDER-INDEPENDENT — `_nearest_claimant` computes the maximal SET and checks its
+      size, because `max()` over a list silently returns the first maximal element,
+      which is exactly the order-dependence this mechanism removes.
+    * **an UNBREAKABLE TIE still declines.** When the greatest score is shared by two
+      or more claimants, the rung logs at INFO (`_decline`) and falls through to the
+      next rung, which may still resolve the same sidecar uniquely.
+    * **rung 3 does not use the tiebreak at all** and refuses outright. Two videos
+      agreeing on one episode means the parse is not discriminating, and proximity
+      there would be a second guess stacked on a first. Pinned by
+      `test_the_parse_rung_does_not_use_the_proximity_tiebreak`, so extending it is a
+      deliberate edit.
+
+    Rungs 4 and 5 cannot be ambiguous: rung 4 is only reached when the torrent has
+    exactly one video, and rung 5 claims nothing.
+
+    This RE-DECIDES D20's rung contract TWICE, in two review rounds. D20 specified the
+    refusal for rung 3 only; the first round measured what rungs 1 and 2 did instead
+    (see the comment on rung 1) and made them refuse; the second round measured that
+    refusing is not the best available answer when the paths themselves say which video
+    is meant, and added the tiebreak. The rule is that a rung which can be wrong must
+    not outrank the rung that checks, and that silence is better than a wrong answer
+    but worse than a right one.
 
     The five rungs, in order (D20):
 
     1. `stem` — the sidecar's basename stem, with tag tokens peeled, equals a video's
-       basename stem. Refused when more than one video's stem matches.
+       basename stem. Several matches are broken by proximity (`near`), and refused
+       when proximity ties.
     2. `dir`  — the sidecar's nearest ancestor directory NAME equals a video's
-       basename stem. Refused when more than one video's stem matches. Cannot use
+       basename stem. Same tiebreak, same refusal. Cannot use
        `parse_episode`: measured,
        `parse_episode("Subs/E01.srt")` is None, because `_SXXEYY` is
        `[Ss](\\d{1,2})[\\s._-]?[Ee](\\d{1,3})` and a bare `E01` matches neither it nor
@@ -335,14 +457,15 @@ def pair(rel_path: str,
        `PurePosixPath("Pack.S01E05").stem` is `"Pack.S01"` — a season-episode suffix
        looks exactly like a file extension.
     3. `parse` — `parse_episode` over the segments BELOW the torrent root, required to
-       agree with the paired video's own parse, and refused when more than one video
-       agrees.
+       agree with the paired video's own parse, and refused outright when more than one
+       video agrees.
     4. `single` — a one-video torrent. There is nothing else it could belong to.
     5. `none`  — unpaired. Still listed, with no episode claimed.
     """
     videos = [(int(v["index"]), _entry_rel_path(v)) for v in video_files]
     if not videos:
         return None, "none"
+    rel_by_index = {index: vrel for index, vrel in videos}
 
     sub_rel = str(rel_path).replace("\\", "/")
     sub_segs = _parts(sub_rel)
@@ -373,6 +496,17 @@ def pair(rel_path: str,
     # to confess. The one failure this module exists to make visible, made invisible by
     # the two rungs that run before the one that guards against it. So both collect
     # every claimant and take an answer only when there is exactly one.
+    #
+    # CORRECTED AGAIN, in the following review round: collecting every claimant and
+    # then refusing threw away an answer the PATHS already contained. Both rungs
+    # compared basename stems only and ignored where the sidecar SITS, and on the exact
+    # shape above the shared-directory depths are {0: 1, 1: 2} — measured — so Season
+    # 1's file is derivable, uniquely and in either file order, for both of those
+    # sidecars. A multi-season "Complete" pack with per-season folders and bare episode
+    # basenames is D20's own justification for rung 2 existing and a very common release
+    # shape, and refusing there yielded NO subtitle for every sidecar in it. Honest
+    # silence beats a wrong answer; a right answer beats both. So an ambiguous claim is
+    # broken by proximity (`near`), and only a tie proximity cannot break declines.
     stem_matches = []
     for index, vrel in videos:
         vstem_tokens = _tokens(PurePosixPath(_parts(vrel)[-1]).stem)
@@ -381,9 +515,15 @@ def pair(rel_path: str,
     if len(stem_matches) == 1:
         return stem_matches[0], "stem"
     if stem_matches:
-        _decline("stem", sub_rel, stem_matches)
+        nearest = _nearest_claimant("stem", sub_rel, stem_matches, rel_by_index)
+        if nearest is not None:
+            return nearest, "near"
+        _decline("stem", sub_rel, stem_matches, tied=True)
 
-    # Rung 2 — the nearest ancestor directory. Same refusal, same reason.
+    # Rung 2 — the nearest ancestor directory. Same tiebreak, same refusal, same
+    # reasons. The two rungs are separate loops with separate guards on purpose:
+    # reverting the tiebreak in one leaves the other's rows green, so each has its own
+    # proximity row and its own tie row.
     if len(sub_segs) >= 2:
         dir_tokens = _tokens(sub_segs[-2])
         if dir_tokens:
@@ -395,7 +535,10 @@ def pair(rel_path: str,
             if len(dir_matches) == 1:
                 return dir_matches[0], "dir"
             if dir_matches:
-                _decline("dir", sub_rel, dir_matches)
+                nearest = _nearest_claimant("dir", sub_rel, dir_matches, rel_by_index)
+                if nearest is not None:
+                    return nearest, "near"
+                _decline("dir", sub_rel, dir_matches, tied=True)
 
     # Rung 3 — the episode number, below the torrent root, agreeing with the video.
     root = _torrent_root([sub_rel] + [vrel for _, vrel in videos])
@@ -410,6 +553,14 @@ def pair(rel_path: str,
         # exists to prevent: the cue text would be valid, timed and about the wrong
         # episode, with no error event, no status code and no device reading to catch
         # it. `none` is the honest answer.
+        #
+        # NO PROXIMITY TIEBREAK HERE, deliberately, and it is not a free improvement:
+        # rungs 1 and 2 break a tie between claimants that each matched a NAME exactly,
+        # so proximity only chooses between equally exact matches. Rung 3's claimants
+        # agree on an episode number that the parse has already shown it cannot tell
+        # apart, so proximity would be a second guess stacked on a first. Measured:
+        # extending the tiebreak here changes `test_the_parse_rung_does_not_use_the_
+        # proximity_tiebreak` from `none` to a resolved index, which is that row's job.
         if len(agreeing) == 1:
             return agreeing[0], "parse"
         if len(agreeing) > 1:
@@ -479,10 +630,15 @@ def track_label(language_label: str, pair_source: str) -> str:
     """The picker row's text: the language, plus how the pairing was reached (D20).
 
     `stem` and `single` render the language alone — in both cases the names said it
-    outright. `dir`, `parse` and `none` each confess their own degree of inference,
-    and the three sentences are deliberately different: a folder match, an
-    episode-number match and no match at all are three different things to be told
-    while deciding whether to trust what is on screen.
+    outright. `dir`, `near`, `parse` and `none` each confess their own degree of
+    inference, and the four sentences are deliberately different: a folder match, the
+    closest of several name matches, an episode-number match and no match at all are
+    four different things to be told while deciding whether to trust what is on screen.
+
+    What `near` does NOT carry is which rung reached it — rungs 1 and 2 both report it.
+    That is a deliberate collapse (one new source, one new sentence) and the rung is
+    kept in the INFO line `_nearest_claimant` writes, so the distinction survives for
+    the operator and not for the viewer, who can act on neither.
     """
     return f"{language_label}{_PAIR_SOURCE_SUFFIX[pair_source]}"
 

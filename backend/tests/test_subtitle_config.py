@@ -14,7 +14,7 @@ rather than trusting the setting, and that is tested in ``test_sidecar_lister.py
 asserts it is still absent from the listing. Do not read a green run here as
 "a bad extension cannot reach the lister".
 
-Extension *casing* is not asserted here. It is asserted once, for all three
+Extension *casing* is not asserted here. It is asserted once, for all four
 extension sets together, in ``test_content_guard_config.py`` — a second witness
 to one rule is this repo's own documented anti-pattern.
 """
@@ -84,6 +84,21 @@ def test_convertible_subtitles_are_a_subset_of_listed_subtitles():
     s = Settings()
     assert s.subtitle_convertible_extensions, "convertible set must not be empty"
     assert s.subtitle_convertible_extensions <= s.subtitle_extensions
+    # And the membership the two-set split EXISTS for, pinned in the one direction
+    # nothing else here can witness. Measured in review: DELETING `.ass`/`.ssa`
+    # from the listed set, or `.vtt` from the convertible one, leaves every other
+    # assertion in this file and in `test_content_guard_config.py` green — a
+    # subset relation still holds over a smaller set, so it cannot see a deletion,
+    # and the docstring above claims to pin "the shipped DEFAULTS".
+    #   `.ass`/`.ssa` LISTED -> D17's unselectable row carrying the format, i.e.
+    #     stage 8's "a visible row with effect NONE" shape. Drop them and the
+    #     picker shows no row at all for anime, which is the opposite decision.
+    #   `.vtt` CONVERTIBLE -> D17's "one URL kind, one code path": a `.vtt` is
+    #     re-validated through the same decode-and-emit path, never passed
+    #     through, because a signature-valid `.vtt` with `00:00:1.000` timings is
+    #     a silent zero-cue file.
+    assert {".ass", ".ssa"} <= s.subtitle_extensions
+    assert ".vtt" in s.subtitle_convertible_extensions
 
 
 def test_admission_bounds_and_encoding_defaults():

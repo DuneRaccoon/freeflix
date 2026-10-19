@@ -180,7 +180,9 @@ class Settings(BaseSettings):
     # one (libtorrent 2.0's own `create_torrent` pads by default, as does
     # qBittorrent, and every v2/hybrid torrent must) — ~1.6 GiB for a 20-language
     # `Subs/` tree at an 8 MiB piece. So the cap is on the SPAN, which forecloses
-    # that case structurally instead of by budget.
+    # that case PER SIDECAR, structurally instead of by budget. It bounds ONE
+    # admission, not the total: D4 is "one sidecar per POST" and stage 9 adds no
+    # aggregate cap, so N presses still cost N spans.
     subtitle_admit_max_pieces: int = 4
     # If the admitted span is not held inside this budget the admission is
     # withdrawn. It must be: an admitted piece that never arrives holds the

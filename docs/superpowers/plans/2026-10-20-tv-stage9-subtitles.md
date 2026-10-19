@@ -368,6 +368,62 @@ plus `docker compose run --rm -v "$WT/backend/tests:/opt/freeflix/tests" -v
 sibling in the working tree, which `git status --short` alone is not — during this review the
 shared tree was mutated by two other agents mid-measurement.
 
+### C4 — Task 8(f)'s mutation is green under the obvious implementation, and task 8 needs a dedup decision the plan never names
+
+Two findings from task 8, both measured.
+
+**1. "No entry carries a `mime_type`" cannot fail against a pydantic response model.**
+Task 8(f) prescribes `mime_type=get_mime_type(f["name"])` as the mutation. With
+`response_model=SubtitleList` and pydantic v2's DEFAULT `extra='ignore'`, that
+construction is **silently dropped**: measured, the handler builds every row with
+`mime_type=get_mime_type(entry["rel_path"])` (returning `text/plain` for `.srt` in this
+image, confirming D10) and **all 26 tests in `test_subtitles_list.py` stay green** — the
+wire assertion cannot see a field pydantic discarded, and neither can a
+`model_fields` check. The guard has teeth only if the model FORBIDS extras, which turns
+the same construction into a `ValidationError` and a 500. So `SubtitleTrack` and
+`SubtitleList` carry `model_config = ConfigDict(extra="forbid")` with the reason written
+beside them, and `test_no_entry_carries_a_mime_type` pins **three** things — no
+`mime_type` on the wire, none in `model_fields`, and `extra == "forbid"` — because
+deleting that one config line would otherwise disarm the test without failing it.
+Measured both ways: with `extra='forbid'` the mutation reddens 8 rows; with
+`ConfigDict()` it reddens none, and deleting the config reddens only the third
+assertion.
+
+**2. Composing task 4's dedup into task 8's list drops a servable track, and no task owns
+the decision.** `dedupe_by_language` collapses a language across whatever list it is
+handed, and task 8's envelope is the first place that list is a whole torrent. Two
+measured consequences, both fixed in `api/subtitles.py::_deduped` by grouping on
+`(video_index, convertible)` before deduping:
+
+* Deduping a four-episode pack in one pass keeps **one** English sidecar for the pack
+  and silently discards the other episodes' — the row the television needs for the
+  episode on screen is simply absent. (Mutation `groups.setdefault(0, ...)`: reddens.)
+* Dedup's tie-break is `(forced, len(path), path)`, which knows nothing about format.
+  `Subs/Pack.S01E02.en.ass` and `Subs/Pack.S01E02.en.srt` are the **same length** and
+  `.ass` sorts first, so deduping the two convertibility classes together supersedes the
+  only servable English track with one stage 9 refuses to convert (D17) and the viewer
+  loses English for that episode. (Mutation `groups.setdefault(entry["video_index"], ...)`:
+  reddens.) D21 says "prefer non-`forced`, then the shortest path" and stops there; D17
+  says `.ass` ships as a listed row with `convertible: false`. Nothing in either decides
+  what happens when both apply to one language, and the naive composition picks the row
+  that cannot be served.
+
+**Also, smaller:** task 8's `?file_index=` validation cannot be unconditional. The
+television passes the index it is watching, and an **evicted** torrent has no file list
+to validate against (D5), so a 404 there would replace `Subtitles · unavailable` with
+"The box doesn't recognise this title." — the exact sentence D6 exists to prevent. The
+validation is therefore gated on `coverage != "unknown"`, with its own row
+(`test_an_evicted_torrent_with_a_file_index_is_still_a_200`); making it unconditional
+reddens that row and nothing else. And task 8(g2)'s registry assertion is **unobservable
+through `TestClient`**: its blocking portal closes the event loop with the request, which
+cancels the fetch task, runs its `finally`, retracts, and drops the key — so the registry
+reads empty and the admission recorder has picked up the retraction's
+`piece_priority(p, 0)`, both of which look exactly like a handler that started no task.
+The three rows that look at the driver use `httpx.ASGITransport` on the test's own loop
+and set `torrent_manager._loop` the way `test_await_pieces_async.py:35` does, because
+`start_update_task` (`manager.py:387`) is a startup event no module-level `TestClient`
+ever runs and `await_pieces_async` begins with `self._loop.create_future()`.
+
 ---
 
 ## What ships inert or absent, and what the television shows instead

@@ -296,6 +296,76 @@ class VideoFile(BaseModel):
     episode: Optional[int] = None
 
 
+class SubtitleTrack(BaseModel):
+    """One sidecar subtitle file, as the television's picker reads it.
+
+    `extra='forbid'` is load-bearing here and not tidiness. Two fields are
+    DELIBERATELY ABSENT and their absence is a decision:
+
+    * **`mime_type`.** `/files` carries one (`api/streaming.py:497`) from
+      `get_mime_type`, whose table was measured in the real image as
+      `.srt -> text/plain`, `.ass -> audio/aac`, `.ssa -> None` (plan D10). An
+      `.ass` sidecar announced to the television as AAC audio is a lie the TV
+      would act on, so the VTT route hard-codes `text/vtt; charset=utf-8` and
+      nothing here guesses a type. With pydantic's DEFAULT `extra='ignore'` a
+      construction site that added `mime_type=` would be silently dropped and
+      the test that forbids it would stay green — i.e. the guard would be
+      unfalsifiable. Forbidding extras makes that mistake a loud 500 instead.
+    * **`progress` / `downloaded`.** `_video_files_from_resume_data` hard-codes
+      `"downloaded": fi.size, "progress": 100.0` (`manager.py:1187-1188`) and its
+      own docstring calls that a claim. `ready` is the measured answer (D7, two
+      conjuncts) and the only one this model carries.
+
+    `url` is the WebVTT route's path for this entry, built from the torrent's own
+    libtorrent file index — never from this list's position, which renumbers
+    (D9).
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    index: int
+    video_index: Optional[int] = None
+    pair_source: str
+    season: Optional[int] = None
+    episode: Optional[int] = None
+    lang: Optional[str] = None
+    label: str
+    flags: List[str] = []
+    format: str
+    size: int
+    ready: bool
+    convertible: bool
+    reason: Optional[str] = None
+    url: str
+
+
+class SubtitleList(BaseModel):
+    """The subtitle list's ENVELOPE. Never a bare array (plan D6).
+
+    `/files` already answers `200 []` with three meanings and this repo's own
+    suite records that it "means 'not ready, or evicted' and never 'this pack has
+    no episodes'" (`backend/tests/test_finished_torrent_streamable.py:226-230`) —
+    recorded, not fixed. A fourth bare empty list would inherit a meaning the
+    suite has already declared unusable, and a 404 is worse: the television's one
+    status->copy map renders 404 as "The box doesn't recognise this title."
+    (`_data/title.ts:488`), a false sentence about a release that simply ships no
+    `.srt`.
+
+    So `coverage` is `"listed" | "none" | "unknown"` and `source` is
+    `"session" | null` — the live session is the only resolution source stage 9
+    has (D5), because every resume blob this application writes carries no `info`
+    dict. `paired_to` echoes the video file index the list was filtered to, or
+    null when the caller asked for everything.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    torrent_id: str
+    state: str
+    coverage: str
+    source: Optional[str] = None
+    paired_to: Optional[int] = None
+    subtitles: List[SubtitleTrack] = []
+
+
 class MovieCredits(BaseModel):
     director: Optional[str] = None
     cast: List[CastMember] = []

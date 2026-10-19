@@ -99,10 +99,10 @@ _SIDECAR_FLUSH_POLL_S = 0.05
 def _forget_sidecar_fetch(key: Tuple[str, int], task) -> None:
     """Drop a finished fetch from the registry, but only if it is still ours.
 
-    The identity check matters: `start_sidecar_fetch` refuses to create a second
-    task while the first is live, so the only way two tasks share a key is a
-    bug — and if one ever did, a blind `pop` from the loser's callback would
-    unregister the winner.
+    The identity check matters, and its window is NORMAL rather than a bug (an
+    earlier draft of this said the second): `add_done_callback` fires through
+    `loop.call_soon`, so a second POST can pass `not existing.done()` and
+    register a NEW task before the first's callback runs and blind-`pop`s it.
     """
     if _sidecar_fetch_tasks.get(key) is task:
         _sidecar_fetch_tasks.pop(key, None)

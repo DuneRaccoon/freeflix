@@ -88,6 +88,29 @@ UNPADDED = [
 ]
 UNPADDED_PRIOS = [7, 0]
 
+# The last-piece layout. The sidecar's span is TWO pieces and the file sharing it
+# is a WANTED video that occupies only the span's LAST piece; the video BEFORE it
+# ends exactly on the span's first boundary, so it is not what gate 4 catches.
+#
+#   i  path               bytes   offset   pieces
+#   0  Show/E01.mkv       98304        0   0..2   (ends exactly on a boundary)
+#   1  Show/E01.en.srt    40960    98304   3..4   <- the sidecar
+#   2  Show/E02.mkv       50000   139264   4..5   <- WANTED, shares piece 4 ONLY
+#
+# Neither layout above has this shape: UNPADDED's span is a single piece, and the
+# only non-pad file PADDED offers gate 4 overlaps the span's FIRST piece. So gate
+# 4's `span_end = (last_piece + 1) * piece_length` had no row, and dropping that
+# `+ 1` — which makes the gate blind to the last piece of every multi-piece span
+# — was MEASURED green across all 28 rows in review. What it would ship is the
+# catastrophe gate 4 exists for: residual -3048, the shared piece de-wanted, the
+# torrent back from `seeding`/100% to `downloading`/46.78%.
+SHARED_LAST_PIECE = [
+    ("Show/E01.mkv", 98304, False),
+    ("Show/E01.en.srt", 40960, False),
+    ("Show/E02.mkv", 50000, False),
+]
+SHARED_LAST_PIECE_PRIOS = [7, 0, 7]
+
 
 # --------------------------------------------------------------------------
 # Fakes
@@ -337,6 +360,70 @@ def test_gate_4_excludes_pad_files(tmp_path):
 
     assert result.admitted == 2
     assert handle.piece_priority_calls == [(4, 7), (5, 7)]
+
+
+def test_gate_4_sees_the_last_piece_of_a_multi_piece_span(tmp_path):
+    """Gate 4 inspects the WHOLE span, including its last piece.
+
+    Found in review by mutation: `span_end = last_piece * piece_length` — the
+    same line with its `+ 1` dropped — left every other row in this file green.
+    Both other layouts miss it, which is why `SHARED_LAST_PIECE` exists: here the
+    video before the sidecar ends exactly on the span's first boundary, so the
+    only thing that can refuse the admission is `Show/E02.mkv` starting inside
+    piece 4, the span's last. The offender is asserted directly for that reason —
+    `admitted == 0` alone cannot say WHICH file refused it.
+
+    What the mutation would ship is the measured catastrophe: the budget exit
+    would lower a piece a wanted file shares, driving `total_wanted` to residual
+    -3048, de-wanting the shared piece and taking the torrent from
+    `seeding`/100% back to `downloading`/46.78% — an unplayable episode reported
+    complete.
+    """
+    handle = _load(tmp_path, rows=SHARED_LAST_PIECE, prios=SHARED_LAST_PIECE_PRIOS)
+
+    ok, offender = torrent_manager._span_is_exclusively_deselected(
+        _TI(SHARED_LAST_PIECE), list(SHARED_LAST_PIECE_PRIOS), 3, 4)
+    assert (ok, offender) == (False, 2), (
+        "the refusal must come from the file inside the span's LAST piece, not "
+        "from the video that ends exactly on its first boundary"
+    )
+
+    result = torrent_manager.admit_sidecar_pieces(TID, 1)
+
+    assert result.pieces == (3, 4), "a 40960-byte sidecar at 98304 spans pieces 3-4"
+    assert result.admitted == 0
+    assert result.refusal is None
+    assert handle.piece_priority_calls == []
+    assert handle.deadline_calls == []
+
+
+def test_the_done_callback_never_unregisters_a_later_task(tmp_path):
+    """`_forget_sidecar_fetch`'s identity check, which no other row reaches.
+
+    Found in review by mutation: replacing it with a blind `pop` left all 28 rows
+    green. The window it covers is NORMAL and not a bug — `add_done_callback`
+    fires through `loop.call_soon`, so a task that already reports `done()` has a
+    window in which its callback has not yet run. A second POST arriving in that
+    window passes `start_sidecar_fetch`'s `not existing.done()` check and
+    registers a NEW task under the same key; the first task's callback then runs,
+    and a blind `pop` would unregister the live one — after which the next POST
+    starts a second driver racing it to flush and re-zero the same file, which is
+    the exact collision the registry exists to prevent.
+
+    Plain sentinels, not tasks: the function compares identity and reads nothing
+    else, and a real task here would need a loop to prove nothing extra.
+    """
+    key = (TID, SUB)
+    finished, live = object(), object()
+    mgr._sidecar_fetch_tasks[key] = live
+
+    mgr._forget_sidecar_fetch(key, finished)
+    assert mgr._sidecar_fetch_tasks[key] is live, (
+        "the loser's done callback unregistered the winner"
+    )
+
+    mgr._forget_sidecar_fetch(key, live)
+    assert key not in mgr._sidecar_fetch_tasks, "the owner's callback must drop it"
 
 
 # --------------------------------------------------------------------------

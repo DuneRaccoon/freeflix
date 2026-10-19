@@ -20,6 +20,7 @@ from app.config import settings
 from app.torrent.storage import encode_resume_data, decode_resume_data, safe_rmtree
 from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
 from app.providers.episodes import parse_episode
+from app.subtitles import sidecars
 
 # Ordered list of torrent states
 TORRENT_STATES = [
@@ -1284,6 +1285,142 @@ class TorrentManager:
             )
             return None
         return match
+
+    def list_sidecars(self, torrent_id: str) -> Tuple[str, List[Dict[str, Any]]]:
+        """Every sidecar subtitle file this torrent's LIVE metadata declares.
+
+        Returns `(coverage, entries)` — never a bare list. `coverage` is
+        `"listed"` (metadata read, at least one sidecar), `"none"` (metadata
+        read, this release ships none) or `"unknown"` (no live handle, no
+        metadata yet, or a libtorrent call raised). D6: `/files` already answers
+        `200 []` with three meanings and this repo's own suite records that it
+        "means 'not ready, or evicted' and never 'this pack has no episodes'"
+        (`test_finished_torrent_streamable.py:226-230`), so a fourth bare empty
+        list would inherit a meaning the suite has already declared unusable.
+        The television's cell renders the three differently — `unavailable`,
+        `none`, and a picker — and a 404 would make it say "The box doesn't
+        recognise this title." about a release that simply ships no `.srt`.
+
+        THE LIVE SESSION ONLY (D5), and the reason is measured rather than
+        chosen: all three `save_resume_data()` calls in this file are flagless
+        (`:323`, `:813`, `:994` — re-measured; the plan's `:322` is the
+        `need_save_resume_data()` test above the first one), libtorrent 2.0.11
+        omits the `info` dict without
+        `lt.torrent_handle.save_info_dict`, so `lt.read_resume_data(...).ti` is
+        None for every blob this application has ever written and the file list
+        of an evicted torrent is simply not enumerable. `coverage: "unknown"` is
+        therefore the PERMANENT answer for everything already in the library —
+        `_refresh_active_torrents` evicts `finished` mid-session (`:470` excludes
+        it from `active_ids`, `:478` pops the handle) and
+        `find_loadable_on_startup` never re-adds it — and the television says so
+        out loud instead of showing an empty picker. Reversing that is additive,
+        after the stage-7 `save_info_dict` repair, and nothing here guesses in
+        the meantime.
+
+        Readiness is MEASURED, and it is two conjuncts (D7 as C1 corrected it):
+        `contiguous_available(torrent_id, idx, 0)["complete"]` AND the file
+        present in `save_path` at its declared size. Neither half can see the
+        other's lie. `file_progress()` is called with no granularity flag
+        anywhere in this repo, so it counts unverified blocks and a bare
+        `file_progress()[i] == size` would report `complete` while a tail seek
+        still blocks — which is why the first conjunct goes through
+        `contiguous_available`, whose `have_piece(last_piece)` IS the hash check
+        for a sidecar small enough to sit inside one piece. And a held piece is
+        not a readable file: until task 7's flush runs, the bytes sit in a
+        `.<infohash>.parts` file and `open()` on the path raises
+        FileNotFoundError while both `contiguous_available` and `file_progress`
+        report completion (C1, measured) — which is why the second conjunct is
+        not belt-and-braces. A `ready: true` the TV believes is a `<track>`
+        spending its one and only load on a path that does not exist.
+
+        The INDEX is the torrent's own libtorrent index, never the position in
+        this list: `?file_index=` is a libtorrent index (`api/streaming.py:256`)
+        and a filtered position renumbers. Measured: `lt.create_torrent`
+        interleaved `.pad/N` entries so a 3-file tree became `num_files() == 6`
+        with the sidecar at index 4, and the same tree built `v1_only` came out
+        with 0 pads — so a torrent's file order is derivable from the filenames
+        in neither direction, which `:1146-1150` already forbids relying on.
+
+        Nothing here mutates: no priority is re-shaped, no deadline is set and
+        no flush happens (D1/D2 — a GET that re-deadlined pieces would hijack
+        libtorrent's deadline queue, and a lister that flushed would make the
+        read mutating). Admission is task 7's POST. Per-entry errors are
+        reported in the row and never raised, because one unreadable sidecar may
+        not cost the whole list — the dev database holds a `seeding`/100 row
+        whose `save_path` does not exist at all.
+        """
+        entry = self.active_torrents.get(torrent_id)
+        if entry is None:
+            # No live handle: not "this release has none", which is why the
+            # envelope carries three values and not a boolean.
+            return sidecars.COVERAGE_UNKNOWN, []
+        handle = entry[0]
+        try:
+            if not handle.has_metadata():
+                return sidecars.COVERAGE_UNKNOWN, []
+            ti = handle.get_torrent_info()
+            file_storage = ti.files()
+            num_files = int(ti.num_files())
+            save_path = handle.status().save_path
+        except Exception as e:
+            logger.warning(f"Could not read the file list for {torrent_id}: {e}")
+            return sidecars.COVERAGE_UNKNOWN, []
+        if not save_path:
+            return sidecars.COVERAGE_UNKNOWN, []
+
+        rows: List[Dict[str, Any]] = []
+        for i in range(num_files):
+            try:
+                if file_storage.file_flags(i) & lt.file_flags_t.flag_pad_file:
+                    # A pad file carries no extension so the filter below would
+                    # drop it anyway; the flag is checked because that is a
+                    # property of the pad and not of its name.
+                    continue
+                fi = ti.file_at(i)
+                rel_path = str(fi.path).replace("\\", "/")
+                size = int(fi.size)
+            except Exception as e:
+                logger.warning(
+                    f"Skipping file {i} of {torrent_id}: its metadata is unreadable ({e})")
+                continue
+
+            ext = sidecars.listed_extension(rel_path)
+            if ext is None:
+                continue
+            if not sidecars.listable_size(size):
+                logger.info(
+                    f"Sidecar {rel_path} in {torrent_id} is {size} bytes, over "
+                    f"subtitle_max_bytes; not listing it"
+                )
+                continue
+            abs_path = sidecars.contained_path(save_path, rel_path)
+            if abs_path is None:
+                continue
+
+            # The two conjuncts, in one expression, so neither can be dropped
+            # without the other reading as an obvious orphan.
+            run = self.contiguous_available(torrent_id, i, 0)
+            run_complete = bool(run and run.get("complete"))
+            present, reason = sidecars.present_at_declared_size(abs_path, size)
+            ready = run_complete and present
+
+            if reason is None and not sidecars.is_convertible(ext):
+                reason = sidecars.REASON_UNSUPPORTED_FORMAT
+            rows.append({
+                "index": i,
+                "rel_path": rel_path,
+                "path": str(abs_path),
+                "name": Path(rel_path).name,
+                "size": size,
+                "format": sidecars.format_name(ext),
+                "convertible": sidecars.is_convertible(ext),
+                "ready": ready,
+                "reason": reason,
+            })
+
+        rows.sort(key=lambda r: r["index"])
+        coverage = sidecars.COVERAGE_LISTED if rows else sidecars.COVERAGE_NONE
+        return coverage, rows
 
     def validate_torrent_content(self, handle) -> Optional[str]:
         """Inspect a torrent's file list (metadata required) and return a content-

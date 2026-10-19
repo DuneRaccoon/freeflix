@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, NamedTuple, Optional, Any, Tuple
 from torf import Magnet
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,110 @@ TORRENT_STATES = [
 # states.TERMINAL_STATES, which also holds 'error' (a download that stopped at an
 # arbitrary percentage) and 'blocked' (whose files the content guard deleted).
 ON_DISK_STATES = frozenset({"finished", "seeding"})
+
+# ---------------------------------------------------------------- sidecar admission
+#
+# Stage 9 admits a sidecar subtitle's pieces ON DEMAND, at PIECE level, and the
+# shape is measured rather than chosen (plan D1/D3/D4 and Correction C1):
+#
+#   phase 1  piece_priority(p, 7) + set_piece_deadline(p, 0) over the sidecar's
+#            own piece span. This widens total_wanted by exactly the file's
+#            bytes, leaves every FILE priority untouched, and SURVIVES
+#            prioritize_video_files' next call — because that vector is a pure
+#            function of the file set and libtorrent does not recompute from an
+#            identical list. A file-level admission makes that next call a
+#            CHANGED list, which recomputes and takes _prioritize_window's
+#            raised window with it. Measured, C1 [A]/[B]/[C].
+#   phase 2  the FLUSH. Phase 1 alone never produces a readable file: libtorrent
+#            2.0 routes a priority-0 file's bytes into a `.<infohash>.parts`
+#            part file and only moves them into place when the file's priority
+#            rises above 0. So once the span is HELD, one file_priority(idx, 1)
+#            moves them (measured: redownloaded=0) and one file_priority(idx, 0)
+#            puts the priority back.
+#
+# The two exits differ in exactly the call that is unsafe, which is why there is
+# one retraction function with an explicit `expired` flag and not two
+# interchangeable ones. See retract_sidecar_pieces.
+_sidecar_fetch_tasks: Dict[Tuple[str, int], "asyncio.Task"] = {}
+
+# Refusal reasons. Each is a 409 for the POST; `None` with `admitted == 0` is a
+# SUCCESS (see SidecarAdmission).
+SIDECAR_REFUSAL_NOT_LOADED = "not-loaded"
+SIDECAR_REFUSAL_NO_SUCH_SIDECAR = "no-such-sidecar"
+SIDECAR_REFUSAL_NOT_DESELECTED = "not-deselected"
+SIDECAR_REFUSAL_SPAN_TOO_LARGE = "span-too-large"
+# No running event loop, so the background fetch could not be started. The
+# admission is WITHDRAWN before this is returned: pieces raised with nothing to
+# retract them would hold the torrent below 100% forever, which is D1's reason 3
+# and the most expensive failure in the stage. Unreachable from the POST handler
+# (it is async), and it exists so the sync-call case cannot leak an admission.
+SIDECAR_REFUSAL_NO_DRIVER = "no-driver"
+
+# The flush's bounded wait for libtorrent to move the held bytes out of the part
+# file and into the save path.
+#
+# NOT A MEASURED MINIMUM, and said so here rather than implied: C1's probe
+# (`probe_flush.py`) slept 1.5 s, called flush_cache(), slept another 1.0 s and
+# then saw the file — it never polled, so 2.5 s is an upper bound on what was
+# observed and the true latency is unknown. 3.0 s is that figure rounded up. The
+# probe's flush_cache() call is deliberately NOT copied: libtorrent 2.0 has no
+# write cache to flush (the disk cache was removed in 2.0; writes go through the
+# OS page cache, which os.path.getsize sees), the plan prescribes exactly three
+# steps for the flush, and adding a fourth libtorrent call on the strength of a
+# defensive try/except in a probe would be a guess. If a real device ever shows
+# the file arriving later than this, raise the constant — the trailing re-zero
+# runs either way, so a short wait costs the sidecar and never the torrent.
+_SIDECAR_FLUSH_WAIT_S = 3.0
+_SIDECAR_FLUSH_POLL_S = 0.05
+
+
+def _forget_sidecar_fetch(key: Tuple[str, int], task) -> None:
+    """Drop a finished fetch from the registry, but only if it is still ours.
+
+    The identity check matters: `start_sidecar_fetch` refuses to create a second
+    task while the first is live, so the only way two tasks share a key is a
+    bug — and if one ever did, a blind `pop` from the loser's callback would
+    unregister the winner.
+    """
+    if _sidecar_fetch_tasks.get(key) is task:
+        _sidecar_fetch_tasks.pop(key, None)
+
+
+class SidecarAdmission(NamedTuple):
+    """What one `admit_sidecar_pieces` call did.
+
+    `admitted` is the number of pieces this call raised. **ZERO IS A SUCCESS**
+    when `refusal` is None, and the POST answers 202 for it (plan task 8): it
+    means there was nothing to raise, which happens three ways — every piece is
+    already held, or gate 4 found a WANTED file sharing a piece so the bytes are
+    already on their way, or the span was empty. All three still want the flush,
+    because held-but-unflushed bytes live in the part file and no `<track>` can
+    read them.
+
+    `pieces` is the full span, reported even when nothing was raised, because the
+    driver waits on it and then flushes regardless of `admitted`.
+
+    `refusal` is a 409: the admission did not happen and will not.
+    """
+
+    admitted: int
+    pieces: Tuple[int, ...]
+    refusal: Optional[str]
+
+
+class _SidecarTarget(NamedTuple):
+    """One sidecar resolved against LIVE metadata, with its piece span."""
+
+    handle: Any
+    ti: Any
+    index: int
+    rel_path: str
+    size: int
+    first_piece: int
+    last_piece: int
+    priorities: List[int]
+    save_path: str
+
 
 # contiguous_available's walk bound and memo window.
 #
@@ -2092,6 +2196,518 @@ class TorrentManager:
                     handle.set_piece_deadline(p, 0)
             except Exception:
                 pass
+
+    # ------------------------------------------------------- sidecar admission
+    #
+    # Four methods and one private resolver. They sit beside _deadline_pieces
+    # because they make the same two libtorrent calls it does, with the same
+    # per-call guard; everything else about them is new.
+
+    def _resolve_sidecar(self, torrent_id: str,
+                         index: int) -> Tuple[Optional[_SidecarTarget], Optional[str]]:
+        """Resolve one sidecar against LIVE metadata, or say why it cannot be.
+
+        Gates 1 and 2 of the five: a live handle with metadata, and an index that
+        really names a listable sidecar in that metadata. Returns
+        `(target, None)` or `(None, reason)` — never raises, and never indexes
+        `active_torrents` directly, because a POST naming an evicted torrent must
+        answer rather than 500.
+
+        THE EXTENSION CHECK IS A GATE HERE AND NOT ONLY IN THE LISTER. The route
+        resolves through the lister (plan D9), so in principle a non-subtitle
+        index cannot arrive — but the flush WRITES BYTES TO DISK at a path taken
+        from torrent metadata, and `{index}` is a raw integer in the URL. Any
+        file at priority 0 would otherwise be admissible: `Setup.exe` sitting
+        beside the film in a release is exactly priority 0, exactly what the
+        content guard refuses to download, and a POST naming its index would
+        fetch it. So the same hard-coded listed set the lister uses
+        (`sidecars.listed_extension`, which intersects with
+        `settings.subtitle_extensions` and cannot be WIDENED by a `.env`) gates
+        admission too. This gate is not in the plan's list of five; it is in the
+        report as an addition, with its own test row.
+        """
+        entry = self.active_torrents.get(torrent_id)
+        if entry is None:
+            # .get, never [...]: an evicted torrent is the normal case, not an
+            # error, and a KeyError here would reach the client as an opaque 500.
+            return None, SIDECAR_REFUSAL_NOT_LOADED
+        handle = entry[0]
+        try:
+            if not handle.has_metadata():
+                return None, SIDECAR_REFUSAL_NOT_LOADED
+            ti = handle.get_torrent_info()
+            num_files = int(ti.num_files())
+            piece_length = int(ti.piece_length())
+            save_path = handle.status().save_path
+            priorities = [int(p) for p in handle.get_file_priorities()]
+        except Exception as e:
+            logger.warning(
+                f"Sidecar {index} of {torrent_id}: the live session could not be "
+                f"read ({e})"
+            )
+            return None, SIDECAR_REFUSAL_NOT_LOADED
+        if piece_length <= 0 or not save_path:
+            return None, SIDECAR_REFUSAL_NOT_LOADED
+
+        idx = int(index)
+        # No test in `test_sidecar_admission.py` discriminates this branch
+        # (measured: deleting it stays green, because the fake's `file_at` raises
+        # out of range and the `except` below answers the same refusal). It stays
+        # because a real `file_storage.file_at` out of range is not required to
+        # raise anything in particular, and because the `len(priorities)` arm is
+        # what keeps `priorities[idx]` from an IndexError further down.
+        if idx < 0 or idx >= num_files or idx >= len(priorities):
+            return None, SIDECAR_REFUSAL_NO_SUCH_SIDECAR
+        try:
+            # DEAD AS WRITTEN, measured, and said here rather than left to be
+            # discovered: a pad is named `.pad/<size>` and so carries no subtitle
+            # extension, which means the `listed_extension` gate below excludes
+            # it anyway and deleting this branch is a GREEN mutation. Kept for
+            # the same reason the lister keeps its copy — the flag is a property
+            # of the pad rather than of its name — and because gate 4's pad
+            # exclusion, which is NOT dead, reads the same flag.
+            if ti.files().file_flags(idx) & lt.file_flags_t.flag_pad_file:
+                return None, SIDECAR_REFUSAL_NO_SUCH_SIDECAR
+            fi = ti.file_at(idx)
+            rel_path = str(fi.path).replace("\\", "/")
+            size = int(fi.size)
+            offset = int(fi.offset)
+        except Exception as e:
+            logger.warning(f"Sidecar {idx} of {torrent_id}: metadata unreadable ({e})")
+            return None, SIDECAR_REFUSAL_NO_SUCH_SIDECAR
+        if size <= 0 or offset < 0:
+            return None, SIDECAR_REFUSAL_NO_SUCH_SIDECAR
+        if sidecars.listed_extension(rel_path) is None:
+            return None, SIDECAR_REFUSAL_NO_SUCH_SIDECAR
+
+        # Integer //, never int(a / b), matching contiguous_available's own note
+        # at its first_piece/last_piece: the float idiom elsewhere in this file
+        # loses precision above 2^53 and this index must not depend on it. No
+        # test discriminates the two (they agree at every realistic offset and a
+        # fixture would need a torrent above 9 PB — the shape stage 7 recorded),
+        # so the reason is written here instead.
+        #
+        # EVERY FILE BUT THE FIRST HAS A NON-ZERO OFFSET and the piece map is
+        # torrent-global: dropping the offset term measures some other file's
+        # pieces and raises those instead.
+        first_piece = offset // piece_length
+        last_piece = (offset + size - 1) // piece_length
+        return _SidecarTarget(
+            handle=handle, ti=ti, index=idx, rel_path=rel_path, size=size,
+            first_piece=first_piece, last_piece=last_piece,
+            priorities=priorities, save_path=str(save_path),
+        ), None
+
+    def _span_is_exclusively_deselected(self, ti, priorities: List[int],
+                                        first_piece: int,
+                                        last_piece: int) -> Tuple[bool, Optional[int]]:
+        """GATE 4: does every byte of every piece in the span belong to files at
+        priority 0?
+
+        Returns `(ok, offending_index)`. This is the sharpest edge in stage 9 and
+        the reason it exists is measured (plan D3, reproduced in task 0's run 4):
+        `piece_priority(p, 0)` on a piece a WANTED file also occupies DE-WANTS
+        that file's bytes. On an unpadded layout, where a sidecar shares the
+        video's last piece, retracting that piece drove `total_wanted` BELOW
+        baseline (residual -3048), left the shared piece at priority 0, and took
+        the torrent from `seeding`/100% back to `downloading`/46.78%. A negative
+        residual is the torrent wanting less than its own video: an unplayable
+        episode reported complete. The acceptance test for anything here is the
+        video file's SHA-256 against a known-good copy, never a status line.
+        Pads are excluded because a pad carries no bytes anyone reads, and
+        libtorrent's own default of 4 (which a SHORT prioritize_files list
+        re-admits a tail to, measured in D1's reason 2) would otherwise make
+        every padded torrent fail this gate.
+
+        ALL-OR-NOTHING over the span, not per piece. A partial raise would make
+        the retraction's piece set differ from the admission's, and the flush
+        needs the WHOLE span held before it can move anything anyway.
+
+        Conservative on error: an unreadable file entry answers False, because
+        the failure this gate prevents costs the television its main content.
+        """
+        try:
+            piece_length = int(ti.piece_length())
+            total_size = int(ti.total_size())
+            num_files = int(ti.num_files())
+            file_storage = ti.files()
+        except Exception as e:
+            logger.warning(f"Gate 4 could not read the torrent's layout ({e})")
+            return False, None
+        if piece_length <= 0:
+            return False, None
+        span_start = first_piece * piece_length
+        span_end = (last_piece + 1) * piece_length
+        if total_size > 0:
+            # The last piece of a torrent overshoots its end; those bytes belong
+            # to no file at all.
+            span_end = min(span_end, total_size)
+        for i in range(num_files):
+            try:
+                if file_storage.file_flags(i) & lt.file_flags_t.flag_pad_file:
+                    continue
+                fi = ti.file_at(i)
+                f_offset = int(fi.offset)
+                f_size = int(fi.size)
+            except Exception as e:
+                logger.warning(f"Gate 4 could not read file {i} ({e})")
+                return False, None
+            if f_size <= 0:
+                continue
+            if f_offset >= span_end or f_offset + f_size <= span_start:
+                continue
+            if i >= len(priorities) or priorities[i] != 0:
+                return False, i
+        return True, None
+
+    def admit_sidecar_pieces(self, torrent_id: str, index: int) -> SidecarAdmission:
+        """Raise the pieces of ONE sidecar, on demand. Phase 1 of two.
+
+        Five gates (plan D3/D4): a live handle with metadata; an index that
+        resolves to a listable sidecar in that metadata; its current FILE
+        priority is 0; the span is no longer than `subtitle_admit_max_pieces`;
+        and gate 4 — every byte of every piece to be raised belongs to files at
+        priority 0. The only calls are `piece_priority(p, 7)` and
+        `set_piece_deadline(p, 0)`, the same two `_deadline_pieces` makes, each
+        individually guarded, and only for pieces not already held.
+
+        NO FILE PRIORITY IS TOUCHED HERE, and that is the whole point of the
+        shape. Measured (C1): `file_priority(sub, 1)` at admission time is undone
+        by `prioritize_video_files`' very next call — which every ranged
+        `GET /video` makes — and that recompute takes `_prioritize_window`'s
+        raised window with it, i.e. it costs the playhead to fetch a subtitle.
+        A piece-level admission survives the same call untouched.
+
+        The span cap is on PIECES, not bytes: `total_wanted` rises by only the
+        file's size but the download cost is whole pieces, so a pad-aligned
+        20-language `Subs/` tree at an 8 MiB piece is 1.6 GiB. §7.5's
+        "(kilobytes)" is wrong by up to four orders of magnitude.
+
+        Idempotent, and a no-op off session. `admitted == 0` with no refusal is a
+        success — see SidecarAdmission.
+        """
+        target, refusal = self._resolve_sidecar(torrent_id, index)
+        if target is None:
+            return SidecarAdmission(0, (), refusal)
+
+        # Gate 3. A file already at a non-zero priority has nothing to admit:
+        # its bytes are wanted, and raising its pieces would mean a retraction
+        # that de-wants them. Formally implied by gate 4 (which sees the sidecar
+        # itself), kept separate so the POST can name THIS reason.
+        if target.priorities[target.index] != 0:
+            logger.info(
+                f"Sidecar {target.rel_path} of {torrent_id} is already at "
+                f"priority {target.priorities[target.index]}; nothing to admit"
+            )
+            return SidecarAdmission(0, (), SIDECAR_REFUSAL_NOT_DESELECTED)
+
+        pieces = tuple(range(target.first_piece, target.last_piece + 1))
+        # Gate 5, before gate 4's walk: the cap forecloses the padded worst case
+        # STRUCTURALLY rather than by budget. Read defensively — an unreadable
+        # setting admits nothing, and a configured 0 disables admission outright
+        # rather than being quietly rounded up to 1.
+        try:
+            cap = int(settings.subtitle_admit_max_pieces)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            cap = 0
+        if len(pieces) > cap:
+            logger.info(
+                f"Sidecar {target.rel_path} of {torrent_id} spans {len(pieces)} "
+                f"pieces, over subtitle_admit_max_pieces={cap}; refusing"
+            )
+            return SidecarAdmission(0, (), SIDECAR_REFUSAL_SPAN_TOO_LARGE)
+
+        # Gate 4 — and when it refuses, that is a measured NO-OP and not a
+        # refusal: a wanted file shares the piece, so the sidecar's bytes are
+        # already coming. They still need the flush to leave the part file,
+        # which is why the span is reported.
+        ok, offender = self._span_is_exclusively_deselected(
+            target.ti, target.priorities, target.first_piece, target.last_piece)
+        if not ok:
+            logger.info(
+                f"Sidecar {target.rel_path} of {torrent_id} shares pieces "
+                f"{pieces[0]}-{pieces[-1]} with file {offender} at a non-zero "
+                f"priority; its bytes are already wanted, so admission is a no-op"
+            )
+            return SidecarAdmission(0, pieces, None)
+
+        raised = 0
+        for p in pieces:
+            try:
+                if not target.handle.have_piece(p):
+                    target.handle.piece_priority(p, 7)
+                    target.handle.set_piece_deadline(p, 0)
+                    raised += 1
+            except Exception:
+                pass
+        if raised:
+            logger.info(
+                f"Admitted {raised} piece(s) {pieces[0]}-{pieces[-1]} for sidecar "
+                f"{target.rel_path} of {torrent_id}"
+            )
+        return SidecarAdmission(raised, pieces, None)
+
+    def flush_sidecar_file(self, torrent_id: str, index: int,
+                           wait_s: Optional[float] = None) -> bool:
+        """Move a HELD sidecar's bytes out of the part file and onto disk.
+
+        Phase 2, and the phase C1 added. Phase 1 alone never produces a readable
+        file: libtorrent 2.0 routes a priority-0 file's bytes into
+        `.<infohash>.parts`, where `open()` on the sidecar's own path raises
+        FileNotFoundError while `contiguous_available` reports `complete` and
+        `file_progress()` reports the full size. Exactly
+        `file_priority(idx, 1)`, a bounded wait for the path to appear at its
+        declared size, then `file_priority(idx, 0)`. NEVER 7 — that is
+        `prioritize_video_files`' own video value and would put a 40 KB text file
+        in competition with the playhead — and never left at 1, because the
+        selector's next call would then be a CHANGED list, which recomputes and
+        takes `_prioritize_window`'s raised window with it.
+
+        Preconditions, both load-bearing: every piece of the span is HELD, and
+        the file's current priority is 0. Flushing before the span is held is a
+        file-level admission wearing a flush's name, and it is the one shape C1
+        measured as broken.
+
+        The trailing re-zero runs in a `finally`: a wait that times out must
+        still put the priority back, or the next selector call sees a changed
+        vector. Measured (C1 [3]/[4]/[E]): the file lands at its declared size
+        with `redownloaded=0`, the written bytes survive the re-zero, and they
+        survive every later `prioritize_video_files` call too (`on_disk=40960`
+        after the selector re-zeroed an already-written sidecar).
+
+        Both calls wipe `_prioritize_window`'s raised window. That is the price;
+        it is transient because the window is re-asserted per chunk from
+        `stream_file_range`, and it is why the flush happens ONCE, after the
+        bytes are already held, rather than at admission time. It is also why
+        there is no "already on disk, skip it" shortcut: the lister reports such
+        a sidecar `ready`, so the television has no reason to ask again, and one
+        shape is easier to reason about than two. Re-flushing is harmless either
+        way.
+
+        SYNCHRONOUS AND BLOCKING for up to `wait_s`. `_drive_sidecar_fetch` runs
+        it in a thread for that reason; a caller on the event loop must do the
+        same. Returns True only if the file really arrived at its declared size.
+        """
+        target, _refusal = self._resolve_sidecar(torrent_id, index)
+        if target is None:
+            return False
+        if target.priorities[target.index] != 0:
+            logger.info(
+                f"Not flushing {target.rel_path} of {torrent_id}: its priority is "
+                f"{target.priorities[target.index]}, not 0 (already wanted, or a "
+                f"flush is already in flight)"
+            )
+            return False
+        pieces = tuple(range(target.first_piece, target.last_piece + 1))
+        unheld = [p for p in pieces if not self._safe_have(target.handle, p)]
+        if unheld:
+            logger.debug(
+                f"Not flushing {target.rel_path} of {torrent_id}: pieces {unheld} "
+                f"are not held yet"
+            )
+            return False
+        abs_path = sidecars.contained_path(target.save_path, target.rel_path)
+        if abs_path is None:
+            return False
+
+        budget = _SIDECAR_FLUSH_WAIT_S if wait_s is None else float(wait_s)
+        landed = False
+        try:
+            try:
+                target.handle.file_priority(target.index, 1)
+            except Exception as e:
+                logger.warning(
+                    f"Could not raise {target.rel_path} of {torrent_id} for the "
+                    f"flush ({e})"
+                )
+                return False
+            deadline = time.monotonic() + budget
+            while True:
+                present, _reason = sidecars.present_at_declared_size(
+                    abs_path, target.size)
+                if present:
+                    landed = True
+                    break
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(_SIDECAR_FLUSH_POLL_S)
+        finally:
+            try:
+                target.handle.file_priority(target.index, 0)
+            except Exception:
+                pass
+        if landed:
+            logger.info(
+                f"Flushed sidecar {target.rel_path} of {torrent_id} "
+                f"({target.size} bytes) into the save path"
+            )
+        else:
+            logger.warning(
+                f"Sidecar {target.rel_path} of {torrent_id} did not appear at its "
+                f"declared size within {budget:.1f}s; its priority is back to 0"
+            )
+        return landed
+
+    def retract_sidecar_pieces(self, torrent_id: str, index: int, *,
+                               expired: bool) -> int:
+        """Withdraw an admission. TWO EXITS, and only one of them is dangerous.
+
+        `expired` is keyword-only and has NO DEFAULT, because choosing the wrong
+        exit is the most expensive mistake in the stage and a default would let a
+        caller take it by omission.
+
+        * **success** (`expired=False`) — the span is held and the flush has
+          already put the file priority back to 0. Retraction is
+          `reset_piece_deadline(p)` over the span and NOTHING ELSE. The raised
+          piece priorities are left alone: libtorrent has already dropped them
+          on held pieces (measured — runs 2 and 3 of the probe sampled held
+          pieces and both cells were void), and lowering them is the catastrophe
+          below. Measured on this path: residual 0, the shared piece left at
+          libtorrent's default 4, state back to `seeding`, and the video's
+          SHA-256 matching the seed's.
+        * **budget expiry** (`expired=True`) — the span is NOT held, so there is
+          nothing to flush and the admission must be withdrawn or it holds the
+          torrent below 100% forever, which costs the television
+          `get_completed_video_file_info`'s gate 2 and one of the Pi's two
+          download slots. `reset_piece_deadline(p)` plus `piece_priority(p, 0)`,
+          with GATE 4 RE-CHECKED and never assumed from the admission. This is
+          the only `piece_priority(p, 0)` in stage 9 and the measured
+          catastrophe: on a shared piece it drove `total_wanted` to residual
+          -3048 and the torrent from `seeding`/100% to `downloading`/46.78%.
+
+        The re-check is not ceremony: the span's composition can change
+        underneath an admission. `_prioritize_window` raises a 32-piece window
+        from the playhead, which near the end of a file spills into the next
+        file's pieces, and its backward-seek branch sets `piece_priority(p, 1)`
+        — "low, not zero (still wanted)" — and is re-asserted per chunk. If the
+        sidecar's own file priority has risen meanwhile, gate 4 sees it and this
+        lowers nothing.
+
+        Returns the number of pieces lowered (always 0 on the success exit).
+        Idempotent on both paths.
+        """
+        target, _refusal = self._resolve_sidecar(torrent_id, index)
+        if target is None:
+            return 0
+        pieces = tuple(range(target.first_piece, target.last_piece + 1))
+        for p in pieces:
+            try:
+                target.handle.reset_piece_deadline(p)
+            except Exception:
+                pass
+        if not expired:
+            return 0
+
+        ok, offender = self._span_is_exclusively_deselected(
+            target.ti, target.priorities, target.first_piece, target.last_piece)
+        if not ok:
+            logger.warning(
+                f"Refusing to lower pieces {pieces[0]}-{pieces[-1]} of "
+                f"{torrent_id}: file {offender} occupies them at a non-zero "
+                f"priority, and lowering them would de-want its bytes"
+            )
+            return 0
+        lowered = 0
+        for p in pieces:
+            try:
+                target.handle.piece_priority(p, 0)
+                lowered += 1
+            except Exception:
+                pass
+        logger.info(
+            f"Withdrew the admission of {target.rel_path} of {torrent_id}: "
+            f"{lowered} piece(s) back to priority 0"
+        )
+        return lowered
+
+    def start_sidecar_fetch(self, torrent_id: str, index: int,
+                            budget_ms: Optional[int] = None) -> SidecarAdmission:
+        """Admit now, and drive the wait, the flush and the retraction in a task.
+
+        The admission itself is synchronous — it is a handful of libtorrent calls
+        and the POST answers 202/409 from its real outcome rather than guessing.
+        Everything that waits happens in a background task, because a POST that
+        waited for the span would hold a request open for up to
+        `subtitle_admit_budget_ms`; the television learns the outcome by polling
+        the list (plan D2/task 8).
+
+        ONE TASK PER `(torrent_id, index)`. Two POSTs for the same sidecar — a
+        double OK press on the picker, which is the TV remote's normal failure
+        mode — must not start two drivers racing to flush and retract the same
+        file. The registry is module-level because it belongs to the process, not
+        to a request.
+        """
+        result = self.admit_sidecar_pieces(torrent_id, index)
+        if result.refusal is not None:
+            return result
+
+        key = (str(torrent_id), int(index))
+        existing = _sidecar_fetch_tasks.get(key)
+        if existing is not None and not existing.done():
+            logger.debug(f"A sidecar fetch for {key} is already in flight")
+            return result
+
+        if budget_ms is None:
+            try:
+                budget_ms = int(settings.subtitle_admit_budget_ms)
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                budget_ms = 0
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop to drive the retraction, so withdraw the admission here and
+            # now rather than leave raised pieces with nothing to lower them.
+            logger.warning(
+                f"No running event loop to drive the sidecar fetch for {key}; "
+                f"withdrawing the admission"
+            )
+            self.retract_sidecar_pieces(torrent_id, index, expired=True)
+            return SidecarAdmission(0, result.pieces, SIDECAR_REFUSAL_NO_DRIVER)
+
+        task = loop.create_task(
+            self._drive_sidecar_fetch(
+                torrent_id, int(index), result.pieces, float(budget_ms))
+        )
+        _sidecar_fetch_tasks[key] = task
+        # Drop the key when the task finishes, or the first fetch for a sidecar
+        # would be the only one this process ever runs.
+        task.add_done_callback(lambda t, k=key: _forget_sidecar_fetch(k, t))
+        return result
+
+    async def _drive_sidecar_fetch(self, torrent_id: str, index: int,
+                                   pieces: Tuple[int, ...],
+                                   budget_ms: float) -> None:
+        """admit (done) -> wait for the span -> flush -> retract on the right exit.
+
+        The wait reuses `await_pieces_async`, which is event-driven off the alert
+        loop's `piece_finished_alert` rather than a busy poll. One cosmetic cost,
+        named so it is not mistaken for a bug: its timeout log line says "ending
+        stream", which is wrong for a subtitle — it is shared code and the
+        message belongs to its first caller.
+
+        The flush runs in a thread because it blocks on a bounded wait. The
+        retraction runs in a `finally` so a cancelled task cannot leave raised
+        pieces behind.
+        """
+        held = False
+        try:
+            entry = self.active_torrents.get(torrent_id)
+            if entry is None:
+                return
+            if pieces:
+                held = await self.await_pieces_async(
+                    entry[0], list(pieces), max(budget_ms / 1000.0, 0.0))
+            if held:
+                await asyncio.to_thread(self.flush_sidecar_file, torrent_id, index)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"Sidecar fetch for {torrent_id}#{index} failed: {e}")
+        finally:
+            # not held -> the budget expired (or the task was cancelled), and an
+            # admission nobody can finish must be withdrawn or it strands the
+            # torrent below 100%.
+            self.retract_sidecar_pieces(torrent_id, index, expired=not held)
 
     def _prioritize_window(self, handle, first_piece: int, num_pieces: int,
                            prev_playhead: int, window: int = 32,

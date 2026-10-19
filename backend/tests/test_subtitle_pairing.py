@@ -125,6 +125,34 @@ def test_the_stem_rung_does_not_peel_a_four_digit_year():
     assert pair("Movie.2020.en.srt", videos) == (0, "stem")
 
 
+def test_the_stem_rung_peels_a_leading_track_index_and_a_language_name():
+    """Two peels that no other row in this file reaches. Found GREEN by review.
+
+    `_core_tokens` peels tag tokens off BOTH ends, and `_is_tag_token` treats a full
+    English language NAME as a tag. Measured in review: deleting the leading-peel loop
+    outright, and dropping the `_NAME_TO_CODE` arm of `_is_tag_token`, each left all 32
+    rows of this stage green. The `dir` and `parse` rungs answer for every
+    `2_English.srt` fixture above, so rung 1 never saw a leading index, and no sidecar
+    above spells its language out in full.
+
+    HAND-AUTHORED, like every fixture here. Two videos and a flat torrent, so the `dir`
+    rung has no ancestor directory to use and the `single` rung has two candidates, and
+    neither name parses an episode — so without the peel each of these falls all the
+    way through to `(None, "none")`.
+    """
+    videos = [
+        {"index": 0, "rel_path": "Movie.2020.mkv", "size": 1_000},
+        {"index": 1, "rel_path": "Other.2021.mkv", "size": 1_000},
+    ]
+    # A leading track index with a trailing language CODE. The trailing loop takes the
+    # `en` and then stops on the four-digit year, so the LEADING loop is the only thing
+    # that can remove the `2`.
+    assert pair("2_Movie.2020.en.srt", videos) == (0, "stem")
+    # The language written out in full, which is a tag only by way of the English-name
+    # table — the code table holds `en`, never `english`.
+    assert pair("Movie.2020.English.srt", videos) == (0, "stem")
+
+
 # ------------------------------------------------------------------------ (d) single
 
 def test_a_single_video_torrent_pairs_by_shape():

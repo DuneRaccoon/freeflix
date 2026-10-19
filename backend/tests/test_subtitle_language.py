@@ -196,6 +196,37 @@ def test_null_language_entries_are_not_collapsed():
     assert [entry["index"] for entry in dedupe_by_language(entries)] == [1, 2, 3]
 
 
+# Two full English tracks whose paths are the SAME LENGTH, listed with the
+# later-sorting one first. The `forced` and the length terms both tie, so the
+# lexicographic term is the only thing that can decide — and without it the winner is
+# whichever entry the loop happened to see first. Found GREEN by review: dropping that
+# term from the rank left all 32 rows of this stage green.
+EQUAL_LENGTH_ENGLISH = [
+    {"index": 5, "rel_path": "Subs/15_English.srt", "lang": "en", "flags": []},
+    {"index": 4, "rel_path": "Subs/14_English.srt", "lang": "en", "flags": []},
+]
+
+
+def test_an_exact_tie_is_broken_lexicographically_not_by_input_order():
+    """The dedup's own docstring promises a result "stable rather than dependent on
+    dict iteration". This is the row that holds it to that: both paths are 19
+    characters and neither is forced, so only the third rank term separates them."""
+    kept = dedupe_by_language(EQUAL_LENGTH_ENGLISH)
+    assert [entry["index"] for entry in kept] == [4]
+
+
+def test_a_language_carried_by_a_directory_does_not_resolve():
+    """A DECISION of `guess_language`, pinned rather than left an omission.
+
+    Only the basename is examined: `Subs/English/E01.srt` comes back None, because
+    `Subs/`, `Subtitles/` and per-release folder names are not a convention anything in
+    this repo has measured. Found GREEN by review — widening the scan to every path
+    segment left all 32 rows of this stage green, so the decision was stated in a
+    docstring and pinned nowhere. Now it is a deliberate edit to this row.
+    """
+    assert guess_language("Subs/English/E01.srt", "")[0] is None
+
+
 def test_the_dedup_is_a_no_op_on_distinct_languages():
     entries = [
         {"index": 1, "rel_path": "Subs/en.srt", "lang": "en", "flags": []},

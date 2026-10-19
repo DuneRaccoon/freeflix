@@ -180,9 +180,17 @@ def _core_tokens(stem: str) -> Tuple[str, ...]:
     """`stem`'s tokens with tag tokens peeled off both ends.
 
     Both ends, because the two conventions in the wild put the tag in different
-    places: `Pack.S01E03.en.srt` trails it and `2_English.srt` leads with a track
-    index. Peeling is iterative (`Movie.en.forced.srt` sheds two tokens) and stops at
-    the first non-tag token, so an interior token is never removed.
+    places: `Pack.S01E03.en.srt` trails it, and a track index leads.
+
+    CORRECTED IN REVIEW: `2_English.srt` is NOT the case the leading loop handles. Its
+    trailing loop eats `english` and then the `2`, so the leading loop never runs, and
+    deleting that loop outright left every row of this stage's two test files green.
+    The leading loop earns its place only when the LAST token is not a tag, as in
+    `2_Movie.2020.en.srt` — which is now the fixture that pins it, in
+    `test_the_stem_rung_peels_a_leading_track_index_and_a_language_name`.
+
+    Peeling is iterative (`Movie.en.forced.srt` sheds two tokens) and stops at the
+    first non-tag token, so an interior token is never removed.
     """
     toks = list(_tokens(stem))
     while toks and _is_tag_token(toks[-1]):
@@ -227,10 +235,16 @@ def _torrent_root(paths: Sequence[str]) -> Optional[str]:
     """The torrent's own root folder, or None when the torrent is flat.
 
     A single-folder torrent prefixes every file with the same first segment; a flat
-    multi-file torrent has files at the top level. Requiring BOTH a shared first
-    segment and at least two segments everywhere is what tells the two apart, and
-    getting it wrong matters in one direction only: excluding a segment that is not a
-    root would throw away a real episode hint.
+    multi-file torrent has files at the top level. The SHARED FIRST SEGMENT is what
+    tells the two apart.
+
+    CORRECTED IN REVIEW: the `len(segs) < 2` conjunct is defensive, not load-bearing.
+    Deleting it left every row of this stage's two test files green, and it can only
+    change an answer when a file sits at the top level carrying a name equal to the
+    folder every other file is under — which no realistic layout produces. It is kept
+    because getting the root wrong matters in one direction only: excluding a segment
+    that is not a root would throw away a real episode hint. No test pins it and none
+    can without a pathological fixture, so it is named here rather than claimed.
     """
     firsts = set()
     for p in paths:

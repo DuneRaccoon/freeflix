@@ -2,12 +2,18 @@
  * The television's subtitle data module: the track URL, the picker's partition, the cell's
  * words, and the bounded poll.
  *
- * NO REACT AND NO TIMERS HERE, deliberately. Every function under test is pure except the
- * poll, and the poll takes its `read` and its `wait` as arguments — so this file cannot meet
- * the `waitFor` flake whose mechanism this repo has recorded (RTL's `asyncWrapper` disables
- * the act environment for all of `waitFor` while passive effects flush as a separate
- * Scheduler task). The rendering of all of this is tasks 12-14's, and their assertions are in
- * the player's own suites.
+ * NO REACT HERE, deliberately, and no timers in any row that injects `wait`. Every function
+ * under test is pure except the poll, and the poll takes its `read` and its `wait` as
+ * arguments — so this file cannot meet the `waitFor` flake whose mechanism this repo has
+ * recorded (RTL's `asyncWrapper` disables the act environment for all of `waitFor` while
+ * passive effects flush as a separate Scheduler task). The rendering of all of this is tasks
+ * 12-14's, and their assertions are in the player's own suites.
+ *
+ * ONE ROW IS THE EXCEPTION and it is named here so the paragraph above stays true: "the
+ * default wait is a real timer" runs the poll with NOTHING injected, because the module's own
+ * `sleep` otherwise has no witness at all. It carries no clock and no `waitFor` — it orders a
+ * 0 ms macrotask against the poll's own 10 ms one — and there is no React in it either, so
+ * the recorded flake has no mechanism to reach it.
  *
  * WHAT THIS FILE NEVER ASSERTS. `pair_source` is an opaque string here: the backend has
  * already folded it into `label` and the taxonomy grows, so nothing below enumerates its
@@ -156,6 +162,17 @@ describe('the picker partition', () => {
       'Unknown (unmatched)',
       'Spanish',
     ]);
+  });
+
+  it('every row carries ITS OWN entry', () => {
+    // The row's `entry` is what task 14 answers OK with — a non-convertible row's own
+    // `format` and `reason` — and no row above reads it, so a build that handed every row
+    // the FIRST listed entry was green (found by review). Identity rather than equality:
+    // the row must carry the object the list carried, not a copy that agrees today.
+    const byIndex = new Map(MIXED.subtitles.map((e) => [e.index, e]));
+    for (const r of pickerRows(MIXED)) {
+      expect.soft(r.entry, `row ${r.index}`).toBe(byIndex.get(r.index));
+    }
   });
 
   it('marks only the unservable rows unselectable', () => {
@@ -327,6 +344,22 @@ describe('pollSubtitles', () => {
     expect.soft(result.reads).toBe(1);
   });
 
+  it('stops on a coverage value this build has never heard of', async () => {
+    // DEFAULT-DENY, which is the module's own written claim ("anything that is not
+    // `listed` is final") and which no row could observe: enumerating the two known
+    // values instead of testing `!== 'listed'` was GREEN (found by review). The fixture
+    // CARRIES the chosen entry, unready, so that enumeration really does fall through —
+    // a build that polls 25 times against an envelope that already said it could not
+    // answer ends `exhausted`, and the cell then says `fetching` for 48 seconds about a
+    // list that will never change.
+    const s = script([{ ...list([track(4)]), coverage: 'partial' as SubtitleCoverage }]);
+
+    const result = await pollSubtitles({ read: s.read, index: 4, wait: s.wait });
+
+    expect.soft(result.outcome).toBe('unknown');
+    expect.soft(result.reads).toBe(1);
+  });
+
   it('stops when the entry has left the list', async () => {
     const s = script([list([track(5, { ready: true })])]);
 
@@ -421,6 +454,32 @@ describe('pollSubtitles', () => {
     expect.soft(new Set(s.waits)).toEqual(new Set([SUBTITLE_POLL_MS]));
   });
 
+  it('the default wait is a real timer, not a resolved promise', async () => {
+    // Every other poll row INJECTS `wait`, so the module's one real timer had no witness:
+    // replacing `sleep`'s `setTimeout` with `Promise.resolve()` was GREEN (found by
+    // review), and that build fires all 25 list reads inside a single tick — at a box that
+    // caps itself at two downloads and re-enumerates a torrent's files on every read.
+    //
+    // THE INSTRUMENT IS A MACROTASK, NOT A MEASURED DURATION, so there is no clock in it
+    // to flake: a 0 ms timer runs after every pending microtask and before the poll's own
+    // 10 ms one, so a `sleep` that resolved without a timer would already have finished
+    // the second read by the time this line resumes.
+    const s = script([NOT_READY]);
+    let settled = false;
+    const poll = pollSubtitles({ read: s.read, index: 4, attempts: 2, delayMs: 10 });
+    void poll.then(() => {
+      settled = true;
+    });
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect.soft(settled).toBe(false);
+    expect.soft(s.read).toHaveBeenCalledTimes(1);
+    expect.soft((await poll).reads).toBe(2);
+  });
+
   it('outlives the backend\'s own admission budget by one tick', () => {
     // The arithmetic the module's comment claims, with an instrument: 24 waits of 2 s is 48 s
     // against the backend's 45 s `subtitle_admit_budget_ms` (`backend/app/config.py:199`). A
@@ -433,8 +492,18 @@ describe('pollSubtitles', () => {
     // leaving it as the only constraint is what lets the two rows fail independently.
     expect.soft(SUBTITLE_POLL_MS).toBe(2000);
     expect.soft((SUBTITLE_POLL_ATTEMPTS - 1) * SUBTITLE_POLL_MS).toBeGreaterThan(45_000);
+    // AND NOT BY MUCH — the half that had no instrument: 60 attempts satisfies the line
+    // above too (GREEN, found by review), and a poll that outlived the retraction by
+    // minutes would hold `fetching` on the cell long after the box had given up. The bound
+    // is the module's own phrase, "by one tick", read generously as "within two".
+    expect.soft((SUBTITLE_POLL_ATTEMPTS - 1) * SUBTITLE_POLL_MS).toBeLessThanOrEqual(
+      45_000 + 2 * SUBTITLE_POLL_MS,
+    );
   });
 });
+
+/** Either spelling of either banned module, matched on what it resolves to. */
+const BANNED_SERVICE = /(^|\/)services\/(api-client|streaming)$/;
 
 describe('the module\'s edges', () => {
   it('imports neither the api-client nor the streaming service', () => {
@@ -460,7 +529,16 @@ describe('the module\'s edges', () => {
     // module's real imports must be in the list.
     expect.soft(specifiers).toContain('./chunk');
     expect.soft(specifiers).toContain('@/types');
-    expect.soft(specifiers).not.toContain('@/services/api-client');
-    expect.soft(specifiers).not.toContain('@/services/streaming');
+    // Banned by the module a specifier RESOLVES TO, never by its spelling:
+    // `../../../services/api-client` is the same module as `@/services/api-client` and is
+    // equally one hop behind `_player`'s ban, and the `not.toContain` pair this replaces
+    // was GREEN on it (found by review).
+    expect.soft(specifiers.filter((sp) => BANNED_SERVICE.test(sp))).toEqual([]);
+    // The PATTERN's own positive control. The row above is an `== []` over a filter, so a
+    // typo in the regex would make it permanently green all by itself.
+    expect.soft(
+      ['@/services/api-client', '../../../services/streaming', './services/api-client']
+        .filter((sp) => BANNED_SERVICE.test(sp)),
+    ).toHaveLength(3);
   });
 });

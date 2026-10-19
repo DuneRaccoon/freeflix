@@ -200,6 +200,21 @@ describe('the URLs are pinned exactly', () => {
     expect.soft(sent[0]?.params).toBeUndefined();
   });
 
+  it('file index 0 is a REAL index and rides as a param', async () => {
+    // THE BOUNDARY THE TWO ROWS ABOVE CANNOT REACH, and it is this surface's recorded
+    // hazard rather than a hypothetical: `0` is the first file of a season pack, which is
+    // why `watchHref` and `_player/fileIndex.ts` both gate on `!= null` and say so in their
+    // headers. A truthiness test here — `if (fileIndex)` — drops the filter for exactly
+    // episode 1, the backend answers the WHOLE pack's sidecars, and the picker offers
+    // another episode's captions with nothing failing anywhere. Found by review: with only
+    // `4` and `undefined` as fixtures, that mutation was GREEN.
+    const { sent, streamingService } = await freshService(async (c) => ok(c, emptyList));
+
+    await streamingService.getSubtitles('pk', 0, { allow401: true });
+
+    expect.soft(sent[0]?.params).toEqual({ file_index: 0 });
+  });
+
   it('the admission POST names the index in the path', async () => {
     const { sent, streamingService } = await freshService(async (c) =>
       ok(c, { admitted: 2, budget_ms: 45000 }),

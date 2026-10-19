@@ -113,16 +113,32 @@ class SidecarAdmission(NamedTuple):
 
     `admitted` is the number of pieces this call raised. **ZERO IS A SUCCESS**
     when `refusal` is None, and the POST answers 202 for it (plan task 8): it
-    means there was nothing to raise, which happens three ways — every piece is
+    means there was nothing to raise, which happens TWO ways — every piece is
     already held, or gate 4 found a WANTED file sharing a piece so the bytes are
-    already on their way, or the span was empty. All three still want the flush,
-    because held-but-unflushed bytes live in the part file and no `<track>` can
-    read them.
+    already on their way. Both still want the flush, because held-but-unflushed
+    bytes live in the part file and no `<track>` can read them. An earlier draft
+    of this docstring named a third way, "the span was empty"; it is
+    UNREACHABLE, and task 8 must not write a branch for it. `_resolve_sidecar`
+    refuses `size <= 0`, so `refusal is None` implies
+    `last_piece >= first_piece` and `pieces` therefore always holds at least one
+    piece.
 
-    `pieces` is the full span, reported even when nothing was raised, because the
-    driver waits on it and then flushes regardless of `admitted`.
+    `pieces` is the full span, reported even when nothing was raised. On the
+    `refusal is None` paths that is because the driver waits on it and then
+    flushes regardless of `admitted`. It is ALSO non-empty for exactly one
+    refusal — see `SIDECAR_REFUSAL_NO_DRIVER` below — where nothing is waiting
+    on it at all, so a consumer must read `pieces` together with `refusal` and
+    never as "what somebody is about to fetch".
 
-    `refusal` is a 409: the admission did not happen and will not.
+    `refusal` is a 409, except `SIDECAR_REFUSAL_NO_SUCH_SIDECAR`, which task 8
+    answers 404 (`api/subtitles.py`). It does NOT uniformly mean "the admission
+    did not happen and will not". That holds for the gate refusals, which return
+    before touching libtorrent and report `pieces == ()`.
+    `SIDECAR_REFUSAL_NO_DRIVER` is the exception: the admission DID happen, found
+    no running event loop to drive the wait, and was withdrawn on the spot by
+    `retract_sidecar_pieces(expired=True)`. It is the one refusal carrying a
+    non-empty `pieces`, and that span is one already withdrawn rather than one
+    anybody is waiting for.
     """
 
     admitted: int
@@ -2339,8 +2355,23 @@ class TorrentManager:
         span_start = first_piece * piece_length
         span_end = (last_piece + 1) * piece_length
         if total_size > 0:
-            # The last piece of a torrent overshoots its end; those bytes belong
-            # to no file at all.
+            # DEAD AS WRITTEN, and said here rather than left to be discovered.
+            # The sentence it used to carry — "the last piece of a torrent
+            # overshoots its end; those bytes belong to no file at all" — is true
+            # about libtorrent and irrelevant here, because this clamp can never
+            # change an answer below. `span_end` is only ever read in
+            # `f_offset >= span_end`, and no file can lie beyond `total_size`
+            # (`total_size` is the sum of the file sizes, so the last file's
+            # `offset + size` IS it): a file with `f_offset >= total_size` would
+            # have to be empty, and `f_size <= 0` is skipped before the
+            # comparison. So every `f_offset` the loop tests is `< total_size`,
+            # and clamping `span_end` down to `total_size` cannot flip
+            # `f_offset >= span_end` either way. Deleting these two lines is a
+            # GREEN mutation. Kept because the overshoot it describes is real —
+            # the span of the torrent's last piece genuinely does run past the
+            # last file — and the next hand to widen what `span_end` is read for
+            # (a byte-range intersection rather than this one-sided test) would
+            # need it back immediately.
             span_end = min(span_end, total_size)
         for i in range(num_files):
             try:
@@ -2550,11 +2581,32 @@ class TorrentManager:
 
     def retract_sidecar_pieces(self, torrent_id: str, index: int, *,
                                expired: bool) -> int:
-        """Withdraw an admission. TWO EXITS, and only one of them is dangerous.
+        """Withdraw an admission. GATE 4 FIRST, then two exits.
 
         `expired` is keyword-only and has NO DEFAULT, because choosing the wrong
         exit is the most expensive mistake in the stage and a default would let a
         caller take it by omission.
+
+        **GATE 4 GUARDS BOTH EXITS, and it runs BEFORE the deadline reset.** A
+        refusal makes the whole call a true no-op — deadlines included — and that
+        ordering is a fix, not a style: the earlier shape reset
+        `reset_piece_deadline(p)` over the whole span unconditionally and ahead
+        of the re-check, so the gate-4-refused path cleared the deadlines on a
+        span the gate had *just* identified as belonging to a WANTED VIDEO FILE.
+        Those are exactly the pieces `_deadline_pieces` (`:2204`, its
+        `set_piece_deadline(p, 0)` at `:2212`) gives the playhead from
+        `wait_for_first_chunk` (`:2112`, `:2126`) and `stream_file_range`
+        (`:1851`, `:1866`) — and `_deadline_pieces`' `read_ahead=4` reaches PAST
+        the video's last piece into the sidecar's own pieces on an unpadded
+        torrent, which is the same adjacency gate 4 exists for. The effect was
+        bounded (the streaming path re-asserts its deadlines per chunk) but it
+        was a de-prioritisation of the television's main content in the one path
+        that is documented as doing nothing, and the gate-4 refusal is reached
+        with no admission of ours to withdraw at all: `admit_sidecar_pieces`
+        raises nothing when gate 4 refuses, yet `start_sidecar_fetch` still
+        starts a driver, and its `finally` arrives here with `expired=True`.
+
+        Then, with the gate passed:
 
         * **success** (`expired=False`) — the span is held and the flush has
           already put the file priority back to 0. Retraction is
@@ -2569,9 +2621,8 @@ class TorrentManager:
           nothing to flush and the admission must be withdrawn or it holds the
           torrent below 100% forever, which costs the television
           `get_completed_video_file_info`'s gate 2 and one of the Pi's two
-          download slots. `reset_piece_deadline(p)` plus `piece_priority(p, 0)`,
-          with GATE 4 RE-CHECKED and never assumed from the admission. This is
-          the only `piece_priority(p, 0)` in stage 9 and the measured
+          download slots. `reset_piece_deadline(p)` plus `piece_priority(p, 0)`.
+          This is the only `piece_priority(p, 0)` in stage 9 and the measured
           catastrophe: on a shared piece it drove `total_wanted` to residual
           -3048 and the torrent from `seeding`/100% to `downloading`/46.78%.
 
@@ -2581,15 +2632,41 @@ class TorrentManager:
         file's pieces, and its backward-seek branch sets `piece_priority(p, 1)`
         — "low, not zero (still wanted)" — and is re-asserted per chunk. If the
         sidecar's own file priority has risen meanwhile, gate 4 sees it and this
-        lowers nothing.
+        call lowers nothing and resets nothing.
 
-        Returns the number of pieces lowered (always 0 on the success exit).
-        Idempotent on both paths.
+        Skipping the reset on the SUCCESS exit when gate 4 now refuses is safe
+        for a different reason than the budget exit's: that exit runs with the
+        span already HELD, and a deadline on a held piece has nothing left to
+        order. Resetting a deadline is NOT unconditionally safe, which is what
+        this function used to claim.
+
+        Returns the number of pieces lowered (always 0 on the success exit, and
+        always 0 when gate 4 refuses). Idempotent on both paths.
         """
         target, _refusal = self._resolve_sidecar(torrent_id, index)
         if target is None:
             return 0
         pieces = tuple(range(target.first_piece, target.last_piece + 1))
+
+        # Gate 4, ahead of EVERYTHING, on BOTH exits. A refusal means the span's
+        # bytes belong to a file somebody else wants, so neither of the two
+        # calls below is ours to make: `piece_priority(p, 0)` would de-want that
+        # file's bytes, and `reset_piece_deadline(p)` would drop a deadline the
+        # streaming path may have set on the very same piece.
+        ok, offender = self._span_is_exclusively_deselected(
+            target.ti, target.priorities, target.first_piece, target.last_piece)
+        if not ok:
+            logger.warning(
+                f"Gate 4 refuses the retraction of pieces "
+                f"{pieces[0]}-{pieces[-1]} of {torrent_id} (expired={expired}): "
+                f"file {offender} occupies them at a non-zero priority (None = "
+                f"the layout was unreadable), so this call does nothing at all — "
+                f"no piece_priority(p, 0), which would de-want that file's "
+                f"bytes, and no reset_piece_deadline(p) either, which could drop "
+                f"the playhead's own deadline on a shared piece"
+            )
+            return 0
+
         for p in pieces:
             try:
                 target.handle.reset_piece_deadline(p)
@@ -2598,15 +2675,6 @@ class TorrentManager:
         if not expired:
             return 0
 
-        ok, offender = self._span_is_exclusively_deselected(
-            target.ti, target.priorities, target.first_piece, target.last_piece)
-        if not ok:
-            logger.warning(
-                f"Refusing to lower pieces {pieces[0]}-{pieces[-1]} of "
-                f"{torrent_id}: file {offender} occupies them at a non-zero "
-                f"priority, and lowering them would de-want its bytes"
-            )
-            return 0
         lowered = 0
         for p in pieces:
             try:

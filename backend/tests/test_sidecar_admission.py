@@ -18,16 +18,22 @@ both the spec and the design round proposed does not work:
   path raises FileNotFoundError. One `file_priority(idx, 1)` once the span is
   held moves them (`redownloaded=0`), and one `file_priority(idx, 0)` puts the
   priority back.
-* **The two retraction exits differ in exactly the call that is unsafe.** On
-  success, `reset_piece_deadline` and nothing else. On budget expiry,
-  `piece_priority(p, 0)` as well — the only one in the stage — with gate 4
-  re-checked. Measured on an unpadded layout where the sidecar shares the video's
+* **The two retraction exits differ in exactly the call that is unsafe, and
+  GATE 4 GUARDS BOTH OF THEM FIRST.** A gate-4 refusal makes the whole call a
+  true no-op, deadlines included — resetting a deadline is NOT unconditionally
+  safe, because on a span gate 4 has just declared off-limits the deadline may
+  be the playhead's own (`_deadline_pieces`, whose `read_ahead=4` reaches past
+  the video's last piece on an unpadded torrent). With the gate passed: on
+  success, `reset_piece_deadline` and nothing else; on budget expiry,
+  `piece_priority(p, 0)` as well — the only one in the stage.
+  Measured on an unpadded layout where the sidecar shares the video's
   last piece: `retract=file` gave residual 0, the shared piece left at
   libtorrent's default 4 and the torrent `seeding`/100%; `retract=piece` gave
   residual **-3048**, the shared piece at priority **0**, and the torrent back to
   `downloading`/46.78%. A negative residual is the torrent wanting less than its
   own video — an unplayable episode reported complete. **One retraction test
-  cannot cover this**, which is why there are five.
+  cannot cover this**, which is why there are six: the two exits, each exit's
+  gate-4 refusal, idempotence, and the off-session no-op.
 
 **Why the fixtures are shaped the way they are.** The sidecar sits at a NON-ZERO
 offset mid-torrent in every layout: a sidecar-at-offset-0 fixture cannot tell the
@@ -651,6 +657,10 @@ def test_the_success_exit_resets_deadlines_and_lowers_nothing(tmp_path):
     budget-expiry call here is the measured catastrophe — residual -3048, the
     shared piece de-wanted, the torrent back from `seeding`/100% to
     `downloading`/46.78%.
+
+    Gate 4 PASSES on this fixture, which is what makes the deadline reset below
+    an instrument for the reset itself rather than for the gate: a production
+    change that skipped the reset on this exit reddens this row (measured).
     """
     handle = _load(tmp_path, have=True)
 
@@ -686,7 +696,7 @@ def test_the_budget_exit_lowers_the_span_after_rechecking_gate_4(tmp_path):
 
 
 def test_the_budget_exit_lowers_nothing_when_the_file_became_wanted_underneath(tmp_path):
-    """(f2, second half) Gate 4 is RE-CHECKED, never assumed from the admission.
+    """(f2, second half) Gate 4 is RE-CHECKED, and a refusal is a TRUE no-op.
 
     The span's composition can change under an in-flight admission:
     `_prioritize_window` raises a 32-piece window from the playhead, which near
@@ -694,15 +704,62 @@ def test_the_budget_exit_lowers_nothing_when_the_file_became_wanted_underneath(t
     branch sets `piece_priority(p, 1)` — "low, not zero (still wanted)" — and is
     re-asserted per chunk. Here the sidecar's own file priority has risen to 7
     underneath, so lowering its pieces would de-want bytes the session now wants.
-    The deadlines are still reset, because resetting one is always safe.
+
+    **This row's `reset_deadline_calls` used to be `[4, 5]`, on the claim that
+    "resetting a deadline is always safe". It is not, and that assertion pinned
+    the bug** (task 7 review, finding 5). Gate 4 has just said the span's bytes
+    belong to a file somebody else wants, and a deadline on such a piece is
+    quite possibly the PLAYHEAD's own: `_deadline_pieces` sets
+    `set_piece_deadline(p, 0)` across `[first_piece, last_piece]` plus
+    `read_ahead=4`, from `wait_for_first_chunk` and from `stream_file_range` on
+    every ranged `GET /video`, and on an unpadded torrent that read-ahead reaches
+    past the video's last piece into the sidecar's own span. So gate 4 now runs
+    BEFORE the reset and a refusal touches nothing whatsoever. The effect of the
+    old shape was bounded — the streaming path re-asserts its deadlines per
+    chunk — but it was an untested de-prioritisation of the television's main
+    content inside a call documented as doing nothing.
     """
     handle = _load(tmp_path, prios=[7, 0, 7, 4, 0], have=False)
 
     lowered = torrent_manager.retract_sidecar_pieces(TID, SUB, expired=True)
 
     assert lowered == 0
-    assert handle.reset_deadline_calls == [4, 5]
+    assert handle.reset_deadline_calls == [], (
+        "a gate-4 refusal must not clear deadlines on a span gate 4 has just "
+        "declared off-limits — those are the pieces _deadline_pieces gives the "
+        "playhead, and this call has no admission of its own to withdraw"
+    )
     assert handle.piece_priority_calls == []
+
+
+def test_the_success_exit_is_also_a_true_no_op_when_gate_4_refuses(tmp_path):
+    """(f1, second half) ONE rule, not two: gate 4 guards BOTH exits.
+
+    This is the gate-4 no-op reaching the SUCCESS exit, and it is the reachable
+    production path rather than a contrived one. On `SHARED_LAST_PIECE` the
+    sidecar's span is shared with a WANTED video (`Show/E02.mkv` starts inside
+    piece 4), so `admit_sidecar_pieces` raises nothing and reports
+    `admitted: 0` with no refusal — but `start_sidecar_fetch` still starts a
+    driver, the shared pieces arrive anyway because the video wants them, the
+    flush lands the file, and the driver's `finally` arrives here with
+    `expired=False`. Nothing in that sequence is ours to undo.
+
+    Without this row, "gate 4 is re-checked on both exits" is unfalsifiable: a
+    production change that ran the gate only inside the `if expired` branch
+    would leave every other row in this file green (measured).
+    """
+    handle = _load(tmp_path, rows=SHARED_LAST_PIECE,
+                   prios=SHARED_LAST_PIECE_PRIOS, have=True)
+
+    lowered = torrent_manager.retract_sidecar_pieces(TID, 1, expired=False)
+
+    assert lowered == 0
+    assert handle.reset_deadline_calls == [], (
+        "piece 4 belongs to a wanted video too, and the deadline on it may be "
+        "the playhead's own"
+    )
+    assert handle.piece_priority_calls == []
+    assert handle.file_priority_calls == []
 
 
 def test_both_retraction_exits_are_idempotent(tmp_path):

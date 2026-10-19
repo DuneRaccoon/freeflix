@@ -117,6 +117,17 @@ SRT_SECONDS_CARRY = "1\n00:00:75,000 --> 00:01:20,000\nCarried\n"
 SRT_MINUTES_CARRY = "1\n00:75:01,000 --> 01:16:02,000\nCarried\n"
 SRT_ARROW_IN_PAYLOAD = "1\n00:00:01,000 --> 00:00:02,000\nHe said --> and left\n"
 SRT_BOTH_ESCAPES = "1\n00:00:01,000 --> 00:00:02,000\n5 < 6 and <i>7</i> & 8\n"
+
+# Two entity-SHAPED runs, one that no parser knows and one that every parser
+# does. D19 escapes `&` unconditionally off a measurement - `A &notreal; B`
+# renders as `A ¬real; B` through a legacy semicolon-less entity - so the
+# "only escape a bare ampersand" refinement must not be reachable without a red
+# row. The cost of the rule is in the second half of the payload and is the
+# deliberate trade: a `.vtt` that already carries `&amp;` shows it literally.
+SRT_ENTITY_LIKE = (
+    "1\n00:00:01,000 --> 00:00:02,000\n"
+    "A &notreal; B and &amp; C\n"
+)
 SRT_BRACE_PREFIX = "1\n00:00:01,000 --> 00:00:02,000\n{\\an8}Top line\n"
 SRT_FONT_TAG = (
     "1\n00:00:01,000 --> 00:00:02,000\n"
@@ -239,6 +250,7 @@ _SUCCESS_FIXTURES = [
     ("srt-minutes-carry", SRT_MINUTES_CARRY, ".srt"),
     ("srt-arrow-in-payload", SRT_ARROW_IN_PAYLOAD, ".srt"),
     ("srt-both-escapes", SRT_BOTH_ESCAPES, ".srt"),
+    ("srt-entity-like", SRT_ENTITY_LIKE, ".srt"),
     ("srt-brace-prefix", SRT_BRACE_PREFIX, ".srt"),
     ("srt-font-tag", SRT_FONT_TAG, ".srt"),
     ("srt-unknown-tags", SRT_UNKNOWN_TAGS, ".srt"),
@@ -265,7 +277,7 @@ def test_the_grammar_check_is_applied_to_every_success_fixture():
 
     A parametrised grammar check over an empty or shrinking list passes forever.
     """
-    assert len(_SUCCESS_FIXTURES) >= 16
+    assert len(_SUCCESS_FIXTURES) >= 17
 
 
 # ------------------------------------------------------------- byte-exact rows
@@ -356,6 +368,28 @@ def test_angle_brackets_and_ampersands_are_escaped_in_opposite_directions():
     assert result.text == (
         "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
         "5 &lt; 6 and <i>7</i> &amp; 8\n"
+    )
+    assert result.cue_count == 1
+
+
+def test_an_entity_shaped_run_is_escaped_too_and_that_is_the_whole_rule():
+    """``&`` is escaped UNCONDITIONALLY, and that decision had no instrument.
+
+    Refining it to "escape only a bare ``&``" - the obvious, tidy-looking
+    change, and the one a reader of the ``&amp;``-is-double-escaped cost will
+    reach for - left all 48 rows of this file green. It must not: D19's reason
+    is measured, and ``A &notreal; B`` renders as ``A ¬real; B`` through a
+    legacy semicolon-less entity, which is invisible as a fault because it looks
+    like text.
+
+    The second half of this payload is the price of the rule, asserted rather
+    than only documented: ``&amp;`` on the way in is ``&amp;amp;`` on the way
+    out and shows as the literal text ``&amp;`` on screen.
+    """
+    result = to_webvtt(SRT_ENTITY_LIKE, ".srt")
+    assert result.text == (
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
+        "A &amp;notreal; B and &amp;amp; C\n"
     )
     assert result.cue_count == 1
 

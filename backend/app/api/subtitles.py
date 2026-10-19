@@ -1,9 +1,9 @@
-"""Sidecar subtitles: the list the television reads, and the one POST that mutates.
-
-Two routes here (task 9 adds the third, the WebVTT body, to this same module):
+"""Sidecar subtitles: the list the television reads, the one POST that mutates,
+and the WebVTT body a `<track>` loads.
 
     GET  /{torrent_id}/subtitles?file_index=N   the envelope + the rows
     POST /{torrent_id}/subtitles/{index}/fetch  admit the sidecar's pieces
+    GET  /{torrent_id}/subtitles/{index}        the converted WebVTT body
 
 **Why the POST exists at all, and why it is a POST.** A `<track>` element can
 issue a GET and nothing else, so making admission a POST puts the mutation
@@ -53,6 +53,8 @@ from app.models import SubtitleList, SubtitleTrack
 from app.providers.episodes import parse_episode
 from app.subtitles import sidecars
 from app.subtitles import naming
+from app.subtitles.decode import decode_subtitle
+from app.subtitles.vtt import to_webvtt
 from app.torrent.content_guard import is_video_file
 from app.torrent.manager import (
     SIDECAR_REFUSAL_NO_SUCH_SIDECAR,
@@ -364,3 +366,250 @@ async def fetch_subtitle(
             )
         return JSONResponse(status_code=409, content={"reason": result.refusal})
     return {"admitted": result.admitted, "budget_ms": budget_ms}
+
+
+# ==========================================================================
+# The WebVTT body (task 9)
+# ==========================================================================
+
+# HARD-CODED, never `get_mime_type` (D10). Re-measured in this very image:
+# `.srt -> text/plain`, `.ass -> audio/aac`, `.ssa -> application/octet-stream`
+# — and that table is a property of the BASE IMAGE (`/etc/mime.types` is
+# present), so a `python:3.10-slim` bump can change it with nothing noticing.
+# The deeper reason is that the SOURCE extension is irrelevant here: whatever
+# arrived on disk, what leaves this route is WebVTT, so a mime type derived from
+# the file name is wrong even when the table is right. `text/plain` is the
+# dangerous near-miss — a `<track>` given it loads nothing and fires no error
+# the television could print.
+_VTT_CONTENT_TYPE = "text/vtt; charset=utf-8"
+
+# The retryable refusal, in the shape `stream_video` already chose for the same
+# question (`api/streaming.py:286-292`): 503, `Retry-After: 2`, and an EMPTY
+# body. The comment there is the argument here too — 416 "would tell <video> to
+# stop for good" over a condition that clears itself in seconds — and a `<track>`
+# is the same kind of consumer. What clears here is task 7's flush: until it
+# runs, a held piece's bytes sit in libtorrent's `.<infohash>.parts` file and the
+# sidecar's own path does not exist (C1, measured).
+_RETRY_AFTER_SECONDS = "2"
+
+
+def _not_ready() -> Response:
+    """503 + `Retry-After: 2` + no body. Deliberately bodiless.
+
+    There is nothing to say that a `<track>` could read, and `Cache-Control` is
+    on it because the very next second may answer 200 from the same URL.
+    """
+    return Response(
+        status_code=503,
+        headers={"Retry-After": _RETRY_AFTER_SECONDS,
+                 "Cache-Control": "no-store"},
+    )
+
+
+def _refused(reason: str) -> JSONResponse:
+    """415 naming the reason, as a body something can actually read.
+
+    415 rather than 503 because none of these clear by waiting: a format this box
+    does not convert, a body no codepage decodes, a file that grew past the cap,
+    a file with no cues in it. The reason is spelled exactly as `sidecars.py` and
+    `vtt.py` spell it, so the picker's row and this status cannot drift apart.
+
+    The body is readable on purpose and it is the one thing a `<track>` CANNOT
+    see: the 401 on this router is bodiless and structural (D11), so a bodiless
+    415 would be indistinguishable from it to the only element that mounts this
+    URL. The television learns a reason by reading the LIST, or by a sibling
+    `fetch` (task 15's diag probe), and never from the track element.
+    """
+    return JSONResponse(
+        status_code=415,
+        content={"reason": reason},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _read_sidecar_bytes(path: str) -> bytes:
+    """The one read on this route, and the only `open()` in the whole stage.
+
+    Verified rather than asserted: `grep -n 'open(|read_bytes|read_text'` over
+    `app/subtitles/*.py` and this module finds this line and nothing else. The
+    lister STATS a sidecar (`sidecars.present_at_declared_size`) and never opens
+    one, which is what keeps the list a read of metadata and this route the only
+    place a stranger's bytes become text.
+
+
+    A module-level function rather than an inline `open()` so a test can watch
+    it: "does not read a file the lister did not return" is otherwise a `Does
+    not` line with no instrument, and three rows below (the `.ass` refusal, the
+    containment refusal and the 401) assert that NOTHING was read.
+
+    Unbounded by shape and bounded in fact: the caller only reaches this with a
+    row the lister produced, and the lister drops any sidecar whose declared size
+    is over `subtitle_max_bytes` (`sidecars.listable_size`) and requires the file
+    on disk to be at exactly that declared size before it reports `ready`. So the
+    read is capped at `subtitle_max_bytes` by the two gates above it, not by a
+    third policy here — this route hard-codes no size rule of its own (D9: one
+    policy, in the lister, so there is nothing to drift).
+    """
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+@router.get(
+    "/{torrent_id}/subtitles/{index}",
+    response_class=Response,
+    summary="Serve one sidecar subtitle as WebVTT",
+)
+async def get_subtitle_vtt(
+    torrent_id: str = Path(..., description="ID of the torrent"),
+    index: int = Path(..., description="The torrent's own libtorrent file index"),
+):
+    """One sidecar, converted to strict WebVTT, or a refusal that names itself.
+
+    RESOLUTION GOES THROUGH THE LISTER AND NOWHERE ELSE (D9). `index` is the
+    torrent's OWN libtorrent index, the same space `?file_index=` lives in
+    (`api/streaming.py:256`) and never this row's position in the list: a
+    filtered or deduplicated list renumbers, and `manager.py:1250-1254` already
+    forbids resolving an index by walking the save path, because "a directory
+    listing's ordering is NOT it — pad files and non-video extras shift it". (The
+    plan cites that note as `:1145-1149` and `list_sidecars`' own docstring as
+    `:1146-1150`; both are pre-task-7 numbers, and task 7 inserted ~105 lines
+    above it. Re-read, not inherited.) Going through the lister is also what
+    gives this route the
+    extension allow-list, the pad exclusion, the size cap and the containment
+    assertion for free, with no second policy to drift out of step — which is why
+    a video file's index, an out-of-range index and a path escaping the save path
+    are all 404s here for the one reason that the lister did not produce them.
+
+    Resolution is over the lister's RAW rows, deliberately not `_deduped`'s
+    output: dedup is a presentation choice for the picker (one offer per
+    language), and a URL the television is already holding must not stop working
+    because a sibling file changed which duplicate wins.
+
+    `HEAD` is a 405 and so is every other method — see the module docstring.
+
+    The matrix:
+
+    * **200** `text/vtt; charset=utf-8`, `Cache-Control: no-store`, a body with
+      at least one cue in it. Never a 200 with an empty VTT: measured, a body of
+      `WEBVTT\\n\\n` loads at `readyState 2` with zero cues and fires NO EVENT AT
+      ALL, so an empty success is the one answer the television cannot detect
+      (D19). The converter funnels every zero-cue outcome into a refusal and this
+      route re-checks the count rather than trusting the type.
+    * **503** + `Retry-After: 2`, empty, when the sidecar is resolvable but its
+      bytes are not here yet — the lister measured it incomplete, or it measured
+      it ready and the path is absent, which is exactly the window between a held
+      piece and task 7's flush (C1).
+    * **415** `{"reason": ...}` for a refusal that waiting cannot fix.
+    * **404** for an unknown torrent, a content-guard-blocked one, an index the
+      lister did not produce, and a file that is present but unreadable.
+    * **422** FastAPI's default body for a non-integer index — this path is
+      deliberately NOT in `_BARE_422_PATHS` (D11).
+    * **401** bodiless, inherited from the router's `STREAM_GATED` dependency.
+    """
+    _require_torrent(torrent_id)
+
+    coverage, rows = torrent_manager.list_sidecars(torrent_id)
+    # DEAD AS WRITTEN, and said here rather than left to be discovered: the
+    # lister returns `COVERAGE_LISTED` if and only if it produced at least one
+    # row (`manager.py:1544`), so this gate can only fire when the lookup below
+    # would have 404'd anyway — deleting it is a GREEN mutation, measured. It is
+    # kept because the contract this route answers is written in terms of
+    # `coverage` (D6/D9), and because the next hand to add a second source — a
+    # `source: "resume"` arm after the stage-7 `save_info_dict` repair — reads
+    # this line as the place coverage is honoured. No test claims it.
+    if coverage != sidecars.COVERAGE_LISTED:
+        raise HTTPException(
+            status_code=404, detail="No subtitle list for this torrent")
+
+    row = next((r for r in rows if r["index"] == index), None)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Subtitle index {index} is not in this torrent",
+        )
+
+    # BEFORE ANY READ, and that order is the test instrument for "resolution goes
+    # through the lister": an `.ass` is refused from the ROW, which is a thing
+    # only the lister knows, so the refusal arrives without the file ever being
+    # opened. An implementation that resolved the index itself would have to read
+    # the bytes to discover the same refusal from the converter, which is the
+    # mutation the `.ass` row below discriminates. D17: `.ass`/`.ssa` are listed
+    # and never converted, so the picker can say the format out loud instead of
+    # staying silent about a file the viewer can see in the release.
+    if not row["convertible"]:
+        return _refused(row["reason"] or sidecars.REASON_UNSUPPORTED_FORMAT)
+
+    # The lister already met an `OSError` that was not absence (a permission, a
+    # device error). That does not clear by waiting, so it is not a 503 — and
+    # `ready` is False for it, which is why this is checked FIRST.
+    if row["reason"] == sidecars.REASON_UNREADABLE:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Subtitle index {index} could not be read",
+        )
+
+    if not row["ready"]:
+        return _not_ready()
+
+    try:
+        raw = _read_sidecar_bytes(row["path"])
+    except (FileNotFoundError, NotADirectoryError):
+        # `ready` was measured and the path is STILL absent. Two ways to get
+        # here, both retryable: the bytes are held but not yet flushed, so they
+        # live in a `.<infohash>.parts` file nothing can open (C1, measured —
+        # `contiguous_available` reports complete and `file_progress` reports the
+        # full size while `open()` raises); or the lister's answer went stale
+        # between its own stat and this read. Never a 500: the error middleware
+        # would hand `{"detail": "Internal server error", "error": ...}` to a
+        # `<track>`, which reports it as a load failure with no reason anywhere.
+        logger.info(
+            f"sidecar {index} of {torrent_id} reads as ready but its path is "
+            f"absent ({row['path']}); answering 503"
+        )
+        return _not_ready()
+    except OSError as e:
+        # Present and unreadable. Not retryable and not a 500.
+        logger.warning(
+            f"sidecar {index} of {torrent_id} could not be read: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Subtitle index {index} could not be read",
+        )
+
+    text, refusal = decode_subtitle(raw)
+    if refusal is not None or text is None:
+        # `encoding-unknown`. A refusal rather than mojibake, because a wrongly
+        # decoded track is invisible as a FAULT and visible as nonsense for the
+        # length of the film (D18), and the owner has one action to take:
+        # `SUBTITLE_ENCODING`.
+        return _refused(refusal or "encoding-unknown")
+
+    result = to_webvtt(text, row["format"])
+    # The `cue_count` conjunct is DEAD AS WRITTEN and that is said here rather
+    # than left to be discovered: `ConvertResult` promises exactly one of `text`
+    # and `reason` is set, so dropping `or result.cue_count < 1` is a GREEN
+    # mutation (measured). It is kept because the thing this route may never
+    # answer is a 200 whose body has no cues in it — measured, that body loads at
+    # `readyState 2` and fires NO EVENT AT ALL, so it is the one failure the
+    # television cannot see (D19) — and a reader of this handler should not have
+    # to go and check `vtt.py`'s invariant to know the route depends on it. No
+    # test claims this conjunct; the four 415 rows claim the branch.
+    if result.text is None or result.cue_count < 1:
+        return _refused(result.reason or "no-cues")
+
+    # The type goes in `headers`, NOT in `media_type`, and that is measured
+    # rather than stylistic: starlette 0.27.0's `Response.init_headers` appends
+    # `"; charset=" + self.charset` to any `media_type` starting with `text/`
+    # WITHOUT checking whether one is already there, so
+    # `media_type=_VTT_CONTENT_TYPE` ships
+    # `text/vtt; charset=utf-8; charset=utf-8` — which is what the first run of
+    # this route actually produced. An explicit `content-type` header suppresses
+    # that branch (`populate_content_type` is False when the key is present), so
+    # the constant above is the exact string on the wire and does not depend on
+    # starlette's charset habits. The body is still encoded as UTF-8 either way:
+    # `Response.charset` is what renders it.
+    return Response(
+        content=result.text,
+        headers={"content-type": _VTT_CONTENT_TYPE,
+                 "Cache-Control": "no-store"},
+    )

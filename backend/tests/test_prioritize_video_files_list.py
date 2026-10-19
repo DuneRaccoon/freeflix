@@ -41,9 +41,17 @@ from app.config import settings
 
 
 class _TI:
-    """`test_skip_non_video.py:6-24`'s fake, plus `offset`/`piece_length` so the
-    streaming-piece branch of `prioritize_video_files` runs for real instead of being
-    swallowed by its own `except`."""
+    """`test_skip_non_video.py:6-24`'s fake, plus `offset`/`piece_length` so
+    `_prioritize_streaming_pieces` takes its real span arithmetic rather than its
+    `except` fallback.
+
+    NOT load-bearing, measured in review: delete both and all three tests here stay
+    GREEN, because the fallback (`first_piece = 0`, `num_pieces = 10`,
+    `manager.py:1471-1474`) still calls `piece_priority` and the method still returns
+    True, and nothing in this file asserts the span. `handle.piece_priority_calls` and
+    `handle.deadlines` are therefore recorded and never read. Pinning the span would
+    characterise `_prioritize_streaming_pieces`, which plan task 1 does not ask for —
+    leave that to whoever needs it, and do not read these two members as a guard."""
 
     def __init__(self, paths, size=1_000_000, piece_length=16384):
         self._paths = list(paths)

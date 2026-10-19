@@ -151,9 +151,14 @@ def test_video_is_seven_and_every_other_index_is_zero(selector):
     # house reflex is to stub it away entirely. Both leave `applied` at None.
     assert handle.applied, "prioritize_files was never called — nothing was measured"
     assert handle.applied == [7, 0, 0, 0]
-    # The length is the only instrument that catches a SHORT list. `prioritize_files`
-    # with fewer entries than `num_files()` does not deselect the tail: it re-admits it
-    # at libtorrent's default 4, silently and with no error (plan D1, reason 2).
+    # A SHORT list does not deselect the tail: it re-admits it at libtorrent's default 4,
+    # silently and with no error (plan D1, reason 2). This line is NOT the instrument that
+    # catches it, and the plan's "that is the only instrument there is" is wrong twice over
+    # (plan C2.3): measured in review, the short-list mutation reddens the equality above
+    # AND the equality in the next test, and it is the equality above that fires — this
+    # assertion cannot be the one that fails while `== [7, 0, 0, 0]` stands, because that
+    # already fixes the length. Kept as the named pin for a later edit that relaxes the
+    # equality, not as a live instrument.
     assert len(handle.applied) == handle.get_torrent_info().num_files()
 
 
@@ -192,5 +197,7 @@ def test_video_extensions_is_the_sixteen_entry_set(selector):
         ".mp4", ".mkv", ".avi", ".mov", ".webm", ".ogv", ".wmv", ".flv", ".m4v",
         ".mpg", ".mpeg", ".ts", ".m2ts", ".vob", ".3gp", ".mts",
     }
-    # And nothing stage 9 lists as a subtitle may be in it.
+    # And nothing stage 9 lists as a subtitle may be in it. Implied by the equality above
+    # — none of the sixteen is a subtitle extension — so this cannot redden on its own
+    # either; it is here to name the rule the equality enforces anonymously.
     assert not settings.video_extensions & {".srt", ".vtt", ".ass", ".ssa"}

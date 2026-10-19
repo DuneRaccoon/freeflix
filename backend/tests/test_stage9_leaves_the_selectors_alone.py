@@ -48,15 +48,21 @@ def _code_text(path: Path) -> str:
     scan would redden on it. Parsing and re-unparsing drops comments (they are not AST
     nodes) and every docstring-position string expression, leaving the executable text.
 
-    KNOWN LIMIT, same shape as `legacy-target.test.ts:98-103` records for its own scan:
+    KNOWN LIMIT, same shape as `legacy-target.test.ts:91-96` records for its own scan:
     a name assembled at runtime is invisible. `getattr(handle, 'prioritize' + '_files')`
     walks straight past this, and so does a name arriving through a variable. Not chased
     — defeating that needs a real evaluator, and the gate's job is to stop the spellings
     an author actually writes, not to resist deliberate evasion. Measured, with a probe
     module carrying both forms: `getattr(handle, 'prioritize_files')(prios)` IS caught,
     because a literal survives unparse and that pattern is a bare name; `getattr(h,
-    "file_" "priority")(idx, 1)` is NOT, because the plan's spelling of that one carries
-    a trailing `(`. This is also why plan D2 makes admission a POST — structural
+    "file_" "priority")(idx, 1)` IS caught too, because adjacent string literals are one
+    `Constant` and unparse emits `'file_priority'`; the plan's spelling of that forbidden
+    name carried a trailing `(`, which missed both that and a bound-method alias
+    (`cb = handle.file_priority; cb(idx, 0)`) — measured in review, and dropped. What the
+    scan still CANNOT see is a name built from non-adjacent pieces or arriving in a
+    variable. It can also false-positive on an assigned string or f-string naming a
+    forbidden call, because only docstring-position strings are stripped; spell such a
+    message without the call's name. This is also why plan D2 makes admission a POST — structural
     unreachability from a `<track>` is a guarantee no source scan can give — and why the
     recorder gate below, which watches calls rather than text, is the primary instrument.
     """
@@ -82,7 +88,10 @@ def _offences(path: Path, forbidden) -> list:
 
 # The package's own rule: nothing under app/subtitles/ re-shapes priorities at all.
 # Piece admission and the flush live on TorrentManager (task 7), not here.
-_PACKAGE_FORBIDDEN = ("prioritize_files", "prioritize_video_files", "file_priority(")
+# No trailing `(` on `file_priority`: measured in review, the paren missed both
+# `getattr(h, "file_" "priority")(idx, 1)` and `cb = handle.file_priority`, and it
+# buys nothing — `get_file_priorities` does not contain the bare name.
+_PACKAGE_FORBIDDEN = ("prioritize_files", "prioritize_video_files", "file_priority")
 
 # Per-module rules for files that later tasks create. Each is SKIPPED (visibly, with the
 # task named) until its file exists, and goes live by itself the moment it does.

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { useFocusGrid } from '../_focus/useFocusGrid';
 import { MEDIA_KEYS, MEDIA_KEY_CODES, type MediaKeyAction } from '../_focus/useMediaKeys';
 import type { FocusProps } from '../_focus/useFocusGrid';
-import { cellLabel, SUBTITLE_CELL_STATES } from '../_data/subtitles';
+import { cellLabel, SUBTITLE_CELL_LABELS, SUBTITLE_CELL_STATES } from '../_data/subtitles';
 import {
   TransportBar,
   TRANSPORT_CELLS,
@@ -337,6 +337,34 @@ describe('TransportBar', () => {
       expect.soft(note?.getAttribute('aria-hidden'), state).toBe('true');
       unmount();
     }
+  });
+
+  it('renders the words it is HANDED, instead of re-deriving them from the state', () => {
+    // THE MUTATION THIS ROW EXISTS FOR, and it was green in all 2399: have this component
+    // ignore `note` and call `cellLabel(view.stateId)` itself. Every other row here and in
+    // the route's suite hands it `note: cellLabel(state)` and then asserts the rendered text
+    // IS `cellLabel(state)` — the shape the interface's own docstring warns about ("a test
+    // that re-derived the words it is checking checks nothing"), written into the tests
+    // rather than into the component. So this fixture's note is deliberately not one of the
+    // eight phrasings: the screen owns the words and this component may not second-guess
+    // them, because the picker's chosen language will ride in the same slot.
+    const handed = 'whatever the screen said';
+    expect
+      .soft(Object.values(SUBTITLE_CELL_LABELS), 'the fixture is not a real phrasing')
+      .not.toContain(handed);
+    render(
+      <TransportBar
+        row={0}
+        focusProps={fp()}
+        playing
+        subtitles={{ stateId: 'off', note: handed }}
+        onAction={() => {}}
+      />,
+    );
+    const el = subCell();
+    expect.soft(el.querySelector('.bs-player__commit')?.textContent).toBe(handed);
+    // ...and the two fields stay independent: the attribute is the state, not the words.
+    expect.soft(el.getAttribute('data-subtitles')).toBe('off');
   });
 
   it('gives the sub-line to that cell and to no other', () => {

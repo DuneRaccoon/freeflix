@@ -907,8 +907,12 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    - .bs-player__row is `flex-wrap: nowrap`. .bs-controls (the diag harness's row) wraps and
      must not be borrowed: the focus model counts one row per container, so a container that
      re-flowed would draw one focus row on two visual lines — Right would land on a control
-     on the next line and Down would skip one. The six transport cells measure ~1290px with
-     their gaps, inside the 1728px the safe area leaves.
+     on the next line and Down would skip one. The ~1290px recorded here (inside the 1728px
+     the safe area leaves) was SIX cells — five plus Retry — and it was never read off the
+     set either. Stage 9 inserted a Subtitles cell, so the row is six cells without Retry and
+     SEVEN with, and that one cell's aria-hidden sub-line can be twenty characters ("none in
+     this release"), wider than every label in the row. Device reading 33 is the measurement
+     that replaces this number; until it is transcribed, this row's width is UNKNOWN.
    - .bs-player__scrub takes NO `transform` — not even a transition for one. It is
      full-bleed, and a scaled 1728px box crosses the safe inset and shows the page behind
      it; .bs-hero:focus refuses scale for the same reason. The ring is the house ring.

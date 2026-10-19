@@ -1638,6 +1638,14 @@ describe('the Subtitles cell', () => {
     // first arrival `index` resolves in the same commit as the gate.
     const { view } = await playing();
     expect.soft(svc.getSubtitles.mock.calls.at(-1)).toEqual([PACK, 4, { allow401: true }]);
+    expect.soft(subState(), 'episode 1 answered').toBe('off');
+    // AND THE OLD ANSWER IS INVALIDATED BEFORE THE NEW ONE LANDS, which is a second
+    // assertion rather than a comment: `off` in this window is a sentence about the episode
+    // the viewer has just left, on a pack whose next episode may carry a different language
+    // set or none. The effect's leading `setSubtitleRead({k:'loading'})` is what does it —
+    // and nothing saw it. Measured at review: deleting that line left all 2399 rows green,
+    // because every other row in this file lets the first read answer before the file moves.
+    const answer = pendingList();
     nav.search.current = new URLSearchParams('file=7');
     await act(async () => {
       view.rerender(<WatchPage />);
@@ -1645,6 +1653,9 @@ describe('the Subtitles cell', () => {
     for (let i = 0; i < 4; i++) await act(async () => {});
     expect.soft(svc.getSubtitles.mock.calls.at(-1)).toEqual([PACK, 7, { allow401: true }]);
     expect.soft(svc.getSubtitles).toHaveBeenCalledTimes(2);
+    expect.soft(subState(), 'and the cell went back to checking').toBe('loading');
+    await answer(subtitleList());
+    expect.soft(subState(), 'until the new episode answered').toBe('off');
   });
 
   it('does not let a read still in flight answer for the episode that replaced it', async () => {
@@ -1675,6 +1686,36 @@ describe('the Subtitles cell', () => {
       pending[1](subtitleList());
     });
     expect.soft(subState(), 'and the current one was').toBe('off');
+  });
+
+  it('does not let a read that FAILED late answer for the episode that replaced it', async () => {
+    // THE SAME GUARD, THE OTHER EXIT, and the row above cannot see it: it resolves both
+    // reads and never rejects one, so the `catch`'s own `if (!cancelled)` had no instrument.
+    // Measured at review: deleting that one guard left all 2399 rows green. It is the worse
+    // half of the two — a stale rejection writes `unavailable` over an episode whose list is
+    // still being read, and the cell then says the box cannot see a download it can see.
+    const pending: Array<{ resolve: (l: SubtitleList) => void; reject: (e: unknown) => void }> = [];
+    svc.getSubtitles.mockImplementation(
+      () =>
+        new Promise<SubtitleList>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    );
+    const { view } = await playing();
+    nav.search.current = new URLSearchParams('file=7');
+    await act(async () => {
+      view.rerender(<WatchPage />);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect.soft(pending, 'both reads are in flight').toHaveLength(2);
+    await act(async () => {
+      pending[0].reject(httpError(503));
+    });
+    expect.soft(subState(), 'the stale failure was not believed').toBe('loading');
+    await act(async () => {
+      pending[1].resolve(subtitleList());
+    });
+    expect.soft(subState(), 'and the current answer was').toBe('off');
   });
 
   it('says what the envelope says, and never a sentence the envelope does not support', async () => {
@@ -1799,5 +1840,31 @@ describe('the Subtitles cell', () => {
     expect.soft(ring()[0]).toBe(last);
     expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: true }));
     vi.unstubAllGlobals();
+  });
+
+  it('answers a press with nothing, and is never dressed as refusing to act', async () => {
+    // THE PICKER IS A LATER TASK, so OK on this cell is a deliberate no-op today — and
+    // "nothing happens" has to be an assertion rather than the absence of one. Measured at
+    // review: routing `case 'subtitles'` to `onStop()` left all 2399 rows green, which is
+    // the worst press this row can answer wearing the clothes of the safest. The press
+    // itself is live (`TransportBar.test.tsx` pins that every cell reports its own id), so
+    // this is a silent handler and not a dead button.
+    await playing();
+    const was = subState();
+    const navsBefore = navCalls().length;
+    await act(async () => {
+      fireEvent.click(sub());
+    });
+    expect.soft(navCalls().length, 'the press went nowhere').toBe(navsBefore);
+    expect.soft(window.HTMLMediaElement.prototype.pause, 'and stopped nothing').not.toHaveBeenCalled();
+    expect.soft(hidden(), 'and the band is still up').toBe(false);
+    expect.soft(subState(), 'and the cell still says what it said').toBe(was);
+    // NEVER `aria-disabled`, and that is the one item on this task's own "Does not" list
+    // that nothing measured — adding it left all 2399 rows green. A focusable control that
+    // announces itself as refusing to act is the web CC button's anti-pattern
+    // (`VideoPlayer.tsx:1820`), and it is worse on a remote, where the ring will stop here
+    // whatever the attribute says.
+    expect.soft(sub().getAttribute('aria-disabled'), 'not dressed as disabled').toBeNull();
+    expect.soft(sub()).not.toBeDisabled();
   });
 });

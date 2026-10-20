@@ -30,16 +30,24 @@
  * WHAT IT DELIBERATELY DOES NOT POLICE. Bare continuations (`:1637-1640`, `:705-709`, `:1864`)
  * carry no path: they are meaningful only against their sentence's own subject, and a resolver
  * that guessed would be a test with an opinion. Module-level citations are out of reach by
- * construction — `config.py:67-69` is a `Settings` field block and `providers/quality.py:12` is a
+ * construction — `config.py:67-69` is a `Settings` field block and `providers/quality.py:35` is a
  * module-level `re.compile`, so "a def whose name the sentence contains" has nothing to say about
- * them. Nor does it police DRIFT WITHIN a function: measured, moving §4.2's `:1778` to `:1800`
+ * them. (That second one read `:12` until the task-16 review: `:12` is a blank line inside the
+ * module docstring, so the example this guard used to excuse itself was itself a stale citation.
+ * Three of the spec's TEN unpoliced Python citations were stale — `providers/quality.py:12`,
+ * `services/auth.py:455-473` and `api/streaming.py:62-64` — against four in the two files that
+ * are policed, which is the measured cost of a two-entry SOURCES rather than an argument for it:
+ * neither of the corrected two lands in a def its sentence names, so widening SOURCES is a prose
+ * change, not a config change.)
+ *
+ * Nor does it police DRIFT WITHIN a function: measured, moving §4.2's `:1778` to `:1800`
  * — 22 lines down, still inside `stream_file_range`'s 100-odd — is green here, so a citation can
  * still rot into the wrong line of the right function. And it polices **this spec only**: the
  * `docs/superpowers/plans/` tree holds **68** more `torrent/manager.py:<line>` citations (98
  * across `docs/`, 46 of the plans' ones below line 1264), many already stale by
  * the line-shift that any backend commit causes, and dragging those into a frontend suite would
- * make a plan's history unmaintainable. The two files below are the ones whose citations were
- * measured stale.
+ * make a plan's history unmaintainable. The two files below are the ones whose citations the
+ * stage-9 round re-resolved; they are not the only ones that had rotted.
  *
  * WHERE IT RUNS: `npm run test:tv` (this directory is the glob) and `npx vitest run`. In no build
  * and in no CI, like every other guard on this surface.

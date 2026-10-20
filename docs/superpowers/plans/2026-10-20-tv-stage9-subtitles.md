@@ -653,6 +653,26 @@ out-of-scope, with `:1020` named as the replacement — also wrong. `handleError
 `.tsx`, so that correction is unprotected — a fifth stale citation in the one section the task
 rewrote is what being out of the guard's reach looks like.)*
 
+   *(Task-16 review, and this is the bigger half of the same finding: "four stale citations in one
+   spec" is an undercount, because the grep that found them ran over the two paths the guard
+   polices. The spec carries **sixteen** `*.py:<line>` references; six are policed and **three of
+   the ten that are not were stale as well.** `providers/quality.py:12` — §4.3's authority for the
+   codec regex — is a BLANK LINE inside that module's docstring; `_CODEC` is at `:35`. And
+   `specCitations.test.ts`'s own header used that citation as its example of a module-level
+   citation out of reach, so the guard's excuse was itself stale. `services/auth.py:455-473`, cited
+   in §6 for the session cookie's attributes, lands in `purge_expired`; `cookie_kwargs` is
+   `:485-503` and `max_age` is applied in `api/auth.py:133-136`. Both corrected in place,
+   line-count neutral. **Not corrected, because it needs a decision this review will not take:**
+   §4.2 point 1 cites `backend/app/api/streaming.py:62-64` for
+   `ranges = range_header.replace('bytes=','').split('-')`, and that expression exists nowhere in
+   `streaming.py` any more — `:62-64` is the `RANGE_MALFORMED` constant and the parser is
+   `:94-101`. Re-resolving it means first deciding whether §4.2's defect 1 still describes live
+   behaviour after stages 7-8 rewrote that parser, which is a scope call, not a line number.
+   Widening the guard's `SOURCES` does not reach any of these three: two land in a `def` their
+   sentence does not name and one is module-level, so the guard's shape — "a def whose name the
+   sentence contains" — would redden on the honest document. That is a prose change per citation,
+   not a config change, and it is unowned.)*
+
 **3. This plan's own backend citations are ~+124 lines off in this branch's tree.** The branch's
 commits inserted that much above them: the false docstring at `manager.py:1140-1143` resolves at
 **`:1264-1267`**, and hazard 1's `manager.py:328` (wanted-progress is `status.progress`) at

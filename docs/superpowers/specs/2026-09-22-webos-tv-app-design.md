@@ -257,7 +257,7 @@ has arrived but whose file is not allocated.
 
 ### 4.3 Codec is parsed and then ignored
 
-`providers/quality.py:12` compiles `x265|h.265|hevc|x264|h.264|av1|xvid`, but `parse_release_info` is
+`providers/quality.py:35` (`_CODEC`) compiles `x265|h.265|hevc|x264|h.264|av1|xvid`, but `parse_release_info` is
 **display metadata only**. `services/torrents_select.py:rank_candidates` sorts on resolution bucket,
 seeds and bytes and never reads `codec`. So today the selector will hand a 75-inch panel a 2160p HEVC
 10-bit release with a DTS-HD track — exactly the combination §3.2 says webOS refuses at 4K. The player
@@ -305,7 +305,7 @@ active download. Result: an expired session on a downloading title is an endless
 
 - Cookie: `ff_session`, `httponly=True`, `samesite="lax"`, `secure=settings.cookie_secure`
   (**default False**), `path="/"`, **no Domain**; `max_age` 30 days
-  (`services/auth.py:455-473`, `config.py:67-69`).
+  (`cookie_kwargs`, `services/auth.py:485-503`; `max_age` at `api/auth.py:133-136`; `config.py:67-69`).
 - `create_session` sets an **absolute** `expires_at`; `touch_session` slides only `last_seen_at`.
   No refresh, no rotation, no re-issue endpoint.
 - `dependencies/auth.py:91-93` reads the cookie and **nothing else** — there is no `Authorization`

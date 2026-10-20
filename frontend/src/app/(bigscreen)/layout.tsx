@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ShellFlag } from './_components/ShellFlag';
 
 export const metadata: Metadata = {
   title: 'Freeflix — Big Screen',
@@ -28,7 +29,11 @@ export default function BigScreenLayout({
       <head>
         <link rel="stylesheet" href="/bigscreen.css" />
       </head>
-      <body>{children}</body>
+      <body>
+        {/* Captures `?from=app` once. Renders nothing; see the component. */}
+        <ShellFlag />
+        {children}
+      </body>
     </html>
   );
 }

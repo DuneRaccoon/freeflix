@@ -1,0 +1,14 @@
+{
+  "id": "com.freeflix.tv",
+  "version": "0.1.0",
+  "vendor": "Freeflix",
+  "type": "web",
+  "main": "index.html",
+  "title": "Freeflix",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "splashBackground": "splash.png",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true
+}

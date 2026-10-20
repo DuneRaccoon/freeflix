@@ -1050,3 +1050,24 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   height: 100%;
   background: var(--gold);
 }
+
+/* --- stage 10: the app's own chrome ------------------------------------- */
+/* APPENDED, NOT FILED BESIDE .bs-shell__head, AND THAT IS DELIBERATE. Twenty-five
+   `bigscreen.css:NNN` citations across six documents point into lines 884-1028 — the player
+   block — and every one of them moves if a rule is inserted above it. Nothing in this file is
+   ordered by the cascade here (every class below is used ALONE on its own element), so the
+   cost of appending is organisational distance and the cost of inserting is twenty-five stale
+   citations in prose that nothing recompiles. The real fix is for documents to stop citing a
+   stylesheet by line; until one of them does, new rules land here.
+
+   COMBINING: used ALONE on its own element, like every other class in this file.
+
+   The exit note on home, shown only when Back inside the webOS app asked to close the window
+   and the window is still here (device reading 39 is whether that ever happens). It sits in
+   .bs-shell__head's flex row, which is `align-items: baseline`, so it rides the heading's
+   baseline with no vertical rule of its own. */
+.bs-shell__exit {
+  margin: 0;
+  color: var(--muted);
+  font-size: 28px;
+}

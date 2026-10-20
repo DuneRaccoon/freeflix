@@ -260,6 +260,17 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     expect(armText('s27a'), 'not the instruction that cannot help').not.toMatch(
       /serving a\s+different tree/i,
     );
+    // AND THE PARAGRAPH IS PAINTED AS A FAILURE, which no row read: removing its own
+    // `className="bs-no"` stayed GREEN on all 1555 TV rows, and this page's entire output is a
+    // colour-and-text readout an operator transcribes off a panel. `toEqual` on the list, not
+    // a `find`, so exactly one node carries the sentence — two copies of it would be two
+    // instructions for one state.
+    expect(
+      Array.from(arm('s27a')!.querySelectorAll('p'))
+        .filter((el) => /THE SERVER ANSWERED, AND IT WAS NOT A 404/.test(el.textContent ?? ''))
+        .map((el) => el.className),
+      'one status-class paragraph, in the failure colour',
+    ).toEqual(['bs-no']);
     expect(cellClass('s27a', 'Subtitle file present?'), 'still a failure').toBe('bs-no');
     // And the arm stays unmounted, exactly as a 404 leaves it: a `<track>` over a 500 fires
     // the same `error` as one over a body no parser accepts, which is the confusion this whole
@@ -301,6 +312,33 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
       /serving a\s+different tree/i,
     );
     expect(player('s27b'), 'nothing was mounted').toBeNull();
+  });
+
+  it('mounts nothing on arm 27b when the clip is there and the .vtt is not — the gate’s other half', async () => {
+    // FOUND BY A MUTATION NOBODY PRESCRIBED, and it is the i15/i16 shape a third time. The
+    // mount gate is `vtt.present === 'yes' && clip.present === 'yes'`, and dropping the FIRST
+    // conjunct — or relaxing it to `!== 'no'` — stayed GREEN on all 1555 TV rows. Arm 27b is
+    // the only arm that reaches that expression at all (the other four return at
+    // `arm.clip === null` above it), and every fixture it had failed the CLIP, so nothing
+    // exercised the `.vtt` half. The 500 is deliberate rather than a 404: a relaxation to
+    // `!== 'no'` passes a 404 fixture, and the new status class is exactly the value such a
+    // gate would wave through.
+    //
+    // What it would cost: a `<track>` mounted over a `.vtt` the server never served fires ONE
+    // `error`, which is the same event a body no parser accepts fires, on the arm that is
+    // reading 27a's tie-breaker over a real decoded frame. That is the confusion this whole
+    // section exists to prevent, and it would arrive on the gate's fallback reading.
+    mockSamples({ [VTT]: 500 });
+    render(<DiagPage />);
+    await loadArm('s27b');
+
+    // The clip cell is written second, so waiting for it means both HEADs have landed.
+    await waitFor(() => expect(cellText('s27b', 'Clip present?'), 'the clip answered 200').toBe('yes'));
+    expect(cellText('s27b', 'Subtitle file present?')).toBe(
+      'THE SERVER ANSWERED 500 — not an absence, and nothing was mounted',
+    );
+    expect(player('s27b'), 'nothing was mounted over a .vtt the server did not serve').toBeNull();
+    expect(trackEl('s27b'), 'so nothing was asked to parse or paint a cue').toBeNull();
   });
 
   it('keeps a non-404 answer across the navigation leaving this page is, and refuses a value it does not know', async () => {
@@ -349,6 +387,19 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     // a television that parses no WebVTT, which is the reading this arm is the gate for.
     expect(el.parentElement).toBe(player('s27a'));
     expect(cellText('s27a', 'Subtitle file present?')).toBe('yes');
+    // THE STATUS-CLASS PARAGRAPH'S NEGATIVE CONTROL IN THE STATE THAT MATTERS MOST — the
+    // successful one. Widening its condition with `|| r.present === 'yes'` stayed GREEN on all
+    // 1555 TV rows: it would print “nothing was mounted, so this is not a text-track result
+    // either” under the mounted `<track>` above, on every successful probe, and neither the 404
+    // row nor the thrown-fetch row can see that because neither of them is a success. Found by
+    // a mutation nobody prescribed. The absence paragraph's own version of this rule is in the
+    // clip-404 row and is NOT repeated here.
+    expect(armText('s27a'), 'no status-class prose over a 2xx').not.toMatch(/THE SERVER ANSWERED/);
+    // And the success colour — the one branch of `presenceClass` nothing read. Dropping
+    // `'bs-yes'` was green on the whole suite as well, while both of its failure branches are
+    // pinned (the 404 row, the 500 row) and `unknown`'s uncolouredness is pinned in the thrown
+    // row. Three values of a four-value function were asserted and this was the fourth.
+    expect(cellClass('s27a', 'Subtitle file present?'), 'a served file reads as a pass').toBe('bs-yes');
     // ARM 27a'S MEDIA SRC IS DELIBERATELY UNRESOLVABLE, and it is the arm's whole design: the
     // measured fact is that a late `<track default>` reaches `showing` with its cues parsed
     // EVEN WITH THE ELEMENT IN THE ERROR STATE, which is what makes this arm need no clip. A

@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { SeasonDetail, ShowDetail, TorrentStatus, VideoFile } from '@/types';
 import { tvService } from '@/services/tv';
+import { usersService } from '@/services/users';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { useTvProfile } from '../../../_data/useTvProfile';
@@ -16,6 +17,11 @@ const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router, useParams: () => ({ id: '1399' }) }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
+vi.mock('@/services/users', () => ({
+  // The auto-next toggle reads (and writes) the profile's setting. Mocked because an
+  // unmocked service method here is a real XHR out of jsdom.
+  usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
+}));
 vi.mock('@/services/torrents', () => ({ torrentsService: { listTorrents: vi.fn(), getTorrentStatus: vi.fn(), downloadCatalogMovie: vi.fn(), performTorrentAction: vi.fn() } }));
 vi.mock('@/services/streaming', () => ({
   streamingService: { getRecentProgress: vi.fn(), getProgressByMovie: vi.fn(), getFiles: vi.fn() },
@@ -38,7 +44,21 @@ const seasonTwo: SeasonDetail = {
 
 const epButtons = () => screen.queryAllByRole('button', { name: /^\d+\s/ });
 
+const settingsRow = (autoNext: boolean) =>
+  ({
+    id: 's1',
+    user_id: 'p1',
+    maturity_restriction: 'none',
+    require_passcode: false,
+    has_passcode: false,
+    passcode_len: null,
+    theme: 'dark',
+    default_quality: '1080p',
+    auto_next_episode: autoNext,
+  }) as unknown as Awaited<ReturnType<typeof usersService.getUserSettings>>;
+
 beforeEach(() => {
+  vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(true));
   vi.clearAllMocks();
   sessionStorage.clear();
   vi.mocked(useTvProfile).mockReturnValue({ profile: { id: 'p1', display_name: 'B', avatar: null }, loading: false, select: vi.fn(), clear: vi.fn() });

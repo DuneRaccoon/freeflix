@@ -40,6 +40,17 @@
   --safe-y: 54px;
   --radius: 12px;
   --focus-ring: 4px;
+  /* A fully rounded end. Named rather than written as 999px in nine places, because every
+     control that wears it has to wear the SAME one — a pill and a nearly-pill beside each
+     other read as a mistake at three metres. No new COLOUR token: `bigscreen-tokens.test.ts`
+     pins the ten colours against the web stylesheet's copies, and a colour that exists only
+     here would be a divergence nothing is watching. Geometry is this surface's own. */
+  --pill: 999px;
+  /* The focused control's halo: a SOLID ring, spread with ZERO blur radius, which is why it
+     is allowed at all. A blurred shadow is a per-paint rasterisation this surface refuses on
+     the same grounds as `filter: blur()` (spec §9) and `legacy-target.test.ts` would not catch
+     it — `box-shadow` is not in its list, so the restraint has to be deliberate here. */
+  --halo: 0 0 0 8px rgba(201, 168, 106, 0.16);
 }
 
 * { box-sizing: border-box; }
@@ -68,8 +79,8 @@ body {
   overflow-y: auto;
 }
 
-h1 { font-family: var(--font-display); font-size: 56px; margin: 0 0 24px; font-weight: 600; }
-h2 { font-family: var(--font-display); font-size: 40px; margin: 40px 0 16px; font-weight: 600; }
+h1 { font-family: var(--font-display); font-size: 56px; margin: 0 0 24px; font-weight: 600; letter-spacing: 0.01em; }
+h2 { font-family: var(--font-display); font-size: 40px; margin: 40px 0 16px; font-weight: 600; letter-spacing: 0.01em; }
 h3 { font-size: 28px; margin: 24px 0 12px; font-weight: 600; color: var(--gold-lite); }
 p  { margin: 0 0 16px; }
 code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px; }
@@ -146,20 +157,43 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-video { width: 100%; max-width: 1280px; background: #000; border-radius: var(--radius); }
 .bs-controls { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0 32px; }
 .bs-btn {
-  padding: 14px 28px;
-  min-height: 60px;
+  /* A PILL, and 64px tall. The rectangle this started as is what a desktop form control looks
+     like; at three metres a filled pill is the shape a viewer reads as "press this". The
+     height is still the spec §8.5 focus-target floor (>=60px) with room to spare, and
+     `border: 0` is load-bearing elsewhere — `.bs-list__toggle` adds a TRANSPARENT border in
+     both of its states precisely because this rule has none, so that turning a toggle on
+     cannot widen it by 2px and nudge the control beside it. */
+  padding: 16px 36px;
+  min-height: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   font-family: var(--font-ui);
   color: var(--ink);
   background: var(--gold);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--pill);
   cursor: pointer;
   /* Home's "Who's watching?" is an <a> wearing this class, and a link underlines itself. */
   text-decoration: none;
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.bs-btn:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
-.bs-btn--ghost { background: transparent; color: var(--text); border: 1px solid var(--hairline); }
+/* The ring, plus the halo that separates it from artwork. The halo is a solid spread (see
+   --halo): it reaches 8px past the ring, which every container this class sits in can afford
+   — `.bs-title__actions` and `.bs-show__panel` are 24px-gapped, `.bs-controls` 16px, and only
+   one control is ever focused, so the overlap is a wash over a neighbour and never two halos.
+   NO `transform: scale()` here: `.bs-btn` is used full-width nowhere, but it IS used inside
+   `.bs-title__action`, which is `max-width: 640px` and holds alert prose underneath — a scaled
+   button there would cross the text below it rather than empty space. */
+.bs-btn:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; box-shadow: var(--halo); }
+/* A ghost sits over artwork as often as over the page (the detail screens' scrim, the hero),
+   so it carries a dark wash of its own rather than `transparent`: --ink at 0.45, written out
+   as rgba exactly as the scrims are, because there is no colour-mix on this surface. Without
+   it a hairline border over a bright backdrop is the only thing saying a control is there. */
+.bs-btn--ghost { background: rgba(10, 10, 11, 0.45); color: var(--text); border: 1px solid var(--hairline); }
 
 /* --- raw HTTP probe readout ----------------------------------------- */
 .bs-probe {
@@ -299,18 +333,33 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   position: absolute;
   z-index: -1;
   inset: 0;
-  background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.72) 45%, rgba(10, 10, 11, 0.15) 100%);
+  /* TWO GRADIENTS, ONE ELEMENT, NO BLEND MODE. The bottom wash is what it always was; the
+     second darkens the left third, which is where the title and the overview sit. A pale
+     backdrop used to leave that text at the mercy of whatever the artwork happened to be
+     doing. Two gradients on one element composite in the normal paint path — the thing §9
+     forbids is `mix-blend-mode`, which forces the whole stacking context off it, and that is
+     what a second LAYER would have needed. */
+  background:
+    linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.72) 45%, rgba(10, 10, 11, 0.15) 100%),
+    linear-gradient(to right, rgba(10, 10, 11, 0.75) 0%, rgba(10, 10, 11, 0.2) 55%, rgba(10, 10, 11, 0) 100%);
 }
 .bs-hero__body { position: relative; max-width: 1100px; }
 .bs-hero__title {
   font-family: var(--font-display);
-  font-size: 56px;
+  /* 64px. The hero is the one title on the surface read from the sofa with nothing beside it
+     to compare against, and 56px is the DETAIL screens' size — the two were the same, so the
+     lead title had no more weight than the page a press away from it. */
+  font-size: 64px;
   font-weight: 600;
-  margin: 0 0 12px;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  margin: 0 0 14px;
 }
 .bs-hero__meta {
-  font-size: 24px;
-  color: var(--muted);
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--gold);
   margin: 0 0 16px;
   display: flex;
   gap: 16px;
@@ -351,10 +400,12 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-rail__eyebrow {
   font-size: 20px;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 4px;
+  /* Gold, not muted: it is the only accent in the rail's head, and an uppercase line in
+     --muted under a --text title reads as a second, quieter title rather than as a label. */
+  color: var(--gold);
+  margin: 0 0 6px;
 }
 .bs-rail__track {
   display: flex;
@@ -394,12 +445,21 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   outline-offset: 4px;
   transform: scale(1.06);
 }
+/* The focused card's title takes the accent. NO geometry and NO halo: the rail track's
+   vertical padding was MEASURED against this scale and this ring (32px of padding for 8.96px
+   of clearance at the tallest realistic card — see the block comment above .bs-rail), and a
+   solid halo reaches 8px further than the ring does, which would spend most of that. Colour
+   is free. */
+.bs-card:focus .bs-card__label { color: var(--gold-lite); }
 .bs-card__art {
   display: block;
   width: 100%;
   background: var(--surface-2);
   border-radius: var(--radius);
   object-fit: cover;
+  /* A hairline, so a poster that fades to black at its edge still has one. Inside the box
+     (`box-sizing: border-box` is global here), so it costs no layout. */
+  border: 1px solid var(--hairline);
 }
 .bs-card--poster { width: 240px; }          /* 2:3 */
 .bs-card--poster .bs-card__art { height: 360px; }
@@ -487,7 +547,10 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 /* --- skeletons ------------------------------------------------------------ */
 /* Do not add a shimmer: §9 allows transform and opacity only, and a looping animation on a
    television costs frames for nothing. What each skeleton reserves is said below. */
-.bs-skel { background: var(--surface-2); border-radius: var(--radius); }
+/* A two-stop gradient rather than a flat fill: it reads as a card-shaped hole rather than a
+   grey box, and a static gradient is paint-once. Still no shimmer — §9 allows transform and
+   opacity only, and a looping animation on a television costs frames for nothing. */
+.bs-skel { background: linear-gradient(to bottom, var(--surface-2) 0%, var(--surface) 100%); border-radius: var(--radius); }
 /* These reserve the WHOLE card, not just its art box: a poster card with a two-line title
    and a year measures ~470px and a wide resume card ~365px. Reserving only the art meant
    every rail grew ~115px as it resolved, and with six lazy rails that is ~700px of
@@ -610,16 +673,16 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   display: inline-flex;
   align-items: center;
   min-height: 60px;
-  padding: 14px 28px;
+  padding: 14px 30px;
   font-size: 24px;
   font-family: var(--font-ui);
   color: var(--text);
-  background: transparent;
+  background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: var(--pill);
   text-decoration: none;
 }
-.bs-nav__item:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+.bs-nav__item:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; box-shadow: var(--halo); }
 
 /* --- title detail screens (movie, show) -------------------------------------- */
 /* The frame in _components/TitleScreen. Same recipe as the hero: an inline
@@ -655,7 +718,13 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   position: absolute;
   z-index: -1;
   inset: 0;
-  background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.8) 50%, rgba(10, 10, 11, 0.2) 100%);
+  /* The same two-gradient wash as .bs-hero__scrim, and for the same reason: the title, the
+     overview and the controls all sit in the left third, and a bright backdrop left them at
+     the mercy of whatever the artwork happened to be doing there. Two gradients on ONE
+     element — a second layer would need `mix-blend-mode`, which is what §9 forbids. */
+  background:
+    linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.8) 50%, rgba(10, 10, 11, 0.2) 100%),
+    linear-gradient(to right, rgba(10, 10, 11, 0.7) 0%, rgba(10, 10, 11, 0.2) 55%, rgba(10, 10, 11, 0) 100%);
 }
 .bs-title__body { position: relative; max-width: 1100px; }
 .bs-title__eyebrow { font-size: 24px; color: var(--muted); margin: 0 0 12px; }
@@ -724,40 +793,168 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-show__seasons { display: flex; flex-wrap: wrap; gap: 24px; padding: 8px 0 24px; }
 .bs-show__season {
   min-height: 60px;
-  padding: 14px 28px;
+  padding: 14px 30px;
   font-size: 24px;
   font-family: var(--font-ui);
   color: var(--text);
-  background: transparent;
+  background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: var(--pill);
   cursor: pointer;
 }
 .bs-show__season[aria-pressed="true"] { background: var(--surface-2); border-color: var(--gold); color: var(--gold-lite); }
-.bs-show__season:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
+.bs-show__season:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; box-shadow: var(--halo); }
 .bs-show__panel { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; padding-bottom: 24px; }
-.bs-eps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+/* THE EPISODE ROW IS A CARD NOW, and the still is the reason the geometry changed. A season
+   used to be a list of names with one word of state on the right, which answers "what is this
+   one" and nothing else; the three questions a viewer actually brings to a season are what is
+   this one, have I seen it, and where was I. So: TMDB's still on the left with the trace drawn
+   ON it (a bar across its foot for a part-watched episode, a tick in its corner for a finished
+   one), and the words to the right of it.
+
+   NO `transform` ON FOCUS, unlike .bs-card and .bs-tile. This element is `width: 100%` inside
+   .bs-title__below, which carries the safe inset as padding — so a scaled row crosses the safe
+   area and shows the page behind it, exactly as .bs-hero:focus and .bs-player__scrub refuse to
+   for the same reason. The focus signal is the ring, the border and a lift in the surface
+   colour, none of which moves anything.
+
+   256x144 IS THE STILL'S BOX, 16:9, and it is why EpisodeList re-points `still_url` at `w500`:
+   the catalog hands back `w300`, which is a 2x upscale in a 256px box on a 4K panel.
+
+   .bs-ep__body IS A WRAPPING ROW, NOT A COLUMN, and that is what puts the runtime and the air
+   date on ONE line without a wrapper element between them: the head, the overview and the
+   state each claim `flex: 1 1 100%`, so everything else — the two small tokens — shares the
+   line that is left. A column would have given each of them a line of its own.
+
+   COMBINING: every class here is used ALONE on its own element, except .bs-ep__thumb +
+   .bs-ep__thumb--blank, which is the .bs-card + .bs-card--poster base-plus-modifier shape (the
+   blank is a <span> standing in for the <img>, so it needs the box and then has to lay its own
+   contents out). No positional selector: the tick, the bar and the three text rows are all
+   named classes. */
+.bs-eps__tally {
+  margin: 0 0 16px;
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.bs-eps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
 .bs-ep {
   display: flex;
-  align-items: center;
-  gap: 24px;
+  align-items: flex-start;
+  gap: 28px;
   width: 100%;
-  min-height: 72px;
-  padding: 14px 28px;
+  padding: 16px 24px;
   font-size: 24px;
   font-family: var(--font-ui);
   text-align: left;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: var(--radius);
   cursor: pointer;
+  transition: background-color 180ms cubic-bezier(0.4, 0, 0.2, 1), border-color 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.bs-ep:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; }
-.bs-ep__num { min-width: 48px; color: var(--gold); }
-.bs-ep__name { flex: 1; }
+.bs-ep:focus {
+  outline: var(--focus-ring) solid var(--gold-lite);
+  outline-offset: 2px;
+  border-color: var(--gold);
+  background: var(--surface-2);
+}
+.bs-ep__still {
+  position: relative;
+  flex: 0 0 auto;
+  width: 256px;
+  height: 144px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.bs-ep__thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* The still-less case: the episode number, large, in the frame the image would have filled.
+   A <span>, so it has to lay its own contents out where the <img> above only had to cover. */
+.bs-ep__thumb--blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 48px;
+  color: var(--muted);
+}
+.bs-ep__tick {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  line-height: 1;
+}
+/* The trace, drawn across the foot of the still. --ink at 0.6 as the unfilled part, written
+   out as rgba like every other alpha on this surface, so it reads over any frame. */
+.bs-ep__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  background: rgba(10, 10, 11, 0.6);
+}
+.bs-ep__bar span { display: block; height: 100%; background: var(--gold); }
+.bs-ep__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 18px;
+}
+.bs-ep__head { flex: 1 1 100%; display: flex; align-items: baseline; gap: 16px; }
+.bs-ep__num { flex: 0 0 auto; min-width: 52px; font-family: var(--font-display); font-size: 32px; color: var(--gold); }
+.bs-ep__name { flex: 1; min-width: 0; font-size: 28px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.bs-ep__badge {
+  flex: 0 0 auto;
+  padding: 4px 16px;
+  font-size: 20px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: var(--pill);
+  background: var(--gold);
+  color: var(--ink);
+}
 .bs-ep__meta { font-size: 22px; color: var(--muted); }
-.bs-ep__mark { font-size: 22px; color: var(--gold-lite); }
+.bs-ep__air { font-size: 22px; color: var(--muted); }
+/* Two lines, clamped: the point is a sense of what the episode is, not the whole synopsis,
+   and an unclamped overview makes rows of wildly different heights out of one season. */
+.bs-ep__over {
+  flex: 1 1 100%;
+  font-size: 22px;
+  line-height: 1.4;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bs-ep__mark { flex: 1 1 100%; font-size: 22px; color: var(--gold-lite); }
+/* The auto-next cell on the show screen's actions row. A fixed basis for the reason
+   .bs-title__action--ask has one — .bs-title__actions is `flex-wrap: wrap`, so a cell sized to
+   its content changes the row's width when its alert line appears and can push the row onto a
+   second VISUAL line that the focus model still calls row 0. 300px rather than the 4K cell's
+   360px rather than the 4K cell's 200px because this label is three words and has to stay on
+   ONE line — at 300px it wrapped, and a two-line pill beside a one-line pill reads as a
+   mistake at three metres (measured by rendering this file at 1920x1080). The row still fits:
+   the primary cell is capped at 640px (.bs-title__action), so 640 + 360 + the 24px gap is
+   1024px inside the 1100px .bs-title__body. It is always LAST in its row, so the reserve is
+   trailing space. */
+.bs-show__autonext { flex: 0 0 360px; align-items: flex-start; }
 
 /* --- search: the D-pad keyboard and the results grid --------------------------- */
 /* Rendered by bigscreen/search/page.tsx and _components/Keyboard. Every cell is a focus
@@ -907,12 +1104,12 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    - .bs-player__row is `flex-wrap: nowrap`. .bs-controls (the diag harness's row) wraps and
      must not be borrowed: the focus model counts one row per container, so a container that
      re-flowed would draw one focus row on two visual lines — Right would land on a control
-     on the next line and Down would skip one. The ~1290px recorded here (inside the 1728px
-     the safe area leaves) was SIX cells — five plus Retry — and it was never read off the
-     set either. Stage 9 inserted a Subtitles cell, so the row is six cells without Retry and
-     SEVEN with, and that one cell's aria-hidden sub-line can be twenty characters ("none in
-     this release"), wider than every label in the row. Device reading 33 is the measurement
-     that replaces this number; until it is transcribed, this row's width is UNKNOWN.
+     on the next line and Down would skip one. The row's WIDTH used to be unknown: the cells
+     were .bs-btn pills sized to their prose, one of them carrying a twenty-character
+     sub-line, and the ~1290px once recorded here was a six-cell row nobody had measured on
+     the set. The cells are fixed-width icon circles now (`.bs-tp`, at the foot of this file),
+     so it is arithmetic: eight cells at 88px with 24px gaps is 872px inside the 1728px the
+     safe area leaves. The band's HEIGHT is what that block watches instead.
    - .bs-player__scrub takes NO `transform` — not even a transition for one. It is
      full-bleed, and a scaled 1728px box crosses the safe inset and shows the page behind
      it; .bs-hero:focus refuses scale for the same reason. The ring is the house ring.
@@ -929,11 +1126,14 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    which the auto-hide alone does not rescue. Both modifiers set OPACITY ONLY, for different
    reasons — the band's is hazard 4 (blurring the focused control), the scrim's is that a
    disappearing 480px layer is a repaint where the point was a composited fade; and it is
-   aria-hidden: a wash, not content. The transport cells and the picker's rows wear the
-   existing .bs-btn (+ .bs-btn--ghost) unchanged, as home and the detail screens do; no
-   modifier is added to .bs-btn from this block. No positional selector: the three track layers
-   are three named classes, the played one painting over the ready one by source order, as
-   .bs-card__fallback documents. No new colour token. */
+   aria-hidden: a wash, not content. The PICKER's rows wear the existing .bs-btn (+
+   .bs-btn--ghost) unchanged, as home and the detail screens do, and no modifier is added to
+   .bs-btn from this block. The TRANSPORT cells no longer do: they are icon circles with their
+   own block at the foot of this file (`.bs-tp`), which says why and what it costs. They still
+   render .bs-player__row and .bs-player__commit, so both of those are still theirs as well as
+   the ScrubBar's. No positional selector: the three track layers are three named classes, the
+   played one painting over the ready one by source order, as .bs-card__fallback documents. No
+   new colour token. */
 .bs-player {
   position: fixed;
   inset: 0;
@@ -1052,13 +1252,19 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 
 /* --- stage 10: the app's own chrome ------------------------------------- */
-/* APPENDED, NOT FILED BESIDE .bs-shell__head, AND THAT IS DELIBERATE. Twenty-five
-   `bigscreen.css:NNN` citations across six documents point into lines 884-1028 — the player
-   block — and every one of them moves if a rule is inserted above it. Nothing in this file is
-   ordered by the cascade here (every class below is used ALONE on its own element), so the
-   cost of appending is organisational distance and the cost of inserting is twenty-five stale
-   citations in prose that nothing recompiles. The real fix is for documents to stop citing a
-   stylesheet by line; until one of them does, new rules land here.
+/* APPENDED, NOT FILED BESIDE .bs-shell__head, AND THAT IS DELIBERATE. Some twenty-five
+   `bigscreen.css:NNN` citations across six documents point into the PLAYER BLOCK above, and
+   every one of them moves if a rule is inserted ahead of it. Nothing in this file is ordered
+   by the cascade here (every class below is used ALONE on its own element), so the cost of
+   appending is organisational distance and the cost of inserting is a pile of stale citations
+   in prose that nothing recompiles.
+   (Those citations are stale ANYWAY as of the bigscreen-enhancements round, which rewrote the
+   episode-list block ABOVE the player block and edited the player block's own comments: the
+   line numbers they name are no longer the lines they meant. They are named by range rather
+   than re-resolved because nothing in this repository reads a CSS citation —
+   `specCitations.test.ts` polices the spec's PYTHON citations only — so re-resolving them
+   would be a one-off correction with nothing keeping it correct. The real fix is for documents
+   to cite the BLOCK, not the line; until they do, new rules land here.)
 
    COMBINING: used ALONE on its own element, like every other class in this file.
 
@@ -1071,3 +1277,135 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   color: var(--muted);
   font-size: 28px;
 }
+
+/* --- the transport controls: icon circles, and the name on focus ------------- */
+/* Rendered by _player/TransportBar inside .bs-player__row, with the glyphs from
+   _player/glyphs.tsx. APPENDED for the reason the stage-10 block above is: this file's
+   citations are by line, and inserting rules into the player block moves every one of them.
+
+   WHY THE ROW IS NOT SEVEN .bs-btn RECTANGLES ANY MORE. It was, and the shape was the problem:
+   a row of filled pills reading "Pause  Back 10s  Rewind 1 min  Forward 1 min  Subtitles  Stop"
+   is a desktop form, and at three metres it is six similar word-shapes to read in sequence
+   before pressing anything. A television's transport is glyphs — the same glyphs as on the
+   remote, which for +-60s is literally what MEDIA_TWINS makes them. So each cell is a circle
+   with an inline SVG in it, and the control's NAME is revealed under it while it holds focus.
+
+   THE NAME IS REVEALED BY OPACITY, NEVER BY MOUNTING IT. The label element is the button's
+   accessible name: `display: none` would take it out of the accessibility tree, and with it
+   every `getByRole('button', { name: 'Pause' })` in this directory and anything that reads
+   the screen aloud. Same rule, different reason, as .bs-player__bar--hidden's opacity-only
+   fade (that one is about not blurring the focused control).
+
+   AND THE STATE SWAPS WITH IT. Two cells carry a state sub-line (Subtitles, and Next episode),
+   and the label and the sub-line share ONE reserved line under the circle, so the row's height
+   does not depend on which cells have something to say: unfocused a cell shows its state,
+   focused it shows its name. The alternative was two reserved lines, which costs 34px of band
+   over the picture for every frame the band is up.
+
+   THE RING IS ON THE CIRCLE, NOT ON THE BUTTON, which is the one place this surface moves it.
+   The button is 88px wide and ~146px tall (circle, gap, caption line), so a ring drawn on IT
+   would be a tall rectangle around a round control. `.bs-tp:focus` therefore sets
+   `outline: none` and `.bs-tp:focus .bs-tp__glyph` carries the house ring — the navigation
+   model is intact, it is simply drawn on the round part. Do not delete either half: the first
+   on its own is a control with no ring at all.
+
+   THE ROW'S WIDTH IS KNOWN NOW, which it was not when the cells were prose. Eight cells (the
+   six base cells plus Next episode and Try again) at 132px with 24px gaps is 8*132 + 7*24 =
+   1224px, inside the 1728px the safe area leaves. The CAPTION is what sets that 132px, not
+   the 88px circle: it is as wide as its own cell and clipped to two lines, so it cannot reach
+   into a neighbour's. A caption wider than its cell would overlap the cell beside it, which is
+   why this is a width and not `max-content`; a cell as narrow as its circle clips the longest
+   state instead, which is what the first draft did ("none in this…").
+
+   THE BAND GREW, and the figure is the scrim's. The player block's arithmetic for the closed
+   band was ~334px with a 60px transport row; this row is ~146px, so the band is ~421px against
+   the scrim's 480px. Still inside it. An OPEN picker's rows were already unaccounted for there
+   and still are.
+
+   COMBINING: .bs-tp + .bs-tp--primary on the one cell that wears the gold fill (the
+   base-plus-modifier shape .bs-card + .bs-card--poster uses) — it is NOT a `.bs-player*--*`
+   name, deliberately: the player block's modifier set is pinned to the two --hidden flags, and
+   this is a dress, not a state something toggles. The two descendant rules reach
+   .bs-player__commit because that class is the ScrubBar's sub-line and is reused rather than
+   reinvented; they re-place it under the circle and change nothing about its use there. No
+   positional selector, and no new colour token. */
+.bs-tp {
+  position: relative;
+  flex: 0 0 auto;
+  /* WIDER THAN THE CIRCLE IT HOLDS, and that is the caption's doing rather than the glyph's.
+     The caption is `left: 0; right: 0` of THIS box, so the cell's width is the caption's
+     width — at 88px (the circle's own size, which this started as) "none in this release"
+     clipped to "none in this…", which is a state the viewer cannot read. 132px fits it in two
+     lines, and the row is still 8*132 + 7*24 = 1224px inside the 1728px the safe area
+     leaves. Measured by rendering this file at 1920x1080, not reasoned about. */
+  width: 132px;
+  /* The circle, an 10px gap and one 24px caption line, which the caption is positioned into. */
+  min-height: 146px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+/* See the header: the ring moves to the circle below, and this is the other half of that.
+   Both halves or neither. */
+.bs-tp:focus { outline: none; }
+.bs-tp__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  border: 2px solid var(--hairline);
+  background: var(--surface);
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1), border-color 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-tp__glyph svg { width: 40px; height: 40px; }
+/* Play/Pause, and Try again when it is offered. Gold fill rather than a bigger circle: a
+   larger cell would sit its caption lower than its neighbours', and the row's captions all
+   have to share one line.
+   TWO RULES, and the split is not cosmetic. The glyph is `fill: currentColor`, so inverting it
+   to ink has to happen on something it inherits from — the BUTTON — which is why the modifier
+   carries `color` and the descendant rule carries only the circle's fill and border. It also
+   keeps the modifier a rule of its own, which is what `playerCss.test.tsx`'s catch-all can
+   see: that matcher reads a selector followed by `,`, `{` or `:`, so a class that exists ONLY
+   as the left half of a descendant selector reads as having no rule at all (measured — it
+   reddened that row). The caption is unaffected either way: both of its forms set their own
+   colour, which they have to, or the primary cell's label would be ink on ink. */
+.bs-tp--primary { color: var(--ink); }
+.bs-tp--primary .bs-tp__glyph { background: var(--gold); border-color: var(--gold); }
+.bs-tp:focus .bs-tp__glyph {
+  outline: var(--focus-ring) solid var(--gold-lite);
+  outline-offset: 4px;
+  transform: scale(1.08);
+  border-color: var(--gold-lite);
+}
+/* ONE LINE, SHARED. Absolutely positioned, so neither of them adds height and the row cannot
+   change shape when a state arrives; as wide as the cell, so a caption cannot reach into the
+   cell beside it; two lines clamped, because the longest state this row can show is
+   "none in this release". */
+.bs-tp__label, .bs-tp .bs-player__commit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-tp__label { opacity: 0; color: var(--gold-lite); }
+.bs-tp .bs-player__commit { color: var(--muted); }
+/* Focused: the control's name. Unfocused: whatever it has to say about itself. */
+.bs-tp:focus .bs-tp__label { opacity: 1; }
+.bs-tp:focus .bs-player__commit { opacity: 0; }

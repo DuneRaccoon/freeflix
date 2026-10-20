@@ -13,7 +13,9 @@ import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { titleStateFor, type TitleAction, type TitleState } from '../../../_data/title';
 import { watchHref } from '../../../_data/watchHref';
-import { episodeMarks, latestSeasonWatched, nextUnwatched, seasonFinished } from '../../../_data/showProgress';
+import { episodeTraces, latestSeasonWatched, nextUnwatched, seasonFinished } from '../../../_data/showProgress';
+import { AutoNextToggle } from '../../../_components/AutoNextToggle';
+import { useAutoNext } from '../../../_data/autoNext';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useFocusGrid } from '../../../_focus/useFocusGrid';
 import { useBackKey } from '../../../_focus/useBackKey';
@@ -109,7 +111,7 @@ async function loadShow(id: number, profileId: string | null): Promise<Opened> {
     }
     const here = seasons.get(open);
     // The viewer finished that season: land on the next one rather than on a finished list.
-    if (here && seasonFinished(episodesOf(here), episodeMarks(history, id, open))) {
+    if (here && seasonFinished(episodesOf(here), episodeTraces(history, id, open))) {
       const next = regular.find((s) => s.season_number > (open as number));
       if (next) {
         try {
@@ -180,6 +182,12 @@ function Loaded({
   const tmdbId = show.tmdb_id;
   const seasons = useMemo(() => regularSeasons(show), [show]);
 
+  // Per-profile, read once here. The player reads it again on its own: the two screens are
+  // different page loads as far as this surface is concerned (the TV navigates client-side,
+  // but nothing on it holds settings in a context), and one small GET is cheaper than a
+  // provider for one boolean.
+  const autoNext = useAutoNext(profileId);
+
   const cache = useRef(new Map<number, SeasonDetail>(opened.seasons));
   const inFlight = useRef(new Set<number>());
   const [failedSeasons, setFailedSeasons] = useState<ReadonlySet<number>>(
@@ -237,11 +245,14 @@ function Loaded({
   const failed = open !== null && !entry && failedSeasons.has(open);
   const loading = open !== null && !entry && !failed;
   const episodes: readonly Episode[] = episodesOf(entry);
-  const marks = useMemo(
-    () => (open === null ? new Map() : episodeMarks(history, tmdbId, open)),
+  const traces = useMemo(
+    () => (open === null ? new Map() : episodeTraces(history, tmdbId, open)),
     [history, tmdbId, open],
   );
-  const finished = !!entry && open !== null && seasonFinished(episodes, marks);
+  const finished = !!entry && open !== null && seasonFinished(episodes, traces);
+  // The same answer row 0's control is built from, handed to the list so the badge and the
+  // control cannot appear to disagree about which episode is next.
+  const upNext = entry ? nextUnwatched(episodes, traces) : null;
   const laterSeason = open !== null && seasons.some((s) => s.season_number > open);
   // "Nothing left" is the absolute claim Continue Watching's "Up next" defers to, so it is made
   // only on complete data: EVERY regular season fetched, none with an unwatched episode
@@ -250,7 +261,7 @@ function Loaded({
   const unseenSeason = seasons.some((s) => !cache.current.has(s.season_number));
   const unwatchedElsewhere = seasons.some((s) => {
     const d = cache.current.get(s.season_number);
-    return !!d && !seasonFinished(episodesOf(d), episodeMarks(history, tmdbId, s.season_number)) && episodesOf(d).length > 0;
+    return !!d && !seasonFinished(episodesOf(d), episodeTraces(history, tmdbId, s.season_number)) && episodesOf(d).length > 0;
   });
 
   // Row 0's default subject: the first episode of the open season that is not finished.
@@ -260,7 +271,7 @@ function Loaded({
       setPending(false);
       return;
     }
-    const target = nextUnwatched(episodesOf(entry), marks);
+    const target = nextUnwatched(episodesOf(entry), traces);
     if (!target) {
       setSubject(null);
       setPending(false);
@@ -281,12 +292,22 @@ function Loaded({
     return () => {
       cancelled = true;
     };
-  }, [open, entry, marks, tmdbId, profileId, onLocked]);
+  }, [open, entry, traces, tmdbId, profileId, onLocked]);
 
   const epBase = seasons.length > 0 ? 2 : 1;
   const emptySeason = !!entry && episodes.length === 0;
+  /**
+   * ROW 0 IS TWO CELLS NOW: the subject's control, and the auto-next toggle beside it.
+   *
+   * A CONSTANT, not a condition. The toggle is rendered in BOTH arms of `actions` below —
+   * beside the episode control and beside "Back to home" — so the count never changes while
+   * this screen is up, which is what keeps it out of the insertion hazard the transport row's
+   * `RETRY_CELL` is careful about: the thing that swaps on this screen is WHICH control sits
+   * at column 0, and the effect below already puts DOM focus back when that happens.
+   */
+  const ACTION_CELLS = 2;
   const rowCounts = [
-    1,
+    ACTION_CELLS,
     ...(seasons.length > 0 ? [seasons.length] : []),
     ...(entry && episodes.length > 0
       ? Array.from({ length: episodeRowCount(episodes, false) }, () => 1)
@@ -375,6 +396,7 @@ function Loaded({
         focusProps={grid.focusProps(0, 0)}
         onRecheck={recheck}
       />
+      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(0, 1)} />
     </>
   ) : (
     <>
@@ -387,6 +409,10 @@ function Loaded({
       <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(0, 0)} onClick={goHome}>
         Back to home
       </button>
+      {/* HERE TOO, and that is what makes `ACTION_CELLS` a constant: the two arms of this
+          ternary are the same focus row, so a toggle in only one of them would change the
+          row's count every time the subject resolved. */}
+      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(0, 1)} />
     </>
   );
 
@@ -444,12 +470,13 @@ function Loaded({
         ) : (
           <EpisodeList
             episodes={episodes}
-            marks={marks}
+            traces={traces}
             loading={loading}
             firstRow={epBase}
             focusProps={grid.focusProps}
             onPress={pressEpisode}
             busyEpisode={busyEpisode}
+            nextEpisode={upNext?.episode_number ?? null}
           />
         )}
       </>

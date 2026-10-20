@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { SeasonDetail, ShowDetail, StreamingProgress, Episode } from '@/types';
 import { tvService } from '@/services/tv';
+import { usersService } from '@/services/users';
 import { streamingService } from '@/services/streaming';
 import { requestTitle, resumeTitle, titleStateFor, type TitleAction } from '../../../_data/title';
 import { useTvProfile } from '../../../_data/useTvProfile';
@@ -12,6 +13,11 @@ vi.mock('next/navigation', () => ({ useRouter: () => router, useParams: () => ({
 vi.mock('../../../_data/title', () => ({ titleStateFor: vi.fn(), requestTitle: vi.fn(), resumeTitle: vi.fn() }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
+vi.mock('@/services/users', () => ({
+  // The auto-next toggle reads (and writes) the profile's setting. Mocked because an
+  // unmocked service method here is a real XHR out of jsdom.
+  usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
+}));
 vi.mock('@/services/streaming', () => ({ streamingService: { getRecentProgress: vi.fn() } }));
 
 const getShow = vi.mocked(tvService.getShow);
@@ -74,8 +80,22 @@ const ringPlaced = () =>
 const epButtons = () => screen.queryAllByRole('button', { name: /^\d+\s/ });
 const seasonBtn = (n: number) => screen.getByRole('button', { name: new RegExp(`Season ${n}`) });
 
+const settingsRow = (autoNext: boolean) =>
+  ({
+    id: 's1',
+    user_id: 'p1',
+    maturity_restriction: 'none',
+    require_passcode: false,
+    has_passcode: false,
+    passcode_len: null,
+    theme: 'dark',
+    default_quality: '1080p',
+    auto_next_episode: autoNext,
+  }) as unknown as Awaited<ReturnType<typeof usersService.getUserSettings>>;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(true));
   sessionStorage.clear();
   profileHook.mockReturnValue({ profile: { id: 'p1', display_name: 'Ben', avatar: null }, loading: false, select: vi.fn(), clear });
   getShow.mockResolvedValue(show());
@@ -539,4 +559,107 @@ describe('show detail screen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
     await screen.findByRole('button', { name: 'Open' });
   });
+
+  // =================================================================================
+  // The auto-next switch, and the trace the episode list draws
+  // =================================================================================
+
+  const toggle = () => screen.getByRole('button', { name: /^Auto-download next:/ });
+
+  it('offers the auto-next switch beside the episode control, showing the profile’s answer', async () => {
+    vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(false));
+    await mount();
+    await waitFor(() => expect(toggle().textContent).toBe('Auto-download next: Off'));
+    expect.soft(toggle().getAttribute('aria-pressed')).toBe('false');
+    expect.soft(vi.mocked(usersService).getUserSettings).toHaveBeenCalledWith('p1');
+  });
+
+  it('writes the profile’s setting when it is pressed', async () => {
+    vi.mocked(usersService).updateUserSettings.mockResolvedValue(settingsRow(false));
+    await mount();
+    await waitFor(() => expect(toggle().textContent).toBe('Auto-download next: On'));
+    await act(async () => {
+      fireEvent.click(toggle());
+    });
+    expect.soft(vi.mocked(usersService).updateUserSettings).toHaveBeenCalledWith('p1', {
+      auto_next_episode: false,
+    });
+    await waitFor(() => expect(toggle().textContent).toBe('Auto-download next: Off'));
+  });
+
+  it('is the second cell of row 0, reachable from the episode control with one press', async () => {
+    // The row's count is a CONSTANT (`ACTION_CELLS`), which is what keeps this cell out of
+    // the insertion hazard: the thing that changes on this screen is which control sits at
+    // column 0, not how many there are.
+    await mount();
+    await ringPlaced();
+    const first = document.querySelector('[tabindex="0"]');
+    expect.soft(first, 'the ring starts on the episode control').toBe(
+      screen.getByRole('button', { name: 'Play' }),
+    );
+    await act(async () => {
+      (document.activeElement ?? document.body).dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', keyCode: 39, bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(() => expect(document.activeElement).toBe(toggle()));
+    expect.soft(document.querySelectorAll('[tabindex="0"]'), 'exactly one cell holds the ring').toHaveLength(1);
+  });
+
+  it('keeps the switch beside "Back to home" too, so the row never changes size', async () => {
+    // The arm with no subject: every episode of the open season is watched, so row 0 holds
+    // the home control instead of an episode's. A toggle in only one arm would change the
+    // row's count the moment the subject resolved.
+    recent.mockResolvedValue([
+      prog('tv:1399:s1:e1', { completed: true }),
+      prog('tv:1399:s1:e2', { completed: true }),
+      prog('tv:1399:s1:e3', { completed: true }),
+    ]);
+    getShow.mockResolvedValue(show({ seasons: [{ season_number: 1, name: 'Season 1', episode_count: 3, overview: null, poster_url: null, air_date: null }] }));
+    await mount();
+    expect.soft(screen.getByRole('button', { name: 'Back to home' })).toBeInTheDocument();
+    expect.soft(toggle()).toBeInTheDocument();
+  });
+
+  it('badges the episode its own control would play, and nothing else', async () => {
+    // One answer to "which episode is next", shared: the screen builds row 0's control from
+    // `nextUnwatched` and hands the list the same episode.
+    recent.mockResolvedValue([prog('tv:1399:s1:e1', { completed: true })]);
+    await mount();
+    const badges = [...document.querySelectorAll('.bs-ep__badge')];
+    expect.soft(badges).toHaveLength(1);
+    // By NAME, not by `textContent`: the still-less case draws the episode number inside the
+    // frame as well (aria-hidden), so the text begins `22Ep 2` and reads as a defect.
+    expect.soft(badges[0].closest('button')).toBe(screen.getByRole('button', { name: /^2 Ep 2 Next up/ }));
+    // ...and row 0's own control is about that episode.
+    expect.soft(screen.getByText(/S1 · E2/)).toBeInTheDocument();
+  });
+
+  it('draws the season’s tally and each episode’s own trace from the history it read', async () => {
+    recent.mockResolvedValue([
+      prog('tv:1399:s1:e1', { completed: true, percentage: 100 }),
+      prog('tv:1399:s1:e2', { percentage: 50, current_time: 600, duration: 1500 }),
+    ]);
+    await mount();
+    expect.soft(document.querySelector('.bs-eps__tally')?.textContent).toBe('3 episodes · 1 watched');
+    const rows = [...document.querySelectorAll('.bs-eps > li')];
+    expect.soft(rows[0].querySelector('.bs-ep__tick'), 'a finished episode has its tick').not.toBeNull();
+    expect
+      .soft((rows[1].querySelector('.bs-ep__bar > span') as HTMLElement | null)?.style.width)
+      .toBe('50%');
+    expect.soft(rows[1].textContent).toMatch(/In progress · 15 min left/);
+    expect.soft(rows[2].querySelector('.bs-ep__bar'), 'an untouched episode has no bar').toBeNull();
+  });
+
+  it('draws TMDB’s still when the episode has one', async () => {
+    getSeason.mockImplementation(async (_id, n) => ({
+      ...season(n, 1),
+      episodes: [ep(1, { still_url: 'https://image.tmdb.org/t/p/w300/s.jpg' })],
+    }));
+    await mount();
+    expect(document.querySelector('img.bs-ep__thumb')?.getAttribute('src')).toBe(
+      'https://image.tmdb.org/t/p/w500/s.jpg',
+    );
+  });
+
 });

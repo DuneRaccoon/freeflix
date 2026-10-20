@@ -29,9 +29,11 @@ import type {
   VideoFile,
 } from '@/types';
 import { cellLabel, type SubtitleCellState } from '../../../_data/subtitles';
-import { transportCellCount } from '../../../_player/TransportBar';
+import { transportCellCount, transportCells } from '../../../_player/TransportBar';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
+import { tvService } from '@/services/tv';
+import { usersService } from '@/services/users';
 import { REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
 import { requestTitle, takeFourKAsk } from '../../../_data/title';
 import { PROGRESS_CADENCE_MS } from '../../../_data/useWatchProgress';
@@ -69,6 +71,23 @@ vi.mock('@/services/torrents', () => ({
   // `requestTitle` — the code that writes the carrier — rather than seeding it. A
   // test-only seeder would pass with the write deleted.
   torrentsService: { getTorrentStatus: vi.fn(), listTorrents: vi.fn(), downloadCatalogMovie: vi.fn() },
+}));
+
+/**
+ * THE TWO SERVICES THE NEXT-EPISODE WORK ADDED, mocked here because an unmocked service
+ * method on this surface is a REAL XHR out of jsdom: a network error, a console full of
+ * axios, and an answer that depends on what else happens to be listening on localhost.
+ *
+ * THE SETTING DEFAULTS TO OFF IN THIS FILE, and that is a fixture decision rather than the
+ * product's: the background prefetch starts a DOWNLOAD, so leaving it on here would have
+ * every row in a file about subtitles, arrival and Back also exercising `titleStateFor` and
+ * `downloadCatalogMovie` on a timer. The rows that are about the prefetch turn it on
+ * explicitly. (The product default is ON — `autoNextFrom` and the backend's NULL column are
+ * where that is pinned.)
+ */
+vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
+vi.mock('@/services/users', () => ({
+  usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
 }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 
@@ -320,6 +339,70 @@ beforeAll(() => {
   window.HTMLMediaElement.prototype.pause = vi.fn();
 });
 
+
+/**
+ * The season the route's next-episode lookup reads. Episodes 1-3, matching `FILES`, so the
+ * default arrival (file 0 = episode 2) has episode 3 after it.
+ */
+const SEASON = {
+  season_number: 2,
+  name: 'Season 2',
+  overview: null,
+  episodes: [1, 2, 3].map((n) => ({
+    episode_number: n,
+    name: `Episode ${n}`,
+    overview: null,
+    runtime: 50,
+    still_url: null,
+    air_date: null,
+    vote_average: 0,
+  })),
+};
+
+/** One season, so "nothing after this" is reachable from the last episode of it. */
+const SHOW = {
+  tmdb_id: 1399,
+  media_type: 'tv',
+  name: 'Show',
+  year: 2011,
+  overview: null,
+  poster_url: null,
+  backdrop_url: null,
+  genres: [],
+  status: null,
+  first_air_date: null,
+  last_air_date: null,
+  number_of_seasons: 1,
+  vote_average: 0,
+  vote_count: 0,
+  seasons: [{ season_number: 2, name: 'Season 2', episode_count: 3, overview: null, poster_url: null, air_date: null }],
+};
+
+const settingsRow = (autoNext: boolean) =>
+  ({
+    id: 's1',
+    user_id: 'p1',
+    maturity_restriction: 'none',
+    require_passcode: false,
+    has_passcode: false,
+    passcode_len: null,
+    theme: 'dark',
+    default_quality: '1080p',
+    auto_next_episode: autoNext,
+  }) as unknown as Awaited<ReturnType<typeof usersService.getUserSettings>>;
+
+
+/**
+ * THIS FIXTURE IS A TV SEASON PACK, so the transport row HAS the Next-episode cell: every
+ * count and every walk below is through seven cells, not six. Derived rather than written as
+ * numbers, so a reorder of `TRANSPORT_CELLS` moves them instead of leaving a stale constant
+ * that fails as what looks like a focus bug.
+ */
+const cellCount = (retry: boolean) => transportCellCount({ retry, next: true });
+const SUBTITLES_COLUMN = transportCells({ retry: false, next: true }).findIndex(
+  (c) => c.id === 'subtitles',
+);
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
@@ -333,6 +416,9 @@ beforeEach(() => {
   nav.params.current = { id: PACK };
   nav.search.current = new URLSearchParams();
   Element.prototype.scrollIntoView = vi.fn();
+  vi.mocked(tvService).getSeason.mockResolvedValue(SEASON as never);
+  vi.mocked(tvService).getShow.mockResolvedValue(SHOW as never);
+  vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(false));
   profileHook.mockReturnValue({
     profile: { id: 'p1', display_name: 'Ben', avatar: null },
     loading: false,
@@ -1615,7 +1701,7 @@ describe('the Subtitles cell', () => {
     expect.soft(subNote(), 'after it').toBe(cellLabel('off'));
     // THE PAGE AND THE COUNT AGREE, which is the invariant a conditional cell breaks: the
     // row declares `transportCellCount` columns and must render exactly that many cells.
-    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: false }));
+    expect.soft(transportButtons()).toHaveLength(cellCount(false));
   });
 
   it('reads the list once, for the file it is PLAYING, with the 401 opt-out', async () => {
@@ -1793,18 +1879,19 @@ describe('the Subtitles cell', () => {
     // THE RING SITS ON THE INSERTION POINT, which is the only column the defect is visible
     // from — and the first version of this row walked to the END of the row instead, where
     // the model's column index names the same element with the cell and without it. It was
-    // green under both mutations. Four presses from Play/Pause is column 4, the cell itself.
+    // green under both mutations. Walking to the Subtitles cell's own column is the only
+    // place the defect shows, which is why the count is derived and not saturated.
     const answer = pendingList();
     await playing();
-    for (let i = 0; i < 4; i++) right();
+    for (let i = 0; i < SUBTITLES_COLUMN; i++) right();
     const subEl = screen.queryByRole('button', { name: 'Subtitles' });
     expect.soft(subEl, 'the cell is in the row before the list has answered').not.toBeNull();
-    expect.soft(document.activeElement, 'and column 4 is where it is').toBe(subEl);
+    expect.soft(document.activeElement, 'and the insertion column is where it is').toBe(subEl);
     await answer(subtitleList());
     expect.soft(document.activeElement, 'DOM focus stayed put').toBe(subEl);
     expect.soft(ring(), 'exactly one cell holds the ring').toHaveLength(1);
     expect.soft(ring()[0], 'and it is the focused one').toBe(subEl);
-    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: false }));
+    expect.soft(transportButtons()).toHaveLength(cellCount(false));
   });
 
   it('is still ahead of Retry when Retry arrives, and the list answers after it', async () => {
@@ -1819,12 +1906,15 @@ describe('the Subtitles cell', () => {
     });
     // RETRY IS STILL LAST. The new cell went into the MIDDLE of the row, so the one append
     // this row's focus model tolerates is still the only one.
-    const labels = transportButtons().map((b) => b.firstChild?.textContent);
+    // Read off `.bs-tp__label`, which is the cell's NAME. It was `b.firstChild?.textContent`
+    // until the row became icon circles — the first child is the glyph now, and the glyph
+    // carries no text by design (`glyphs.tsx`), so that read answered '' for every cell.
+    const labels = transportButtons().map((b) => b.querySelector('.bs-tp__label')?.textContent);
     expect.soft(labels.at(-1), 'Retry is the row’s last cell').toBe('Try again');
     expect.soft(labels.indexOf('Subtitles'), 'and the new cell sits before Stop').toBe(
       labels.indexOf('Stop') - 1,
     );
-    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: true }));
+    expect.soft(transportButtons()).toHaveLength(cellCount(true));
 
     // Saturating, so this lands on Retry whether the row has seven cells or six — and that
     // is deliberately the WEAK column: from the row's end the model's index names the same
@@ -1839,7 +1929,7 @@ describe('the Subtitles cell', () => {
     expect.soft(document.activeElement, 'DOM focus stayed put').toBe(last);
     expect.soft(ring()).toHaveLength(1);
     expect.soft(ring()[0]).toBe(last);
-    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: true }));
+    expect.soft(transportButtons()).toHaveLength(cellCount(true));
     vi.unstubAllGlobals();
   });
 

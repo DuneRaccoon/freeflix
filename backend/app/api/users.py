@@ -101,6 +101,13 @@ def profile_response(session: Session, profile: User) -> UserResponse:
             theme=row.theme or "dark",
             default_quality=quality,
             download_path=row.download_path,
+            # `is not False`, NEVER `bool(...)`. The column is nullable because
+            # `sync_columns()` can only ADD a bare column — no DEFAULT, no backfill — so
+            # every profile that existed before this build reads NULL, and `bool(None)` is
+            # False. That would ship the feature OFF for every household that already has
+            # one, which is the opposite of the default it is specified to have. NULL means
+            # "never chosen"; only an explicit False is an opt-out.
+            auto_next_episode=row.auto_next_episode is not False,
         ),
     )
 

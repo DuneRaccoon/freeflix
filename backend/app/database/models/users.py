@@ -84,6 +84,28 @@ class UserSettings(Model):
     # Download preferences
     default_quality = Column(String, nullable=False, default="1080p")
     download_path = Column(String, nullable=True)
+
+    # Playback preferences.
+    #
+    # NULLABLE WITH NO SERVER DEFAULT, and that is forced rather than chosen: there is no
+    # migration framework here, so this column reaches an already-provisioned database
+    # through ``sync_columns()``, which can only emit a bare ``ALTER TABLE ... ADD COLUMN``
+    # — no NOT NULL, no DEFAULT, no backfill. Every existing row therefore reads NULL.
+    #
+    # So NULL means "never chosen" and the FEATURE IS ON for it: the read path is
+    # ``auto_next_episode is not False`` (``api/users.py``), never ``bool(...)``, which
+    # would turn every pre-existing profile's unset column into an opt-out nobody asked
+    # for.
+    #
+    # AND NO ``default=True`` EITHER, which is the shape this started as. A Python-side
+    # default fires whenever the attribute is None at flush — including when a caller
+    # assigns None explicitly — so with one, NEW rows store True while MIGRATED rows hold
+    # NULL, and the default-on rule has two implementations that can disagree. Without
+    # one there is a single rule: the column is NULL until somebody turns the feature off,
+    # and only an explicit False is an opt-out. (It also makes the migrated state
+    # constructible in a test, which with the default it was not — measured: the row
+    # asserting NULL came back True.)
+    auto_next_episode = Column(Boolean, nullable=True)
     
     # Relationship
     user = relationship("User", back_populates="settings")

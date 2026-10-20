@@ -38,6 +38,8 @@ import type {
 } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
+import { tvService } from '@/services/tv';
+import { usersService } from '@/services/users';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { SubtitleTrackElement } from '../../../_player/SubtitleTrackElement';
 import WatchPage from './page';
@@ -69,6 +71,23 @@ vi.mock('@/services/streaming', () => ({
 }));
 vi.mock('@/services/torrents', () => ({
   torrentsService: { getTorrentStatus: vi.fn(), listTorrents: vi.fn(), downloadCatalogMovie: vi.fn() },
+}));
+
+/**
+ * THE TWO SERVICES THE NEXT-EPISODE WORK ADDED, mocked here because an unmocked service
+ * method on this surface is a REAL XHR out of jsdom: a network error, a console full of
+ * axios, and an answer that depends on what else happens to be listening on localhost.
+ *
+ * THE SETTING DEFAULTS TO OFF IN THIS FILE, and that is a fixture decision rather than the
+ * product's: the background prefetch starts a DOWNLOAD, so leaving it on here would have
+ * every row in a file about subtitles, arrival and Back also exercising `titleStateFor` and
+ * `downloadCatalogMovie` on a timer. The rows that are about the prefetch turn it on
+ * explicitly. (The product default is ON — `autoNextFrom` and the backend's NULL column are
+ * where that is pinned.)
+ */
+vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
+vi.mock('@/services/users', () => ({
+  usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
 }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 
@@ -176,6 +195,58 @@ beforeAll(() => {
   window.HTMLMediaElement.prototype.pause = vi.fn();
 });
 
+
+/**
+ * The season the route's next-episode lookup reads. Episodes 1-3, matching `FILES`, so the
+ * default arrival (file 0 = episode 2) has episode 3 after it.
+ */
+const SEASON = {
+  season_number: 2,
+  name: 'Season 2',
+  overview: null,
+  episodes: [1, 2, 3].map((n) => ({
+    episode_number: n,
+    name: `Episode ${n}`,
+    overview: null,
+    runtime: 50,
+    still_url: null,
+    air_date: null,
+    vote_average: 0,
+  })),
+};
+
+/** One season, so "nothing after this" is reachable from the last episode of it. */
+const SHOW = {
+  tmdb_id: 1399,
+  media_type: 'tv',
+  name: 'Show',
+  year: 2011,
+  overview: null,
+  poster_url: null,
+  backdrop_url: null,
+  genres: [],
+  status: null,
+  first_air_date: null,
+  last_air_date: null,
+  number_of_seasons: 1,
+  vote_average: 0,
+  vote_count: 0,
+  seasons: [{ season_number: 2, name: 'Season 2', episode_count: 3, overview: null, poster_url: null, air_date: null }],
+};
+
+const settingsRow = (autoNext: boolean) =>
+  ({
+    id: 's1',
+    user_id: 'p1',
+    maturity_restriction: 'none',
+    require_passcode: false,
+    has_passcode: false,
+    passcode_len: null,
+    theme: 'dark',
+    default_quality: '1080p',
+    auto_next_episode: autoNext,
+  }) as unknown as Awaited<ReturnType<typeof usersService.getUserSettings>>;
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
@@ -184,6 +255,9 @@ beforeEach(() => {
   nav.params.current = { id: PACK };
   nav.search.current = new URLSearchParams();
   Element.prototype.scrollIntoView = vi.fn();
+  vi.mocked(tvService).getSeason.mockResolvedValue(SEASON as never);
+  vi.mocked(tvService).getShow.mockResolvedValue(SHOW as never);
+  vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(false));
   profileHook.mockReturnValue({
     profile: { id: 'p1', display_name: 'Ben', avatar: null },
     loading: false,

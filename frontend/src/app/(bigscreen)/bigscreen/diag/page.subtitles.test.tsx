@@ -232,6 +232,14 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     expect(player('s27a')!.getAttribute('src')).toMatch(/^\/samples\//);
     expect(player('s27a')!.getAttribute('src')).not.toBe(VTT);
     expect(player('s27a')!.getAttribute('src')).not.toMatch(/^\/api/);
+    // AND IT MAY NOT NAME ONE OF THE FOUR STAGE-8 CLIPS. Found by a mutation nobody
+    // prescribed: with `BOGUS_VIDEO_SRC` pointed at `CONTROL_CLIP`, all 28 rows stayed green
+    // — the src is still under `/samples/`, still not the `.vtt` and still not `/api`. That
+    // mutation turns the one arm built to need no artefact into an arm blocked on the same
+    // gitignored binary as 27b, which is the gate's whole reason for existing, and the probe
+    // would not even notice (arm 27a declares no clip, so nothing HEADs it).
+    expect(player('s27a')!.getAttribute('src'), 'not an artefact anyone has to produce').not.toBe(CLIP);
+    expect(player('s27a')!.getAttribute('src')).not.toMatch(/\/samples\/clip/);
   });
 
   it('mounts nothing at all while the probe is still in flight', async () => {
@@ -558,13 +566,23 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     expect(cellText('s27a', 'HTTP — the .vtt')).toMatch(/-> 200 OK$/);
   });
 
-  it('clears back to “not taken”, never to a blank', async () => {
+  it('clears back to “not taken”, never to a blank, and leaves nothing mounted', async () => {
+    mockSamples();
     render(<DiagPage />);
+    await loadArm('s27a');
+    await waitFor(() => expect(player('s27a')).not.toBeNull());
     fireEvent.click(within(arm('s27a')!).getByRole('button', { name: /cue text visible: yes/i }));
     await waitFor(() => expect(stored()?.s27a?.visible).toBe('yes'));
 
     fireEvent.click(screen.getByRole('button', { name: /clear subtitle readings/i }));
     await waitFor(() => expect(stored()?.s27a?.visible).toBe('not answered'));
+    // AND THE ELEMENTS GO WITH THE RECORD. Found by a mutation nobody prescribed: with
+    // `setActiveArm(null)` deleted from Clear, all 28 rows stayed green and the page kept a
+    // live `<video>`/`<track>` under a row that now reads "not taken" — so the next Sample
+    // press writes a reading off an element loaded before the clear, which is precisely the
+    // stale-cell failure every cell in this section starts at "not taken" to prevent.
+    expect(player('s27a'), 'no element under a cleared row').toBeNull();
+    expect(document.querySelector('[data-subtitle-track]')).toBeNull();
     // Every machine cell by name, so "not a blank" is checked per cell rather than by a
     // row-wide /not taken/ that any one of them satisfies for all six.
     for (const label of ['textTracks.length', 'textTracks[0].mode', 'cues.length', 'trackEl.readyState', 'which of load/error fired', 'sampled at']) {
@@ -572,6 +590,111 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     }
     expect(cellText('s27a', 'HTTP — the .vtt')).toBe('not probed');
     expect(cellText('s27a', 'Subtitle file present?')).toBe('unknown');
+  });
+
+  it('writes every reading into ITS OWN row, never into the gate row', async () => {
+    // FOUND BY THREE MUTATIONS NOBODY PRESCRIBED, ALL GREEN ACROSS 28 ROWS: `sampleArm`,
+    // `recordTrackEvent` and the VISIBLE button each take the arm's id, and each one
+    // hard-coded to `'s27a'` left the whole suite passing. Every machine cell, every
+    // load/error event and the operator's VISIBLE answer for arms 27b, 30, 32 and 35 would
+    // land in the row that GATES THE STAGE while those four rows stayed at "not taken".
+    //
+    // Printing the sheet row number — which this file does assert per arm — pins the LABEL an
+    // operator transcribes under, not the row a value is written into, and those are different
+    // failures: the first mis-files a reading by hand, the second mis-files it in code, and the
+    // second is the one that answers gate A with a question nobody asked. Arm 32 is used here
+    // because it is the furthest thing from the gate: `line:-4` gates nothing.
+    mockSamples();
+    render(<DiagPage />);
+    fireEvent.click(within(arm('s32')!).getByRole('button', { name: /cue text visible: yes/i }));
+    await waitFor(() => expect(cellText('s32', 'Cue text VISIBLE')).toBe('yes'));
+    // BOTH answers, because they are two buttons and two `updateArm` calls: pinning only the
+    // affirmative one left the negative free to write into the gate row, measured green.
+    fireEvent.click(within(arm('s27b')!).getByRole('button', { name: /cue text visible: no/i }));
+    await waitFor(() => expect(cellText('s27b', 'Cue text VISIBLE')).toBe('no'));
+    expect(cellText('s27a', 'Cue text VISIBLE'), 'the gate answered nothing').toBe('not answered');
+    expect(cellText('s32', 'Cue text VISIBLE'), 'and 27b did not overwrite 32').toBe('yes');
+
+    await loadArm('s32');
+    await waitFor(() => expect(trackEl('s32')).not.toBeNull());
+    expect(cellText('s32', 'HTTP — the .vtt')).toBe('HEAD /samples/cue-probe-line.vtt -> 200 OK');
+    expect(cellText('s27a', 'HTTP — the .vtt'), 'the gate probed nothing').toBe('not probed');
+
+    fakeTextTracks(player('s32')!, [{ mode: 'showing', cues: { length: 4 } }]);
+    Object.defineProperty(trackEl('s32')!, 'readyState', { value: 2, configurable: true });
+    fireEvent.click(within(arm('s32')!).getByRole('button', { name: /sample this arm now/i }));
+    await waitFor(() => expect(cellText('s32', 'cues.length')).toBe('4'));
+    expect(cellText('s32', 'textTracks.length')).toBe('1');
+    expect(cellText('s32', 'textTracks[0].mode')).toBe('showing');
+    expect(cellText('s32', 'trackEl.readyState')).toBe('2');
+    expect(cellText('s32', 'sampled at')).toBe('operator pressed Sample this arm');
+
+    act(() => {
+      trackEl('s32')!.dispatchEvent(new Event('error', { bubbles: false }));
+    });
+    await waitFor(() => expect(cellText('s32', 'which of load/error fired')).toBe('error'));
+
+    // The gate row is untouched by every one of them.
+    for (const label of ['textTracks.length', 'textTracks[0].mode', 'cues.length', 'trackEl.readyState', 'which of load/error fired', 'sampled at']) {
+      expect(cellText('s27a', label), `the gate row's ${label}`).toBe('not taken');
+    }
+  });
+
+  it('samples itself when the element reports metadata, and when it errors', async () => {
+    // FOUND BY A MUTATION NOBODY PRESCRIBED: deleting the `<video>`'s own
+    // `onLoadedMetadata`/`onError` left all 28 rows green, because every row here sampled
+    // through the operator's button. `sampleArm`'s own comment says it is called from three
+    // places and only one of them was pinned — and on arm 27a, the gate, the element's `error`
+    // is not an edge case but THE EXPECTED EVENT: the src is unresolvable on purpose, so
+    // "video error" in `sampled at` is the evidence that the arm reached the state it measures.
+    mockSamples();
+    render(<DiagPage />);
+    await loadArm('s27a');
+    await waitFor(() => expect(player('s27a')).not.toBeNull());
+
+    fireEvent.loadedMetadata(player('s27a')!);
+    await waitFor(() => expect(cellText('s27a', 'sampled at')).toBe('loadedmetadata'));
+    fireEvent.error(player('s27a')!);
+    await waitFor(() => expect(cellText('s27a', 'sampled at')).toMatch(/^video error/));
+  });
+
+  it('restores every field in the record, not only the ones another row asserts', async () => {
+    // FOUND BY A MUTATION NOBODY PRESCRIBED: `readSubtitleReadings` restores a HAND-WRITTEN
+    // LIST of field names, and the remount row above asserts four of them, so dropping
+    // `'styled'` and `'moved'` from that list left all 28 rows green. Those two are the GOLD
+    // and HIGHER answers — the readings no code can reproduce, which is exactly why they are
+    // the ones that must survive leaving the page. The record is written here by hand rather
+    // than earned through the UI, so every field is reachable in one row: `loads` belongs to
+    // arm 35, `styled` to 30, `moved` to 32, and the clip pair only to 27b.
+    const full = {
+      http: 'HEAD /samples/cue-probe.vtt -> 200 OK',
+      present: 'yes',
+      clipHttp: `HEAD ${CLIP} -> 404 Not Found`,
+      clipPresent: 'no',
+      tracks: '2', mode: 'hidden', cues: '7', readyState: '3',
+      event: 'error, load', loads: '1 -> 2 -> 3',
+      visible: 'no', styled: 'yes', moved: 'no', at: 'loadedmetadata',
+    };
+    sessionStorage.setItem(
+      SUBTITLE_STORAGE,
+      JSON.stringify({ s27a: full, s27b: full, s30: full, s32: full, s35: full }),
+    );
+    render(<DiagPage />);
+
+    await waitFor(() => expect(cellText('s27b', 'cues.length')).toBe('7'));
+    expect(cellText('s27b', 'HTTP — the .vtt')).toBe(full.http);
+    expect(cellText('s27b', 'Subtitle file present?')).toBe('yes');
+    expect(cellText('s27b', 'HTTP — the clip')).toBe(full.clipHttp);
+    expect(cellText('s27b', 'Clip present?')).toBe('FILE NOT PRESENT — nothing was mounted');
+    expect(cellText('s27b', 'textTracks.length')).toBe('2');
+    expect(cellText('s27b', 'textTracks[0].mode')).toBe('hidden');
+    expect(cellText('s27b', 'trackEl.readyState')).toBe('3');
+    expect(cellText('s27b', 'which of load/error fired')).toBe('error, load');
+    expect(cellText('s27b', 'sampled at')).toBe('loadedmetadata');
+    expect(cellText('s27b', 'Cue text VISIBLE')).toBe('no');
+    expect(cellText('s35', 'after each video.load()')).toBe('1 -> 2 -> 3');
+    expect(cellText('s30', 'Cue text was GOLD')).toBe('yes');
+    expect(cellText('s32', 'Cue sat HIGHER')).toBe('no');
   });
 
   it('adds no focus stop to the readout, and leaves the way out first', async () => {

@@ -3,8 +3,8 @@ import { memo } from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { useFocusGrid, type FocusProps } from './useFocusGrid';
 
-function Harness({ rowCounts, storageKey }: { rowCounts: number[]; storageKey?: string }) {
-  const grid = useFocusGrid({ rowCounts, storageKey });
+function Harness({ rowCounts, storageKey, initialRow }: { rowCounts: number[]; storageKey?: string; initialRow?: number }) {
+  const grid = useFocusGrid({ rowCounts, storageKey, initialRow });
   return (
     <div>
       {rowCounts.map((count, row) => (
@@ -224,6 +224,60 @@ describe('useFocusGrid', () => {
     expect(document.activeElement).toBe(screen.getByText('0-1'));
     expect(focus).not.toHaveBeenCalled();
     expect(scrollSpy()).not.toHaveBeenCalled();
+  });
+
+  describe('where the content starts (initialRow)', () => {
+    it('lands on the content, not on the bar above it', () => {
+      // The case it exists for: a top bar is row 0, and the ring belongs on the content
+      // underneath it. Without this every fresh arrival starts in the menu.
+      render(<Harness rowCounts={[4, 3, 3]} initialRow={1} />);
+      expect(document.activeElement).toBe(screen.getByText('1-0'));
+    });
+
+    it('keeps preferring content when the row under the ring empties', () => {
+      // THE ROW THAT MATTERS, and the one a first-paint-only version of this would miss.
+      // Home's recovery panel holds row 1 until the hero arrives and takes row 2; the panel
+      // then empties, and the fall-back has to find the hero rather than the menu.
+      const { rerender } = render(<Harness rowCounts={[4, 2, 0]} initialRow={1} />);
+      expect(document.activeElement).toBe(screen.getByText('1-0'));
+      rerender(<Harness rowCounts={[4, 0, 3]} initialRow={1} />);
+      expect(document.activeElement, 'the hero, not the menu').toBe(screen.getByText('2-0'));
+    });
+
+    it('falls back to the bar only when nothing under it has items', () => {
+      // A PREFERENCE, NOT A FLOOR. "Always something focused" outranks "never the menu":
+      // a remote has no Tab and no pointer, so a screen with no focus stop is stuck.
+      render(<Harness rowCounts={[4, 0, 0]} initialRow={1} />);
+      expect(document.activeElement).toBe(screen.getByText('0-0'));
+    });
+
+    it('does not chase content that arrives after it settled on the bar', () => {
+      // The limit, written down rather than left to be discovered: once the ring is
+      // somewhere real, a row filling below it does not move it. Moving focus the viewer
+      // did not ask for is the worse failure — and on every screen that mounts the bar, row
+      // 1 has cells from the first paint, so this state is the empty-screen one.
+      const { rerender } = render(<Harness rowCounts={[4, 0]} initialRow={1} />);
+      expect(document.activeElement).toBe(screen.getByText('0-0'));
+      rerender(<Harness rowCounts={[4, 3]} initialRow={1} />);
+      expect(document.activeElement).toBe(screen.getByText('0-0'));
+    });
+
+    it('defers to a saved position, which is the stronger claim', () => {
+      const first = render(<Harness rowCounts={[4, 3, 3]} storageKey="s" initialRow={1} />);
+      press('ArrowDown');
+      press('ArrowDown');
+      expect(document.activeElement).toBe(screen.getByText('2-0'));
+      first.unmount();
+      render(<Harness rowCounts={[4, 3, 3]} storageKey="s" initialRow={1} />);
+      expect(document.activeElement, 'where they were, not where the screen prefers').toBe(
+        screen.getByText('2-0'),
+      );
+    });
+
+    it('changes nothing when it is not given', () => {
+      render(<Harness rowCounts={[0, 3]} />);
+      expect(document.activeElement).toBe(screen.getByText('1-0'));
+    });
   });
 
   describe('remembering a position (storageKey)', () => {

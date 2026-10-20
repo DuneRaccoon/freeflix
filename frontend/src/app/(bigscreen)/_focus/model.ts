@@ -49,8 +49,22 @@ export function isEmptyGrid(rowCounts: RowCounts): boolean {
  * Not simply `{0, 0}`: a rail that has not loaded has a count of 0, and landing on
  * it would leave nothing focused. On a remote there is no Tab and no pointer to
  * recover with, so the screen would be stuck.
+ *
+ * `from` IS WHERE THE CONTENT STARTS, and it exists because of the top bar. A browsing
+ * screen declares that bar as row 0, so without this every fall-back — the first paint, a
+ * rail emptying, a panel being replaced by the hero it held the place of — puts the ring in
+ * the MENU. On a television the ring belongs on the content; the menu is one Up press away,
+ * which is where a viewer reaches for it.
+ *
+ * IT IS A PREFERENCE, NOT A FLOOR. If nothing at or after `from` has items, the search
+ * starts again from the top — so a screen whose content has not arrived yet still has a
+ * focus stop (the bar), rather than none at all. "Always something focused" outranks "never
+ * the menu".
  */
-export function firstTarget(rowCounts: RowCounts): FocusTarget {
+export function firstTarget(rowCounts: RowCounts, from = 0): FocusTarget {
+  for (let r = Math.max(0, from); r < rowCounts.length; r++) {
+    if (hasItems(rowCounts[r])) return { row: r, col: 0 };
+  }
   const row = rowCounts.findIndex(hasItems);
   return row === -1 ? NO_TARGET : { row, col: 0 };
 }
@@ -61,10 +75,13 @@ export function firstTarget(rowCounts: RowCounts): FocusTarget {
  * A rail can shrink or vanish between visits (a watchlist row loses an item, a
  * refetch comes back empty). A row that is gone or empty falls back to
  * `firstTarget`; a row that is merely shorter clamps the column to its last item.
+ *
+ * `from` is handed straight to `firstTarget`: see there for why a screen with a top bar
+ * needs the fall-back to prefer the content under it.
  */
-export function clampTarget(rowCounts: RowCounts, t: FocusTarget): FocusTarget {
+export function clampTarget(rowCounts: RowCounts, t: FocusTarget, from = 0): FocusTarget {
   const n = countOf(rowCounts, t.row);
-  if (!hasItems(n)) return firstTarget(rowCounts);
+  if (!hasItems(n)) return firstTarget(rowCounts, from);
   return { row: t.row, col: clamp(t.col, 0, n - 1) };
 }
 

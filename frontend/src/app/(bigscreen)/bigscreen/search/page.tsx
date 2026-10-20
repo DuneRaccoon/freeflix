@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import type { CatalogItem, CatalogPage } from '@/types';
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
 import { mergeDedupe } from '@/lib/mergeCatalog';
 import { Card } from '../../_components/Card';
+import { HEADER_CELLS, Header } from '../../_components/Header';
 import { Keyboard, KEYBOARD_ROW_COUNTS, type KeyAction } from '../../_components/Keyboard';
 import { chunk } from '../../_data/chunk';
 import { catalogItemToCard, usableCatalogRow } from '../../_data/rails';
+import { readRecent, rememberSearch } from '../../_data/recentSearches';
+import { MAX_QUERY, TYPING_PAUSE_MS, autoSearchQuery } from '../../_data/searchQuery';
 import { useFocusGrid } from '../../_focus/useFocusGrid';
 import { useBackKey } from '../../_focus/useBackKey';
 
@@ -52,20 +55,38 @@ import { useBackKey } from '../../_focus/useBackKey';
 
 const HOME = '/bigscreen';
 
-/** The Search key and the way home. One row, and the grid is told exactly this many. */
-const ACTION_CELLS = 2;
+/** The top bar. Row 0 on every browsing screen, so Up from the content always reaches it. */
+const HEADER_ROW = 0;
+/** The keyboard starts straight under the bar, which is where the ring lands on arrival. */
+const FIRST_KEY_ROW = 1;
 /** Grid row of the action row: straight after the keyboard's own rows. */
-const ACTION_ROW = KEYBOARD_ROW_COUNTS.length;
-const FIRST_RESULT_ROW = ACTION_ROW + 1;
+const ACTION_ROW = FIRST_KEY_ROW + KEYBOARD_ROW_COUNTS.length;
+/** Recent searches, when there is nothing else to show. Empty — and absent — otherwise. */
+const RECENT_ROW = ACTION_ROW + 1;
+const FIRST_RESULT_ROW = RECENT_ROW + 1;
+
+/**
+ * What the action row holds. `Search` is ALWAYS column 0 and `Jump to results` is APPENDED,
+ * never inserted — the focus model tolerates growth at the END of a row (the grid calls `go`
+ * only when the clamped target CHANGES) and nothing else. A cell added at or before the
+ * focused column would leave DOM focus on the element that had just become the next column
+ * while the model still pointed at the old one, and the next press would appear to do
+ * nothing. The transport row's `RETRY_CELL` is the same rule.
+ *
+ * Derived from the state rather than written as a literal, because this row now varies.
+ */
+const actionCells = (hasResults: boolean): number => (hasResults ? 2 : 1);
+
+/**
+ * The typing pause, the floor under it and the query cap all live in `_data/searchQuery`:
+ * a page module cannot export a constant (Next rejects anything but its own known fields),
+ * and a test that re-typed the numbers beside these would be two copies to keep in step.
+ * The in-flight guard and the generation counter below are unchanged and are what keep a
+ * slow answer from landing on a newer query.
+ */
 
 /** Six 240px posters and their 24px gaps are 1560px, inside the 1728px the safe area leaves. */
 const PER_ROW = 6;
-
-/**
- * Far beyond any real title, and bounded only so a stuck key cannot grow the query without
- * limit. The press that hits it says so rather than being silently ignored.
- */
-const MAX_QUERY = 60;
 
 type Phase =
   | { kind: 'idle' }
@@ -176,6 +197,7 @@ function pageOf(settled: PromiseSettledResult<CatalogPage>): CatalogPage | null 
 
 export default function SearchPage() {
   const router = useRouter();
+  const pathname = usePathname();
 
   // Read once, on the first render, so the restored results are part of the grid's FIRST
   // shape: `useFocusGrid` holds a saved position as a pending restore until its row has
@@ -190,6 +212,13 @@ export default function SearchPage() {
   const [phase, setPhase] = useState<Phase>(restored.phase);
   /** A transient answer to a press this screen declined. Cleared by the next key press. */
   const [note, setNote] = useState<string | null>(null);
+  /** The last few searches that found something. Read once; rewritten by `run`. */
+  const [recent, setRecent] = useState<string[]>(readRecent);
+  /**
+   * The query already ASKED. Seeded from a restored search so arriving back on this screen
+   * does not re-run the search whose results are already on it.
+   */
+  const lastAuto = useRef(restored.phase.kind === 'results' ? restored.phase.q : '');
 
   useEffect(() => {
     writeStored(QUERY_KEY, query);
@@ -260,12 +289,19 @@ export default function SearchPage() {
     }
   };
 
-  const submit = async () => {
-    const q = queryRef.current.trim();
+  /**
+   * Run a search for `q`. The one path to the network, shared by the typing pause, the
+   * Search key and a recent-search press, so the in-flight guard and the generation counter
+   * cannot be bypassed by any of them.
+   */
+  const run = useCallback(async (q: string) => {
     if (!q) {
       setNote('Type a title first, then press Search.');
       return;
     }
+    // Claimed here, not only in the effect: a manual press and a pause that lands in the
+    // same frame would otherwise both go out.
+    lastAuto.current = q;
     if (inFlight.current === q) {
       // The one press on this surface that would otherwise be neither acted on nor refused:
       // `setPhase({ kind: 'searching', q })` with the same `q` renders a byte-identical
@@ -298,6 +334,36 @@ export default function SearchPage() {
     if (!alive.current || mine !== generation.current) return;
     inFlight.current = null;
     setPhase(next);
+    // Only a search that FOUND something is worth offering back: a list of a viewer's typos
+    // is worse than no list.
+    if (next.kind === 'results' && next.items.length > 0) setRecent(rememberSearch(q));
+  }, []);
+
+  /**
+   * THE TYPING PAUSE. A search goes out when the viewer stops, not when they press.
+   *
+   * `lastAuto` IS WHAT STOPS IT LOOPING. Without it a FAILED search re-arms the timer on the
+   * next render — the query has not changed, so the condition that fired it is still true —
+   * and the screen retries a dead box for ever. It records the query that has already been
+   * ASKED, which is not the same as the query being shown: a failure is asked and answered.
+   *
+   * The cleanup cancels the pending timer on every keystroke, so holding a key down costs
+   * one request at the end rather than one per repeat.
+   */
+  useEffect(() => {
+    const q = autoSearchQuery(query, lastAuto.current);
+    if (q === null) return;
+    const timer = setTimeout(() => void run(q), TYPING_PAUSE_MS);
+    return () => clearTimeout(timer);
+  }, [query, run]);
+
+  /** The Search key: the same search, asked for explicitly. Its value is the retry. */
+  const submit = () => {
+    const q = queryRef.current.trim();
+    // A press on a query that already failed must actually re-ask, so the auto guard is
+    // dropped first — the in-flight guard below is the one that still refuses a double.
+    lastAuto.current = '';
+    void run(q);
   };
 
   // Scoped by state: text deletes, empty leaves. `push`, as the detail screens do.
@@ -314,10 +380,26 @@ export default function SearchPage() {
 
   const items = phase.kind === 'results' ? phase.items : [];
   const rows = chunk(items, PER_ROW);
-  // Declared from what is rendered: the same arrays the render below maps over.
+  /**
+   * Recent searches are offered only when there is nothing else on the screen — an empty
+   * query and no results. They are a way to START, not a thing to step over on the way to
+   * the answers, and a row that stayed would sit between the keyboard and the results for
+   * the whole visit.
+   */
+  const showRecent = query.trim() === '' && rows.length === 0 && recent.length > 0;
+  const recentCells = showRecent ? recent.length : 0;
+  // Declared from what is rendered: the same arrays and conditions the render below uses.
   const grid = useFocusGrid({
-    rowCounts: [...KEYBOARD_ROW_COUNTS, ACTION_CELLS, ...rows.map((r) => r.length)],
+    rowCounts: [
+      HEADER_CELLS,
+      ...KEYBOARD_ROW_COUNTS,
+      actionCells(rows.length > 0),
+      recentCells,
+      ...rows.map((r) => r.length),
+    ],
     storageKey: FOCUS_KEY,
+    // The keyboard, not the bar above it: this screen exists to be typed on.
+    initialRow: FIRST_KEY_ROW,
   });
 
   let status: string | null = null;
@@ -331,48 +413,82 @@ export default function SearchPage() {
     // .bs-shell, not .bs-page: every group below carries its own safe inset, and html and
     // body cannot scroll, so this needs its own scroller.
     <main className="bs-shell">
-      <header className="bs-shell__head">
-        <h1>Search</h1>
-        {/* Read-only, and in the head so it stays on screen while focus moves into the
-            results. aria-live so the viewer's own typing is announced, since there is no
-            caret to watch. */}
-        <p className="bs-search__query" aria-live="polite">
-          {query || <span className="bs-search__hint">Type a title with the keyboard below</span>}
-        </p>
-      </header>
+      <Header row={HEADER_ROW} focusPropsFor={grid.focusProps} pathname={pathname} />
       <div className="bs-shell__scroll">
-        <Keyboard rowOffset={0} focusProps={grid.focusProps} onPress={press} />
+        {/* NO `<h1>Search</h1>` HERE, deliberately. The bar above already marks which section
+            the viewer is in, and the field below says what to do in it — a heading between
+            them is a third way of saying the same word, and ~90px of the screen that the
+            keyboard and the results both want. (My List keeps its heading: a wall of posters
+            has nothing else labelling it.) */}
+        {/* THE FIELD, drawn where a search field goes and shaped like one, but still NOT an
+            `<input>`: a real one would take DOM focus from the roving-tabindex grid and
+            webOS raises its own IME panel over the app when one is focused. The keyboard
+            below is the only input path. `aria-live` so the viewer's own typing is
+            announced, since there is no caret to watch. */}
+        <div className="bs-search__field">
+          <p className="bs-search__query" aria-live="polite">
+            {query || <span className="bs-search__hint">Type a title with the keyboard below</span>}
+          </p>
+          {/* The status rides INSIDE the field, so "Searching…" and the result count appear
+              where the viewer is already looking instead of under six rows of keyboard. */}
+          <p role="status" className="bs-search__state">
+            {note ?? status ?? ''}
+          </p>
+        </div>
+        <Keyboard rowOffset={FIRST_KEY_ROW} focusProps={grid.focusProps} onPress={press} />
         <div className="bs-search__actions">
           {/* The label stays "Search" because that is what the control does, in every state;
               the status line below carries the progress. A press for a query whose search is
               ALREADY OUT is refused out loud (`inFlight`) rather than quietly doubled. A
               press for a DIFFERENT query is a new search, and the generation counter drops
               the older answer. */}
-          <button type="button" className="bs-btn" {...grid.focusProps(ACTION_ROW, 0)} onClick={() => void submit()}>
+          <button type="button" className="bs-btn" {...grid.focusProps(ACTION_ROW, 0)} onClick={submit}>
             Search
           </button>
-          <Link
-            href={HOME}
-            className="bs-btn bs-btn--ghost"
-            draggable={false}
-            {...grid.focusProps(ACTION_ROW, 1)}
-          >
-            Back to home
-          </Link>
+          {/* APPENDED, never inserted — see `actionCells`. It exists because the results sit
+              under six rows of keyboard: without it, reaching what the viewer just searched
+              for is six Downs. With it, one press. The count is in the label so pressing it
+              is a decision rather than a leap. (The way home it replaced is in the bar at
+              the top of the screen now, along with everywhere else.) */}
+          {rows.length > 0 && (
+            <button
+              type="button"
+              className="bs-btn bs-btn--ghost"
+              {...grid.focusProps(ACTION_ROW, 1)}
+              onClick={() => grid.setFocus({ row: FIRST_RESULT_ROW, col: 0 })}
+            >
+              {`Go to ${items.length} result${items.length === 1 ? '' : 's'}`}
+            </button>
+          )}
         </div>
+        {showRecent && (
+          <div className="bs-search__recents">
+            <p className="bs-search__recents-title">Recent searches</p>
+            <div className="bs-search__recents-row">
+              {recent.map((q, c) => (
+                <button
+                  key={q}
+                  type="button"
+                  className="bs-search__recent"
+                  {...grid.focusProps(RECENT_ROW, c)}
+                  onClick={() => {
+                    setNote(null);
+                    setQ(q);
+                    // Searched at once rather than after the pause: the viewer picked a whole
+                    // query, so there is nothing to wait for them to finish typing.
+                    lastAuto.current = '';
+                    void run(q);
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {phase.kind === 'failed' && (
           <p role="alert" className="bs-search__alert">
             Couldn’t search. Check that the box is reachable, then press Search again.
-          </p>
-        )}
-        {status && (
-          <p role="status" className="bs-search__status">
-            {status}
-          </p>
-        )}
-        {note && (
-          <p role="status" className="bs-search__status">
-            {note}
           </p>
         )}
         <div className="bs-search__results">

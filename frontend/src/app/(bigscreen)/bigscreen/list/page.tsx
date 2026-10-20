@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { watchlistService } from '@/services/watchlist';
 import { Card } from '../../_components/Card';
 import { LoadStatus } from '../../_components/LoadStatus';
@@ -11,6 +11,7 @@ import { chunk } from '../../_data/chunk';
 import { statusOf } from '../../_data/httpStatus';
 import { useTvProfile } from '../../_data/useTvProfile';
 import { watchlistCards, type WatchlistCard } from '../../_data/watchlistRow';
+import { HEADER_CELLS, Header } from '../../_components/Header';
 import { useFocusGrid } from '../../_focus/useFocusGrid';
 import { useBackKey } from '../../_focus/useBackKey';
 
@@ -49,8 +50,11 @@ const PROFILES = '/bigscreen/profiles';
 
 /** Six 240px posters and their 24px gaps are 1560px, inside the 1728px the safe area leaves. */
 const PER_ROW = 6;
-/** Row 0 is the actions; the cards start below them. */
-const FIRST_CARD_ROW = 1;
+/** The top bar. Row 0 on every browsing screen, so Up from the content always reaches it. */
+const HEADER_ROW = 0;
+/** Row 1 is the actions; the cards start below them. */
+const ACTION_ROW = 1;
+const FIRST_CARD_ROW = 2;
 /**
  * `useFocusGrid`'s key, which it namespaces itself (`bs-focus:list`). Back on a detail
  * screen is `router.push('/bigscreen')`, so opening a title from here and coming back is a
@@ -94,14 +98,15 @@ type Load =
  * said "Loading this list…" of a list it had already given up on, and then grew a `Try again`
  * after ten seconds whose handler the load effect refused.
  */
-function NoList({ note }: { note: string }) {
-  const grid = useFocusGrid({ rowCounts: [WAYS_OUT.length] });
+function NoList({ note, pathname }: { note: string; pathname?: string | null }) {
+  // The bar is on this screen too: an empty list is exactly where a viewer wants to go
+  // somewhere else, and `WAYS_OUT` is two links against the bar's five.
+  const grid = useFocusGrid({ rowCounts: [HEADER_CELLS, WAYS_OUT.length], initialRow: 1 });
   return (
     <main className="bs-shell">
-      <header className="bs-shell__head">
-        <h1>My List</h1>
-      </header>
+      <Header row={HEADER_ROW} focusPropsFor={grid.focusProps} pathname={pathname} />
       <div className="bs-shell__scroll">
+        <h1 className="bs-screen__title">My List</h1>
         <p role="status" className="bs-note">
           {note}
         </p>
@@ -112,7 +117,7 @@ function NoList({ note }: { note: string }) {
               href={way.href}
               className={way.ghost ? 'bs-btn bs-btn--ghost' : 'bs-btn'}
               draggable={false}
-              {...grid.focusProps(0, c)}
+              {...grid.focusProps(1, c)}
             >
               {way.label}
             </Link>
@@ -144,11 +149,14 @@ function ListGrid({
   rows,
   userId,
   onLocked,
+  pathname,
 }: {
   rows: readonly WatchlistCard[];
   userId: string;
   /** The profile is passcode-locked: clear it and send the viewer to the picker. */
   onLocked: () => void;
+  /** Where the viewer is, for the top bar's current-section mark. */
+  pathname?: string | null;
 }) {
   // Seeded from the load, which is the only thing that replaces the whole list. The page
   // keys this component on its load id, so a fresh load reseeds it by remounting rather
@@ -323,8 +331,10 @@ function ListGrid({
   const cardRows = chunk(items, PER_ROW);
   // Declared from the same two arrays the render below maps over.
   const { focused, focusProps, setFocus } = useFocusGrid({
-    rowCounts: [actions.length, ...cardRows.map((r) => r.length)],
+    rowCounts: [HEADER_CELLS, actions.length, ...cardRows.map((r) => r.length)],
     storageKey: FOCUS_KEY,
+    // The actions, not the bar above them: a television opens on its content.
+    initialRow: ACTION_ROW,
   });
 
   /**
@@ -367,15 +377,16 @@ function ListGrid({
       // right state if the removal then FAILS and the title comes back: a press opens it
       // rather than deleting it, and the missing badge says which it will be.
       setRemoving(false);
-      // The toggle went with the last card, so (0, 0) is the way home: the empty state's
-      // own focus target. Removing just this `setFocus` fails NO test — the hook's own
-      // fallback reaches the same cell — and it stays for two reasons that are not coverage:
-      // it says the target outright instead of inheriting a fallback, and it keeps the
-      // arithmetic below away from a `cardCount - 1` of -1, which only happens to work.
-      setFocus({ row: 0, col: 0 });
+      // The toggle went with the last card, so the action row's column 0 is the way home:
+      // the empty state's own focus target. `ACTION_ROW`, not `0` — row 0 is the top bar
+      // now, and sending the ring there would answer a removal by putting the viewer in the
+      // menu. (It was `0` when the actions WERE row 0, and the bar moving them down is
+      // exactly the kind of edit a hard-coded row index does not survive.)
+      setFocus({ row: ACTION_ROW, col: 0 });
       return;
     }
-    // The ring was on the action row, which a card going away cannot strand.
+    // The ring was on the bar or the action row, neither of which a card going away can
+    // strand.
     if (focused.row < FIRST_CARD_ROW) return;
     const flat = (focused.row - FIRST_CARD_ROW) * PER_ROW + focused.col;
     const next = Math.min(flat, cardCount - 1);
@@ -398,10 +409,12 @@ function ListGrid({
     // .bs-shell, not .bs-page: every group below carries its own safe inset, and html and
     // body cannot scroll, so this needs its own scroller.
     <main className="bs-shell">
-      <header className="bs-shell__head">
-        <h1>My List</h1>
-      </header>
+      <Header row={HEADER_ROW} focusPropsFor={focusProps} pathname={pathname} />
       <div className="bs-shell__scroll">
+        {/* The screen's own title. It used to sit in `.bs-shell__head`, which the top bar
+            took over: the bar marks WHICH section you are in and this says what the section
+            is, which is what a heading is for and what a screen reader reaches for. */}
+        <h1 className="bs-screen__title">My List</h1>
         {/* Always mounted, above the group it speaks for: .bs-msg holds one line's height so
             the rows below do not jump when a message appears, which on a remote reads as the
             screen moving under you. */}
@@ -416,7 +429,7 @@ function ListGrid({
                 type="button"
                 className="bs-btn bs-list__toggle"
                 aria-pressed={removing}
-                {...focusProps(0, c)}
+                {...focusProps(ACTION_ROW, c)}
                 onClick={() => {
                   setNote(null);
                   setRemoving((on) => !on);
@@ -425,7 +438,7 @@ function ListGrid({
                 {removing ? 'Done' : 'Remove items'}
               </button>
             ) : (
-              <Link key={cell} href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...focusProps(0, c)}>
+              <Link key={cell} href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...focusProps(ACTION_ROW, c)}>
                 Back to home
               </Link>
             ),
@@ -462,6 +475,7 @@ function ListGrid({
 
 export default function MyListPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const { profile, loading: profileLoading, clear } = useTvProfile();
   const profileId = profile?.id ?? null;
   const [load, setLoad] = useState<Load>({ phase: 'loading' });
@@ -536,11 +550,17 @@ export default function MyListPage() {
   // others. Reusing `LoadStatus` here claimed to be loading a list this screen had already
   // given up on, and after ten seconds offered a `Try again` that the load effect refuses
   // (it returns early on `redirecting`), so the label cycled forever and nothing was asked.
-  if (redirecting) return <NoList note={LOCKED_NOTE} />;
-  if (load.phase === 'noProfile') return <NoList note={NO_PROFILE_NOTE} />;
+  if (redirecting) return <NoList note={LOCKED_NOTE} pathname={pathname} />;
+  if (load.phase === 'noProfile') return <NoList note={NO_PROFILE_NOTE} pathname={pathname} />;
   if (load.phase === 'ready') {
     return (
-      <ListGrid key={load.loadId} rows={load.rows} userId={load.userId} onLocked={sentToPicker} />
+      <ListGrid
+        key={load.loadId}
+        rows={load.rows}
+        userId={load.userId}
+        onLocked={sentToPicker}
+        pathname={pathname}
+      />
     );
   }
   return <LoadStatus noun="list" failed={load.phase === 'failed'} onRetry={retry} />;

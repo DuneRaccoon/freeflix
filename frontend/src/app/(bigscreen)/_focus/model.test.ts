@@ -76,4 +76,41 @@ describe('focus model', () => {
     expect(move([2, NaN, 3], { row: 0, col: 1 }, 'down', [])).toEqual({ row: 2, col: 1 });
     expect(move([NaN, 2], { row: 0, col: 0 }, 'right', [])).toEqual({ row: 1, col: 0 });
   });
+
+  describe('where the content starts (the `from` argument)', () => {
+    // A browsing screen declares its top bar as row 0, so every fall-back through
+    // `firstTarget` would otherwise put the ring in the menu.
+    it('prefers the first populated row at or after it', () => {
+      expect(firstTarget([5, 0, 3, 4], 1)).toEqual({ row: 2, col: 0 });
+      expect(firstTarget([5, 3, 4], 1)).toEqual({ row: 1, col: 0 });
+    });
+
+    it('is a preference, not a floor: it searches from the top rather than answering nothing', () => {
+      // "Always something focused" outranks "never the menu" — a remote has no Tab and no
+      // pointer, so a screen with no focus stop cannot be recovered from.
+      expect(firstTarget([5, 0, 0], 1)).toEqual({ row: 0, col: 0 });
+    });
+
+    it('still answers NO_TARGET when the whole grid is empty', () => {
+      expect(firstTarget([0, 0], 1)).toEqual(NO_TARGET);
+    });
+
+    it('is ignored when it points past the end, or below zero', () => {
+      expect(firstTarget([4, 2], 9)).toEqual({ row: 0, col: 0 });
+      expect(firstTarget([4, 2], -3)).toEqual({ row: 0, col: 0 });
+    });
+
+    it('defaults to the whole grid, so every existing caller is unchanged', () => {
+      expect(firstTarget([5, 0, 3])).toEqual({ row: 0, col: 0 });
+      expect(clampTarget([5, 0, 3], { row: 1, col: 0 })).toEqual({ row: 0, col: 0 });
+    });
+
+    it('carries through clampTarget, which is where screens actually hit it', () => {
+      // The row that empties under the ring: home's recovery panel, replaced by the hero.
+      expect(clampTarget([5, 0, 3], { row: 1, col: 0 }, 1)).toEqual({ row: 2, col: 0 });
+      // ...and a row that merely shrank still clamps in place, bar or no bar.
+      expect(clampTarget([5, 2, 3], { row: 1, col: 7 }, 1)).toEqual({ row: 1, col: 1 });
+    });
+  });
+
 });

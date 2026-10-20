@@ -127,8 +127,28 @@ interface CellEntry {
   props: FocusProps;
 }
 
-export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }): FocusGrid {
-  const { rowCounts, storageKey } = opts;
+export function useFocusGrid(opts: {
+  rowCounts: RowCounts;
+  storageKey?: string;
+  /**
+   * The first row that is CONTENT rather than chrome — in practice `1`, on every screen
+   * that mounts the top bar as row 0.
+   *
+   * WHAT IT CHANGES: where the ring goes whenever it has nowhere to be. Not just the first
+   * paint — a rail emptying, a recovery panel being replaced by the hero it held the place
+   * of, a search clearing its results. Every one of those falls back through `firstTarget`,
+   * and with a menu at row 0 every one of them would put the ring in the MENU.
+   *
+   * IT IS A PREFERENCE, NOT A FLOOR: if nothing at or after it has items, the fall-back
+   * searches from the top again, so a screen whose content has not arrived still has a focus
+   * stop. See `model.firstTarget`.
+   *
+   * A SAVED POSITION STILL WINS. Coming back to a screen is a stronger claim about where
+   * the viewer was than any default.
+   */
+  initialRow?: number;
+}): FocusGrid {
+  const { rowCounts, storageKey, initialRow } = opts;
   // A cheap identity for the grid's shape: a parent that passes a fresh array of the
   // same counts every render must not look like a change.
   const shape = rowCounts.join(',');
@@ -154,10 +174,12 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
   // Per-cell props, so a memoised card re-renders only when its own tabIndex flips.
   const cells = useRef<{ shape: string; byKey: Map<string, CellEntry> }>({ shape, byKey: new Map() });
 
+  const initialRowRef = useRef(initialRow);
   // Layout effect so a key press can never see the previous render's counts.
   useLayoutEffect(() => {
     rowCountsRef.current = rowCounts;
     storageKeyRef.current = storageKey;
+    initialRowRef.current = initialRow;
   });
 
   const flushPersist = useCallback(() => {
@@ -284,14 +306,15 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
     // Adopt the pending target as soon as its row has items (clampTarget only keeps
     // the row when it is populated); until then fall back to the first populated row.
     // Already focused and still fitting: stay put, do not steal focus.
+    const from = initialRowRef.current ?? 0;
     const pending = pendingRestore.current;
-    const adopted = pending ? clampTarget(counts, pending) : null;
+    const adopted = pending ? clampTarget(counts, pending, from) : null;
     let start: FocusTarget;
     if (pending && adopted && adopted.row === pending.row) {
       pendingRestore.current = null;
       start = adopted;
     } else {
-      start = clampTarget(counts, base);
+      start = clampTarget(counts, base, from);
     }
     // Adoption must not yank DOM focus out of something this grid does not own — an
     // overlay or a dialog opened from a card, which later stages add. The model still
@@ -304,7 +327,7 @@ export function useFocusGrid(opts: { rowCounts: RowCounts; storageKey?: string }
     (t: FocusTarget) => {
       const counts = rowCountsRef.current;
       if (isEmptyGrid(counts)) return;
-      go(clampTarget(counts, t), { focusDom: true, user: true });
+      go(clampTarget(counts, t, initialRowRef.current ?? 0), { focusDom: true, user: true });
     },
     [go],
   );

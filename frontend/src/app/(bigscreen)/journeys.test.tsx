@@ -54,7 +54,7 @@ import { torrentsService } from '@/services/torrents';
 import { watchlistService } from '@/services/watchlist';
 import { usersService } from '@/services/users';
 import { devicesService } from '@/services/devices';
-import { NAV_TARGETS } from './_components/NavRow';
+import { HEADER_TARGETS } from './_components/Header';
 import { TV_RAILS, toRail } from './_data/rails';
 import { fetchContinueWatching, fetchMyList } from './_data/continueWatching';
 import { watchHref } from './_data/watchHref';
@@ -725,8 +725,10 @@ describe('every href the TV can produce resolves to a route that exists', () => 
   it('the data-layer producers emit only built routes', async () => {
     const produced: Produced[] = [];
 
-    // NAV_TARGETS — the only way search, My List, the picker and diag are reachable at all.
-    for (const t of NAV_TARGETS) produced.push({ source: `NAV_TARGETS ${t.label}`, href: t.href });
+    // HEADER_TARGETS — the top bar, and the only way search, My List, the picker and diag
+    // are reachable at all. (It was `NAV_TARGETS`, a row under the hero on the home screen
+    // and nowhere else; the bar is on every browsing screen.)
+    for (const t of HEADER_TARGETS) produced.push({ source: `HEADER_TARGETS ${t.label}`, href: t.href });
 
     // Every rail in the shipping lineup, through the real `toRail`/`catalogItemToCard`.
     for (const spec of TV_RAILS) {
@@ -766,7 +768,7 @@ describe('every href the TV can produce resolves to a route that exists', () => 
     expect(all.filter((h) => h.startsWith('/bigscreen/show/')).length).toBeGreaterThan(0);
     expect(all.filter((h) => h.startsWith('/bigscreen/watch/')).length).toBeGreaterThan(0);
     expect(all).toContain('/bigscreen/watch/t9?file=7');
-    expect(produced.length).toBeGreaterThanOrEqual(NAV_TARGETS.length + TV_RAILS.length * 2 + 5);
+    expect(produced.length).toBeGreaterThanOrEqual(HEADER_TARGETS.length + TV_RAILS.length * 2 + 5);
 
     for (const p of produced) expectBuiltRoute(p);
   });

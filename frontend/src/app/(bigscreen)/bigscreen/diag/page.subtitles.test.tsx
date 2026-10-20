@@ -55,15 +55,20 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
    * cue count and VISIBLE into one ok/failed field removes two of these labels, and a missing
    * label fails here rather than silently matching something else.
    */
-  const cellText = (id: string, labelPrefix: string) => {
+  const cellNode = (id: string, labelPrefix: string) => {
     const r = arm(id);
     expect(r, `arm ${id} is rendered`).not.toBeNull();
     const matches = Array.from(r!.querySelectorAll('tr')).filter((tr) =>
       (tr.querySelector('th')?.textContent ?? '').startsWith(labelPrefix),
     );
     expect(matches, `exactly one "${labelPrefix}" fact in arm ${id}`).toHaveLength(1);
-    return matches[0].querySelector('td')?.textContent ?? '';
+    return matches[0].querySelector('td');
   };
+
+  const cellText = (id: string, labelPrefix: string) => cellNode(id, labelPrefix)?.textContent ?? '';
+
+  /** The cell's own class, which is the only thing colouring a failure on a panel. */
+  const cellClass = (id: string, labelPrefix: string) => cellNode(id, labelPrefix)?.className ?? '';
 
   /** Labels present in an arm's table, for the per-arm rows that are additions not branches. */
   const labels = (id: string) =>
@@ -101,6 +106,18 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
    * whenever they land, and a 0ms timer is a macrotask that `await act(...)` does not drain,
    * so each probe lands during the `waitFor` that waits for it.
    */
+  /**
+   * The real `statusText` per status, because the probe prints it verbatim and the three
+   * status classes are read off a 403 and a 500 as well as a 404. A fake that answered "OK"
+   * beside a 500 would put a line on the screen no server ever sends.
+   */
+  const STATUS_TEXT: Record<number, string> = {
+    200: 'OK',
+    403: 'Forbidden',
+    404: 'Not Found',
+    500: 'Internal Server Error',
+  };
+
   function mockSamples(statuses: Record<string, number> = {}) {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation(((url: string, init?: RequestInit) => {
@@ -114,7 +131,7 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
             () => resolve({
               ok: status >= 200 && status < 300,
               status,
-              statusText: status === 404 ? 'Not Found' : 'OK',
+              statusText: STATUS_TEXT[status] ?? '',
               body: null,
             }),
             0,
@@ -200,7 +217,116 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     // result. Row-scoped rather than page-wide for the reason the codec section measured: a
     // page-wide /FILE NOT PRESENT/ is satisfied by the paragraph that explains the state.
     expect(armText('s27a')).toMatch(/not a text-track result/i);
+    // AND IT IS THIS PARAGRAPH, not the non-404 one: a 404 is the only answer whose action is
+    // about the file, and mapping it to the status class would take the one instruction that
+    // helps ("copy it over, or this build is serving a different tree") off the screen.
+    expect(armText('s27a')).toMatch(/serving a\s+different tree/i);
+    expect(armText('s27a'), 'the status-class paragraph belongs to the other state').not.toMatch(
+      /THE SERVER ANSWERED/,
+    );
+    expect(cellClass('s27a', 'Subtitle file present?'), 'and it reads as a failure').toBe('bs-no');
     expect(document.querySelector('[data-subtitle-track]')).toBeNull();
+  });
+
+  it('tells an answer that is not a 404 from an absent file, and prints the status it got', async () => {
+    // F6, AND IT IS THE GATE'S OWN INSTRUMENT LYING TO THE OPERATOR. `res.ok ? 'yes' : 'no'`
+    // called every non-2xx answer an absent file: a 403 or a 500 from Next.js static rendered
+    // FILE NOT PRESENT beside a paragraph saying this build is serving a different tree, which
+    // sends the operator to copy in a file that IS ALREADY COMMITTED — so the suggested action
+    // can never be the right one, on the page that is the instrument for GATE A (reading 27a).
+    // Measured green by task 15's reviewer: the only non-2xx fixture in this file was a 404,
+    // so nothing here could tell the two apart. (The plan's F6 says "reading 31 is gated on
+    // this probe"; row 31 has no diag arm — its instrument is a real swarm plus the backend
+    // log — so the row is 27a.)
+    //
+    // TWO STATUSES, and that is not thoroughness: a third value that hard-coded "500" — or one
+    // that printed a fixed word with no number in it at all — passes a 500-only fixture. One
+    // status cannot discriminate the other.
+    mockSamples({ [VTT]: 500, [VTT_LINE]: 403 });
+    render(<DiagPage />);
+    await loadArm('s27a');
+
+    await waitFor(() => {
+      expect(cellText('s27a', 'Subtitle file present?')).toBe(
+        'THE SERVER ANSWERED 500 — not an absence, and nothing was mounted',
+      );
+    });
+    expect(cellText('s27a', 'HTTP — the .vtt')).toBe(
+      'HEAD /samples/cue-probe.vtt -> 500 Internal Server Error',
+    );
+    // The action, which is the whole reason the class exists, and the wrong one is GONE rather
+    // than merely joined by a second paragraph.
+    expect(armText('s27a')).toMatch(/THE SERVER ANSWERED, AND IT WAS NOT A 404/);
+    expect(armText('s27a'), 'not the instruction that cannot help').not.toMatch(
+      /serving a\s+different tree/i,
+    );
+    expect(cellClass('s27a', 'Subtitle file present?'), 'still a failure').toBe('bs-no');
+    // And the arm stays unmounted, exactly as a 404 leaves it: a `<track>` over a 500 fires
+    // the same `error` as one over a body no parser accepts, which is the confusion this whole
+    // section exists to prevent.
+    expect(trackEl('s27a'), 'nothing was mounted').toBeNull();
+    expect(player('s27a')).toBeNull();
+
+    await loadArm('s32');
+    await waitFor(() => {
+      expect(cellText('s32', 'Subtitle file present?')).toBe(
+        'THE SERVER ANSWERED 403 — not an absence, and nothing was mounted',
+      );
+    });
+    expect(cellText('s32', 'HTTP — the .vtt')).toBe(
+      'HEAD /samples/cue-probe-line.vtt -> 403 Forbidden',
+    );
+    expect(trackEl('s32')).toBeNull();
+  });
+
+  it('tells a non-404 answer about the CLIP from the clip’s absence, in its own field', async () => {
+    // THE OTHER HALF OF THE SAME CONDITION, and it is here because of a mutation nobody
+    // prescribed: with `|| isAnswered(r.clipPresent)` dropped, all 34 rows stayed GREEN — the
+    // .vtt fixture above exercises one half of the paragraph's condition and nothing
+    // exercised the other. Arm 27b is the only arm with two artefacts, its clip is the one
+    // that normally 404s (gitignored, never produced), and a 500 on it is as plausible as a
+    // 500 on the `.vtt` — same static route, same proxy.
+    mockSamples({ [CLIP]: 500 });
+    render(<DiagPage />);
+    await loadArm('s27b');
+
+    await waitFor(() => {
+      expect(cellText('s27b', 'Clip present?')).toBe(
+        'THE SERVER ANSWERED 500 — not an absence, and nothing was mounted',
+      );
+    });
+    expect(cellText('s27b', 'Subtitle file present?'), 'the .vtt answered 200').toBe('yes');
+    expect(armText('s27b')).toMatch(/THE SERVER ANSWERED, AND IT WAS NOT A 404/);
+    expect(armText('s27b'), 'and not the absence instruction').not.toMatch(
+      /serving a\s+different tree/i,
+    );
+    expect(player('s27b'), 'nothing was mounted').toBeNull();
+  });
+
+  it('keeps a non-404 answer across the navigation leaving this page is, and refuses a value it does not know', async () => {
+    // The record IS the artefact — the operator probes here, walks to the television, comes
+    // back — and the restore path validates `present` against its own values rather than
+    // trusting the string. Both halves are live: leaving the new value out of that validator
+    // turns a persisted `answered 500` back into `unknown`, which is the one value that means
+    // "no answer arrived at all, from anywhere", and accepting any string at all would print
+    // a poisoned record verbatim inside a reading cell.
+    sessionStorage.setItem(
+      SUBTITLE_STORAGE,
+      JSON.stringify({
+        s27a: { http: 'HEAD /samples/cue-probe.vtt -> 500 Internal Server Error', present: 'answered 500' },
+        s27b: { present: 'wat', clipPresent: 'answered 1e3' },
+      }),
+    );
+    render(<DiagPage />);
+
+    await waitFor(() => {
+      expect(cellText('s27a', 'Subtitle file present?')).toBe(
+        'THE SERVER ANSWERED 500 — not an absence, and nothing was mounted',
+      );
+    });
+    expect(armText('s27a')).toMatch(/THE SERVER ANSWERED, AND IT WAS NOT A 404/);
+    expect(cellText('s27b', 'Subtitle file present?'), 'not a value this page knows').toBe('unknown');
+    expect(cellText('s27b', 'Clip present?'), 'and “answered 1e3” is not a status').toBe('unknown');
   });
 
   it('mounts exactly one <track>, default, at the committed file — non-vacuity for the row above', async () => {
@@ -335,6 +461,13 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     expect(cellText('s27b', 'Subtitle file present?'), 'the .vtt is there').toBe('yes');
     expect(cellText('s27b', 'HTTP — the clip')).toBe(`HEAD ${CLIP} -> 404 Not Found`);
     expect(cellText('s27b', 'HTTP — the .vtt')).toBe('HEAD /samples/cue-probe.vtt -> 200 OK');
+    // AND THE PARAGRAPH, which is the half of this state's condition the cells cannot see.
+    // FOUND BY A MUTATION NOBODY PRESCRIBED: with `|| r.clipPresent === 'no'` dropped from
+    // that paragraph's condition all 34 rows stayed GREEN — every row read the cell, and the
+    // cell is written by a different expression. The paragraph is where the two actions live
+    // (the `.vtt`s are committed, the clip is a gitignored binary with an ffmpeg line), so a
+    // missing-clip state without it is a red cell and no instruction.
+    expect(armText('s27b')).toMatch(/serving a\s+different tree/i);
   });
 
   it('does not call a thrown HEAD an absent file', async () => {
@@ -356,6 +489,30 @@ describe('/bigscreen/diag: the subtitle instrument', () => {
     expect(cellText('s27a', 'Subtitle file present?'), 'not absence').toBe('unknown');
     // And the FILE NOT PRESENT paragraph, which names the action to take, stays off the page.
     expect(armText('s27a')).not.toMatch(/not a text-track result/i);
+    // Nor the status class's paragraph: there is no status. `unknown` is the one value that is
+    // not a verdict about the file, and it is the one left uncoloured for that reason — a cell
+    // painted like a failure is one an operator reads as the file's.
+    expect(armText('s27a')).not.toMatch(/THE SERVER ANSWERED/);
+    expect(cellClass('s27a', 'Subtitle file present?')).toBe('');
+  });
+
+  it('loads enough to sample itself, which preload="none" would take away', async () => {
+    // F8, AND IT WAS GREEN: `preload="metadata"` → `"none"` changed nothing in this suite,
+    // because every row here samples through the operator's button or a hand-fired event.
+    // With `none` the set fetches nothing at all until a play press, so neither
+    // `loadedmetadata` nor the bogus src's own `error` ever fires — and those two are what
+    // call `sampleArm` by themselves ("samples itself when the element reports metadata, and
+    // when it errors", below, is the path). On the television every machine cell would then
+    // sit at "not taken" under a mounted element, which is indistinguishable from an arm
+    // nobody loaded.
+    //
+    // ONE assertion on ONE arm, deliberately: the five arms share a single `<video>` JSX node,
+    // so a second copy would be the same rule written twice.
+    mockSamples();
+    render(<DiagPage />);
+    await loadArm('s27a');
+    await waitFor(() => expect(player('s27a')).not.toBeNull());
+    expect(player('s27a')!.getAttribute('preload')).toBe('metadata');
   });
 
   it('keeps the status, the cue count and VISIBLE as three separate fields', async () => {
@@ -855,6 +1012,45 @@ describe('/bigscreen/diag: the subtitle instrument’s source and samples', () =
     // Every block but the first is identical once the setting is removed.
     expect.soft(lined.slice(2)).toEqual(plain.slice(2));
     expect.soft(lined[1].split('\n')[0], 'the timing lines match').toBe(plain[1].split('\n')[0]);
+
+    // F7 — THE EXCEPTION IS BOUNDED, because cue 1's body was the one unbounded thing in both
+    // files and a SECOND DIVERGENCE CAN HIDE IN IT. A longer sentence there wraps to a
+    // different number of rendered rows, which changes the height of the very cue box reading
+    // 32 is a measurement of, and the row above compares cue 1's TIMING line only — so a
+    // paragraph added to one file's cue 1 was green.
+    //
+    // THE BOUND CANNOT PROMISE AN IDENTICAL ROW COUNT: that depends on the panel's cue width,
+    // which this page's video box is not (arm 32's own limit). What it promises is that the
+    // one deliberate difference stays the size of a FILENAME rather than the size of a
+    // SENTENCE. Measured today: 137 characters against 117, a difference of 20, almost all of
+    // it the five-character filename and the clause naming the variable. The budget is 24 —
+    // four characters of headroom for a rename or a reworded clause — and the row below is its
+    // calibration rather than a magic number: it is smaller than the shortest line of text in
+    // either file ("CUE 3 of 4, six seconds in.", 27 characters), so no whole added sentence
+    // can fit inside the bound.
+    const CUE_1_BUDGET = 24;
+    const [plainCue1, linedCue1] = [plain[1].split('\n'), lined[1].split('\n')];
+    // TWO LINES, not "the first two of however many": an added hard line break is a
+    // guaranteed extra rendered row, and a body split over two lines of the same total length
+    // would sail straight through a length budget. Measured green before this row existed.
+    expect.soft(plainCue1, 'cue-probe.vtt: cue 1 is a timing line and ONE line of text').toHaveLength(2);
+    expect.soft(linedCue1, 'cue-probe-line.vtt: cue 1 is a timing line and ONE line of text').toHaveLength(2);
+    expect
+      .soft(
+        Math.abs(plainCue1[1].length - linedCue1[1].length),
+        `cue 1's two bodies must stay within ${CUE_1_BUDGET} characters of each other`,
+      )
+      .toBeLessThanOrEqual(CUE_1_BUDGET);
+    const shortestBody = Math.min(
+      ...[...plain, ...lined]
+        .slice(1)
+        .flatMap((block) => block.split('\n').slice(1))
+        .filter((line) => line.length > 0)
+        .map((line) => line.length),
+    );
+    expect
+      .soft(CUE_1_BUDGET, 'the budget is calibrated below the shortest line of text in either file')
+      .toBeLessThan(shortestBody);
     // And the setting really is on every timing line, not just the first.
     expect.soft((CUE_PROBE_LINE.match(/ line:-4$/gm) ?? []).length).toBe(4);
     expect.soft(CUE_PROBE, 'the plain file carries no cue setting at all').not.toMatch(/line:/);

@@ -435,6 +435,72 @@ const SUBTITLE_ARMS: SubtitleArm[] = [
 ];
 
 /**
+ * ONE PROBE'S VERDICT ABOUT ONE FILE, AND IT TAKES FOUR VALUES RATHER THAN THREE.
+ *
+ * `present: res.ok ? 'yes' : 'no'` called every non-2xx answer an absent file, and the gate's
+ * own instrument then LIED TO THE OPERATOR: a 500 or a 403 from Next.js static rendered
+ * `FILE NOT PRESENT — nothing was mounted` beside a paragraph saying this build is serving a
+ * different tree, which sends them to copy in a file that is already committed. Both probe
+ * `.vtt`s ARE committed and un-ignored by name, so that action can never be the right one —
+ * and this section is the instrument for GATE A (reading 27a), so the gate's own failure mode
+ * may not be a wrong instruction. (Task 15's review measured the collapse green: nothing in
+ * the suite could tell a 500 from a 404, because the only fixture was a 404. The plan's F6
+ * says "reading 31 is gated on this probe"; row 31's instrument is a real low-seeder swarm
+ * plus the backend log and it has no diag arm at all, so the rows this page gates are 27a and
+ * 27b, and it serves 30, 32 and 35.)
+ *
+ * FOUR VALUES, BECAUSE THEY ARE FOUR DIFFERENT ACTIONS — the only reason a status class is
+ * worth having at all:
+ *   `yes`              2xx. The file is there and the element may be mounted.
+ *   `no`               EXACTLY 404. The server answered, and said this file is not there:
+ *                      copy it over, or this build is serving a different tree.
+ *   `answered <status>` any other answer. Nothing is known about the file; read the status and
+ *                      look at the server or the proxy. Copying a file over cannot help.
+ *   `unknown`          the fetch threw. No answer arrived at all, from anywhere.
+ *
+ * THE STATUS RIDES INSIDE THE VALUE, because the cell has to print it: "the server answered
+ * and it was not a 404" is not a reading. The `http` line is a separate cell and stays
+ * verbatim; this one is the verdict an operator reads first.
+ */
+const ANSWERED = 'answered ';
+type Presence = 'yes' | 'no' | 'unknown' | `${typeof ANSWERED}${number}`;
+
+/** The verdict for an answer that is neither 2xx nor 404. Never for a thrown fetch. */
+const answeredWith = (status: number): Presence => `${ANSWERED}${status}`;
+
+const isAnswered = (p: Presence): p is `${typeof ANSWERED}${number}` => p.startsWith(ANSWERED);
+
+/**
+ * A PERSISTED `present` IS VALIDATED, NOT TRUSTED — it is the field the two paragraphs under
+ * the table key on, and `answered 500` has to survive the navigation that leaving this page is
+ * (the operator probes, walks to the set, comes back). A bare `typeof p === 'string'` would
+ * let a poisoned record print anything at all inside a reading cell.
+ */
+const isPresenceValue = (v: unknown): v is Presence =>
+  v === 'yes' || v === 'no' || v === 'unknown'
+  || (typeof v === 'string' && v.startsWith(ANSWERED) && /^\d+$/.test(v.slice(ANSWERED.length)));
+
+/** The one sentence that means "the server said this file is not there". */
+const ABSENT_CELL = 'FILE NOT PRESENT — nothing was mounted';
+
+/** What a `present` cell prints. The status is the whole point of the third value. */
+function presenceCell(p: Presence): string {
+  if (p === 'no') return ABSENT_CELL;
+  if (isAnswered(p)) {
+    return `THE SERVER ANSWERED ${p.slice(ANSWERED.length)} — not an absence, and nothing was mounted`;
+  }
+  return p;
+}
+
+/**
+ * `unknown` is the one value with no colour, and that is deliberate: it is not a verdict about
+ * the file. A 404 and a 500 are both failures the operator has to act on, by two different
+ * actions, so both are painted as failures and the TEXT is what tells them apart.
+ */
+const presenceClass = (p: Presence): string | undefined =>
+  p === 'yes' ? 'bs-yes' : p === 'unknown' ? undefined : 'bs-no';
+
+/**
  * One arm's row. Every field is a string so what is rendered is what was persisted and what
  * gets transcribed, and the three facts mutation (c) exists for — the HTTP status, the cue
  * count, and whether text was VISIBLE — are three separate fields on purpose. Collapsing them
@@ -445,9 +511,9 @@ const SUBTITLE_ARMS: SubtitleArm[] = [
  */
 type SubtitleReading = {
   http: string;
-  present: 'yes' | 'no' | 'unknown';
+  present: Presence;
   clipHttp: string;
-  clipPresent: 'yes' | 'no' | 'unknown';
+  clipPresent: Presence;
   tracks: string;
   mode: string;
   cues: string;
@@ -512,7 +578,7 @@ function readSubtitleReadings(): Record<string, SubtitleReading> {
       }
       for (const key of ['present', 'clipPresent'] as const) {
         const p = (row as Record<string, unknown>)[key];
-        if (p === 'yes' || p === 'no' || p === 'unknown') out[arm.id][key] = p;
+        if (isPresenceValue(p)) out[arm.id][key] = p;
       }
     }
     return out;
@@ -928,10 +994,11 @@ export default function BigScreenDiagnostics() {
    * interceptor hard-navigates and would take the operator off the page mid-reading.
    *
    * A thrown fetch is `unknown`, NOT absence: "copy the file over" is the one action that
-   * cannot help a LAN failure.
+   * cannot help a LAN failure. And an answer that is not a 404 is its own class, for the same
+   * reason one step further in — see `Presence` above, which is F6 from task 15's review.
    */
   const probeSample = useCallback(
-    async (file: string): Promise<{ line: string; present: 'yes' | 'no' | 'unknown' }> => {
+    async (file: string): Promise<{ line: string; present: Presence }> => {
       const url = SAMPLES_BASE + file;
       try {
         const res = await fetch(url, {
@@ -941,7 +1008,10 @@ export default function BigScreenDiagnostics() {
         });
         return {
           line: `HEAD ${url} -> ${res.status} ${res.statusText}`.trimEnd(),
-          present: res.ok ? 'yes' : 'no',
+          // EXACTLY 404, not `>= 400` and not `!res.ok`: `no` is the only value that means
+          // "the server answered, and said this file is not there", and it is the only one
+          // whose action — copy the file over — is about the file at all.
+          present: res.ok ? 'yes' : res.status === 404 ? 'no' : answeredWith(res.status),
         };
       } catch (err) {
         return { line: `HEAD ${url} -> fetch failed: ${String(err)}`, present: 'unknown' };
@@ -1385,7 +1455,6 @@ export default function BigScreenDiagnostics() {
         const r = subtitleReadings[arm.id] ?? BLANK_SUBTITLE;
         const active = activeArm === arm.id;
         const cls = (v: string) => (v === 'yes' ? 'bs-yes' : v === 'no' ? 'bs-no' : undefined);
-        const absent = 'FILE NOT PRESENT — nothing was mounted';
         // Built as data so each row is one line to read and the per-arm rows (the clip, the
         // load() sequence, the two extra operator questions) are additions rather than
         // branches inside the table.
@@ -1393,8 +1462,8 @@ export default function BigScreenDiagnostics() {
           { label: 'HTTP — the .vtt (verbatim)', value: r.http },
           {
             label: 'Subtitle file present?',
-            value: r.present === 'no' ? absent : r.present,
-            cls: cls(r.present),
+            value: presenceCell(r.present),
+            cls: presenceClass(r.present),
           },
           ...(arm.clip === null
             ? []
@@ -1402,8 +1471,8 @@ export default function BigScreenDiagnostics() {
               { label: 'HTTP — the clip (verbatim)', value: r.clipHttp },
               {
                 label: 'Clip present?',
-                value: r.clipPresent === 'no' ? absent : r.clipPresent,
-                cls: cls(r.clipPresent),
+                value: presenceCell(r.clipPresent),
+                cls: presenceClass(r.clipPresent),
               },
             ]),
           { label: 'textTracks.length', value: r.tracks },
@@ -1497,6 +1566,21 @@ export default function BigScreenDiagnostics() {
                 stage-8 readings sheet.
               </p>
             ) : null}
+            {/* A SECOND STATE WITH A DIFFERENT ACTION, and keeping it out of the paragraph
+                above is the whole of F6: that one says "copy the file over / check the tree",
+                which is the one thing that cannot help here, because both `.vtt`s are
+                committed. A 403 or a 500 is an answer about the ROUTE, from the server or
+                whatever sits in front of it. */}
+            {isAnswered(r.present) || isAnswered(r.clipPresent) ? (
+              <p className="bs-no">
+                <strong>THE SERVER ANSWERED, AND IT WAS NOT A 404.</strong> The status in the
+                HTTP lines above is the reading, and it is not an absence: nothing was mounted,
+                so this is not a text-track result either. Do <strong>not</strong> copy a file
+                over — both <code>.vtt</code> probes are committed and a 403 or a 500 is the
+                server, or something in front of it, answering about the route rather than
+                about the file. Transcribe the status.
+              </p>
+            ) : null}
             {active ? (
               <>
                 {/* The ::cue arm's whole instrument. Inline, because the TV stylesheet ships
@@ -1510,6 +1594,12 @@ export default function BigScreenDiagnostics() {
                   data-subtitle-player={arm.id}
                   ref={subtitleVideoRef}
                   src={arm.clip === null ? BOGUS_VIDEO_SRC : SAMPLES_BASE + arm.clip}
+                  // `metadata`, PINNED BY THE SUITE AND NOT A DEFAULT TO BE TIDIED: with
+                  // `none` the set fetches nothing until a play press, so neither
+                  // `loadedmetadata` nor the bogus src's `error` ever fires — and those two
+                  // are what call `sampleArm` by themselves. Every machine cell would then sit
+                  // at "not taken" on the television until the operator pressed Sample, which
+                  // is the one state an untaken reading is indistinguishable from.
                   preload="metadata"
                   controls
                   onLoadedMetadata={() => sampleArm(arm.id, 'loadedmetadata')}

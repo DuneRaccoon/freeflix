@@ -35,6 +35,7 @@ import { torrentsService } from '@/services/torrents';
 import { tvService } from '@/services/tv';
 import { usersService } from '@/services/users';
 import { REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
+import { RETRY_AFTER_DEFAULT_MS } from '../../../_player/classify';
 import { requestTitle, takeFourKAsk } from '../../../_data/title';
 import { PROGRESS_CADENCE_MS } from '../../../_data/useWatchProgress';
 import { useTvProfile } from '../../../_data/useTvProfile';
@@ -759,6 +760,66 @@ describe('a transient /info failure while playing', () => {
     const next = await metadata();
     expect.soft(video()!.getAttribute('src')).toContain('/other/video');
     expect.soft(next.at(), 'the new title starts at its own beginning').toBe(0);
+  });
+
+  it('a 404 from the STREAM is not "gone" while the box still has the torrent', async () => {
+    // THE BUG THIS ROW IS BUILT FROM, reported from the living room: an episode watched
+    // the night before, the compose project restarted, and the television answering "This
+    // title isn't on the box any more — nothing here can bring it back" about a file
+    // sitting in the downloads folder. The backend half of that is fixed where it belongs
+    // (a resume blob that can describe its own files); this is the half that stops a 404
+    // from the stream from ever being a dead end again.
+    //
+    // The probe is a HEAD and reads no body, so its verdict carries no `detail` —
+    // `classify.ts` says exactly that — and the backend's two 404s ("this torrent does not
+    // exist" and "this file is not resolvable right now") are the same status code. Only
+    // the status route can tell them apart, which is the same discrimination `/info`'s own
+    // 404 already gets.
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await playing();
+    torrents.getTorrentStatus.mockClear();
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+
+    expect.soft(torrents.getTorrentStatus, 'the one request that can tell them apart').toHaveBeenCalled();
+    expect.soft(document.body.textContent, 'not a dead end').not.toMatch(/isn’t on the box any more/);
+    expect.soft(video(), 'and the player is still up').not.toBeNull();
+    // It goes to the ladder instead, exactly as a 503 would.
+    await tick(RETRY_AFTER_DEFAULT_MS + 100);
+    expect.soft(document.body.textContent).toMatch(/trying again/i);
+  });
+
+  it('…and IS gone when the status route says the torrent is', async () => {
+    // The reconciliation is not a way of never saying gone. A 404 from the status route is
+    // the one 404 on this surface that means exactly one thing.
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await playing();
+    torrents.getTorrentStatus.mockRejectedValue(httpError(404, 'Torrent not found'));
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect.soft(document.body.textContent).toMatch(/isn’t on the box any more/);
+    expect.soft(video()).toBeNull();
+  });
+
+  it('an unreachable box is not a verdict either', async () => {
+    // The status call failing with no response at all says nothing about whether the
+    // torrent exists — so it must not be read as "it does not".
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await playing();
+    torrents.getTorrentStatus.mockRejectedValue(new Error('Network Error'));
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect.soft(document.body.textContent).not.toMatch(/isn’t on the box any more/);
+    expect.soft(video()).not.toBeNull();
   });
 
   it('a torrent that really is gone still takes the player down', async () => {
@@ -1511,7 +1572,7 @@ describe('what actually arrived', () => {
 
   it('says it once: by the clock, and by the viewer answering it', async () => {
     torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '720p' }));
-    const { seek } = await playing();
+    const { view, seek } = await playing();
     expect.soft(screen.queryByText(/^Playing the 720p release/)).not.toBeNull();
 
     // A press is the viewer answering the note, whatever the press was.
@@ -1524,13 +1585,20 @@ describe('what actually arrived', () => {
     // it frozen the stall watcher escalates after ~2s and "Lost the stream" takes this one
     // line by PRECEDENCE, so a disclosure that never cleared would look cleared. That is
     // the trap the resume-note row records at the bottom of this file.
+    // UNMOUNTED FIRST, and that is not tidiness. This used to `render()` a second screen
+    // beside the first, so `screen.queryByText` searched BOTH — and the first one was a
+    // screen frozen mid-state, which re-rendered only if something happened to touch it.
+    // Anything that did (an auto-hide, a poll) made it notice the shared `nav.params` had
+    // moved to `other`, re-run its arrival, and start a FRESH disclosure window whose text
+    // this assertion then found. One screen at a time is the only way this row reads what
+    // it says it reads.
+    view.unmount();
     torrents.getTorrentStatus.mockResolvedValue(statusRow({ quality: '480p' }));
     nav.params.current = { id: 'other' };
     await mount();
     const again = await metadata();
     expect.soft(screen.queryByText(/^Playing the 480p release/)).not.toBeNull();
     for (let i = 1; i <= 9; i++) {
-      seek(i);
       again.seek(i);
       await act(async () => {
         vi.advanceTimersByTime(1000);

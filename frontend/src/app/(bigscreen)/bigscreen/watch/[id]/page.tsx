@@ -44,7 +44,12 @@ import { useBackKey } from '../../../_focus/useBackKey';
 import { useFocusGrid } from '../../../_focus/useFocusGrid';
 import { useMediaKeys } from '../../../_focus/useMediaKeys';
 import { useRevealOnKey, REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
-import { classifyStatus, classifyStreamFailure, type StreamFailure } from '../../../_player/classify';
+import {
+  RETRY_AFTER_DEFAULT_MS,
+  classifyStatus,
+  classifyStreamFailure,
+  type StreamFailure,
+} from '../../../_player/classify';
 import { createRecovery, type RecoveryStatus } from '../../../_player/recovery';
 import { fileIndex, streamSrc } from '../../../_player/fileIndex';
 import { formatTime } from '../../../_player/formatTime';
@@ -1133,14 +1138,50 @@ function WatchScreen() {
   useBackKey(onBack);
 
   // --- the verdicts only the screen can act on -------------------------------------
+  /**
+   * The verdicts only the screen can act on — and, for `gone`, the question only the screen
+   * can ask.
+   *
+   * ANSWERS WHETHER IT TOOK THE PLAYER AWAY, because a 404 from the stream probe is NOT on
+   * its own evidence that the title has gone. `classify.ts` says so in its own words: the
+   * probe is a HEAD, it reads no body, so `detail` "can never come from the HEAD probe" —
+   * and the backend's two 404s are "this torrent does not exist" and "this file is not
+   * resolvable right now", which that verdict cannot tell apart. The route already knows
+   * the rule for the other caller: `/info`'s own 404 is read as terminal ONLY when its
+   * detail is `Torrent not found`, "so the discrimination is done with the torrent's own
+   * state from `getTorrentStatus` instead". This is that same discrimination, for the probe
+   * that has no detail to go on.
+   *
+   * IT IS NOT HYPOTHETICAL. A backend restart leaves a finished download out of the
+   * libtorrent session, and until the resume data carried an info dict nothing could
+   * resolve its files — so every streaming route 404ed on a title whose every byte was on
+   * disk, and this screen told the viewer that "nothing here can bring it back" about a
+   * file they could see in the downloads folder. The backend fix is the real one; this is
+   * the half that stops a transient 404 from ever being a dead end again.
+   *
+   * AN UNREACHABLE BOX IS NOT A VERDICT EITHER. Only a 404 from the status route — the one
+   * request whose 404 means exactly one thing — takes the player down.
+   */
   const onTerminal = useCallback(
-    (failure: StreamFailure) => {
+    async (failure: StreamFailure): Promise<boolean> => {
       // A 401 mid-film means the session is gone, and this surface's front door is pairing,
       // not a sign-in form a remote cannot fill in. The position is flushed on the way.
-      if (failure.kind === 'session') leave(PAIR);
-      else if (failure.kind === 'gone') setBoundary({ k: 'gone' });
+      if (failure.kind === 'session') {
+        leave(PAIR);
+        return true;
+      }
+      if (failure.kind !== 'gone') return false;
+      try {
+        const row = await torrentsService.getTorrentStatus(torrentId);
+        // The box still has it. Whatever 404ed was about the FILE, not the title.
+        if (row) return false;
+      } catch (err) {
+        if (statusOf(err) !== 404) return false;
+      }
+      setBoundary({ k: 'gone' });
+      return true;
     },
-    [leave],
+    [leave, torrentId],
   );
 
   if (phase === 'locked') return <LockedRedirect />;
@@ -1362,7 +1403,12 @@ function Playing({
   onPosition: (seconds: number) => void;
   onDuration: (seconds: number) => void;
   onEnded: (ended: boolean) => void;
-  onTerminal: (failure: StreamFailure) => void;
+  /**
+   * Report a verdict the band cannot act on. ANSWERS whether it took the player away: a
+   * `gone` from the probe is ambiguous and only the route can resolve it. See its own
+   * definition.
+   */
+  onTerminal: (failure: StreamFailure) => Promise<boolean>;
   onStop: () => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
@@ -1666,7 +1712,16 @@ function Playing({
       if (!ref.current) return;
       setFailure(verdict);
       if (verdict.kind === 'session' || verdict.kind === 'gone') {
-        onTerminal(verdict);
+        // The route decides, because the probe cannot: a 404 here is "the torrent is gone"
+        // and "this file is not resolvable right now" wearing the same status code, and
+        // only the status route can tell them apart. If it did NOT take the player away,
+        // the title is still on the box and this is an ordinary stream failure — so it goes
+        // to the ladder, exactly as a 503 would, instead of to a screen that says nothing
+        // can bring it back.
+        void onTerminal(verdict).then((taken) => {
+          if (taken || !ref.current) return;
+          engine.attempt(RETRY_AFTER_DEFAULT_MS);
+        });
         return;
       }
       // NOTHING TO RETRY: the box has rejected the request itself (422/416), so the same

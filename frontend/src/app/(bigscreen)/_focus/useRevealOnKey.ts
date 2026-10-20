@@ -65,6 +65,10 @@ export interface RevealOnKeyOptions {
  * `onHide` must be idempotent: a pending quiet period is not cancelled when the controls are
  * hidden some other way (a Back press), so it can fire against already-hidden controls.
  *
+ * THE QUIET PERIOD STARTS ON MOUNT. Anything else means the controls' first appearance —
+ * the one nobody asked for, when the title starts — is the one that never goes away by
+ * itself, because the viewer has not pressed anything yet. See the effect below.
+ *
  * A REFUSED HIDE IS RETRIED, NOT SPENT, and that is a contract change made to fix a live
  * defect rather than to enable a new feature. The caller may legitimately refuse — the
  * player refuses while the title is paused, while a seek edit is open, and WHILE A MESSAGE
@@ -111,6 +115,20 @@ export function useRevealOnKey(opts: RevealOnKeyOptions): void {
       rearm();
     };
 
+    // ARMED ON MOUNT, NOT ONLY BY A PRESS, and this is the fix for a defect that was on
+    // screen for the whole of every film: the quiet period was armed from `onKeyDown` and
+    // from nowhere else, so a viewer who started a title and then pressed NOTHING — which
+    // is what watching something is — never got a first period at all. The band and the
+    // 480px scrim behind it sat over the picture until some key happened to be pressed.
+    //
+    // Every row in this hook's own suite fired a key before advancing the clock, so none of
+    // them could see it; `hides without being pressed at all` is the one that can.
+    //
+    // It composes with the refusal contract rather than bypassing it: on arrival the player
+    // usually HAS a message up (the resume note, the arrival disclosure), `mayHide` refuses,
+    // and the period is served again until the message goes — which is exactly what a press
+    // would have got.
+    rearm();
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => {
       window.removeEventListener('keydown', onKeyDown, { capture: true });

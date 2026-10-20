@@ -172,6 +172,43 @@ describe('useRevealOnKey', () => {
     expect(onHide).toHaveBeenCalledTimes(1);
   });
 
+  it('hides without being pressed at all', () => {
+    // THE DEFECT THIS ROW IS BUILT FROM, reported from the living room: "the video player
+    // retains a dark overlay when playing". The quiet period used to be armed from
+    // `onKeyDown` and nowhere else, so a viewer who started a title and then pressed
+    // NOTHING — which is what watching something IS — never got a first period, and the
+    // control band plus the 480px scrim behind it sat over the picture for the whole film.
+    //
+    // Every other quiet-period row in this file fires a key before advancing the clock, so
+    // not one of them could have seen it. That is the gap, not an oversight in the
+    // assertions: the armed path was tested thoroughly and the unarmed path was the one a
+    // viewer actually takes.
+    const onHide = vi.fn();
+    render(<Harness visible onReveal={() => {}} onHide={onHide} />);
+    act(() => { vi.advanceTimersByTime(REVEAL_HIDE_MS - 1); });
+    expect(onHide).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(onHide).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps serving the period while the caller refuses, with no press to re-arm it', () => {
+    // The refusal contract, on the mount-armed period: the player refuses while a message
+    // is on screen (the resume note, the arrival disclosure), and that is exactly the state
+    // a title ARRIVES in. If a refusal spent the only period there is, the band would be
+    // stuck for the rest of the film again — by a different route.
+    let refuse = true;
+    const onHide = vi.fn(() => (refuse ? false : undefined));
+    render(<Harness visible onReveal={() => {}} onHide={onHide} />);
+    act(() => { vi.advanceTimersByTime(REVEAL_HIDE_MS * 3); });
+    expect(onHide).toHaveBeenCalledTimes(3);
+    refuse = false;
+    act(() => { vi.advanceTimersByTime(REVEAL_HIDE_MS); });
+    expect(onHide).toHaveBeenCalledTimes(4);
+    // ...and once it is accepted, nothing re-arms behind it.
+    act(() => { vi.advanceTimersByTime(REVEAL_HIDE_MS * 3); });
+    expect(onHide).toHaveBeenCalledTimes(4);
+  });
+
   it('arms the quiet period from the reveal press too', () => {
     const onHide = vi.fn();
     render(<Harness visible={false} onReveal={() => {}} onHide={onHide} />);

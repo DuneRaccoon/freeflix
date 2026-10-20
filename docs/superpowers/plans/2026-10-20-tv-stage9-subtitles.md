@@ -118,7 +118,7 @@ Unconditional, because a cell that appears when the list resolves is the documen
 
 Three existing guards fire for free. `TransportCellId` (`:43`) widens `TransportAction` (`:57`), so `TWIN_CELL: Record<TransportAction, TransportCellId>` (`:111`) fails `tsc` until given an entry — while `MEDIA_TWINS` (`:93`) is keyed on `MediaKeyAction` and does **not** complain, which is correct: no subtitle key code has ever been read off this set. `TransportBar.test.tsx:159-162` then walks `TWIN_CELL` and requires the cell to be **rendered**, which forces unconditionality independently of the focus argument. And `transportCellCount` stays `transportCells(opts).length` (`:127-129`) with **no new option**, so the page↔count drift hazard is structurally impossible.
 
-The state goes on the cell as an `aria-hidden` `.bs-player__commit` sub-line — the ScrubBar idiom (`ScrubBar.tsx:172`), whose rule already exists at `bigscreen.css:1002`, so **no new CSS class**. `aria-hidden` is load-bearing: `TransportBar.test.tsx:98` and `:140` both do `getByRole('button', { name: labelFor(cell, …) })` with an exact string. The new prop is **optional** (`subtitles?:`), matching `retry?: boolean` (`:148`), which keeps all six existing `<TransportBar …>` renders compiling (`playerCss.test.tsx:157`; `TransportBar.test.tsx:37, 54, 68, 81, 196`), and `labelFor`'s signature is **unchanged**, which keeps its four existing call sites compiling (`TransportBar.test.tsx:98, 140, 209, 215` — four, not two; Designs 1 and 4 both miscounted this while proposing a required field).
+The state goes on the cell as an `aria-hidden` `.bs-player__commit` sub-line — the ScrubBar idiom (`ScrubBar.tsx:172`), whose rule already exists at `bigscreen.css:1025`, so **no new CSS class**. `aria-hidden` is load-bearing: `TransportBar.test.tsx:98` and `:140` both do `getByRole('button', { name: labelFor(cell, …) })` with an exact string. The new prop is **optional** (`subtitles?:`), matching `retry?: boolean` (`:148`), which keeps all six existing `<TransportBar …>` renders compiling (`playerCss.test.tsx:157`; `TransportBar.test.tsx:37, 54, 68, 81, 196`), and `labelFor`'s signature is **unchanged**, which keeps its four existing call sites compiling (`TransportBar.test.tsx:98, 140, 209, 215` — four, not two; Designs 1 and 4 both miscounted this while proposing a required field).
 
 Nothing goes into `messageFor` (`page.tsx:1033`). `mayHide = playing && !editOpen && message === ''` (`:826`), so a steady sentence pins the 480px band over the picture for the rest of the film — stage 8 measured exactly that.
 
@@ -780,6 +780,102 @@ Task 17 corrects §4.2 in place, each claim marked fixed-or-live with its measur
 
 ---
 
+### C9 — Tasks 17-20 landed; the C7 check as a committed guard found two instances eighteen hand-reviews missed, and cleared one they reported
+
+**The round.** Six agents, two waves, 1.60M subagent tokens, 0 errors. Task 17 `60eab3a` (the
+wire), 18 `f14edd8` (the diag status classes), 19 `92daec8` (the stylesheet inventory), 20
+`c9ffac1` (§4.2); reviews `7a19c01` (17) and `2916b05` (18). Both reviews found tests that
+could not fail and fixed them; neither returned NOT SOUND.
+
+**Review 17's two green mutations, both fixed.** (F1) `chooseSubtitle` bumps the generation
+*before* its two "sends nothing" exits and says so in its own comment, but moving the bump
+behind `if (entry === null || entry.ready) return;` was **GREEN on all 1555 rows** — the
+undefended press class is an entry already complete on disk, ordinary on a season pack, and
+its cost is 24 further list reads on a box capped at two downloads, observable only as a read
+count. (F2) `pollSubtitles` documents that `onList` fires **before** its own cancellation
+check, and the route carries a second generation guard *because of that sentence* — but moving
+`onList?.(list)` after the check in `_data/subtitles.ts` was **GREEN on all 1555**, because the
+existing cancellation row passes no `onList`. A reasonable hardening of the poll would have
+turned the route's guard into dead code with nothing red to say so. **That is the C7 shape
+across a module seam: neither file's suite owned it**, which is the argument for the guard
+below and not for a better review.
+
+**The guard, `20e0b99`.** `(bigscreen)/noDeadExports.test.ts`, 14 rows. Two detectors, because
+one is not enough and that is measured: `pollSubtitles` is a module export, `fetchSubtitle` is
+a **property of an exported object literal**, so no scan of `export` declarations can see it.
+The historical control is re-runnable —
+`git archive 0e16737 frontend/src | tar -x -C /tmp/c7 && DEAD_EXPORT_ROOT=/tmp/c7/frontend/src npx vitest run '…/noDeadExports.test.ts'`
+— and at `0e16737` it fails naming both halves of C7. **Either detector alone would have
+reported the stage healthy.**
+
+What it found, and what it corrected in this plan's own notes:
+
+| symbol | verdict |
+| --- | --- |
+| `TWIN_CELL` (`_player/TransportBar.tsx`) | **Dead, and nobody had named it.** `act`'s switch handles each action directly; the single `playPause` cell in `TRANSPORT_CELLS` is what makes the three one control. Two comments — one here in `TransportBar.tsx`, one at the `case 'play':` in the route — credited `TWIN_CELL` with keeping that contract intact. A second hand-written statement of a rule production states elsewhere, which is `PAIR_SOURCES`' shape on the frontend. Comments corrected; table declared test-only. |
+| `formatResumeTime` | Dead, and **documented as such already** — a re-export alias kept so `PrimaryAction.test.tsx` runs its original table unedited. |
+| `SUBTITLE_CELL_STATES` | **NOT dead**, against both task 17's and review 17's hand-grep. `SubtitleCellState` is `(typeof SUBTITLE_CELL_STATES)[number]` in the same file, so a use inside the declaring module is life. The guard is more accurate here than the eighteen reviews that preceded it. |
+| 5 service members | Pre-existing, outside this branch, each declared with its reason. |
+
+**The mechanism that keeps a dead service method looking alive, and it is worth knowing:** each
+of those five appears **exactly twice** in the whole frontend — its declaration, and one
+`vi.fn()` in a mock factory. A faithful factory must list every member or `tsc` rejects the
+mock, so a method nothing calls stays mocked, typed and green for ever, and a hand-grep for its
+name finds two files and moves on. Test files are therefore not evidence of life in this guard,
+which is the one rule that makes it different from reading an import graph.
+
+**Two bugs of my own in it, both found by running it rather than reading it.** References were
+counted only inside the declaration scope, which reported 51 dead symbols that are all web-app
+services `src/components/` calls — so declarations are scanned narrowly and references across
+the whole tree. And `declare module 'axios'`'s augmentation read as a dead export of
+`api-client.ts` when it is the `__allow401` flag every subtitle call passes and its consumer is
+the compiler; fixed in the detector, **not** the allowlist, because an allowlist entry would
+have recorded a detector bug as a property of the code. Mutations: 8 against the guard's own
+rules, 8 RED.
+
+**The diag defects task 18 reported and could not fix, now fixed and pinned.** `probeClip`
+still mapped every non-2xx to `no`, so a 500 or 403 on a codec clip printed FILE NOT PRESENT
+and told the operator to run an ffmpeg line for a file already on disk — F6 fixed for the
+sidecar probe and left live for stage 8's rows 16-18, because those fixtures live in
+`page.test.tsx`, outside task 18's file set. **All 1572 rows were green across the fix**, which
+is that task's own prediction ("a fix there would ship unpinned"). Also: `isPresenceValue`
+admitted a persisted `answered 404`, the one spelling this page cannot produce and whose cell
+would read "not an absence" of the single status that is one. And review 18's F6 — the
+answered-status paragraph argued from "both `.vtt` probes are committed" while its condition
+also covers the clip, a gitignored binary nobody has produced; the grounds now rest on the
+status being an answer rather than on the artefact being committed. Mutations: 8, 7 RED
+(the defect itself RED 2, the hard-coded-status discriminator RED 1, the old renderer RED 3),
+and the prose correction **GREEN — prose has no instrument, stated rather than claimed**.
+
+**Review 18's F5 was right and task 18's own "measured" correction was wrong by 3.** The diag
+headings shifted **+70**, not +67: `<h2>Device</h2>` 1080 → **1150**, `<h2>Remote key
+codes</h2>` 1123 → **1193**, `<h2>Sidecar subtitles (stage 9)</h2>` 1329 → **1399**. Re-resolved
+in the readings sheet (3 citations) and here (rows 34 and 38, which had been stale at `:727`
+and `:684` since task 15).
+
+**The citation rot is structural and is now measured.** A resolver over every `file:line` in
+this plan: **183 citations**, and the plan carries absolute line numbers into files its own
+tasks edit — task 20 hit the same wall from the other side, forced into line-count-neutral
+reflow because five plan references sat below the section it had to rewrite. Re-resolved here:
+`bigscreen.css:1002`→`:1025`, `:1005`→`:1028`, `:920-921`→`:924-936` (task 19's three), and
+`page.tsx:999`→`:1520`. **Not** re-resolved: the design sections' pre-implementation counts
+(`TransportBar.test.tsx:98, 140, 209, 215` is now five call sites at `122, 164, 233, 391`, and
+the six `<TransportBar>` renders are nine) — those were true when written, the work they
+governed is complete, and rewriting a finished design record's arithmetic is archaeology. **One
+correction to my own work:** I "fixed" a `ScrubBar.tsx:157`/`:172` pair as swapped and it was
+not — `:157` is the `role="status"` hint and `:172` the `.bs-player__commit` span, exactly as
+written. Reverted. The citation I replaced it with then moved again under my own two-line
+comment edit, which is the hazard in one paragraph.
+
+**Still open, and named rather than fixed:** review 17's F3 — the read effect's "one cleanup,
+returned on both paths" has no instrument because no poll can exist before the arrival
+(`phase === 'playing' && arrival.k === 'ok'` gates the picker), so the emphasised path is
+unreachable. Correctly undiscriminable. And the `_player/` comment-only edits task 17 made
+against its own *Does not* clause, disclosed there and accepted here: D16 makes that class of
+comment a requirement.
+
+---
+
 ## What ships inert or absent, and what the television shows instead
 
 Following stage 8's precedent: a rule that cannot be evaluated ships as a **visible row with effect NONE** rather than as code that looks enforced.
@@ -980,7 +1076,7 @@ The router is included under the existing `{api_v1_str}/streaming` prefix with t
 
 **Files:** `frontend/public/bigscreen.css`, `frontend/src/app/(bigscreen)/bigscreen/watch/[id]/page.tsx` (`:990`), `frontend/src/app/(bigscreen)/_player/playerCss.test.tsx`, `frontend/src/app/(bigscreen)/bigscreen/watch/[id]/page.test.tsx`.
 
-Per D16: `transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1)` on `.bs-player__scrim` and a new `.bs-player__scrim--hidden { opacity: 0 }`, toggled by the same `visible` that drives `.bs-player__bar--hidden` at `page.tsx:997`. Add the class to `playerCss.test.tsx`'s route-written list (`:79-89`). Update the COMBINING comment at `bigscreen.css:920-921`.
+Per D16: `transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1)` on `.bs-player__scrim` and a new `.bs-player__scrim--hidden { opacity: 0 }`, toggled by the same `visible` that drives `.bs-player__bar--hidden` at `page.tsx:997`. Add the class to `playerCss.test.tsx`'s route-written list (`:79-89`). Update the COMBINING comment at `bigscreen.css:924-936`.
 
 **Does not:** unmount the scrim, change the visible state's appearance, change the scrim's height or gradient, add a `::cue` rule, add a colour token, or add any GPU-expensive construct. Does not touch `.bs-player__bar`.
 
@@ -1171,11 +1267,11 @@ New sheet, rows numbered **27 onward** so numbering stays globally continuous an
 | **31** | Does an admitted sidecar's piece actually ARRIVE on a real low-seeder swarm, and how long after the POST? Record three things separately: whether the piece arrived; whether the torrent returned to `finished` after retraction; whether the nav badge cleared. | **YES — gate D** | a real release carrying a `Subs/` folder, started **fresh** after this ships, timed against the TV's poll and the backend log. The only row that can falsify D1–D4. | **not taken** |
 | 32 | Does `line:-4` move a cue clear of the band on this engine? The reading that chooses between reading 29b's candidate fixes, and the only one that would live in the **converter**. | no | `/bigscreen/diag`, the `cue-probe-line.vtt` arm. | **not taken** |
 | 33 | Does a **seven**-cell transport row fit at the television's own font without overflow, and is the last cell still focusable? `.bs-player__row` is `flex-wrap: nowrap` (`bigscreen.css:968`), so an overflowed cell is one the D-pad can focus and the viewer cannot see — a silent violation of no-cell-that-cannot-act that no test on this surface would catch. Transcribe `scrollWidth` and `clientWidth`. | no | the real player, longest label forced. `bigscreen.css:910-911` claims ~1290px for the current six; that number was never read off the set either. | **not taken** |
-| 34 | Does the set's own subtitle/CC remote key reach the page, and with what `keyCode`? | no | `/bigscreen/diag` → Remote key codes (`diag/page.tsx:727`), the same instrument as stage 7 rows 4–8. Decides whether the cell ever earns a `MEDIA_TWINS` entry; task 12 adds none, deliberately. | **not taken** |
+| 34 | Does the set's own subtitle/CC remote key reach the page, and with what `keyCode`? | no | `/bigscreen/diag` → Remote key codes (`diag/page.tsx:1193`), the same instrument as stage 7 rows 4–8. Decides whether the cell ever earns a `MEDIA_TWINS` entry; task 12 adds none, deliberately. | **not taken** |
 | 35 | Does a recovery `video.load()` DUPLICATE the TextTrack on Chromium 120 as it does on 155 (one element, `textTracks` 1→2→3, every copy showing and painting), and does unmounting clear the copies already made? | no | `/bigscreen/diag`, the double-`load()` arm. Task 13's guard makes it moot either way; this says whether the guard is still earned. Not observable in any suite. | **not taken** |
 | 36 | Does switching language mid-film take effect by remounting one `<track>`, with no `video.load()` and no stream interruption? | no | the real player, two languages, `currentTime` before and after. | **not taken** |
 | 37 | How many sidecars do this household's real releases carry, in what formats, languages and encodings, and how many pair to an episode — **and by which rung**? | no | one read-only pass of `list_sidecars` over every `torrents` row after a week of ordinary use. The only row that can say whether §12's "Subtitle coverage disappoints — High" materialised, and the only instrument that can retire §6's encoding and pairing claims. Expect close to zero on today's two titles. | **not taken** |
-| 38 | Verbatim `navigator.userAgent` and model SKU **again**, if this is a different sitting from row 26's, so a firmware change between sittings is visible rather than assumed. Every Chromium measurement behind this stage was taken on **155**; the record says the set is Chromium 120 / webOS 25, read Oct 2026. | no | `/bigscreen/diag` → Device (`diag/page.tsx:684`). | **not taken** |
+| 38 | Verbatim `navigator.userAgent` and model SKU **again**, if this is a different sitting from row 26's, so a firmware change between sittings is visible rather than assumed. Every Chromium measurement behind this stage was taken on **155**; the record says the set is Chromium 120 / webOS 25, read Oct 2026. | no | `/bigscreen/diag` → Device (`diag/page.tsx:1150`). | **not taken** |
 
 **Which stage-7/8 readings block stage 9.** Stage 7's rows **1–3** do, and not as a formality: gate 1 raises the live possibility that playback has only ever been observed with `AUTH_ENABLED=false`, so a blank subtitle screen with auth on would have an extra candidate cause that reading 27a's instrument deliberately removes from its own path but cannot remove from 28 or 31. **Take stage 7's rows 1–3 first.** Stage 7's row **13** is the same stacking fact as 29a/29b and must be taken in the same sitting — a negative row 13 predicts invisible cues before anyone writes a converter. **Stage 8's rows 16–26 do not block stage 9**, and 27a is specified so it does not inherit their missing-clip blocker.
 
@@ -1196,8 +1292,8 @@ New sheet, rows numbered **27 onward** so numbering stays globally continuous an
 9. **A TRUNCATED SIDECAR FAILS SILENTLY** and the zero-cue refusal does not catch it: a WebVTT parser discards a malformed trailing cue and renders what precedes it, so the viewer loses the last stretch and nobody files a bug. **Countermeasure:** `contiguous_available(...)["complete"]`, whose `have_piece(last_piece)` conjunct *is* the hash check for a one-piece file; a bare `file_progress` comparison refused by name.
 10. **THE 401 IS BODILESS AND CANNOT BE CHANGED** (`main.py:87-90`, `:194-196`), so on the VTT route it is indistinguishable from a malformed file to a `<track>`. **Countermeasure:** the list carries `ready`, the TV never mounts a track to discover readiness, and the diag probe reads the status with a plain `fetch`. Reading 28.
 11. **`react-dom` DOES NOT WIRE `onError`/`onLoad` ON A `<track>`** and the native events do not bubble, so the bubble prop is dead code no test catches; `trackEl.readyState` is a hardcoded 0 in jsdom, so a branch on it is permanently false in the suite. **Countermeasure:** `onErrorCapture`, branch on which event fired, and task 13(f)'s non-bubbling dispatch with its caution.
-12. **`.bs-player__track` IS ALREADY THE SCRUB BAR'S CLASS** (`bigscreen.css:1005`), unrelated to `<track>`. Nothing in this stage may reuse it.
-13. **`role="status"` AND `.bs-player__hint` ALREADY MATCH TWO NODES** — `page.tsx:999` and `ScrubBar.tsx:157`, deliberately (`bigscreen.css:884-889`: "TWO hint lines, not one, and they are the same class deliberately"). `getByRole('status')` throws today and `getAllByRole(...)[0]` silently picks whichever renders first, which changes the moment a picker adds a third. **Countermeasure:** every new band assertion scoped to a named container.
+12. **`.bs-player__track` IS ALREADY THE SCRUB BAR'S CLASS** (`bigscreen.css:1028`), unrelated to `<track>`. Nothing in this stage may reuse it.
+13. **`role="status"` AND `.bs-player__hint` ALREADY MATCH TWO NODES** — `page.tsx:1520` and `ScrubBar.tsx:157`, deliberately (`bigscreen.css:884-889`: "TWO hint lines, not one, and they are the same class deliberately"). `getByRole('status')` throws today and `getAllByRole(...)[0]` silently picks whichever renders first, which changes the moment a picker adds a third. **Countermeasure:** every new band assertion scoped to a named container.
 14. **`page.test.tsx:268` REPLACES `HTMLMediaElement.prototype.load` WITH A `vi.fn()`**, so the `<track>` duplication task 13 prevents is invisible to the suite in two independent ways. **Countermeasure:** assert the element's absence; reading 35 for the consequence.
 15. **THE DIVERGENCE REGISTRY'S COUNT PIN DOES NOT REDDEN WHEN A SEVENTH DIVERGENCE APPEARS** — the maps are additive by hand (`engineContract.test.ts:286-288`). **Countermeasure:** task 13's entry, predicate and count bump, with three separate mutations.
 16. **`test:tv` IS A DIRECTORY GLOB** (`package.json:13`), so a guard test outside `src/app/(bigscreen)/` is silently absent from it. **Countermeasure:** task 13's `crossOrigin` guard lives inside that directory.

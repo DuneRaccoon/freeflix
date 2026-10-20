@@ -221,39 +221,39 @@ Violating any of these silently breaks something.
 `scrollIntoView` appears **zero times** in the repo. Nothing ever calls `.focus()`, so a remote does
 nothing until something is focused by accident.
 
-### 4.2 Four range-handling defects that a TV hits and Chrome does not
+### 4.2 Range-handling defects a TV hits and Chrome does not — one of six is still live
 
-`backend/app/api/streaming.py:62-64` is
-`ranges = range_header.replace('bytes=','').split('-')`.
+*(All seven claims re-measured 2026-10-20, stage 9 task 20, on `feat/tv-stage9-subtitles` at `0e16737`: five are fixed and one is live, kept with verdicts rather than
+deleted, because a claim that quietly stops being true is one nobody can audit. They were **not** fixed by stages 7–8: measured, every fix landed on **2026-09-22**,
+the day this section was written, and `api/streaming.py` has taken two commits since, neither about ranges. The premise went with them.
+`backend/app/api/streaming.py:62-64` was exactly ~~`ranges = range_header.replace('bytes=', '').split('-')`~~ and the two `int()` lines under it — an exact citation
+when it was written, which is how it rotted. Today `:62-63` falls inside the `RANGE_MALFORMED` sentinel's comment (`:60-63`), `:64` is the constant, and the parser is
+`parse_range_header` (`api/streaming.py:75-148`, 74 lines) with **three** sentinels: `RANGE_NOT_SATISFIABLE` `:58` → 416, `RANGE_MALFORMED` `:64` → ignore the header,
+`RANGE_FILE_NOT_READY` `:72` → 503.)*
 
-1. **Suffix ranges are silently wrong.** `Range: bytes=-500` ("the last 500 bytes", which media
-   pipelines issue to locate a container index at EOF) parses to `start=0, end=500` and returns **the
-   first 501 bytes with a 206 claiming `bytes 0-500/size`**. Wrong data handed to a decoder, no error.
-2. **Multipart ranges 500.** `bytes=0-99,200-299` → `int('99,200')` raises inside the `try` at `:118`,
-   caught at `:170-172`, returned as a **JSON 500** which `<video>` feeds to the decoder as corrupt
-   media. Any non-numeric range does the same. Both must be **ignored** (200, full body) — see §7.1.
-3. **HEAD is answered with 405.** *(Corrected during implementation — an earlier draft of this
-   spec said a HEAD probe ran the GET handler and could block for 300s. It does not.* Starlette's
-   `Route.__init__` does call `self.methods.add("HEAD")`, but FastAPI's `APIRoute.__init__`
-   overrides it entirely — it never calls `super().__init__()` and sets
-   `self.methods = {method.upper() for method in methods}` directly. Verified against the pinned
-   fastapi 0.104.1 / starlette 0.27.0.*) So `HEAD /{id}/video` matches no route's method and falls
-   through to a bare **405**. Milder than the original claim, but still wrong for the target: a TV
-   media pipeline that probes with HEAD before GET gets a refusal instead of the size and type it
-   asked for, and may not fall back.
-4. **The 300s cap truncates below `Content-Length`.** `stream_file_range`
-   (`torrent/manager.py:1778`) `return`s after a hard `cap = 300.0` — the cap at `:1864`, the
-   `return` at `:1876` — having already promised the full length.
-   *(Citation re-resolved 2026-10-20, stage 9 task 16: the range this bullet used to cite had
-   drifted out of the function entirely. The defect is unchanged and still live — the
-   `piece_timeout` parameter that would replace the flat 300 s is never passed by any production
-   caller.)*
+1. **Suffix ranges are silently wrong — FIXED** (`f5fb699`, `b5ee8a8`). `Range: bytes=-500`, which media pipelines issue to locate a container index at EOF, parsed to
+   `start=0, end=500` and returned the first 501 bytes under a 206 claiming `bytes 0-500/size`. Now `:127` takes the start from `max(0, file_size - n)` and the end
+   from `file_size - 1`, with each degenerate spelling separated: `bytes=-` malformed (`:120-121`), `bytes=--5` malformed (`:123-124`), `bytes=-0` unsatisfiable
+   (`:125-126`). Pinned by `backend/tests/test_range_suffix.py`.
+2. **Multipart and non-numeric ranges 500 — FIXED** (`d0a70d3`). `bytes=0-99,200-299` raised `int('99,200')` and came back as a JSON 500, which `<video>` feeds to the
+   decoder as corrupt media. A `,` is now `RANGE_MALFORMED` before any `int()` runs (`:105-106`), every other non-numeric spelling is caught by `except ValueError`
+   (`:131-132`), and the endpoint performs RFC 7233 §3.1's ignore — full body, `206 if range_header else 200` (`:300-305`, `:328`). Never 416.
+3. **HEAD is answered with 405 — FIXED** (`3523f33`). `@router.head` exists (`:205-223`) and `head_video` (`:224-240`) answers `Content-Length`, `Content-Type` and
+   `Accept-Ranges` from metadata alone — no range parse, no prioritisation, no piece wait — registered above the GET route so it cannot be shadowed. Its decorator
+   comment (`:208-215`) now owns the FastAPI/Starlette mechanism this bullet used to argue.
+4. **The 300s cap truncates below `Content-Length` — STILL LIVE, and the only one of the six left.** `stream_file_range` (`torrent/manager.py:1778`) `return`s after a
+   hard `cap = 300.0` — the cap at `:1864`, the `return` at `:1876` — having already promised the full length. The `piece_timeout` that would replace the flat 300 s is
+   a parameter at `:1780` with **no production caller**: the one production call site is `api/streaming.py:346-348`, six positional arguments and no timeout, and the
+   only three callers that pass it are tests. *(Range re-resolved 2026-10-20 at stage 9 tasks 16 and 20; before task 16 it had drifted out of the function entirely.)*
 
-Related: `.m4v`, `.ts`, `.m2ts`, `.mts`, `.vob`, `.3gp`, `.mpg`, `.mpeg` have no entry in
-`VIDEO_MIME_TYPES` and fall through to `mimetypes.guess_type()` on the container's Python 3.10 —
-anything it does not know becomes `application/octet-stream`, which most media stacks refuse. And
-`parse_range_header` returns 416 whenever `file_size <= 0`, reachable for a torrent whose metadata
-has arrived but whose file is not allocated.
+Related, **both FIXED**: `.m4v`, `.ts`, `.m2ts`, `.mts`, `.vob`, `.3gp`, `.mpg` and `.mpeg` all carry `VIDEO_MIME_TYPES` entries (`9697ef0`; `:32-49`, 16 extensions,
+pinned by `backend/tests/test_video_mime_types.py`), so none of them degrades to `application/octet-stream`. And `file_size <= 0` is no longer a 416 (`e95b96d`): it is
+checked before the header is read at all (`:85-89`), returns `RANGE_FILE_NOT_READY` (`:66-72`), and the endpoint answers 503 with `Retry-After: 2` (`:286-293`) —
+retryable, which is what a file that is not allocated yet actually is.
+
+**The bound on this audit.** §4.2 is the only section of §4 re-measured; §4.1 and §4.4–§4.5 may carry the same staleness class and are **not** audited here.
+`torrent/manager.py` has been rewritten heavily since, which is what moved bullet 4's citation out of its own function once already. And §7.1, this section's own fix
+list, still reads as pending: measured, its points 1, 2, 3 and 5 landed on 2026-09-22 with the fixes above, and point 4 has not.
 
 ### 4.3 Codec is parsed and then ignored
 
@@ -719,22 +719,22 @@ profile to allow 2160p. Rationale in decision 9.
   `415 {"reason": "unsupported-format"}` for such a row **unconditionally**, from the format
   alone, before the file is ever opened.
 - The TV player renders them with a native `<track>` — exactly one, enabled by `default`.
-- **Acknowledged gaps**, and there are four. (1) Embedded MKV subtitle tracks are unreachable
-  because nothing demuxes the container, and many releases ship embedded-only. (2) **Bigger than
-  that one, and this spec did not mention it: nothing already in the library gets subtitles,
-  ever.** Admission needs a live handle; `_refresh_active_torrents` evicts a `finished` torrent
-  mid-session and `find_loadable_on_startup` never re-adds it, and an evicted torrent's file list
-  is not enumerable at all because every resume blob this application writes carries no `info`
-  dict (the stage-7 `save_info_dict` follow-up). So `coverage: "unknown"` and the television reads
-  `Subtitles · unavailable` — permanently, for every title downloaded before this stage. (3) A
-  cue may sit **behind the transport band** for the ~5 s it is up: `.bs-player__bar` is
-  `position: relative` with no `z-index` and paints above both `z-index: -1` layers. Stage 9 fades
-  the scrim with the band, which clears the state the feature lives in, and ships no fix for the
-  band itself — reading **29b** of
-  `docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` scopes that, and it is stage
-  10's. (4) A sidecar that is neither UTF-8 nor cp1252 is **refused, not served**, with
-  `SUBTITLE_ENCODING` as the owner's override: mojibake is invisible as a fault and visible as
-  nonsense for two hours.
+- **Acknowledged gaps**, and there are four. (1) Embedded MKV subtitle tracks are unreachable because nothing demuxes the
+  container, and many releases ship embedded-only. (2)
+  **Bigger than that one, and this spec did not mention it: nothing already in the library gets subtitles, ever.**
+  Admission needs a live handle; `_refresh_active_torrents` evicts a `finished` torrent mid-session and
+  `find_loadable_on_startup` never re-adds it, and an evicted torrent's file list is not enumerable at all because every
+  resume blob this application writes carries no `info` dict (the stage-7 `save_info_dict` follow-up). So
+  `coverage: "unknown"` and the television reads `Subtitles · unavailable` — permanently, for every title downloaded before
+  this stage. **`Name · state` is a notation, never a rendered string**, here, in §12's risk row and at six sites across
+  the stage-7 and stage-9 plan documents: the cell's accessible name is exactly `Name`, its state rides beside it in an
+  `aria-hidden` sibling span, and no `·` is rendered or announced anywhere — `labelFor`'s text and the `.bs-player__commit`
+  span, `_player/TransportBar.tsx:224-235`, read at `0e16737`. (3) A cue may sit **behind the transport band** for the ~5 s
+  it is up: `.bs-player__bar` is `position: relative` with no `z-index` and paints above both `z-index: -1` layers. Stage 9
+  fades the scrim with the band, which clears the state the feature lives in, and ships no fix for the band itself —
+  reading **29b** of `docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` scopes that, and it is stage 10's.
+  (4) A sidecar that is neither UTF-8 nor cp1252 is **refused, not served**, with `SUBTITLE_ENCODING` as the owner's
+  override: mojibake is invisible as a fault and visible as nonsense for two hours.
 - **"ASS/SSA styling is dropped to plain text" is DECLINED, with grounds — not merely contradicted
   by §13.** Shipping it means a `Format:`-line parser written from recalled grammar with no `.ass`
   file anywhere in this repository to test against, whose measured failure mode is stacked

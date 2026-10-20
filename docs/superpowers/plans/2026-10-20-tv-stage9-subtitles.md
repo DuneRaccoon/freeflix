@@ -466,7 +466,7 @@ running it. Three shapes recurred, and they are worth recognising on sight:
 * **A guard duplicated, so deleting either copy is green.** Task 4's null rule was stated twice —
   "collect the winners, then add every null" says the same thing as "never group a null" — and
   with two statements of one rule neither deletion reddens. It is now a single `continue`
-  (`backend/app/subtitles/naming.py:674`), with the shape written beside it at `:660-668`.
+  (`backend/app/subtitles/naming.py:696`), with the shape written beside it at `:682-690`.
   (Both line numbers RE-RESOLVED in the following review round: `fa4d806` inserted the proximity
   tiebreak above them and moved the `continue` from `:518` to `:674`, and a citation that still
   reads `:518` now lands in the middle of rung 1. Checked by opening every `naming.py:NNN` in
@@ -609,7 +609,7 @@ none is missing.
   constant's own escape hatch ("if a real device ever shows the file arriving later, raise it")
   is the mitigation, not a test.
 * **Task 4's X2 is undiscriminable by any realistic fixture and is annotated rather than tested**
-  (`backend/app/subtitles/naming.py:265-271`, moved from `:247-253` by `fa4d806`): the
+  (`backend/app/subtitles/naming.py:287-293`, moved from `:247-253` by `fa4d806` and from `:265-271` by C9): the
   `len(segs) < 2` conjunct in `_torrent_root` (named `_common_root` here by mistake) can
   only change an answer for a top-level file named exactly like the folder every other file sits
   under. Named there rather than claimed.

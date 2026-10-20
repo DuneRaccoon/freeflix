@@ -17,7 +17,7 @@ Two mechanisms, both from the stage 9 plan:
   is not telemetry: a mis-paired sidecar is the one failure in this stage with no error
   anywhere (valid WebVTT, correct readiness, a true sentence about everything except
   whose episode it is), so the rung is carried to the picker row and the transport cell
-  as `(matched by folder)` / `(matched by episode number)` / `· guessed`. It is also the
+  as `(matched by folder)` / `(matched by episode number)`. It is also the
   only way a test can tell a correct answer from a correct-by-accident one — for
   `Pack/Pack.S01E03.en.srt` the stem rung and the parse rung agree on the episode, so
   without the exposed rung, deleting the stem rung is undetectable.
@@ -43,6 +43,39 @@ from app.providers.episodes import parse_episode
 # D21: tokens split on this and nothing else. Exact token match, never a substring.
 _TOKEN_SPLIT = re.compile(r"[._\-\s]+")
 
+# Rendered on the picker row (D20). `stem` and `single` deliberately share the plain
+# label: in both cases the filename or the torrent's shape names the video outright,
+# so there is nothing inferred to confess. `dir`, `near`, `parse` and `none` each get
+# their own words, because collapsing any two of them would make the television say the
+# same sentence about two different degrees of confidence.
+#
+# `near` is the weakest of the four that confess, and its words say the thing that makes
+# it weak: SEVERAL videos claimed this sidecar and one of them was closer.
+#
+# WRITTEN IN THE LADDER'S OWN ORDER — the two rungs that can return `near`, then `near`
+# itself, then `parse`, then the two shapes that need no confession — because
+# `PAIR_SOURCES` below is derived from these keys and that tuple's order is documentation.
+#
+# WHAT THE TELEVISION ACTUALLY DOES WITH THESE STRINGS, measured now that tasks 10-16 are
+# built rather than predicted while they were not: the PICKER ROW renders this whole
+# suffixed string, because `track_label` has already folded the provenance into the
+# entry's `label` and the TV is told to render `label` and never re-derive it
+# (`_player/SubtitlePicker.tsx:36-41`). The TRANSPORT CELL does not: its sub-line is one
+# of eight fixed phrases keyed on the cell's state (`_data/subtitles.ts`,
+# `SUBTITLE_CELL_LABELS`) and carries no provenance at all. An earlier draft of this
+# comment, and of this module's header, said the sub-line appends `· guessed` for `dir`
+# and `parse` — that renderer was never built and `· guessed` occurs nowhere in
+# production code, so the claim is removed rather than left describing a surface that
+# does not exist.
+_PAIR_SOURCE_SUFFIX = {
+    "stem": "",
+    "dir": " (matched by folder)",
+    "near": " (nearest of several matches)",
+    "parse": " (matched by episode number)",
+    "single": "",
+    "none": " (unmatched)",
+}
+
 # The five rungs of D20, in the order `pair()` tries them, PLUS `near`. `none` is the
 # honest bottom: an unpairable sidecar is still LISTED (the picker shows it), it simply
 # carries no episode and says so.
@@ -55,26 +88,15 @@ _TOKEN_SPLIT = re.compile(r"[._\-\s]+")
 # one video" and "its name matched several and I took the closest" are different
 # confidences. A viewer looking at the wrong episode's subtitles needs to be able to
 # tell which of those happened.
-PAIR_SOURCES = ("stem", "dir", "near", "parse", "single", "none")
-
-# Rendered on the picker row (D20). `stem` and `single` deliberately share the plain
-# label: in both cases the filename or the torrent's shape names the video outright,
-# so there is nothing inferred to confess. `dir`, `near`, `parse` and `none` each get
-# their own words, because collapsing any two of them would make the television say the
-# same sentence about two different degrees of confidence.
 #
-# `near` is the weakest of the four that confess, and its words say the thing that
-# makes it weak: SEVERAL videos claimed this sidecar and one of them was closer. D20's
-# cell sub-line appends `· guessed` for `dir` and `parse`; `near` joins them (tasks
-# 10-16 are not built, so no renderer has to be changed for that yet).
-_PAIR_SOURCE_SUFFIX = {
-    "stem": "",
-    "single": "",
-    "dir": " (matched by folder)",
-    "near": " (nearest of several matches)",
-    "parse": " (matched by episode number)",
-    "none": " (unmatched)",
-}
+# DERIVED FROM THE MAP ABOVE, not written out beside it. Two tuples of the same six names
+# is one rule written twice, and the way that one fails is not a weak test: it is a bare
+# `KeyError` at `track_label`'s subscript, which is a 500 on the whole torrent's sidecar
+# list because of one unusual pairing. Derived, a seventh source cannot be added to one
+# and forgotten in the other — so there is no guard here to test, because the divergence
+# is no longer representable. Found by the only check that catches C7's shape: a grep for
+# a production reader of every symbol this stage exports returned none for this one.
+PAIR_SOURCES = tuple(_PAIR_SOURCE_SUFFIX)
 
 # What `guess_language` reports when no token resolves. A null language is HONEST and
 # the entry stays offerable — D21 renders it `kind="captions"` with NO `srclang`,

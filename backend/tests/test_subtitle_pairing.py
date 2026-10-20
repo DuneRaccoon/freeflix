@@ -20,7 +20,7 @@ reviewer's two fixtures answer the RIGHT file under it, and the only thing that
 separates that from the pre-fix module's right-file-by-luck is which source is reported.
 
 THE AMBIGUITY RULE these rows pin, in one sentence, because it has been re-decided
-twice: rungs 1 and 2 break several claimants by DIRECTORY PROXIMITY and take the answer
+THREE times: rungs 1 and 2 break several claimants by DIRECTORY PROXIMITY and take the answer
 only when the deepest-shared claimant is unique; a tie proximity cannot break declines
 and falls through, as does every rung-3 ambiguity. Each half has its own fixture, each
 fixture says which half, and ``test_the_answer_does_not_depend_on_the_order_of_the_video_files``
@@ -250,13 +250,67 @@ def test_every_pair_source_renders_a_distinct_sentence():
     assert all(label.startswith("English") for label in labels.values())
 
 
-def test_the_label_suffix_table_covers_every_pair_source():
-    """A rung with no suffix entry would raise a KeyError at render time, on the
-    television, in the one code path that has no console."""
-    for source in PAIR_SOURCES:
-        rendered = track_label("Unknown", source)
-        assert isinstance(rendered, str)
-        assert rendered.startswith("Unknown")
+def test_every_source_pair_can_return_is_a_key_of_the_suffix_table():
+    """``track_label`` subscripts ``_PAIR_SOURCE_SUFFIX`` bare, so a source with no
+    entry is a ``KeyError`` inside the sidecar list endpoint — a 500 for a whole
+    torrent, on the television, in the one code path with no console.
+
+    THIS IS AN AST SCAN OF ``pair()``'S RETURN SITES, not a loop over ``PAIR_SOURCES``,
+    and the difference is the whole point. The row this replaces iterated
+    ``PAIR_SOURCES`` and called ``track_label`` on each member. That row could fail
+    while the tuple was written out by hand beside the map; it CANNOT fail now that
+    ``PAIR_SOURCES`` is derived from the map's own keys, because then every member is a
+    key by construction. Deriving the tuple removed one way to make the mistake and
+    turned its guard into a tautology at the same moment.
+
+    And neither form ever covered the way the mistake actually gets made. ``pair()``
+    does not draw its answers from ``PAIR_SOURCES``: every rung returns a STRING
+    LITERAL written inline at its own ``return``. So a new rung returning ``"best"``,
+    or a typo in an existing one, diverges from both the map and the tuple, and a test
+    that only relates the map to the tuple is green for it. The three-way agreement is
+    what matters, and this is the only row that asserts it.
+    """
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(naming))
+    fn = next(
+        (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "pair"),
+        None,
+    )
+    # POSITIVE CONTROL, first, and in two parts: this file's own reflex is to assert a
+    # collected set and this repo has shipped `== []` assertions over recorders that
+    # never recorded. If `pair` is ever renamed, or its returns stop being tuples of
+    # (index, source), the scan silently collects nothing and every assertion below
+    # passes vacuously.
+    assert fn is not None, "pair() not found — the scan is measuring nothing"
+
+    returned = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Return) and node.value is not None:
+            for sub in ast.walk(node.value):
+                if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                    returned.add(sub.value)
+
+    assert len(returned) >= 6, (
+        f"the scan found only {sorted(returned)} — fewer source literals than the "
+        "ladder has rungs, so it is not reading pair()'s returns"
+    )
+
+    # The three-way agreement, asserted in both directions so a STALE entry is caught
+    # as well as a missing one: a suffix for a rung that no longer exists is copy the
+    # television can never show, and it is how the table outlives the ladder.
+    assert returned == set(naming._PAIR_SOURCE_SUFFIX), (
+        f"pair() can return {sorted(returned)}; the suffix table has "
+        f"{sorted(naming._PAIR_SOURCE_SUFFIX)}"
+    )
+    assert returned == set(PAIR_SOURCES), (
+        f"pair() can return {sorted(returned)}; PAIR_SOURCES is {sorted(PAIR_SOURCES)}"
+    )
+
+    # And every one of them renders, which is the harm itself rather than its cause.
+    for source in sorted(returned):
+        assert track_label("Unknown", source).startswith("Unknown")
 
 
 # -------------------- ambiguity: rungs 1 and 2 break it by proximity, or else refuse

@@ -53,7 +53,7 @@ from app.models import SubtitleList, SubtitleTrack
 from app.providers.episodes import parse_episode
 from app.subtitles import sidecars
 from app.subtitles import naming
-from app.subtitles.decode import decode_subtitle
+from app.subtitles.decode import REFUSAL_ENCODING_UNKNOWN, decode_subtitle
 from app.subtitles.vtt import to_webvtt
 from app.torrent.content_guard import is_video_file
 from app.torrent.manager import (
@@ -609,7 +609,15 @@ async def get_subtitle_vtt(
         # decoded track is invisible as a FAULT and visible as nonsense for the
         # length of the film (D18), and the owner has one action to take:
         # `SUBTITLE_ENCODING`.
-        return _refused(refusal or "encoding-unknown")
+        #
+        # THE FALLBACK IS UNREACHABLE and is a type narrowing, not a second answer:
+        # every failing exit of the decode ladder carries `REFUSAL_ENCODING_UNKNOWN`
+        # (three returns, one constant), so `(None, None)` is not a pair that
+        # function produces. The constant is IMPORTED rather than spelled as a
+        # literal, because a literal here is the same rule written in two modules and
+        # this file has already had one such fallback deleted for answering a pair its
+        # own matrix forbids (the format gate's `or row["reason"]`, 48a3539).
+        return _refused(refusal or REFUSAL_ENCODING_UNKNOWN)
 
     result = to_webvtt(text, row["format"])
     # The `cue_count` conjunct is DEAD AS WRITTEN and that is said here rather

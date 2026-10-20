@@ -465,6 +465,9 @@ describe('/bigscreen/diag: the codec instrument cannot report a blank', () => {
     // substring — the "a substring the happy path also satisfies" trap, in this task's own test.
     expect(rowText('c1')).toMatch(/not a codec result/i);
     expect(document.querySelector('[data-clip-player]')).toBeNull();
+    // And the OTHER paragraph stays off: a 404 is the one answer that IS an absence, so
+    // telling the operator "it was not a 404" here would contradict the cell above it.
+    expect(rowText('c1'), 'a 404 is an absence').not.toMatch(/AND IT WAS NOT A 404/);
   });
 
   it('mounts the clip when the HEAD says it is there — non-vacuity for the row above', async () => {
@@ -490,6 +493,80 @@ describe('/bigscreen/diag: the codec instrument cannot report a blank', () => {
       expect(player('c3'), 'and still nothing mounted').toBeNull();
     });
     expect(cellText('c3', 'File present?'), 'not absence').toBe('unknown');
+  });
+
+  it('tells a 500 on a clip from a missing clip, and mounts nothing either way', async () => {
+    // THE DEFECT THIS ROW EXISTS FOR, and it was live in this file's instrument while the
+    // sidecar half of the same page had been fixed. `probeClip` mapped every non-2xx to `no`,
+    // so a 500 printed FILE NOT PRESENT and the paragraph below told the operator to run an
+    // ffmpeg line for a file that is already on disk — the one action that cannot help. It was
+    // reported by task 18 and left, because stage 8's fixtures are here and this file was not
+    // in that task's set. Readings 16-18 are still untaken, so it has never yet been read
+    // wrong on the set; it would have been.
+    mockSamples(500);
+    render(<DiagPage />);
+    await loadClip('c1');
+
+    await waitFor(() => {
+      expect(cellText('c1', 'File present?')).toBe(
+        'THE SERVER ANSWERED 500 — not an absence, and nothing was mounted',
+      );
+      expect(player('c1'), 'still nothing mounted — a 500 is not a decode attempt').toBeNull();
+    });
+    expect(cellText('c1', 'HTTP'), 'the raw status is the reading').toMatch(/-> 500 /);
+    expect(rowText('c1')).toMatch(/AND IT WAS NOT A 404/);
+    // NOT /not a codec result/ for the absent paragraph's absence: the new paragraph says
+    // "this is not a codec result either", so that substring is satisfied by BOTH and an
+    // assertion using it could not fail. The absent paragraph's own instruction is the
+    // discriminator — and it is the instruction that was wrong.
+    expect(rowText('c1'), 'the produce-the-file instruction must be gone').not.toMatch(
+      /with the sheet’s ffmpeg line/,
+    );
+  });
+
+  it('reads the status off the response instead of assuming one', async () => {
+    // Separates `answeredWith(res.status)` from a hard-coded 500. With only the row above, the
+    // status could be a literal and nothing would notice; 403 is also the plausible answer
+    // from something sitting in front of Next.js on a LAN.
+    mockSamples(403);
+    render(<DiagPage />);
+    await loadClip('c2');
+
+    await waitFor(() =>
+      expect(cellText('c2', 'File present?')).toBe(
+        'THE SERVER ANSWERED 403 — not an absence, and nothing was mounted',
+      ),
+    );
+    expect(player('c2')).toBeNull();
+  });
+
+  it('brings a persisted answered-status back, and refuses the one spelling it cannot produce', async () => {
+    // Two rules in one navigation, because they are one decision. `answered 500` has to survive
+    // leaving the page — the operator probes, walks to the set, comes back — so the validator
+    // must admit it. `answered 404` is a spelling this page cannot produce (both probes map
+    // exactly 404 to `no`), and admitting it would print "THE SERVER ANSWERED 404 — not an
+    // absence" beside the rule that a 404 is the one answer that IS one. Reachable only from a
+    // stale or poisoned record, which is what this validator is for.
+    sessionStorage.setItem(
+      CODEC_STORAGE,
+      JSON.stringify({
+        // Partial on purpose: `readCodecReadings` starts from the blank and overwrites only
+        // the fields a record carries, so a fixture that listed all eight would be asserting
+        // the spread rather than the validator.
+        c1: { http: 'HEAD /samples/x.mkv -> 500 Internal Server Error', present: 'answered 500' },
+        c2: { http: 'HEAD /samples/y.mkv -> 404 Not Found', present: 'answered 404' },
+      }),
+    );
+    render(<DiagPage />);
+
+    await waitFor(() =>
+      expect(cellText('c1', 'File present?')).toBe(
+        'THE SERVER ANSWERED 500 — not an absence, and nothing was mounted',
+      ),
+    );
+    expect(cellText('c2', 'File present?'), 'the forbidden spelling falls back to the blank').toBe(
+      'unknown',
+    );
   });
 
   it('surfaces the raw MediaError code, and the three numbers beside it', async () => {

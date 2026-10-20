@@ -233,7 +233,15 @@ const CLIPS: Clip[] = [
  */
 type ClipReading = {
   http: string;
-  present: 'yes' | 'no' | 'unknown';
+  /**
+   * `Presence`, not the three values this had: the codec probe collapsed every non-2xx into
+   * `no`, so a 500 or a 403 on a clip printed FILE NOT PRESENT and told the operator to run an
+   * ffmpeg line for a file that is already there. That is F6 — fixed for the sidecar probe in
+   * `f14edd8` and reported there as still live here, because stage 8's fixtures live in
+   * `page.test.tsx`, which was not in that task's file set. Readings 16-18 are still untaken,
+   * so this instrument has never yet been read wrong on the set; it would have been.
+   */
+  present: Presence;
   error: string;
   dims: string;
   duration: string;
@@ -277,10 +285,11 @@ function readCodecReadings(): Record<string, ClipReading> {
         const v = (row as Record<string, unknown>)[key];
         if (typeof v === 'string' && v !== '') out[c.id][key] = v;
       }
-      // `present` is validated against its three values rather than trusted, because it is the
-      // field the "FILE NOT PRESENT" branch keys on.
+      // `present` is validated rather than trusted, because it is the field the two paragraphs
+      // under the table key on. Shares `isPresenceValue` with the sidecar arms so a record
+      // written by one half of this page cannot be rejected by the other.
       const p = (row as Record<string, unknown>).present;
-      if (p === 'yes' || p === 'no' || p === 'unknown') out[c.id].present = p;
+      if (isPresenceValue(p)) out[c.id].present = p;
     }
     return out;
   } catch {
@@ -478,7 +487,12 @@ const isAnswered = (p: Presence): p is `${typeof ANSWERED}${number}` => p.starts
  */
 const isPresenceValue = (v: unknown): v is Presence =>
   v === 'yes' || v === 'no' || v === 'unknown'
-  || (typeof v === 'string' && v.startsWith(ANSWERED) && /^\d+$/.test(v.slice(ANSWERED.length)));
+  // NOT `answered 404`. Both probes map exactly 404 to `no`, so that spelling is one this page
+  // cannot produce — and admitting it would print "THE SERVER ANSWERED 404 — not an absence"
+  // beside the rule saying a 404 is the one answer that IS one. Reachable only from a stale or
+  // poisoned record, which is the case this validator exists for.
+  || (typeof v === 'string' && v.startsWith(ANSWERED) && /^\d+$/.test(v.slice(ANSWERED.length))
+      && v.slice(ANSWERED.length) !== '404');
 
 /** The one sentence that means "the server said this file is not there". */
 const ABSENT_CELL = 'FILE NOT PRESENT — nothing was mounted';
@@ -893,7 +907,9 @@ export default function BigScreenDiagnostics() {
       const res = await fetch(url, { method: 'HEAD' });
       updateClip(clip.id, {
         http: `HEAD ${url} -> ${res.status} ${res.statusText}`.trimEnd(),
-        present: res.ok ? 'yes' : 'no',
+        // EXACTLY 404, the same ladder as the sidecar probe: `no` is the only value whose
+        // action — produce the file — is about the file at all.
+        present: res.ok ? 'yes' : res.status === 404 ? 'no' : answeredWith(res.status),
       });
       return res.ok;
     } catch (err) {
@@ -1330,9 +1346,7 @@ export default function BigScreenDiagnostics() {
                 </tr>
                 <tr>
                   <th>File present?</th>
-                  <td className={r.present === 'yes' ? 'bs-yes' : r.present === 'no' ? 'bs-no' : undefined}>
-                    {r.present === 'no' ? 'FILE NOT PRESENT — nothing was mounted' : r.present}
-                  </td>
+                  <td className={presenceClass(r.present)}>{presenceCell(r.present)}</td>
                 </tr>
                 <tr>
                   <th>MediaError.code</th>
@@ -1373,6 +1387,15 @@ export default function BigScreenDiagnostics() {
                 panel was never asked to decode anything. Produce{' '}
                 <code>{SAMPLES_BASE + c.file}</code> with the sheet’s ffmpeg line and load it
                 again.
+              </p>
+            ) : null}
+            {isAnswered(r.present) ? (
+              <p className="bs-no">
+                <strong>THE SERVER ANSWERED, AND IT WAS NOT A 404.</strong> The status in the HTTP
+                line above is the reading, and it is not an absence: nothing was mounted, so this
+                is not a codec result either. Do <strong>not</strong> run the ffmpeg line — the
+                server, or something in front of it, answered about the route rather than about
+                the file, and producing the clip again cannot change that. Transcribe the status.
               </p>
             ) : null}
             {activeClip === c.id ? (
@@ -1568,17 +1591,21 @@ export default function BigScreenDiagnostics() {
             ) : null}
             {/* A SECOND STATE WITH A DIFFERENT ACTION, and keeping it out of the paragraph
                 above is the whole of F6: that one says "copy the file over / check the tree",
-                which is the one thing that cannot help here, because both `.vtt`s are
-                committed. A 403 or a 500 is an answer about the ROUTE, from the server or
-                whatever sits in front of it. */}
+                which is the one thing that cannot help here. A 403 or a 500 is an answer about
+                the ROUTE, from the server or whatever sits in front of it.
+                ITS GROUNDS ARE NOT `.vtt`-ONLY. This fires on `clipPresent` too, and the clip
+                is a gitignored binary nobody has produced — so the reason given to the operator
+                is the status being an answer, not the artefact being committed. The earlier
+                wording argued from "both `.vtt` probes are committed" while the condition
+                covered a file that is not committed at all. */}
             {isAnswered(r.present) || isAnswered(r.clipPresent) ? (
               <p className="bs-no">
                 <strong>THE SERVER ANSWERED, AND IT WAS NOT A 404.</strong> The status in the
                 HTTP lines above is the reading, and it is not an absence: nothing was mounted,
                 so this is not a text-track result either. Do <strong>not</strong> copy a file
-                over — both <code>.vtt</code> probes are committed and a 403 or a 500 is the
-                server, or something in front of it, answering about the route rather than
-                about the file. Transcribe the status.
+                over or produce one — whichever artefact was asked for, a 403 or a 500 is the
+                server, or something in front of it, answering about the route rather than about
+                the file. Transcribe the status.
               </p>
             ) : null}
             {active ? (

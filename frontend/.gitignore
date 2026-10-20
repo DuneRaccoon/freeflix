@@ -26,7 +26,16 @@
 # for each one is in docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md. The diag
 # page renders an explicit "FILE NOT PRESENT" state when they are absent, which is the state
 # this checkout is in.
-/public/samples/
+# The pattern is the directory's CONTENTS (`/*`), not the directory (`/`), and that is
+# load-bearing rather than style: git does not descend into an excluded directory, so with
+# `/public/samples/` the negation below is unreachable and `git check-ignore` still names the
+# directory line for a `.vtt` (measured, which is how this was found).
+/public/samples/*
+# EXCEPT the stage-9 cue probes, which are the opposite kind of artefact to the clips: two
+# hand-typed WebVTT files of a few hundred bytes each, and reading 27a's whole premise is
+# that they are ALREADY THERE — that arm needs no clip, no torrent and no backend precisely
+# so a blank screen has one candidate cause. A probe file nobody has copied over is a second.
+!/public/samples/*.vtt
 
 # misc
 .DS_Store

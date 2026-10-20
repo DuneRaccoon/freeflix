@@ -14,7 +14,14 @@ import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { statusOf } from '../../../_data/httpStatus';
-import { cellLabel, chosenCellState, type SubtitleCellState } from '../../../_data/subtitles';
+import {
+  cellLabel,
+  chosenCellState,
+  pickerRowCounts,
+  pickerRows,
+  type SubtitleCellState,
+  type SubtitlePickerRow,
+} from '../../../_data/subtitles';
 import { PREPARING, READY, takeFourKAsk } from '../../../_data/title';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useWatchProgress, watchIdentity } from '../../../_data/useWatchProgress';
@@ -28,11 +35,13 @@ import { fileIndex, streamSrc } from '../../../_player/fileIndex';
 import { formatTime } from '../../../_player/formatTime';
 import { ScrubBar, scrubRowCount } from '../../../_player/ScrubBar';
 import { clampSeek, type ContiguousRun } from '../../../_player/seekBoundary';
+import { SubtitlePicker, pickerTarget } from '../../../_player/SubtitlePicker';
 import { SubtitleTrackElement } from '../../../_player/SubtitleTrackElement';
 import {
   MEDIA_TWINS,
   TransportBar,
   transportCellCount,
+  transportCells,
   type SubtitleCellView,
   type TransportAction,
 } from '../../../_player/TransportBar';
@@ -211,6 +220,60 @@ function subtitleCellState(
   return 'off';
 }
 
+/**
+ * The grid row the transport cells occupy while the picker is CLOSED, and the column the
+ * Subtitles cell sits in.
+ *
+ * Both are needed for the second of the picker's two explicit focus moves (D13): closing it
+ * has to put the ring back on the control the viewer opened it from, and `clampTarget`
+ * cannot work that out — with the scrub row empty (the usual state on this television, since
+ * `scrubRowCount` returns 0 until the element reports a finite duration) its answer is
+ * `firstTarget`, which is Play/Pause.
+ *
+ * The column is DERIVED from the same table the row renders, not written as `4`: Retry comes
+ * and goes, and a literal would be a second statement of the cell's position that nothing
+ * keeps in step with `TRANSPORT_CELLS`. A `findIndex` that answered -1 (the cell gone
+ * altogether) clamps to column 0 rather than off the grid, which is the same visible outcome
+ * as deleting the move — and `TransportBar.test.tsx`'s `TWIN_CELL` walk is what makes that
+ * unreachable.
+ */
+const TRANSPORT_ROW = 1;
+const subtitlesColumn = (retry: boolean): number =>
+  transportCells({ retry }).findIndex((c) => c.id === 'subtitles');
+
+/**
+ * Said twice, from one constant: a failed read and a coverage that is not `listed` are the
+ * SAME fact to the viewer — the box cannot enumerate this download's files — and two copies
+ * of one sentence are two sentences to keep in step.
+ */
+const CANNOT_SEE = 'The box cannot see this download’s files, so it has nothing to offer.';
+
+/**
+ * Why there is nothing to choose, for a picker opened over a list with no entries at all.
+ *
+ * It lives here rather than in the picker because the sentences are the states of THIS
+ * route's read, and a component that derived them would be restating them. A listed envelope
+ * always carries at least one row (the lister answers `listed` if and only if it produced
+ * one), so the empty cases are exactly: not answered yet, the read failed, no live handle,
+ * and a release that ships nothing.
+ *
+ * It is NOT the band's `message`. `mayHide` is `message === ''`, so a sentence there would
+ * pin the 480px band over the picture for the rest of the film; this one belongs to the
+ * picker, goes away with it, and carries no `role="status"`.
+ */
+function emptyPickerHint(read: SubtitleRead): string {
+  // The arms are in `subtitleCellState`'s own order, so the two can be read against each
+  // other: `loading`, `unavailable` (a failed read), `none`, `unavailable` (any coverage
+  // that is not `listed`). The last arm is a `listed` envelope with no rows, which the
+  // backend cannot send — silence rather than a sentence, because the only honest thing to
+  // say about a shape nothing can produce is nothing.
+  if (read.k === 'loading') return 'Still checking this release for subtitle files.';
+  if (read.k === 'failed') return CANNOT_SEE;
+  if (read.list.coverage === 'none') return 'This release ships no subtitle files.';
+  if (read.list.coverage !== 'listed') return CANNOT_SEE;
+  return '';
+}
+
 const detailOf = (err: unknown): string | undefined => {
   const detail = (err as { response?: { data?: { detail?: unknown } } } | null)?.response?.data?.detail;
   return typeof detail === 'string' ? detail : undefined;
@@ -356,6 +419,19 @@ function WatchScreen() {
 
   const [visible, setVisible] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
+  /**
+   * Is the subtitle picker open? ROUTE STATE, beside `editOpen`, and that is structural
+   * (D13).
+   *
+   * Two guards need it and they live on opposite sides of the boundary: `onBack`'s ladder is
+   * here in the route, while `mayHide` is `Playing`'s. A flag owned by the picker itself
+   * would make both of them unreachable code no test could redden — and the Back one is the
+   * load-bearing half, because the ladder's second rung calls `setVisible(false)`
+   * DIRECTLY and `mayHide` guards only the auto-hide timer. Without a rung ahead of it, one
+   * Back press fades the band out from under an open, focused menu and the next leaves the
+   * film.
+   */
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(Number.NaN);
   const [ended, setEnded] = useState(false);
@@ -639,6 +715,21 @@ function WatchScreen() {
    * owes both of them a real exit; inventing one here would be inventing the shell.
    */
   const onBack = useCallback(() => {
+    // RUNG 1, AND IT IS AHEAD OF BOTH OF THE OTHERS. Ahead of `visible` because that rung
+    // calls `setVisible(false)` directly, so without this one a Back press under an open
+    // picker fades the band — and the menu inside it — to `opacity: 0` while the ring is
+    // still in there, and the next press leaves the film. Ahead of `editOpen` too, which is
+    // not cosmetic: the scrub cell UNMOUNTS when the picker replaces the band's rows, and
+    // its `onEditOpen` effect has no cleanup, so a pending edit (reachable with the gyro
+    // cursor, which can click one control while another holds focus) is still reported open
+    // while the picker is up. With the edit rung first, that Back press would blur and
+    // refocus a cell that is no longer on screen and the picker would have no way out.
+    // Nothing else is needed for the stale flag: the scrub cell's remount re-reports
+    // `false`, and while the picker is open `mayHide` refuses the hide anyway.
+    if (phase === 'playing' && pickerOpen) {
+      setPickerOpen(false);
+      return;
+    }
     if (phase === 'playing' && editOpen) {
       // Cancelling is the cell's own `onBlur`, so the cancel is a blur and an immediate
       // refocus of the SAME element: the edit goes and the ring does not move.
@@ -654,7 +745,7 @@ function WatchScreen() {
       return;
     }
     leave(HOME);
-  }, [phase, editOpen, visible, leave]);
+  }, [phase, pickerOpen, editOpen, visible, leave]);
   useBackKey(onBack);
 
   // --- the verdicts only the screen can act on -------------------------------------
@@ -687,6 +778,11 @@ function WatchScreen() {
       // about which state the screen believes it is in.
       const subtitleState = subtitleCellState(subtitleRead, chosen, trackFault);
       const subtitles: SubtitleCellView = { stateId: subtitleState, note: cellLabel(subtitleState) };
+      // EVERY LISTED ENTRY, offers first and the formats this box will not convert after —
+      // `pickerRows` owns that order, and the grid's row counts are chunked over this same
+      // list, so the order and the count come from one place. A non-convertible row IS
+      // rendered and IS focusable, which is why this is not `offerable(...)`.
+      const rows = subtitleRead.k === 'ok' ? pickerRows(subtitleRead.list) : [];
       return (
         <Playing
           src={src}
@@ -695,6 +791,21 @@ function WatchScreen() {
           subtitles={subtitles}
           track={chosen}
           onTrackUnreadable={() => setTrackFault(true)}
+          pickerOpen={pickerOpen}
+          onPickerOpen={setPickerOpen}
+          pickerRows={rows}
+          chosenSubtitleIndex={chosenIndex}
+          emptyPickerHint={emptyPickerHint(subtitleRead)}
+          onChooseSubtitle={(choice) => {
+            // The fault belongs to the element that failed, so a NEW choice has not failed
+            // yet — without this the cell would read `unreadable` over a track that has not
+            // been asked to load. Closing the picker is the route's job too: the two explicit
+            // focus moves are driven by this flag, so the component that owns the flag has to
+            // be the one that owns the restore.
+            setChosenIndex(choice);
+            setTrackFault(false);
+            setPickerOpen(false);
+          }}
           askedFourK={askedFourK}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
           // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never
@@ -772,6 +883,12 @@ function Playing({
   subtitles,
   track,
   onTrackUnreadable,
+  pickerOpen,
+  onPickerOpen,
+  pickerRows: subtitleRows,
+  chosenSubtitleIndex,
+  emptyPickerHint: pickerHint,
+  onChooseSubtitle,
   askedFourK,
   contiguous,
   resumeAtSeconds,
@@ -805,6 +922,23 @@ function Playing({
   track: SubtitleTrack | null;
   /** The `<track>` element's own load failure, reported up so the cell can say so. */
   onTrackUnreadable: () => void;
+  /**
+   * The picker's open flag and its setter, both the ROUTE's (D13).
+   *
+   * It is a prop rather than state here because `onBack`'s ladder lives in the route while
+   * `mayHide` lives in this component, and one flag has to satisfy both. The state is the
+   * route's for the same reason `editOpen` is.
+   */
+  pickerOpen: boolean;
+  onPickerOpen: (open: boolean) => void;
+  /** Every listed entry, in `pickerRows` order. The grid's counts are chunked over it. */
+  pickerRows: readonly SubtitlePickerRow[];
+  /** The torrent file index showing now, or null for Off. */
+  chosenSubtitleIndex: number | null;
+  /** Why there is nothing to choose, for a list with no entries. Never the band's message. */
+  emptyPickerHint: string;
+  /** A picker press that chose something. `null` is Off. */
+  onChooseSubtitle: (index: number | null) => void;
   /** The press that started this torrent asked for 2160p. False also means "unknown". */
   askedFourK: boolean;
   contiguous: ContiguousRun | null;
@@ -948,18 +1082,17 @@ function Playing({
           onStop();
           return;
         case 'subtitles':
-          // NOTHING YET, AND THIS CASE EXISTS TO SAY SO. The cell ships unconditionally
-          // ahead of the picker that answers it (the list resolves asynchronously, so a cell
-          // that arrived with the list would be a mid-row insertion), and the press is
-          // therefore a deliberate no-op until the picker lands. It is not "handled": a
-          // reviewer reading this switch should see an unfinished control, not a finished
-          // one, and no test here claims a press does anything.
+          // THE PICKER REPLACES THE BAND'S ROWS (D13). Not a cycle-on-OK, because nothing
+          // arrow-driven can live inside a transport cell — the scrub cell eats the
+          // horizontal arrows while focused — and on this television the transport row is
+          // usually the only row, so there is nowhere else to put a list.
+          onPickerOpen(true);
           return;
         default:
           return;
       }
     },
-    [playing, seekTo, engine, onStop],
+    [playing, seekTo, engine, onStop, onPickerOpen],
   );
 
   // Long enough to read at three metres, and it suppresses the auto-hide while it is up (a
@@ -987,7 +1120,12 @@ function Playing({
    * what is going on.
    */
   const message = messageFor({ failure, recovery, stall, status, resumeNote, discloseArrival, askedFourK });
-  const mayHide = playing && !editOpen && message === '';
+  // `!pickerOpen` IS THE FOURTH SUPPRESSION, and it is not covered by the other three: the
+  // picker says nothing in the band's message line (deliberately — a steady sentence there
+  // pins the band over the picture for the rest of the film), so without this conjunct the
+  // quiet period would fade an open, focused menu to `opacity: 0` with the ring still inside
+  // it. `--hidden` is paint only, so the viewer would be arrowing around an invisible list.
+  const mayHide = playing && !editOpen && !pickerOpen && message === '';
   const mayHideRef = useRef(mayHide);
   useLayoutEffect(() => {
     mayHideRef.current = mayHide;
@@ -1114,8 +1252,49 @@ function Playing({
   // The Retry cell is offered only for a failure a press can change. `badRequest` is not
   // one, and `session`/`gone` leave the player altogether.
   const retryable = failure !== null && failure.kind !== 'badRequest';
-  const rowCounts = [scrubRowCount(duration), transportCellCount({ retry: retryable })];
+  /**
+   * ONE GRID, TWO SHAPES (D13). The picker is a `rowCounts` REPLACEMENT, not a second grid:
+   * `useFocusGrid` allows only one live instance per screen, and during an overlapping mount
+   * the incoming one is the dead one.
+   */
+  const rowCounts = pickerOpen
+    ? pickerRowCounts(subtitleRows.length)
+    : [scrubRowCount(duration), transportCellCount({ retry: retryable })];
   const grid = useFocusGrid({ rowCounts });
+
+  /**
+   * THE TWO EXPLICIT FOCUS MOVES, in both directions, and neither is optional.
+   *
+   * `clampTarget` (`_focus/model.ts:65-69`) is what runs when the shape changes, and its
+   * answer is wrong in both directions here, because the two shapes' columns mean different
+   * things: opening puts the ring on `clamp(4, 0, n-1)` of the picker's own first row — some
+   * unrelated language — and closing puts it on `firstTarget`, which with an empty scrub row
+   * (the usual state on this set) is Play/Pause rather than the control the viewer opened the
+   * picker from.
+   *
+   * ON THE EDGE, NOT ON THE VALUE. `pickerOpen` is false on mount, so an effect that ran on
+   * every commit would drag the ring onto the Subtitles cell on arrival — where the whole
+   * route's contract is that it lands on Play/Pause.
+   *
+   * AFTER THE GRID'S OWN RECONCILE, which is what makes it the last word: `useFocusGrid`'s
+   * reconcile effect is registered inside the hook call above and therefore runs first, so
+   * it applies `clampTarget`'s answer and this moves off it. Both targets are read from a ref
+   * written in a layout effect, so this effect's deps stay the edge alone and a fresh
+   * `pickerRows` array per render cannot re-trigger it.
+   */
+  const focusTargets = useRef({ open: pickerTarget(subtitleRows, chosenSubtitleIndex), retry: retryable });
+  useLayoutEffect(() => {
+    focusTargets.current = { open: pickerTarget(subtitleRows, chosenSubtitleIndex), retry: retryable };
+  });
+  const pickerWasOpen = useRef(pickerOpen);
+  const setFocus = grid.setFocus;
+  useEffect(() => {
+    const was = pickerWasOpen.current;
+    pickerWasOpen.current = pickerOpen;
+    if (was === pickerOpen) return;
+    const { open, retry } = focusTargets.current;
+    setFocus(pickerOpen ? open : { row: TRANSPORT_ROW, col: subtitlesColumn(retry) });
+  }, [pickerOpen, setFocus]);
 
   return (
     <div className="bs-player">
@@ -1189,23 +1368,42 @@ function Playing({
             {message}
           </p>
         )}
-        <ScrubBar
-          row={0}
-          focusProps={grid.focusProps}
-          position={position}
-          duration={duration}
-          contiguous={contiguous}
-          onSeek={seekTo}
-          onEditOpen={onEditOpen}
-        />
-        <TransportBar
-          row={1}
-          focusProps={grid.focusProps}
-          playing={playing}
-          retry={retryable}
-          subtitles={subtitles}
-          onAction={act}
-        />
+        {/* THE PICKER REPLACES THESE TWO ROWS; IT DOES NOT SIT OVER THEM (D13). An overlay
+            would need either a second `useFocusGrid` — which the hook forbids, and of two
+            the INCOMING one is the dead one — or a `rowCounts` declaring the transport row
+            AND the picker, which puts four more reachable (row, col) pairs on a screen where
+            a ring on a cell no element claims looks exactly like nothing being focused.
+            The scrub cell going with it is deliberate: it claims the horizontal arrows while
+            focused, which are the picker's own. */}
+        {pickerOpen ? (
+          <SubtitlePicker
+            rows={subtitleRows}
+            chosenIndex={chosenSubtitleIndex}
+            emptyHint={pickerHint}
+            focusProps={grid.focusProps}
+            onChoose={onChooseSubtitle}
+          />
+        ) : (
+          <>
+            <ScrubBar
+              row={0}
+              focusProps={grid.focusProps}
+              position={position}
+              duration={duration}
+              contiguous={contiguous}
+              onSeek={seekTo}
+              onEditOpen={onEditOpen}
+            />
+            <TransportBar
+              row={TRANSPORT_ROW}
+              focusProps={grid.focusProps}
+              playing={playing}
+              retry={retryable}
+              subtitles={subtitles}
+              onAction={act}
+            />
+          </>
+        )}
       </div>
     </div>
   );

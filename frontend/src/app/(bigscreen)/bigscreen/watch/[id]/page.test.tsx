@@ -1842,29 +1842,36 @@ describe('the Subtitles cell', () => {
     vi.unstubAllGlobals();
   });
 
-  it('answers a press with nothing, and is never dressed as refusing to act', async () => {
-    // THE PICKER IS A LATER TASK, so OK on this cell is a deliberate no-op today — and
-    // "nothing happens" has to be an assertion rather than the absence of one. Measured at
-    // review: routing `case 'subtitles'` to `onStop()` left all 2399 rows green, which is
-    // the worst press this row can answer wearing the clothes of the safest. The press
-    // itself is live (`TransportBar.test.tsx` pins that every cell reports its own id), so
-    // this is a silent handler and not a dead button.
+  it('answers a press by opening the picker, and is never dressed as refusing to act', async () => {
+    // THIS ROW USED TO PIN A NO-OP. The picker now answers the press (task 14), so what is
+    // left to pin here is the half that belongs to the CELL rather than to the picker: the
+    // press reaches a handler, and that handler is neither a navigation nor a transport
+    // action. Measured at review, while the press was still a no-op: routing
+    // `case 'subtitles'` to `onStop()` left all 2399 rows green, which is the worst press
+    // this cell can answer wearing the clothes of the safest — so "it went nowhere and
+    // stopped nothing" is kept as an assertion, not dropped now that the press does
+    // something. The picker's own rows live in `page.subtitles.test.tsx`.
     await playing();
-    const was = subState();
     const navsBefore = navCalls().length;
+    // Read BEFORE the press, because the picker replaces the transport row and the cell is
+    // not in the DOM afterwards. NEVER `aria-disabled`, and that is the one item on the
+    // cell's own "Does not" list that nothing measured — adding it left all 2399 rows
+    // green. A focusable control that announces itself as refusing to act is the web CC
+    // button's anti-pattern (`VideoPlayer.tsx:1820`), and it is worse on a remote, where
+    // the ring will stop here whatever the attribute says.
+    expect.soft(sub().getAttribute('aria-disabled'), 'not dressed as disabled').toBeNull();
+    expect.soft(sub()).not.toBeDisabled();
     await act(async () => {
       fireEvent.click(sub());
     });
     expect.soft(navCalls().length, 'the press went nowhere').toBe(navsBefore);
     expect.soft(window.HTMLMediaElement.prototype.pause, 'and stopped nothing').not.toHaveBeenCalled();
     expect.soft(hidden(), 'and the band is still up').toBe(false);
-    expect.soft(subState(), 'and the cell still says what it said').toBe(was);
-    // NEVER `aria-disabled`, and that is the one item on this task's own "Does not" list
-    // that nothing measured — adding it left all 2399 rows green. A focusable control that
-    // announces itself as refusing to act is the web CC button's anti-pattern
-    // (`VideoPlayer.tsx:1820`), and it is worse on a remote, where the ring will stop here
-    // whatever the attribute says.
-    expect.soft(sub().getAttribute('aria-disabled'), 'not dressed as disabled').toBeNull();
-    expect.soft(sub()).not.toBeDisabled();
+    // The press was ANSWERED: the transport row has been replaced by the picker, whose first
+    // cell is always Off. Both halves, because "the row is gone" is also true of a crash.
+    expect
+      .soft(screen.queryByRole('group', { name: 'Playback controls' }), 'the row was replaced')
+      .toBeNull();
+    expect.soft(screen.getByRole('button', { name: 'Off' }), 'by the picker').toBeDefined();
   });
 });

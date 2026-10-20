@@ -298,6 +298,117 @@ export interface VideoFile {
 }
 
 /**
+ * How much the box could say about a release's sidecar subtitles. EXACTLY THREE VALUES,
+ * and the third is not an error (`backend/app/subtitles/sidecars.py:47-49`).
+ *
+ * - `listed`  — a live torrent, metadata in hand, at least one sidecar row.
+ * - `none`    — a live torrent and NO row. Two different truths share this value: the
+ *               release ships no sidecar, and every sidecar it ships was excluded
+ *               (oversized, wrong extension, or resolving outside the save path). A
+ *               fourth value was DECLINED deliberately — the two are indistinguishable
+ *               in what the viewer can do about them, and the operator already has the
+ *               distinction in the lister's INFO log (plan C5).
+ * - `unknown` — there is no live handle, so the file list is unenumerable. This is the
+ *               permanent answer for everything already in the library, and the cell
+ *               reads `Subtitles - unavailable` rather than inventing a reason.
+ *
+ * If a fourth value ever appears on the wire, widening this union is the deliberate edit;
+ * every reader here treats an unrecognised value as "stop", never as "keep polling".
+ */
+export type SubtitleCoverage = 'listed' | 'none' | 'unknown';
+
+/**
+ * One sidecar subtitle file, as `GET /api/v1/streaming/{id}/subtitles` answers it.
+ *
+ * Mirrors `backend/app/models.py:SubtitleTrack`, which carries
+ * `ConfigDict(extra="forbid")` — so a field the backend starts sending that is absent
+ * here is a 500 there rather than a silent drop, and the two lists cannot drift apart
+ * quietly. `mime_type`, `progress` and `downloaded` are DELIBERATELY ABSENT on both
+ * sides: `ready` is the measured answer and the only one either model carries.
+ */
+export interface SubtitleTrack {
+  /**
+   * THE TORRENT'S OWN libtorrent file index, never this list's position. A filtered or
+   * deduplicated list renumbers, and a torrent's file order is not derivable from its
+   * filenames in either direction (pad files shift it) — which is why this number is
+   * what the WebVTT URL, `?file_index=` and the admission POST are all built from.
+   */
+  index: number;
+  /** The video this sidecar was paired to, or null when nothing claimed it. */
+  video_index: number | null;
+  /**
+   * Which rung of the pairing ladder answered, as an OPAQUE STRING.
+   *
+   * Nothing on this surface switches on it, enumerates it or counts it:
+   * `backend/app/subtitles/naming.py` owns the taxonomy (`PAIR_SOURCES`) and
+   * `naming.track_label` has ALREADY folded it into `label`, which is the only thing a
+   * screen renders. The taxonomy grows — a sixth entry landed while this file was being
+   * written — so any list of its values written here would be wrong within the hour. The
+   * structural question ("is this paired at all?") is `video_index === null`, which
+   * cannot drift when a rung is added.
+   */
+  pair_source: string;
+  /** The PAIRED VIDEO's season/episode, parsed from that video's own name. */
+  season: number | null;
+  episode: number | null;
+  /** ISO 639-1, or null when no token resolved. Null is honest and still offerable. */
+  lang: string | null;
+  /** The picker's row text, rendered by the backend. Never re-derived here. */
+  label: string;
+  /** `forced`, `sdh`, `cc` — modifiers, not languages. */
+  flags: string[];
+  /** The source extension without its dot (`srt`, `vtt`, `ass`, `ssa`). */
+  format: string;
+  size: number;
+  /**
+   * Measured, not claimed: the bytes are hash-verified complete AND the file is present
+   * in the save path at its declared size. Both conjuncts matter — until the admission's
+   * flush runs, a fully-held sidecar's bytes live in libtorrent's `.parts` file and its
+   * own path does not exist.
+   */
+  ready: boolean;
+  /** `.ass`/`.ssa` are listed and never converted, so this is false for them. */
+  convertible: boolean;
+  /** Why not, when the backend knows: `unsupported-format`, `unreadable`, ... */
+  reason: string | null;
+  /** The WebVTT route's path for this entry, built from `index` by the backend. */
+  url: string;
+}
+
+/**
+ * The subtitle list's ENVELOPE — never a bare array.
+ *
+ * `/files` already answers `200 []` with three meanings, so a fourth bare empty list
+ * would inherit a meaning the backend's own suite has declared unusable, and a 404 would
+ * make the television say "The box doesn't recognise this title." about a release that
+ * simply ships no `.srt`. `coverage` is what separates those; see `SubtitleCoverage`.
+ */
+export interface SubtitleList {
+  torrent_id: string;
+  state: string;
+  coverage: SubtitleCoverage;
+  /** `"session"`, or null when there was no live handle to read. */
+  source: string | null;
+  /** The video file index the list was filtered to, echoed back. */
+  paired_to: number | null;
+  subtitles: SubtitleTrack[];
+}
+
+/**
+ * What the admission POST answers (202).
+ *
+ * `admitted: 0` IS A SUCCESS, not a refusal: it is the measured no-op where the sidecar
+ * already shares a piece with a wanted video file, so its bytes are on their way and
+ * there was nothing to raise. The outcome is learned by polling the list, never from
+ * this body. A refused gate is a 409 whose body carries a `reason`, which arrives here
+ * as an axios rejection.
+ */
+export interface SubtitleAdmission {
+  admitted: number;
+  budget_ms: number;
+}
+
+/**
  * The capability profile of the calling device (stage 8, §7.2). Exactly one exists, and the
  * string is the WIRE VALUE: backend `TorrentRequest.client` declares it as a pydantic
  * `Literal` and `TorrentRequest` forbids extras, so both a wrong value and a wrong key are

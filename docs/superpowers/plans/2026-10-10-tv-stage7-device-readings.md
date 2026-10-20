@@ -9,6 +9,16 @@ later, from the whole-branch review). Instrument:
 `/bigscreen/diag` (`frontend/src/app/(bigscreen)/bigscreen/diag/page.tsx`), hardened by the
 same task **before** these readings were taken, for the reason in the next paragraph.
 
+**Companion sheets, and they are deliberately separate files.** Numbering is globally continuous
+and unique: this sheet holds rows **1-15**,
+`docs/superpowers/plans/2026-10-11-tv-stage8-device-readings.md` holds **16-26** (the stage-8
+codec profile) and `docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` holds
+**27-38** (stage 9's sidecar subtitles, fourteen rows under twelve numbers). Each has its own
+verdict, because this one's verdict is a *stage-7* verdict gated on rows 1-3 — so a taken
+later-stage reading can never mask an untaken gate here. **Both of those sheets are blocked on
+rows 1-3 of this one**, and stage 9's rows 29a/29b are the same stacking fact as row 13 and must
+be taken in the same sitting.
+
 > **How to read this document.**
 >
 > 1. **Every cell is either a string transcribed verbatim off the television, or the words
@@ -541,3 +551,36 @@ a test that engine is jsdom.
    task 10, and it already exists. Fix the comment when that file is next touched.
 4. **If gate 1 is negative**, open a stage-10 item: an authenticated media path for a
    television, and mark `classify.ts`'s `session` branch as unreachable rather than working.
+5. **Repair `save_info_dict` on the three resume-data save sites, so the stage-7 resume-data
+   fallback can ever return anything.** *(Filed by stage 9, task 16 — not a reading, and stage 9
+   deliberately did not make it. Stage 9's plan files it under **"What ships inert or absent"**
+   and its **decision 3**.)*
+
+   **The defect.** All three `handle.save_resume_data()` calls in `backend/app/torrent/manager.py`
+   are flagless (`:446`, `:936`, `:1117`, measured on `feat/tv-stage9-subtitles` at `4ec439a`;
+   the blob itself is `lt.write_resume_data_buf(alert.params)` at `:639`), and `save_info_dict`
+   appears nowhere in `backend/` as anything but prose. libtorrent 2.0.11 omits the `info` dict
+   from a resume blob unless
+   `lt.torrent_handle.save_info_dict` is passed. So `lt.read_resume_data(...).ti` is `None` for
+   **every blob this application has ever written**, `_video_files_from_resume_data` takes its own
+   `if ti is None` branch and returns `[]`, and `get_completed_video_file_info` answers `None` for
+   every torrent that exists — i.e. stage 7's whole fallback is **inert in production**, and its
+   only passing arm was built from a hand-assembled `add_torrent_params` in
+   `backend/tests/test_finished_torrent_streamable.py:143-146` (`atp.ti = ti`, which is exactly
+   the field production never writes). Stage 9, task 16 corrected the docstring
+   that claimed the opposite ("round-trip verified against the pinned libtorrent 2.0.11") and
+   changed no behaviour.
+
+   **The red test, which fails today.** Build a synthetic torrent with `lt.create_torrent` +
+   `set_piece_hashes`; add it to a loopback `lt.session` with DHT, LSD, UPnP and NAT-PMP off;
+   call `save_resume_data(lt.torrent_handle.save_info_dict)`; catch the alert; round-trip the
+   buffer through `write_resume_data_buf` → `encode_resume_data` → `decode_resume_data` →
+   `read_resume_data`; assert `.ti is not None` **and** `.ti.num_files()`. Plus a per-site source
+   pin, because one behavioural arm exercises only one of the three save sites.
+
+   **Blast radius, which is why it is not a one-liner.** It helps only blobs written *afterwards*
+   and can never help an already-finished torrent, and it flips a shared four-gate resolver from
+   always-`None` to sometimes-returning — a larger change than anything stage 9 makes. Its own
+   branch, its own review. Until it ships, `coverage: "unknown"` is the permanent subtitle answer
+   for every title already in the library and the television says `Subtitles · unavailable` out
+   loud (stage 9, D5/D6).

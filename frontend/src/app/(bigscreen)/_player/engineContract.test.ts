@@ -223,6 +223,43 @@ describe('the probe is HEAD-only, structurally', () => {
   });
 });
 
+describe('no component in _player installs a window key listener of its own', () => {
+  it('calls none of the four key hooks, while the screen calls all of them', () => {
+    // THE BAN EVERY HEADER IN THIS DIRECTORY STATES AND NOTHING MEASURED. `ScrubBar`,
+    // `TransportBar` and `SubtitlePicker` each open on "it owns no focus grid" / "no Back
+    // handler", and all four hooks say in their own docstrings that one screen means one
+    // live instance: the listeners are on `window` and check no scope.
+    //
+    // MEASURED, and it is why this exists: adding a live `useFocusGrid` inside
+    // `SubtitlePicker` left all 1518 TV rows green, and so did adding a `useBackKey`. Both
+    // are inert only BY MOUNT ORDER — the route's listeners register on the route's first
+    // mount, long before the picker exists, and `useBackKey`'s own docstring is explicit
+    // that "of two, whichever registered first claims the press and the other never hears
+    // it". Mount these components in the other order, or make one of them the first thing
+    // on a screen, and the second listener is the live one. No behavioural assertion on
+    // this surface can see that, because the order it depends on is the one the tests
+    // happen to use.
+    //
+    // The call shape, not the import: `SubtitlePicker` legitimately imports `FocusProps`
+    // from `useFocusGrid`, which is the type half and claims nothing.
+    const HOOKS = ['useFocusGrid', 'useBackKey', 'useRevealOnKey', 'useMediaKeys'] as const;
+    for (const { id, src } of playerSources()) {
+      for (const hook of HOOKS) {
+        expect(code(src), `${id} calls ${hook}`).not.toMatch(new RegExp(`\\b${hook}\\s*\\(`));
+      }
+    }
+    // THE POSITIVE CONTROL, without which a typo'd hook name above passes for ever: the
+    // screen that owns the one live instance of each hook does call all four by these
+    // exact spellings.
+    const routeSrc = code(
+      read(join(process.cwd(), 'src/app/(bigscreen)/bigscreen/watch/[id]/page.tsx')),
+    );
+    for (const hook of HOOKS) {
+      expect(routeSrc, `the screen calls ${hook}`).toMatch(new RegExp(`\\b${hook}\\s*\\(`));
+    }
+  });
+});
+
 /**
  * Every place the two players deliberately disagree, with the reason. An entry here
  * is a promise that the divergence is intended; the predicate beside it is the proof
@@ -247,6 +284,11 @@ const DELIBERATELY_DIFFERENT: Record<string, string> = {
   'no source switcher':
     'one stream per title on this surface; sources/currentSourceId/onSelectSource are '
     + 'a pointer-era affordance and there is no second URL to switch to',
+  'native text track':
+    'the TV mounts one native `<track default>` and lets Blink render the cues; the web\'s '
+    + 'CC button is permanently aria-disabled with tabIndex -1 and that surface mounts no '
+    + 'track element at all, so the converter\'s output is never seen in a devtools-bearing '
+    + 'browser before the television sees it',
 };
 
 /** Each divergence, as something observable in the two sources. */
@@ -265,6 +307,36 @@ const DIVERGENCE_CHECKS: Record<string, (web: string, tv: string, tvAll: string)
     web.includes('!video.paused') && !tv.includes('.paused'),
   'no source switcher': (web, tv) =>
     web.includes('onSelectSource') && !tv.includes('onSelectSource') && !tv.includes('currentSourceId'),
+  /**
+   * `code(tvAll)`, NOT `tvAll`, AND THAT IS A MEASURED CORRECTION RATHER THAN A STYLE.
+   *
+   * `tvAll` is handed to these predicates as RAW source — `tvSources()` joins the files
+   * without stripping anything — and the raw TV surface ALREADY matched `/<track\b/` before
+   * this stage rendered one: `_data/subtitles.ts`'s header explains why the URL is built from
+   * the torrent's own file index "so a `<track>` that spent its one and only load on the
+   * wrong file" cannot happen. Measured: raw joined source matches, comment-stripped source
+   * did not. So the obvious spelling of this predicate was GREEN under the mutation it exists
+   * to catch (add the entry, do not add the element), which is the shape this stage keeps
+   * finding. Every other entry here reads `tv`, which `playerCode()` has already stripped;
+   * this one has to reach outside `_player/` for the route, the way `preload` does, and so
+   * has to do its own stripping.
+   *
+   * The TV half is positive (an element exists) and the web half is negative (none does),
+   * which is the opposite polarity from `preload` — hence both halves, not one.
+   */
+  'native text track': (web, _tv, tvAll) =>
+    // ONE REGEX SPANNING ALL THREE ATTRIBUTES, not three `includes`. `aria-disabled="true"`
+    // and `tabIndex={-1}` each appear TWICE in the web player, so a bare `includes` for
+    // either stays true after the CC button's own copy is removed — the second occurrence
+    // would carry the clause. Bounded to the same element, with the unique label as the
+    // anchor. `tabIndex` IS IN HERE BECAUSE THE REASON ABOVE NAMES IT: the entry promises
+    // "permanently aria-disabled with tabIndex -1", and the review measured that deleting
+    // that attribute left this predicate green and the whole suite green with it — a half of
+    // the stated reason with no proof beside it. Measured gaps in the real file: 15 chars to
+    // `aria-disabled`, 115 to `tabIndex`.
+    /aria-label="Audio and subtitles \(coming soon\)"[\s\S]{0,240}aria-disabled="true"[\s\S]{0,240}tabIndex=\{-1\}/.test(web)
+    && !/<track\b/.test(web)
+    && /<track\b/.test(code(tvAll)),
 };
 
 describe('DELIBERATELY_DIFFERENT', () => {
@@ -280,14 +352,21 @@ describe('DELIBERATELY_DIFFERENT', () => {
     for (const k of keys) expect(DELIBERATELY_DIFFERENT[k].length).toBeGreaterThan(30);
   });
 
-  it('has exactly six divergences, counted absolutely', () => {
+  it('has exactly seven divergences, counted absolutely', () => {
     // THE WEAKNESS NON-EMPTINESS AND SET-EQUALITY LEAVE: deleting a key from BOTH maps
     // removes that divergence's own `it.each` row and both of the guards above still pass, so
     // the list can be shortened in lockstep with the thing that checks it. An absolute count
-    // is the fix, the same one `describeScrub.test.ts` uses for the six `SeekReason`s: a
-    // seventh divergence or a deleted sixth has to be a deliberate edit here.
-    expect.soft(Object.keys(DIVERGENCE_CHECKS)).toHaveLength(6);
-    expect.soft(Object.keys(DELIBERATELY_DIFFERENT)).toHaveLength(6);
+    // is the fix, the same one `describeScrub.test.ts` uses for the six `SeekReason`s: an
+    // eighth divergence or a deleted seventh has to be a deliberate edit here.
+    //
+    // THE OTHER DIRECTION IS WHAT THIS NUMBER CANNOT DO, said out loud because stage 9 is the
+    // first stage to add one: both maps are additive BY HAND, so a new divergence appearing in
+    // the two players does not redden anything here — the count only catches an edit to the
+    // maps, never the drift the maps are about. Stage 9 moved it from 6 to 7 for the native
+    // `<track>`; whoever adds the eighth moves it again, and nothing but this comment asks
+    // them to.
+    expect.soft(Object.keys(DIVERGENCE_CHECKS)).toHaveLength(7);
+    expect.soft(Object.keys(DELIBERATELY_DIFFERENT)).toHaveLength(7);
   });
 
   it('names exactly the divergences that have a check', () => {

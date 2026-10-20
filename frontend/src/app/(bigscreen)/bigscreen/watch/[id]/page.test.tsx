@@ -20,7 +20,16 @@
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
-import type { StreamingInfo, StreamingProgress, TorrentStatus, VideoFile } from '@/types';
+import type {
+  StreamingInfo,
+  StreamingProgress,
+  SubtitleList,
+  SubtitleTrack,
+  TorrentStatus,
+  VideoFile,
+} from '@/types';
+import { cellLabel, type SubtitleCellState } from '../../../_data/subtitles';
+import { transportCellCount } from '../../../_player/TransportBar';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
@@ -52,6 +61,7 @@ vi.mock('@/services/streaming', () => ({
     getProgressByTorrent: vi.fn(),
     saveProgress: vi.fn(),
     updateProgress: vi.fn(),
+    getSubtitles: vi.fn(),
   },
 }));
 vi.mock('@/services/torrents', () => ({
@@ -155,6 +165,46 @@ const progressRow = (over: Partial<StreamingProgress> = {}): StreamingProgress =
   updated_at: '2026-10-01T10:00:00',
   file_index: 0,
   title: 'Show 1399 S02E02',
+  ...over,
+});
+
+/**
+ * One row of the sidecar list, as task 8's envelope sends it.
+ *
+ * `index` is the TORRENT'S OWN file index and `video_index` is the video it paired to — 4
+ * here, which is `FILES[0]`'s index and the file this route plays. The two numbers differ
+ * from the row's POSITION in the list on purpose: a fixture where index, position and
+ * `video_index` all agreed could not tell an off-by-one from a correct build.
+ *
+ * `pair_source` is an OPAQUE string and nothing on this surface reads it: the backend's
+ * `naming.track_label` has already folded it into `label`, the taxonomy grows, and "is this
+ * paired at all" is `video_index === null`.
+ */
+const track = (over: Partial<SubtitleTrack> = {}): SubtitleTrack => ({
+  index: 9,
+  video_index: 4,
+  pair_source: 'stem',
+  season: 2,
+  episode: 1,
+  lang: 'en',
+  label: 'English',
+  flags: [],
+  format: 'srt',
+  size: 42_000,
+  ready: false,
+  convertible: true,
+  reason: null,
+  url: `/api/v1/streaming/${PACK}/subtitles/9`,
+  ...over,
+});
+
+const subtitleList = (over: Partial<SubtitleList> = {}): SubtitleList => ({
+  torrent_id: PACK,
+  state: 'downloading',
+  coverage: 'listed',
+  source: 'session',
+  paired_to: 4,
+  subtitles: [track()],
   ...over,
 });
 
@@ -294,6 +344,9 @@ beforeEach(() => {
   svc.getStreamingInfo.mockResolvedValue(infoRow());
   svc.getProgressByMovie.mockResolvedValue(null);
   svc.saveProgress.mockResolvedValue(progressRow());
+  // The ordinary case: a live torrent with one listable sidecar, so the Subtitles cell reads
+  // `off` on every row in this file that does not say otherwise.
+  svc.getSubtitles.mockResolvedValue(subtitleList());
 });
 
 afterEach(async () => {
@@ -781,6 +834,14 @@ describe('the auto-hide', () => {
       fireEvent.click(cell(/Pause/));
       fireEvent.pause(video()!);
     });
+    // THE PRESS IS LOAD-BEARING, and this row shipped without it and could not fail.
+    // `useRevealOnKey` arms its quiet period inside `onKeyDown` and NOWHERE else
+    // (`useRevealOnKey.ts:111`); a `fireEvent.click` dispatches no keydown, and the pointer
+    // path arms its own timer on pointermove/pointerdown, which this row does not fire
+    // either. So no hide was ever scheduled and the band stayed up for a reason that had
+    // nothing to do with `playing`. Measured: with `playing` deleted from `mayHide` the whole
+    // file stayed green at 61/61. One arrow fixes it — the ring moves and nothing else does.
+    right();
     await tick(REVEAL_HIDE_MS * 2);
     expect(hidden()).toBe(false);
   });
@@ -793,6 +854,78 @@ describe('the auto-hide', () => {
     right();
     await tick(REVEAL_HIDE_MS * 2);
     expect(hidden()).toBe(false);
+  });
+});
+
+// ===================================================================================
+// 2b. The scrim
+// ===================================================================================
+
+describe('the scrim', () => {
+  /**
+   * WHY THESE ROWS ARE HERE AND NOT IN `_player/playerCss.test.tsx`: jsdom computes nothing
+   * from a linked stylesheet, so that file can prove the rules exist and only this one can
+   * prove the ROUTE ever asks for them — the same split the video element's class pin is
+   * written under ("plays the file the URL named").
+   *
+   * WHAT THE SCRIM IS FOR, so the coupling below is not mistaken for decoration: it is the
+   * other `z-index: -1` layer, later in source order than the video, and native text-track
+   * cues paint inside the video element's box. An always-on scrim therefore paints over
+   * every cue for the whole film, at ~0.82 alpha 45% of the way up its 480px — there is no
+   * cue position inside that box which clears it. Its only job is to make the BAND legible,
+   * so it goes when the band goes.
+   */
+  const scrim = () => document.querySelector('.bs-player__scrim') as HTMLElement | null;
+  const scrimHidden = () => !!scrim()?.classList.contains('bs-player__scrim--hidden');
+
+  it('fades with the band, in BOTH directions', async () => {
+    // BOTH DIRECTIONS IN ONE ROW, because each is blind to the other's mutation: dropping
+    // the conditional leaves the band-up half green, and applying the modifier
+    // unconditionally leaves the band-down half green.
+    await playing();
+    expect.soft(scrim(), 'the scrim is rendered').not.toBeNull();
+    // ONE node, not "at least one". `scrim()` is a `querySelector`, which returns the FIRST
+    // match: measured, a second unconditional `.bs-player__scrim` sibling added after this one
+    // left all 1391 rows of `test:tv` green while the television carried a gradient that never
+    // faded. The house idiom for this is task 13's `querySelectorAll('track').length === 1`.
+    expect
+      .soft(document.querySelectorAll('.bs-player__scrim'), 'exactly one scrim node')
+      .toHaveLength(1);
+    expect.soft(hidden(), 'the band is up on arrival').toBe(false);
+    expect.soft(scrimHidden(), 'and so is the scrim').toBe(false);
+
+    // A press arms the quiet period; `useRevealOnKey` re-arms on nothing else.
+    down();
+    await tick(REVEAL_HIDE_MS + 100);
+
+    expect.soft(hidden(), 'the band faded').toBe(true);
+    // NOT unmounted. The stylesheet licenses unmounting the scrim (it holds no focus, unlike
+    // the band), and the route still does not: a 480px layer appearing and disappearing is a
+    // repaint where the point was a composited fade. Asserted on its own because a scrim
+    // that is absent also has no modifier class — the next line alone would redden with a
+    // diagnostic about the wrong thing.
+    expect.soft(scrim(), 'the scrim is still in the DOM').not.toBeNull();
+    expect.soft(scrimHidden(), 'and it faded with the band').toBe(true);
+
+    right(); // the press that only means "wake up"
+    expect.soft(hidden(), 'the band came back').toBe(false);
+    expect.soft(scrimHidden(), 'and the scrim came back with it').toBe(false);
+  });
+
+  it('tracks `visible` and NOT `playing`: paused, the band is up and so is the scrim', async () => {
+    // THE ONE REACHABLE STATE WHERE THE TWO FLAGS DISAGREE, and the only row that can see a
+    // `visible && playing` condition — which the row above passes in both halves. The band
+    // deliberately does not hide while paused (it is then the only thing on screen saying
+    // anything), so a scrim faded under a visible band is the band sitting on bare picture:
+    // the legibility problem the scrim exists for, inverted.
+    await playing();
+    await act(async () => {
+      fireEvent.click(cell(/Pause/));
+      fireEvent.pause(video()!);
+    });
+    await tick(REVEAL_HIDE_MS * 2);
+    expect.soft(hidden(), 'the band does not hide while paused').toBe(false);
+    expect.soft(scrimHidden(), 'so the scrim does not fade either').toBe(false);
   });
 });
 
@@ -1411,5 +1544,335 @@ describe('what it records', () => {
     );
     const { at } = await playing();
     expect(at()).toBe(2000);
+  });
+});
+
+// ===================================================================================
+// 7. The Subtitles cell
+// ===================================================================================
+
+/**
+ * The transport row's sixth cell, and what the sidecar list makes it say.
+ *
+ * WHY IT IS UNCONDITIONAL, which is the one design decision these rows defend: the list
+ * resolves asynchronously, over a band that is already on screen and may already carry
+ * Retry. A cell that appeared when the list answered would be an insertion at column 4 of a
+ * row whose focus can be at 4 or 5 — and `useFocusGrid` calls `go` only when the CLAMPED
+ * TARGET CHANGES (`useFocusGrid.ts:300`), so the insertion leaves DOM focus on the element
+ * that just became the next column while the model still points at the old one, and the next
+ * press appears to do nothing. The cell is therefore always there and only its sub-line
+ * changes.
+ *
+ * WHAT THESE ROWS DO NOT CLAIM. The service is mocked here, so `allow401` is asserted as an
+ * ARGUMENT and nothing in this file exercises apiClient's interceptor; the arm that proves
+ * the flag actually suppresses the hard navigation is
+ * `src/services/streaming.subtitles.test.ts`, which swaps the adapter and runs the real
+ * interceptors. And five of the nine cell states (`on`, `fetching`, `notArriving`,
+ * `unreadable`, `noCues`) describe a sidecar the viewer has CHOSEN, which takes the picker:
+ * these rows cover only the four a list alone can reach. The chosen ones live in
+ * `page.subtitles.test.tsx`, and the fetch's own verdict in `page.fetch.test.tsx`.
+ */
+describe('the Subtitles cell', () => {
+  /** The transport row only. `.bs-player__row` also matches the scrub cell's own row. */
+  const transportRow = () => screen.getByRole('group', { name: 'Playback controls' });
+  const transportButtons = () => [...transportRow().querySelectorAll('button')];
+  const sub = () => cell('Subtitles');
+  const subState = () => sub().getAttribute('data-subtitles');
+  const subNote = () => sub().querySelector('.bs-player__commit')?.textContent;
+
+  /** A list read that has not answered yet, and the handle that answers it. */
+  function pendingList() {
+    let settle!: (list: SubtitleList) => void;
+    svc.getSubtitles.mockReturnValue(
+      new Promise<SubtitleList>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    return async (list: SubtitleList) => {
+      await act(async () => {
+        settle(list);
+      });
+    };
+  }
+
+  /** Mount, settle, read the cell's state, and unmount so the next arm renders alone. */
+  async function stateFor(): Promise<SubtitleCellState | null> {
+    const { view } = await playing();
+    const state = subState();
+    view.unmount();
+    return state as SubtitleCellState | null;
+  }
+
+  it('is in the row before the list answers, and says so', async () => {
+    const answer = pendingList();
+    await playing();
+    // `checking`, not `off` and not nothing: the band can be on screen before the list is,
+    // and a cell that said `off` here would be claiming a measurement it has not got.
+    expect.soft(subState(), 'before the answer').toBe('loading');
+    expect.soft(subNote(), 'before the answer').toBe(cellLabel('loading'));
+    await answer(subtitleList());
+    expect.soft(subState(), 'after it').toBe('off');
+    expect.soft(subNote(), 'after it').toBe(cellLabel('off'));
+    // THE PAGE AND THE COUNT AGREE, which is the invariant a conditional cell breaks: the
+    // row declares `transportCellCount` columns and must render exactly that many cells.
+    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: false }));
+  });
+
+  it('reads the list once, for the file it is PLAYING, with the 401 opt-out', async () => {
+    await playing();
+    // `4`, not `0` and not `9`: `FILES[0].index` is 4 (the fixture's episode 1), the row's
+    // own index is 9, and its position in the list is 0. A call built from the position — or
+    // from a list the route never filtered — is a list for the wrong episode of a pack, and
+    // the cell would then describe a sidecar for something the viewer is not watching.
+    expect.soft(svc.getSubtitles.mock.calls.at(-1)).toEqual([PACK, 4, { allow401: true }]);
+    // ONCE. The list is not a poll: waiting for a chosen sidecar's bytes is the press's job.
+    expect.soft(svc.getSubtitles).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads it when the episode under the player changes', async () => {
+    // `?file=` MOVES WITHOUT A NEW ARRIVAL: the show screen pushes a new watch URL for the
+    // same torrent, and the arrival effect is keyed `[torrentId, attempt]` — so the only
+    // thing that changes is `index`. The list is per-episode (the backend filters on
+    // `file_index` and pairs each sidecar to a video), so a read keyed on the title alone
+    // leaves the cell describing the episode the viewer has just left. Measured: with `index`
+    // dropped from the effect's deps every other row in this file stays green, because on a
+    // first arrival `index` resolves in the same commit as the gate.
+    const { view } = await playing();
+    expect.soft(svc.getSubtitles.mock.calls.at(-1)).toEqual([PACK, 4, { allow401: true }]);
+    expect.soft(subState(), 'episode 1 answered').toBe('off');
+    // AND THE OLD ANSWER IS INVALIDATED BEFORE THE NEW ONE LANDS, which is a second
+    // assertion rather than a comment: `off` in this window is a sentence about the episode
+    // the viewer has just left, on a pack whose next episode may carry a different language
+    // set or none. The effect's leading `setSubtitleRead({k:'loading'})` is what does it —
+    // and nothing saw it. Measured at review: deleting that line left all 2399 rows green,
+    // because every other row in this file lets the first read answer before the file moves.
+    const answer = pendingList();
+    nav.search.current = new URLSearchParams('file=7');
+    await act(async () => {
+      view.rerender(<WatchPage />);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect.soft(svc.getSubtitles.mock.calls.at(-1)).toEqual([PACK, 7, { allow401: true }]);
+    expect.soft(svc.getSubtitles).toHaveBeenCalledTimes(2);
+    expect.soft(subState(), 'and the cell went back to checking').toBe('loading');
+    await answer(subtitleList());
+    expect.soft(subState(), 'until the new episode answered').toBe('off');
+  });
+
+  it('does not let a read still in flight answer for the episode that replaced it', async () => {
+    // THE STALE-ANSWER WINDOW IS REACHABLE ON A PACK: `?file=` moves with no new arrival, so
+    // a list read for the old episode can land after the read for the new one has started.
+    // Believed, it puts the previous episode's sidecars on the cell — and on a pack that is
+    // a different language set or none at all. Resolved in the order that makes it visible:
+    // the FIRST read answers LAST.
+    const pending: Array<(list: SubtitleList) => void> = [];
+    svc.getSubtitles.mockImplementation(
+      () =>
+        new Promise<SubtitleList>((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    const { view } = await playing();
+    nav.search.current = new URLSearchParams('file=7');
+    await act(async () => {
+      view.rerender(<WatchPage />);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect.soft(pending, 'both reads are in flight').toHaveLength(2);
+    await act(async () => {
+      pending[0](subtitleList({ coverage: 'none', subtitles: [] }));
+    });
+    expect.soft(subState(), 'the stale answer was not believed').toBe('loading');
+    await act(async () => {
+      pending[1](subtitleList());
+    });
+    expect.soft(subState(), 'and the current one was').toBe('off');
+  });
+
+  it('does not let a read that FAILED late answer for the episode that replaced it', async () => {
+    // THE SAME GUARD, THE OTHER EXIT, and the row above cannot see it: it resolves both
+    // reads and never rejects one, so the `catch`'s own `if (!cancelled)` had no instrument.
+    // Measured at review: deleting that one guard left all 2399 rows green. It is the worse
+    // half of the two — a stale rejection writes `unavailable` over an episode whose list is
+    // still being read, and the cell then says the box cannot see a download it can see.
+    const pending: Array<{ resolve: (l: SubtitleList) => void; reject: (e: unknown) => void }> = [];
+    svc.getSubtitles.mockImplementation(
+      () =>
+        new Promise<SubtitleList>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    );
+    const { view } = await playing();
+    nav.search.current = new URLSearchParams('file=7');
+    await act(async () => {
+      view.rerender(<WatchPage />);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect.soft(pending, 'both reads are in flight').toHaveLength(2);
+    await act(async () => {
+      pending[0].reject(httpError(503));
+    });
+    expect.soft(subState(), 'the stale failure was not believed').toBe('loading');
+    await act(async () => {
+      pending[1].resolve(subtitleList());
+    });
+    expect.soft(subState(), 'and the current answer was').toBe('off');
+  });
+
+  it('says what the envelope says, and never a sentence the envelope does not support', async () => {
+    // Each arm is mounted alone, because two mounted screens would make every query
+    // ambiguous rather than failing.
+    svc.getSubtitles.mockResolvedValue(subtitleList());
+    expect.soft(await stateFor(), 'a listed release').toBe('off');
+
+    svc.getSubtitles.mockResolvedValue(
+      subtitleList({ coverage: 'none', subtitles: [], paired_to: 4 }),
+    );
+    expect.soft(await stateFor(), 'a live torrent that ships no sidecar').toBe('none');
+
+    // `coverage: "unknown"` is the permanent answer for everything already in the library:
+    // the torrent has no live handle, so its file list is unenumerable. It is NOT `none` —
+    // "this release has no subtitles" and "the box cannot see this download's files" are
+    // different facts, and the backend is careful to separate them precisely so the
+    // television does not collapse them again here.
+    svc.getSubtitles.mockResolvedValue(
+      subtitleList({ coverage: 'unknown', subtitles: [], source: null, paired_to: null }),
+    );
+    expect.soft(await stateFor(), 'no live handle to enumerate').toBe('unavailable');
+
+    svc.getSubtitles.mockRejectedValue(httpError(503));
+    expect.soft(await stateFor(), 'a read that failed outright').toBe('unavailable');
+
+    // A LISTED RELEASE WITH NOTHING SERVABLE IS STILL `off`. `.ass`/`.ssa` are listed and
+    // never converted, so deriving the cell from the OFFERABLE count would say "none in this
+    // release" about a release that ships one — a false sentence about a file the viewer can
+    // see in the torrent. The picker is where the format and the reason are said out loud.
+    svc.getSubtitles.mockResolvedValue(
+      subtitleList({
+        subtitles: [track({ format: 'ass', convertible: false, reason: 'unsupported-format' })],
+      }),
+    );
+    expect.soft(await stateFor(), 'listed, and nothing this box can convert').toBe('off');
+  });
+
+  it('never takes the band’s one message line, so the controls still fade', async () => {
+    // `mayHide = playing && !editOpen && message === ''`, so a steady sentence in that slot
+    // pins the 480px band over the picture for the rest of the film — stage 8 measured
+    // exactly that, and a subtitle state is steady by nature. The two instruments are
+    // independent: the band actually fades, AND the band holds exactly ONE hint (the scrub
+    // cell's own, `ScrubBar.tsx:157`) rather than two.
+    for (const [coverage, expected] of [
+      ['listed', 'off'],
+      ['none', 'none'],
+      ['unknown', 'unavailable'],
+    ] as const) {
+      // `listed` keeps its row and the other two do not: the lister answers `listed` if and
+      // only if it produced at least one entry, so an empty `listed` envelope is a shape the
+      // backend cannot send and a fixture of it would be testing nothing real.
+      svc.getSubtitles.mockResolvedValue(
+        subtitleList({ coverage, subtitles: coverage === 'listed' ? [track()] : [] }),
+      );
+      const { view } = await playing();
+      expect.soft(subState(), coverage).toBe(expected);
+      // A press arms the quiet period; the hook arms nothing on mount.
+      right();
+      await tick(REVEAL_HIDE_MS + 100);
+      expect.soft(hidden(), `${coverage}: the band faded`).toBe(true);
+      expect.soft(band()?.querySelectorAll('.bs-player__hint'), coverage).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it('does not move the ring when the list answers, with Retry on the row and without it', async () => {
+    // THE FOCUS ROW, and the one `journeys.test.tsx` states as an invariant for every screen
+    // on this surface: exactly one rendered cell holds the ring, and it is the one DOM focus
+    // is on. Measured against both shapes of the conditional-cell mutation — a
+    // `transportCells` that lists the cell only once a view exists (the ring ends up on the
+    // inserted cell while focus stays on the one that moved) and a render that skips the cell
+    // while the declared count keeps it (the ring ends up on a column no element claims).
+    // THE RING SITS ON THE INSERTION POINT, which is the only column the defect is visible
+    // from — and the first version of this row walked to the END of the row instead, where
+    // the model's column index names the same element with the cell and without it. It was
+    // green under both mutations. Four presses from Play/Pause is column 4, the cell itself.
+    const answer = pendingList();
+    await playing();
+    for (let i = 0; i < 4; i++) right();
+    const subEl = screen.queryByRole('button', { name: 'Subtitles' });
+    expect.soft(subEl, 'the cell is in the row before the list has answered').not.toBeNull();
+    expect.soft(document.activeElement, 'and column 4 is where it is').toBe(subEl);
+    await answer(subtitleList());
+    expect.soft(document.activeElement, 'DOM focus stayed put').toBe(subEl);
+    expect.soft(ring(), 'exactly one cell holds the ring').toHaveLength(1);
+    expect.soft(ring()[0], 'and it is the focused one').toBe(subEl);
+    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: false }));
+  });
+
+  it('is still ahead of Retry when Retry arrives, and the list answers after it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(null, { status: 503, headers: { 'Retry-After': '2' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const answer = pendingList();
+    await playing();
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    // RETRY IS STILL LAST. The new cell went into the MIDDLE of the row, so the one append
+    // this row's focus model tolerates is still the only one.
+    const labels = transportButtons().map((b) => b.firstChild?.textContent);
+    expect.soft(labels.at(-1), 'Retry is the row’s last cell').toBe('Try again');
+    expect.soft(labels.indexOf('Subtitles'), 'and the new cell sits before Stop').toBe(
+      labels.indexOf('Stop') - 1,
+    );
+    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: true }));
+
+    // Saturating, so this lands on Retry whether the row has seven cells or six — and that
+    // is deliberately the WEAK column: from the row's end the model's index names the same
+    // element with the new cell and without it, so the ring assertions below cannot see a
+    // mid-row insertion and the COUNT assertion is what discriminates here. The column the
+    // defect is visible from is column 4, and the row above sits the ring there.
+    for (let i = 0; i < 9; i++) right();
+    const last = document.activeElement as HTMLElement;
+    expect.soft(last.textContent, 'the walk ended on Retry').toBe('Try again');
+    await answer(subtitleList());
+    expect.soft(subState(), 'the list answered').toBe('off');
+    expect.soft(document.activeElement, 'DOM focus stayed put').toBe(last);
+    expect.soft(ring()).toHaveLength(1);
+    expect.soft(ring()[0]).toBe(last);
+    expect.soft(transportButtons()).toHaveLength(transportCellCount({ retry: true }));
+    vi.unstubAllGlobals();
+  });
+
+  it('answers a press by opening the picker, and is never dressed as refusing to act', async () => {
+    // THIS ROW USED TO PIN A NO-OP. The picker now answers the press (task 14), so what is
+    // left to pin here is the half that belongs to the CELL rather than to the picker: the
+    // press reaches a handler, and that handler is neither a navigation nor a transport
+    // action. Measured at review, while the press was still a no-op: routing
+    // `case 'subtitles'` to `onStop()` left all 2399 rows green, which is the worst press
+    // this cell can answer wearing the clothes of the safest — so "it went nowhere and
+    // stopped nothing" is kept as an assertion, not dropped now that the press does
+    // something. The picker's own rows live in `page.subtitles.test.tsx`.
+    await playing();
+    const navsBefore = navCalls().length;
+    // Read BEFORE the press, because the picker replaces the transport row and the cell is
+    // not in the DOM afterwards. NEVER `aria-disabled`, and that is the one item on the
+    // cell's own "Does not" list that nothing measured — adding it left all 2399 rows
+    // green. A focusable control that announces itself as refusing to act is the web CC
+    // button's anti-pattern (`VideoPlayer.tsx:1820`), and it is worse on a remote, where
+    // the ring will stop here whatever the attribute says.
+    expect.soft(sub().getAttribute('aria-disabled'), 'not dressed as disabled').toBeNull();
+    expect.soft(sub()).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(sub());
+    });
+    expect.soft(navCalls().length, 'the press went nowhere').toBe(navsBefore);
+    expect.soft(window.HTMLMediaElement.prototype.pause, 'and stopped nothing').not.toHaveBeenCalled();
+    expect.soft(hidden(), 'and the band is still up').toBe(false);
+    // The press was ANSWERED: the transport row has been replaced by the picker, whose first
+    // cell is always Off. Both halves, because "the row is gone" is also true of a crash.
+    expect
+      .soft(screen.queryByRole('group', { name: 'Playback controls' }), 'the row was replaced')
+      .toBeNull();
+    expect.soft(screen.getByRole('button', { name: 'Off' }), 'by the picker').toBeDefined();
   });
 });

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, initial-scale=1">
+<title>Freeflix</title>
+<!--
+  THE WHOLE LOCAL APP. Four steps, and after the third one this document is gone.
+
+  WHY IT REDIRECTS INSTEAD OF HOSTING ANYTHING. `appinfo.json`'s `main` must be a relative path
+  to a local file — it can never be a URL — so some local document has to exist. Inside a
+  packaged app that document's origin is a `file://` opaque origin, where `document.cookie` is
+  unusable, `Origin: null` makes credentialed CORS structurally impossible, and
+  `<script type="module">` is CORS-blocked. `location.replace` escapes all of it: afterwards the
+  origin is a normal http origin, so the session cookie, the `/api/*` proxy and fullscreen video
+  all behave, and the Next app serves its own back-key handling.
+
+  SO NOTHING HERE MAY BE EXTERNAL. No module script, no CDN, no web font, no stylesheet link —
+  every one of those is a cross-origin fetch from an opaque origin and fails silently, leaving a
+  television on a blank screen with no console. One classic inline <script>, inline CSS, system
+  fonts. Colours are copied from frontend/public/bigscreen.css:2-9, copied and not imported for
+  the same reason.
+
+  THE ADDRESS IS NEVER BAKED IN. A changed Pi address must not mean repackaging and resideloading
+  through a developer-mode session that expires. It lives in localStorage, entered once on a
+  D-pad.
+-->
+<style>
+  :root {
+    --ink: #0A0A0B; --surface: #111113; --text: #F4F1EA; --muted: #8C8884;
+    --hairline: #26242A; --gold: #C9A86A; --danger: #E5564B;
+    --safe-x: 96px; --safe-y: 54px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--ink); color: var(--text); overflow: hidden;
+    font-family: system-ui, -apple-system, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: var(--safe-y) var(--safe-x);
+  }
+  .card { width: 100%; max-width: 1200px; text-align: center; }
+  h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 700; font-size: 72px; letter-spacing: 0.14em; margin: 0 0 8px;
+  }
+  .rule { width: 380px; height: 2px; background: var(--gold); margin: 0 auto 40px; }
+  p { font-size: 30px; line-height: 1.5; color: var(--muted); margin: 0 0 12px; }
+  p.lead { color: var(--text); font-size: 34px; }
+  .addr { font-size: 30px; color: var(--gold); margin: 24px 0 36px; word-break: break-all; }
+  .fields { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 36px 0 44px; }
+  .dot { font-size: 40px; color: var(--muted); }
+  input {
+    width: 150px; padding: 18px 10px; font-size: 40px; text-align: center;
+    color: var(--text); background: var(--surface);
+    border: 2px solid var(--hairline); border-radius: 8px; font-family: inherit;
+  }
+  input.port { width: 190px; }
+  .row { display: flex; justify-content: center; gap: 24px; }
+  button {
+    padding: 18px 44px; font-size: 32px; font-family: inherit;
+    color: var(--text); background: var(--surface);
+    border: 2px solid var(--hairline); border-radius: 8px; cursor: pointer;
+  }
+  /* FOCUS IS AN OUTLINE, NOT A SHADOW OR A FILTER. The TV surface's own rule: nothing composited
+     per frame. A remote has no pointer, so :focus is the only state that exists here. */
+  input:focus, button:focus { outline: 4px solid var(--gold); outline-offset: 3px; }
+  .err { color: var(--danger); min-height: 40px; font-size: 26px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>FREEFLIX</h1>
+  <div class="rule"></div>
+
+  <section id="probing">
+    <p class="lead">Looking for Freeflix&hellip;</p>
+    <p id="probing-addr" class="addr"></p>
+  </section>
+
+  <section id="setup" hidden>
+    <p class="lead">Where is Freeflix?</p>
+    <p>Enter the address of the box it runs on. Left and Right move, Up and Down change a number,
+       and you can type digits straight in.</p>
+    <div class="fields">
+      <input id="o0" inputmode="numeric" maxlength="3" aria-label="Address part 1">
+      <span class="dot">.</span>
+      <input id="o1" inputmode="numeric" maxlength="3" aria-label="Address part 2">
+      <span class="dot">.</span>
+      <input id="o2" inputmode="numeric" maxlength="3" aria-label="Address part 3">
+      <span class="dot">.</span>
+      <input id="o3" inputmode="numeric" maxlength="3" aria-label="Address part 4">
+      <span class="dot">:</span>
+      <input id="port" class="port" inputmode="numeric" maxlength="5" aria-label="Port">
+    </div>
+    <p id="setup-err" class="err" role="status"></p>
+    <div class="row"><button id="save">Save and connect</button></div>
+  </section>
+
+  <section id="failed" hidden>
+    <p class="lead">Can&rsquo;t reach Freeflix.</p>
+    <p id="failed-why"></p>
+    <p id="failed-addr" class="addr"></p>
+    <div class="row">
+      <button id="retry">Try again</button>
+      <button id="change">Change address</button>
+    </div>
+  </section>
+
+  <section id="leaving" hidden>
+    <p class="lead">Connecting&hellip;</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var STORE = 'freeflix:serverUrl';
+  /* The default port is the compose mapping (host 3001 -> container 3000), not 3000. A remote
+     cannot type a URL, so a wrong default costs the viewer five D-pad presses on first run. */
+  var DEFAULT_PORT = '3001';
+  /* Short, because a hung socket must not leave a television on a splash with no way out. Long
+     enough for a Pi that is awake but busy. */
+  var TIMEOUT_MS = 4000;
+
+  function $(id) { return document.getElementById(id); }
+  function show(which) {
+    ['probing', 'setup', 'failed', 'leaving'].forEach(function (id) {
+      $(id).hidden = (id !== which);
+    });
+  }
+
+  /*
+    THE PROBE, AND THE PATH IS NOT `/health`.
+
+    `/health` is a FastAPI route on the BACKEND origin. The browser never reaches the backend
+    directly — next.config.ts rewrites `/_backend/:path*` to the backend, so the only
+    same-origin spelling that arrives is `/_backend/health`. A probe of `{server}/health` is a
+    Next 404 page, which `res.ok === false` would report as "Can't reach Freeflix" on a box
+    where everything is running. (The design spec says `/health`; measured against
+    next.config.ts:80-83 and backend/app/main.py:373, it is wrong.)
+
+    It needs no session, and that matters because this runs before anyone has signed in:
+    `/health` is an `@app.get` decorator rather than a router route, so the router-level
+    session dependency does not reach it.
+
+    It is also the better probe on the merits — one request that proves Next is up, the rewrite
+    is configured, FastAPI is up and the torrent session is constructible, which is exactly what
+    the failure card claims. Probing the Next origin alone would show the card only when the
+    whole box is off.
+  */
+  function probe(server) {
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, TIMEOUT_MS);
+    var opts = { method: 'GET', cache: 'no-store' };
+    if (ctl) opts.signal = ctl.signal;
+    return fetch(server + '/_backend/health', opts).then(function (res) {
+      clearTimeout(timer);
+      if (!res.ok) throw new Error('The box answered ' + res.status + '.');
+      return true;
+    }, function (err) {
+      clearTimeout(timer);
+      throw new Error(
+        err && err.name === 'AbortError'
+          ? 'It did not answer within ' + (TIMEOUT_MS / 1000) + ' seconds.'
+          : 'Nothing answered at that address.'
+      );
+    });
+  }
+
+  function enter(server) {
+    show('leaving');
+    /* `replace`, never `assign`: the local shell must not be a history entry. With
+       `disableBackHistoryAPI` the set would have nowhere to go, and a Back that walked here
+       would land the viewer on a dead file:// document. `?from=app` tells the bigscreen layout
+       it is inside the app; the layout persists it, because a query param does not survive the
+       first client-side navigation. */
+    location.replace(server + '/bigscreen?from=app');
+  }
+
+  function fail(server, why) {
+    $('failed-why').textContent = why;
+    $('failed-addr').textContent = server;
+    show('failed');
+    $('retry').focus();
+  }
+
+  function attempt(server) {
+    $('probing-addr').textContent = server;
+    show('probing');
+    probe(server).then(function () { enter(server); },
+                       function (err) { fail(server, err.message); });
+  }
+
+  /* ---- the setup screen, which is the only part a D-pad has to drive ---- */
+
+  var ids = ['o0', 'o1', 'o2', 'o3', 'port', 'save'];
+
+  function parts() { return ids.slice(0, 5).map(function (id) { return $(id).value.trim(); }); }
+
+  function validate() {
+    var v = parts();
+    for (var i = 0; i < 4; i++) {
+      /* The empty test FIRST, and not only for the message. `/^\d{1,3}$/` already rejects '',
+         so with these two the other way round the second line can never run — a line that
+         reads like a guard and is unreachable. An empty field is also the likeliest state on
+         a first run, and "not complete" is what it needs to say. */
+      if (v[i] === '') return 'The address is not complete.';
+      if (!/^\d{1,3}$/.test(v[i]) || Number(v[i]) > 255) return 'Each part of the address is a number from 0 to 255.';
+    }
+    if (!/^\d{1,5}$/.test(v[4]) || Number(v[4]) < 1 || Number(v[4]) > 65535) return 'The port is a number from 1 to 65535.';
+    return '';
+  }
+
+  function assembled() {
+    var v = parts();
+    return 'http://' + v.slice(0, 4).map(Number).join('.') + ':' + Number(v[4]);
+  }
+
+  function save() {
+    var problem = validate();
+    $('setup-err').textContent = problem;
+    if (problem) return;
+    var server = assembled();
+    try { localStorage.setItem(STORE, server); } catch (e) { /* private mode: this session only */ }
+    attempt(server);
+  }
+
+  function openSetup(prefill) {
+    var m = /^http:\/\/(\d+)\.(\d+)\.(\d+)\.(\d+):(\d+)$/.exec(prefill || '');
+    for (var i = 0; i < 4; i++) $(ids[i]).value = m ? m[i + 1] : '';
+    $('port').value = m ? m[5] : DEFAULT_PORT;
+    $('setup-err').textContent = '';
+    show('setup');
+    $('o0').focus();
+  }
+
+  function step(el, by) {
+    var max = el.id === 'port' ? 65535 : 255;
+    var n = Number(el.value || 0) + by;
+    if (n < 0) n = max;
+    if (n > max) n = 0;
+    el.value = String(n);
+  }
+
+  /* One key handler for the whole document, because there is only ever one screen up. Arrows
+     move and adjust; Enter commits; digits type. Nothing here claims a key it does not use, so
+     the set's own Back and Home are left alone — this document has nowhere to go back to. */
+  document.addEventListener('keydown', function (e) {
+    var focusables = $('setup').hidden
+      ? Array.prototype.slice.call(document.querySelectorAll('section:not([hidden]) button'))
+      : ids.map($);
+    var at = focusables.indexOf(document.activeElement);
+    var k = e.keyCode;
+
+    if (k === 37 || k === 39) {                       // Left / Right
+      if (!focusables.length) return;
+      var next = at < 0 ? 0 : (at + (k === 39 ? 1 : -1) + focusables.length) % focusables.length;
+      focusables[next].focus();
+      e.preventDefault();
+    } else if ((k === 38 || k === 40) && !$('setup').hidden) {   // Up / Down adjust a number
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+        step(document.activeElement, k === 38 ? 1 : -1);
+        e.preventDefault();
+      }
+    } else if (k === 13) {                            // OK
+      if (document.activeElement && document.activeElement.tagName === 'BUTTON') {
+        document.activeElement.click();
+      } else if (!$('setup').hidden) {
+        save();
+      }
+      e.preventDefault();
+    }
+  });
+
+  $('save').addEventListener('click', save);
+  $('retry').addEventListener('click', function () { attempt($('failed-addr').textContent); });
+  $('change').addEventListener('click', function () { openSetup($('failed-addr').textContent); });
+
+  /* ---- step 1 ---- */
+  var stored = null;
+  try { stored = localStorage.getItem(STORE); } catch (e) { stored = null; }
+  if (stored) attempt(stored);
+  else openSetup('');
+})();
+</script>
+</body>
+</html>

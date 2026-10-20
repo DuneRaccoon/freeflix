@@ -15,8 +15,8 @@ import time
 
 from app.config import settings
 from app.api import (
-    activity, auth, avatars, instance, movies, rails, schedules, streaming, torrents,
-    tv, users, watchlist,
+    activity, auth, avatars, instance, movies, rails, schedules, streaming, subtitles,
+    torrents, tv, users, watchlist,
 )
 from app.dependencies.auth import (
     SilentUnauthorized, require_session, require_session_silent,
@@ -111,6 +111,18 @@ app.include_router(
 )
 app.include_router(
     streaming.router,
+    prefix=f"{settings.api_v1_str}/streaming",
+    tags=["Streaming"],
+    dependencies=STREAM_GATED,
+)
+# Sidecar subtitles share the streaming prefix AND the streaming gate, deliberately:
+# the bodiless 401 is then inherited rather than invented, which is what lets the
+# television tell "not signed in" from "malformed file" by reading the LIST instead of
+# mounting a <track> (plan D11 — a bodiless 401 is indistinguishable from a bad file to
+# that element). Both routes require a literal `subtitles` second segment, so nothing
+# here can shadow /{torrent_id}/files or /{torrent_id}/video.
+app.include_router(
+    subtitles.router,
     prefix=f"{settings.api_v1_str}/streaming",
     tags=["Streaming"],
     dependencies=STREAM_GATED,

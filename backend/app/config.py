@@ -143,6 +143,66 @@ class Settings(BaseSettings):
     # to minimize false positives.
     fake_torrent_heuristics: bool = False
 
+    # --- Sidecar subtitles (stage 9) ---
+    # TWO sets, deliberately. `subtitle_extensions` is what the sidecar lister
+    # LISTS; `subtitle_convertible_extensions` is what the WebVTT route will
+    # actually CONVERT and serve. `.ass`/`.ssa` are listed and never converted:
+    # their `H:MM:SS.cc` timestamps under an SRT regex are a measured silent
+    # zero-cue file, a correct reader needs a `Format:`-line-driven field order,
+    # and a styling-dropped typesetting file degrades to stacked overlapping junk
+    # rather than plain subtitles. So the picker shows them as an unselectable row
+    # carrying the format, which is a true sentence, instead of serving a file the
+    # television would load with zero cues and no error. `.vtt` is in BOTH sets:
+    # it is re-validated through the same decode-and-emit path, never passed
+    # through, because a signature-valid `.vtt` with `00:00:1.000` timings is a
+    # silent zero-cue file too.
+    #
+    # NEVER fold these into `video_extensions`. That one predicate decides "this
+    # torrent has playable video" (whose failure path removes the torrent and
+    # rmtree's it), what `/files` returns, which file a stream resolves to, and —
+    # via `prioritize_video_files` — which files get priority 7, i.e. a 30 KB text
+    # file in competition with the playhead.
+    #
+    # `.sub`/`.idx`/`.sup` are in NEITHER set, on purpose: VobSub and PGS are
+    # IMAGE subtitle formats, the extension cannot tell text from image, and a
+    # latin-1 decode of either never raises — so listing them would offer rows
+    # that can only ever emit garbage. They are not in `blocked_extensions`
+    # either, so nothing else in the app has an opinion about them; this is the
+    # only place they are excluded.
+    subtitle_extensions: set[str] = {".srt", ".vtt", ".ass", ".ssa"}
+    subtitle_convertible_extensions: set[str] = {".srt", ".vtt"}
+    # A sidecar above this size is refused by the lister rather than read whole
+    # and converted in one pass. 4 MiB is ~40x the largest realistic SRT.
+    subtitle_max_bytes: int = 4_194_304
+    # Piece-level admission bounds. The marginal cost of admitting a sidecar is
+    # `extra_pieces * piece_length`, NOT the file's size: measured 0 extra pieces
+    # on an unpadded v1 torrent, but one whole piece per sidecar on a pad-aligned
+    # one (libtorrent 2.0's own `create_torrent` pads by default, as does
+    # qBittorrent, and every v2/hybrid torrent must). So the bill is
+    # `N_sidecars * piece_length`, and the arithmetic is left visible here
+    # because this comment carried it WRONG by 10x until plan correction C5:
+    # a 20-language `Subs/` tree at an 8 MiB piece is 20 * 8 MiB = 160 MiB, and
+    # ~1.6 GiB needs ~200 sidecars — a 20-language x ~10-episode SEASON PACK,
+    # which is just as real a release but is not what "a 20-language tree" says.
+    # Neither the conclusion nor this cap changes: the cost is piece-shaped, not
+    # byte-shaped (160 MiB of pieces for ~600 KB of text), so the cap is on the
+    # SPAN and forecloses the padded case PER SIDECAR, structurally instead of
+    # by budget. It bounds ONE admission, not the total: D4 is "one sidecar per
+    # POST" and stage 9 adds no aggregate cap, so N presses still cost N spans.
+    subtitle_admit_max_pieces: int = 4
+    # If the admitted span is not held inside this budget the admission is
+    # withdrawn. It must be: an admitted piece that never arrives holds the
+    # torrent below 100% forever, which keeps it in ACTIVE_DOWNLOAD_STATES (one of
+    # the Pi's two slots), never fires `torrent_finished_alert`, and fails
+    # `get_completed_video_file_info`'s progress gate — i.e. it would trade
+    # subtitles for the only path that serves the title after a restart.
+    subtitle_admit_budget_ms: int = 45_000
+    # Owner escape hatch for a library whose sidecars are neither UTF-8 nor
+    # cp1252 (Cyrillic, Greek, Turkish). None means no override is configured and
+    # the decode ladder REFUSES rather than serving mojibake — never latin-1,
+    # which raises on zero of 256 bytes.
+    subtitle_encoding: Optional[str] = None
+
     # When False (default), torrents are always active — never queue-paused by
     # libtorrent's auto-manager — so streaming readiness is never broken by a
     # background pause. The active-download cap is then not enforced as a queue,

@@ -221,39 +221,43 @@ Violating any of these silently breaks something.
 `scrollIntoView` appears **zero times** in the repo. Nothing ever calls `.focus()`, so a remote does
 nothing until something is focused by accident.
 
-### 4.2 Four range-handling defects that a TV hits and Chrome does not
+### 4.2 Range-handling defects a TV hits and Chrome does not — one of six is still live
 
-`backend/app/api/streaming.py:62-64` is
-`ranges = range_header.replace('bytes=','').split('-')`.
+*(All seven claims re-measured 2026-10-20, stage 9 task 20, on `feat/tv-stage9-subtitles` at `0e16737`: five are fixed and one is live, kept with verdicts rather than
+deleted, because a claim that quietly stops being true is one nobody can audit. They were **not** fixed by stages 7–8: measured, every fix landed on **2026-09-22**,
+the day this section was written, and `api/streaming.py` has taken two commits since, neither about ranges. The premise went with them.
+`backend/app/api/streaming.py:62-64` was exactly ~~`ranges = range_header.replace('bytes=', '').split('-')`~~ and the two `int()` lines under it — an exact citation
+when it was written, which is how it rotted. Today `:62-63` falls inside the `RANGE_MALFORMED` sentinel's comment (`:60-63`), `:64` is the constant, and the parser is
+`parse_range_header` (`api/streaming.py:75-148`, 74 lines) with **three** sentinels: `RANGE_NOT_SATISFIABLE` `:58` → 416, `RANGE_MALFORMED` `:64` → ignore the header,
+`RANGE_FILE_NOT_READY` `:72` → 503.)*
 
-1. **Suffix ranges are silently wrong.** `Range: bytes=-500` ("the last 500 bytes", which media
-   pipelines issue to locate a container index at EOF) parses to `start=0, end=500` and returns **the
-   first 501 bytes with a 206 claiming `bytes 0-500/size`**. Wrong data handed to a decoder, no error.
-2. **Multipart ranges 500.** `bytes=0-99,200-299` → `int('99,200')` raises inside the `try` at `:118`,
-   caught at `:170-172`, returned as a **JSON 500** which `<video>` feeds to the decoder as corrupt
-   media. Any non-numeric range does the same. Both must be **ignored** (200, full body) — see §7.1.
-3. **HEAD is answered with 405.** *(Corrected during implementation — an earlier draft of this
-   spec said a HEAD probe ran the GET handler and could block for 300s. It does not.* Starlette's
-   `Route.__init__` does call `self.methods.add("HEAD")`, but FastAPI's `APIRoute.__init__`
-   overrides it entirely — it never calls `super().__init__()` and sets
-   `self.methods = {method.upper() for method in methods}` directly. Verified against the pinned
-   fastapi 0.104.1 / starlette 0.27.0.*) So `HEAD /{id}/video` matches no route's method and falls
-   through to a bare **405**. Milder than the original claim, but still wrong for the target: a TV
-   media pipeline that probes with HEAD before GET gets a refusal instead of the size and type it
-   asked for, and may not fall back.
-4. **The 300s cap truncates below `Content-Length`.** `stream_file_range`
-   (`torrent/manager.py:1389-1401`) `return`s after a hard `cap = 300.0`, having already promised the
-   full length.
+1. **Suffix ranges are silently wrong — FIXED** (`f5fb699`, `b5ee8a8`). `Range: bytes=-500`, which media pipelines issue to locate a container index at EOF, parsed to
+   `start=0, end=500` and returned the first 501 bytes under a 206 claiming `bytes 0-500/size`. Now `:127` takes the start from `max(0, file_size - n)` and the end
+   from `file_size - 1`, with each degenerate spelling separated: `bytes=-` malformed (`:120-121`), `bytes=--5` malformed (`:123-124`), `bytes=-0` unsatisfiable
+   (`:125-126`). Pinned by `backend/tests/test_range_suffix.py`.
+2. **Multipart and non-numeric ranges 500 — FIXED** (`d0a70d3`). `bytes=0-99,200-299` raised `int('99,200')` and came back as a JSON 500, which `<video>` feeds to the
+   decoder as corrupt media. A `,` is now `RANGE_MALFORMED` before any `int()` runs (`:105-106`), every other non-numeric spelling is caught by `except ValueError`
+   (`:131-132`), and the endpoint performs RFC 7233 §3.1's ignore — full body, `206 if range_header else 200` (`:300-305`, `:328`). Never 416.
+3. **HEAD is answered with 405 — FIXED** (`3523f33`). `@router.head` exists (`:205-223`) and `head_video` (`:224-240`) answers `Content-Length`, `Content-Type` and
+   `Accept-Ranges` from metadata alone — no range parse, no prioritisation, no piece wait — registered above the GET route so it cannot be shadowed. Its decorator
+   comment (`:208-215`) now owns the FastAPI/Starlette mechanism this bullet used to argue.
+4. **The 300s cap truncates below `Content-Length` — STILL LIVE, and the only one of the six left.** `stream_file_range` (`torrent/manager.py:1778`) `return`s after a
+   hard `cap = 300.0` — the cap at `:1864`, the `return` at `:1876` — having already promised the full length. The `piece_timeout` that would replace the flat 300 s is
+   a parameter at `:1780` with **no production caller**: the one production call site is `api/streaming.py:346-348`, six positional arguments and no timeout, and the
+   only three callers that pass it are tests. *(Range re-resolved 2026-10-20 at stage 9 tasks 16 and 20; before task 16 it had drifted out of the function entirely.)*
 
-Related: `.m4v`, `.ts`, `.m2ts`, `.mts`, `.vob`, `.3gp`, `.mpg`, `.mpeg` have no entry in
-`VIDEO_MIME_TYPES` and fall through to `mimetypes.guess_type()` on the container's Python 3.10 —
-anything it does not know becomes `application/octet-stream`, which most media stacks refuse. And
-`parse_range_header` returns 416 whenever `file_size <= 0`, reachable for a torrent whose metadata
-has arrived but whose file is not allocated.
+Related, **both FIXED**: `.m4v`, `.ts`, `.m2ts`, `.mts`, `.vob`, `.3gp`, `.mpg` and `.mpeg` all carry `VIDEO_MIME_TYPES` entries (`9697ef0`; `:32-49`, 16 extensions,
+pinned by `backend/tests/test_video_mime_types.py`), so none of them degrades to `application/octet-stream`. And `file_size <= 0` is no longer a 416 (`e95b96d`): it is
+checked before the header is read at all (`:85-89`), returns `RANGE_FILE_NOT_READY` (`:66-72`), and the endpoint answers 503 with `Retry-After: 2` (`:286-293`) —
+retryable, which is what a file that is not allocated yet actually is.
+
+**The bound on this audit.** §4.2 is the only section of §4 re-measured; §4.1 and §4.4–§4.5 may carry the same staleness class and are **not** audited here.
+`torrent/manager.py` has been rewritten heavily since, which is what moved bullet 4's citation out of its own function once already. And §7.1, this section's own fix
+list, still reads as pending: measured, its points 1, 2, 3 and 5 landed on 2026-09-22 with the fixes above, and point 4 has not.
 
 ### 4.3 Codec is parsed and then ignored
 
-`providers/quality.py:12` compiles `x265|h.265|hevc|x264|h.264|av1|xvid`, but `parse_release_info` is
+`providers/quality.py:35` (`_CODEC`) compiles `x265|h.265|hevc|x264|h.264|av1|xvid`, but `parse_release_info` is
 **display metadata only**. `services/torrents_select.py:rank_candidates` sorts on resolution bucket,
 seeds and bytes and never reads `codec`. So today the selector will hand a 75-inch panel a 2160p HEVC
 10-bit release with a DTS-HD track — exactly the combination §3.2 says webOS refuses at 4K. The player
@@ -261,18 +265,39 @@ never calls `canPlayType()` and surfaces no codec-specific error.
 
 ### 4.4 Subtitles do not exist, and sidecars are actively excluded
 
-Zero occurrences of `.srt`, `.vtt`, `.ass`, `<track>`, `TextTrack` or `WebVTT` in `backend/app` or
-`frontend/src`. The `subtitle` prop on `VideoPlayer` is a cosmetic text line. The CC button is
-permanently `aria-disabled`. Every non-video file in a torrent gets libtorrent **priority 0**
-(`torrent/manager.py:1226-1228`), so `.srt` sidecars are never downloaded.
+**As found, 2026-09-22 — and all nine terms were still zero at the stage-8 merge, re-measured.**
+Zero occurrences of `.srt`, `.vtt`, `\.ass\b`, `.ssa`, `<track>`, `TextTrack`, `WebVTT`,
+`text/vtt` or `::cue` in `backend/app` or `frontend/src`. **Anchor the `.ass` term as
+`\.ass\b`** or the grep is not an instrument: the naive spelling returned **20** in-scope hits at
+that merge and every one was a false positive (15 `.assign`, 3 `.asset`, 2 `.assets`). The
+`subtitle` prop on `VideoPlayer` is a cosmetic text line and the web CC button is permanently
+`aria-disabled` — both still true after stage 9, which declined the web half (stage 10). Stage 9
+put every one of the nine terms into the tree deliberately, so the grep is no longer zero: the
+naive `.ass` spelling now answers **58** lines, of which **35** are real `\.ass\b` occurrences and
+23 are still `.assign`/`.asset`/`.assets`.
+
+**Two file-priority selectors zero every non-video file, and this section used to cite neither.**
+The citation that stood here resolved into `get_completed_video_file_info`'s docstring and named
+no selector at all. The gated one is `skip_non_video_files` (`torrent/manager.py:1629-1644`,
+which builds the vector at `:1637-1640` and applies it at `:1642`), run once on
+`metadata_received` and only behind `settings.content_guard_enabled` (`:704-709`). The ungated one
+is `prioritize_video_files` (`torrent/manager.py:1646`, which appends a `0` for every non-video
+file at `:1695-1697` and applies the vector at `:1701`), which nothing gates and which
+`api/streaming.py:280` re-applies on every stream setup. So `.srt` sidecars are never downloaded
+by default — and **stage 9 changed neither selector**: it admits a sidecar's PIECES on demand and
+leaves the file priority at 0 (plan D1; `backend/tests/test_skip_non_video.py:31` survives that
+stage unmodified). Every line number in this paragraph was read on `feat/tv-stage9-subtitles` at
+`4ec439a`.
 
 ### 4.5 The silent-401 contract is already broken
 
 `require_session_silent` answers an expired session on the stream with a bare empty 401
-(`main.py:188-191`) on the stated grounds that "the player's error handler checks the status
-explicitly". **It does not.** `VideoPlayer.tsx:906-933` reads only `video.error?.code`; grep for
+(the `bare_401` handler, `main.py:205-208` — re-resolved 2026-10-20 on
+`feat/tv-stage9-subtitles`; the `:188-191` that stood here was stale, and at the stage-8 merge
+the handler was at `:193-196`) on the stated grounds that "the player's error handler checks the status
+explicitly". **It does not.** `VideoPlayer.tsx:1032-1059` reads only `video.error?.code`; grep for
 `401` under the player and streaming directories returns nothing. An empty 401 surfaces as
-`MediaError` 2 or 4, which `:909` routes into `attemptRecovery()` whenever `downloadProgress < 100`,
+`MediaError` 2 or 4, which `:1035` routes into `attemptRecovery()` whenever `downloadProgress < 100`,
 and both `PatchedVideoPlayer` and the page swallow "network error"/"buffering" strings during an
 active download. Result: an expired session on a downloading title is an endless silent retry.
 
@@ -280,7 +305,7 @@ active download. Result: an expired session on a downloading title is an endless
 
 - Cookie: `ff_session`, `httponly=True`, `samesite="lax"`, `secure=settings.cookie_secure`
   (**default False**), `path="/"`, **no Domain**; `max_age` 30 days
-  (`services/auth.py:455-473`, `config.py:67-69`).
+  (`cookie_kwargs`, `services/auth.py:485-503`; `max_age` at `api/auth.py:133-136`; `config.py:67-69`).
 - `create_session` sets an **absolute** `expires_at`; `touch_session` slides only `last_seen_at`.
   No refresh, no rotation, no re-issue endpoint.
 - `dependencies/auth.py:91-93` reads the cookie and **nothing else** — there is no `Authorization`
@@ -659,14 +684,64 @@ profile to allow 2160p. Rationale in decision 9.
 
 ### 7.5 Subtitles (v1, sidecar only)
 
-- `manager.py:1226-1228` stops zeroing priority for `.srt`/`.ass`/`.ssa`/`.vtt` sidecars (kilobytes).
-- New `GET /api/v1/streaming/{id}/subtitles` lists sidecars (language guessed from filename).
-- New `GET /api/v1/streaming/{id}/subtitles/{index}` serves **WebVTT**, converting from SRT on the
-  fly (pure-Python, no ffmpeg).
-- The TV player renders them with a native `<track>`.
-- **Acknowledged gap:** embedded MKV subtitle tracks are unreachable because nothing demuxes the
-  container, and many releases ship embedded-only. Some titles will have no captions. ASS/SSA styling
-  is dropped to plain text.
+- **Sidecar priority — stage 9 deliberately did NOT do what this bullet asked, and the mechanism
+  is the reason.** The bullet said to stop zeroing priority for `.srt`/`.ass`/`.ssa`/`.vtt`
+  sidecars. Two selectors zero them and **neither changed**. The gated one is
+  `skip_non_video_files` (`torrent/manager.py:1629-1644`), which runs behind
+  `settings.content_guard_enabled`. The ungated one is `prioritize_video_files`
+  (`torrent/manager.py:1646`), which `api/streaming.py:280` re-applies on every stream setup.
+  Measured: a **file**-level admission is undone the next time the ungated
+  selector runs, and it takes `_prioritize_window`'s raised playhead window with it, while a
+  **piece**-level one survives. So a sidecar is admitted at piece level on demand, and once its
+  span is held one `file_priority(idx, 1)` flushes the bytes out of libtorrent 2.0's
+  `.<infohash>.parts` file into the save path before the priority goes back to 0. Plan **D1** and
+  correction **C1** of `docs/superpowers/plans/2026-10-20-tv-stage9-subtitles.md`.
+- **The cost is pieces, not "(kilobytes)"** — that word was wrong by orders of magnitude and is
+  replaced here by the arithmetic. The marginal cost of admitting one sidecar is
+  `extra_pieces × piece_length`: measured **0** extra pieces on an unpadded v1 torrent and **one
+  whole piece per sidecar** on a pad-aligned one (libtorrent 2.0's own `create_torrent` pads by
+  default, as does qBittorrent, and every v2/hybrid torrent must). A 20-language `Subs/` tree at
+  an 8 MiB piece is `20 × 8 MiB` = **160 MiB** of pieces for ~600 KB of text, and ~1.6 GiB needs
+  ~200 sidecars — a 20-language × ~10-episode season pack. `subtitle_admit_max_pieces` (4) bounds
+  the span of **one** admission, not the total.
+- `GET /api/v1/streaming/{id}/subtitles` lists sidecars (language from an exact filename-token
+  match, never a substring) in an **envelope** carrying `coverage` and `source`, never a bare
+  array, and takes an optional **`?file_index=N`** so that a season pack answers for the episode
+  on screen. `coverage` has exactly three values — `listed`, `none`, `unknown` — and `none`
+  covers both "this release ships no sidecar" and "every sidecar was excluded".
+- `POST /api/v1/streaming/{id}/subtitles/{index}/fetch` admits that sidecar's pieces and answers
+  **202** immediately. It is the only mutating route in the stage.
+- `GET /api/v1/streaming/{id}/subtitles/{index}` serves **WebVTT** (`text/vtt; charset=utf-8`,
+  hard-coded), converting from SRT on the fly (pure-Python, no ffmpeg). It refuses rather than
+  emits: `503` while bytes are missing, `415 {"reason": ...}` for a refusal waiting cannot fix.
+- **`.ass`/`.ssa` are listed and never converted.** They ship as a visible row with
+  `convertible: false` and the picker says the format out loud; the VTT route answers
+  `415 {"reason": "unsupported-format"}` for such a row **unconditionally**, from the format
+  alone, before the file is ever opened.
+- The TV player renders them with a native `<track>` — exactly one, enabled by `default`.
+- **Acknowledged gaps**, and there are four. (1) Embedded MKV subtitle tracks are unreachable because nothing demuxes the
+  container, and many releases ship embedded-only. (2)
+  **Bigger than that one, and this spec did not mention it: nothing already in the library gets subtitles, ever.**
+  Admission needs a live handle; `_refresh_active_torrents` evicts a `finished` torrent mid-session and
+  `find_loadable_on_startup` never re-adds it, and an evicted torrent's file list is not enumerable at all because every
+  resume blob this application writes carries no `info` dict (the stage-7 `save_info_dict` follow-up). So
+  `coverage: "unknown"` and the television reads `Subtitles · unavailable` — permanently, for every title downloaded before
+  this stage. **`Name · state` is a notation, never a rendered string**, here, in §12's risk row and at six sites across
+  the stage-7 and stage-9 plan documents: the cell's accessible name is exactly `Name`, its state rides beside it in an
+  `aria-hidden` sibling span, and no `·` is rendered or announced anywhere — `labelFor`'s text and the `.bs-player__commit`
+  span, `_player/TransportBar.tsx:224-235`, read at `0e16737`. (3) A cue may sit **behind the transport band** for the ~5 s
+  it is up: `.bs-player__bar` is `position: relative` with no `z-index` and paints above both `z-index: -1` layers. Stage 9
+  fades the scrim with the band, which clears the state the feature lives in, and ships no fix for the band itself —
+  reading **29b** of `docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` scopes that, and it is stage 10's.
+  (4) A sidecar that is neither UTF-8 nor cp1252 is **refused, not served**, with `SUBTITLE_ENCODING` as the owner's
+  override: mojibake is invisible as a fault and visible as nonsense for two hours.
+- **"ASS/SSA styling is dropped to plain text" is DECLINED, with grounds — not merely contradicted
+  by §13.** Shipping it means a `Format:`-line parser written from recalled grammar with no `.ass`
+  file anywhere in this repository to test against, whose measured failure mode is stacked
+  overlapping junk over the picture and whose worst outcome is a 200 whose body is `WEBVTT\n\n` —
+  which a `<track>` reports as a **successful load with no event at all**. A bad ASS converter is
+  strictly worse than none, because its failure is unobservable. Reading **37** (what this
+  household's releases actually carry) decides whether it is worth a stage-10 task.
 
 ### 7.6 Player element
 
@@ -792,8 +867,9 @@ notice it"**.)*
 
 | Area | Change |
 | --- | --- |
-| `api/streaming.py` | suffix ranges; malformed/multipart ranges ignored rather than 500; 416 for unsatisfiable only; HEAD short-circuit; MIME table additions; available-bytes in `/info`; subtitle list + WebVTT endpoints |
-| `torrent/manager.py` | wire `await_pieces_async` / `_adaptive_piece_timeout` into `stream_file_range`; stop zeroing subtitle sidecars; expose contiguous-available bytes |
+| `api/streaming.py` | suffix ranges; malformed/multipart ranges ignored rather than 500; 416 for unsatisfiable only; HEAD short-circuit; MIME table additions; available-bytes in `/info`. **Not** the subtitle routes: they went on a new router (next row) |
+| `api/subtitles.py` | **new router** (stage 9), mounted under the streaming prefix and behind the same stream gate, so the bodiless 401 is inherited rather than invented: subtitle list envelope, the `fetch` POST, the WebVTT route |
+| `torrent/manager.py` | wire `await_pieces_async` / `_adaptive_piece_timeout` into `stream_file_range`; expose contiguous-available bytes; **and *not* "stop zeroing subtitle sidecars"** — two selectors zero them, the gated `skip_non_video_files` and the ungated `prioritize_video_files`, and stage 9 changed **neither** (§4.4 names both sites). What it adds instead is piece-level admission, a flush and a budgeted retraction (§7.5, plan D1) |
 | `services/torrents_select.py` | read `codec`; apply a named client capability profile |
 | `providers/quality.py` | expose parsed codec/audio to the selector (already parsed, currently display-only) |
 | `api/auth.py` | `device/start`, `device/poll`, `device/approve`, `GET/DELETE /devices` |
@@ -806,12 +882,29 @@ notice it"**.)*
 
 ## 11. Testing & verification
 
+**This section is a flat numbered list and has no subsections — there is no §11.2.** Citations of
+the form "§11.2" or "§11.5(d)", here and in §12, mean **point 2** and **point 5(d)** of the list
+below. Noted because two documents have cited a §11.2 that does not exist as a heading.
+
 1. **Backend, pytest, TDD.** Every §7.1 fix gets a failing test first: `bytes=-500` returns the real
    last bytes; `bytes=0-99,200-299` and a malformed range both return 200 with the full body; a
    range starting past EOF returns 416; HEAD returns metadata headers rather than 405
    without entering the generator; a dead swarm returns an error rather than a short body. Note
    `backend/tests` is **not** bind-mounted — new files need `make build` or
    `-v "$(pwd)/backend/tests:/opt/freeflix/tests"`.
+
+   **The SRT→VTT converter is tested here, in pytest, and not in vitest** *(moved from point 4 in
+   stage 9: the converter is pure Python in `backend/app/subtitles/`, and point 4 had it filed
+   under the frontend suite, where none of it exists)*. And the limit that shapes every one of
+   those tests: **no suite in this repository can execute a WebVTT parser.** jsdom 25.0.1 has no
+   `TextTrack`, `TextTrackList`, `TextTrackCue` or `VTTCue`, `video.textTracks` is a plain
+   zero-length array with a `<track default>` child present, and the backend image has no browser
+   binaries (`pyproject.toml` declares playwright; `backend/Dockerfile` never runs
+   `playwright install`). So the emitter is the acceptance criterion: every assertion names a cue
+   **count** and a cue's **text**, and "200 and the body starts with `WEBVTT`" is forbidden by
+   name — a signature-valid zero-cue body loads at `readyState 2` and fires **no event at all**,
+   which makes it the one failure the television cannot report. Whether a cue paints is reading
+   **27a** of `docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md`, and it is untaken.
 2. **Selector, pytest.** Profile `lg-webos22-floor` rejects 2160p+DTS-HD, prefers 1080p
    H.264+**E-AC3** (and AC3), penalises AV1 — as a table test over synthetic candidates.
    *(AC3 → E-AC3 corrected in stage 8: §11.5(d) asked for AC3 but the 2026-10-07 run delivered
@@ -821,8 +914,11 @@ notice it"**.)*
    `device_code`; approval by a non-ACTIVE account; that a `login` token cannot be used here and a
    pairing code cannot reach `/auth/verify`.
 4. **Frontend, vitest.** Focus manager (roving tabindex, focus memory, `scrollIntoView` called);
-   bigscreen reducers; SRT→VTT conversion; a guard test that greps `(bigscreen)` for the forbidden
-   CSS/JS list.
+   bigscreen reducers; a guard test that greps `(bigscreen)` for the forbidden CSS/JS list.
+   *(SRT→VTT conversion moved to point 1 in stage 9 — it is pure Python.)* Note that neither
+   `npx vitest run` nor `npm run test:tv` runs in any build or in CI, and `test:tv` is a
+   **directory glob** over `src/app/(bigscreen)`, so a guard test placed outside that directory is
+   silently absent from it.
 5. **The real gate is the TV, and it comes early.** Before any shell work: read `navigator.userAgent`
    off the set, then load `/bigscreen` in the **built-in browser** and confirm (a) the stylesheet
    renders, (b) a real MKV/HEVC file from the library direct-plays, (c) seeking works, including
@@ -879,7 +975,7 @@ notice it"**.)*
 | Pi cannot sustain 1080p off a partial torrent to the TV | ~~Medium~~ **Lowered — one successful observation** | *(Updated after the 2026-10-07 run.* 1080p H.264 streamed to the TV **from a torrent still downloading at ~26%**, played and scrubbed. That is one title, one session, no duration or rebuffer count recorded — it is evidence the path works, not a throughput measurement. Mitigations unchanged: 1080p default; available-bytes seek boundary; the ARM cap limiting concurrent downloads to 2.) |
 | ~~`norigin-spatial-navigation` rejects React 19~~ **Void — it accepts React 19** | — | *(Settled during stage 4: 3.3.0 declares `react: ">=16.8.0"`, which React 19.0.0 satisfies. The library was still rejected, but for its global arrow `preventDefault`, its need for `shouldFocusDOMNode` to move real focus at all, and its absence of any Back concept — see §8.1. The hand-rolled manager shipped as a deliberate choice, not as a fallback.)* |
 | Dev Mode lapses and the tile vanishes | Certain, ~every 41 days | Browser-bookmark fallback is a documented deliverable; renewal routine noted in the README. |
-| Subtitle coverage disappoints (embedded-only releases) | High | Stated up front. Sidecar-only is v1; embedded extraction is out of scope. |
+| Subtitle coverage disappoints (embedded-only releases) | High — **and wider than this row said** | Stated up front. Sidecar-only is v1; embedded extraction is out of scope. *(Widened in stage 9, with the four exclusions named so none of them is discovered on the set. (1) **Nothing already in the library gets subtitles, ever** — admission needs a live handle, a `finished` torrent is evicted mid-session and never re-added, and its file list is not enumerable because every resume blob this application writes carries no `info` dict; `coverage: "unknown"` and the cell reads `Subtitles · unavailable`, permanently, for every title downloaded before stage 9. That is the **biggest** coverage limit in the feature, bigger than the embedded-MKV gap this row was written about. (2) **`.ass`/`.ssa` are listed and never converted** — zero captions for anime and most fansub output; declined with grounds in §7.5 rather than contradicted by §13. (3) **A sidecar that is neither UTF-8 nor cp1252 is refused, not served**, with `SUBTITLE_ENCODING` as the owner's one lever: a Cyrillic or Greek library gets nothing until it is set, because mojibake is invisible as a fault and visible as nonsense for the length of a film. (4) **A cue may sit behind the transport band** for the ~5 s it is up, which stage 9 ships unsolved — reading 29b of `docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` scopes it and it is stage 10's. How much of this matters is reading **37**: a read-only `list_sidecars` pass over a week of real downloads, and the expectation on today's library is close to zero sidecars.)* |
 | Two root layouts regress a web route | Low | Mechanical move; the existing ~85 colocated tests plus a route-by-route smoke pass. |
 | A 4K opt-in picks an unplayable release | Low | Profile rules still apply at 2160p; failure is a rejected candidate, not a black screen. |
 

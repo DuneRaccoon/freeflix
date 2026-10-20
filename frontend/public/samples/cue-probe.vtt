@@ -1,0 +1,13 @@
+WEBVTT
+
+00:00:00.000 --> 00:10:00.000
+CUE 1 of 4. cue-probe.vtt, hand-typed for reading 27a. If you can read this line on the television, native WebVTT cues paint on this set.
+
+00:00:03.000 --> 00:00:06.000
+CUE 2 of 4, three seconds in. Only an element whose clock advances ever reaches this one.
+
+00:00:06.000 --> 00:00:09.000
+CUE 3 of 4, six seconds in.
+
+00:00:09.000 --> 00:00:12.000
+CUE 4 of 4, nine seconds in. cues.length reads 4 even when CUE 1 is the only one that ever paints.

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
-import type { StreamingInfo, TorrentStatus, VideoFile } from '@/types';
+import type { StreamingInfo, SubtitleList, SubtitleTrack, TorrentStatus, VideoFile } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { streamAdvice } from '@/lib/player/streamRecovery';
@@ -14,6 +14,16 @@ import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { statusOf } from '../../../_data/httpStatus';
+import {
+  cellLabel,
+  chosenCellState,
+  notArrivingAfter,
+  pickerRowCounts,
+  pickerRows,
+  pollSubtitles,
+  type SubtitleCellState,
+  type SubtitlePickerRow,
+} from '../../../_data/subtitles';
 import { PREPARING, READY, takeFourKAsk } from '../../../_data/title';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useWatchProgress, watchIdentity } from '../../../_data/useWatchProgress';
@@ -27,7 +37,16 @@ import { fileIndex, streamSrc } from '../../../_player/fileIndex';
 import { formatTime } from '../../../_player/formatTime';
 import { ScrubBar, scrubRowCount } from '../../../_player/ScrubBar';
 import { clampSeek, type ContiguousRun } from '../../../_player/seekBoundary';
-import { MEDIA_TWINS, TransportBar, transportCellCount, type TransportAction } from '../../../_player/TransportBar';
+import { SubtitlePicker, pickerTarget } from '../../../_player/SubtitlePicker';
+import { SubtitleTrackElement } from '../../../_player/SubtitleTrackElement';
+import {
+  MEDIA_TWINS,
+  TransportBar,
+  transportCellCount,
+  transportCells,
+  type SubtitleCellView,
+  type TransportAction,
+} from '../../../_player/TransportBar';
 import { useStallWatch } from '../../../_player/useStallWatch';
 
 /**
@@ -133,6 +152,17 @@ type Arrival =
   | { k: 'gone' }
   | { k: 'ok'; status: TorrentStatus; files: VideoFile[] };
 
+/**
+ * The sidecar list read. THREE STATES, because `null` would be two of them at once — the
+ * list that has not answered and the list that answered badly are different sentences on
+ * the Subtitles cell, and the whole reason D6 put `coverage` in the envelope is that a bare
+ * empty answer already carries too many meanings on this backend.
+ */
+type SubtitleRead =
+  | { k: 'loading' }
+  | { k: 'failed' }
+  | { k: 'ok'; list: SubtitleList };
+
 type Boundary =
   | { k: 'unknown' }
   | { k: 'ready'; info: StreamingInfo }
@@ -156,6 +186,103 @@ function byteAt(
   // CBR arithmetic over a VBR file, exactly as the boundary's own conversion is: this only
   // has to land in the right REGION of the file, which is the whole point of asking at all.
   return Math.max(0, Math.min(size - 1, Math.floor((seconds / totalSeconds) * size)));
+}
+
+/**
+ * Which of the nine cell states the sidecar list and the viewer's choice put the cell in.
+ *
+ * THE CHOICE IS ASKED FIRST, and it answers only when there is one: `chosenCellState` returns
+ * `null` for the unchosen case so the list-derived arms below stay the single statement of
+ * what a list alone means. `on`, `fetching`, `notArriving` and `unreadable` live there;
+ * `noCues` is reachable from nothing on this surface yet — a WebVTT body with no cues is
+ * refused by the route with a 415, so the state exists for the day the television learns that
+ * from a sibling read.
+ *
+ * `coverage: "listed"` IS `off` EVEN WITH NOTHING OFFERABLE. A release that ships only an
+ * `.ass` is listed, and `none in this release` would be a false sentence about it — the file
+ * is there, in the release, and the box simply cannot convert it. The picker is where that is
+ * said out loud, with the format and the reason on the row; the cell says only that nothing
+ * is showing, which is true.
+ *
+ * ANYTHING THAT IS NOT `listed` OR `none` IS `unavailable`, including a coverage value this
+ * build has never heard of. Three is the whole set today (`SubtitleCoverage`) and a fourth
+ * was declined deliberately, but the one answer this may not produce is a cell that says
+ * nothing at all.
+ */
+function subtitleCellState(
+  read: SubtitleRead,
+  chosen: SubtitleTrack | null,
+  trackFault: boolean,
+  notArriving: boolean,
+): SubtitleCellState {
+  const chosenState = chosenCellState(chosen, trackFault, notArriving);
+  if (chosenState !== null) return chosenState;
+  if (read.k === 'loading') return 'loading';
+  if (read.k === 'failed') return 'unavailable';
+  if (read.list.coverage === 'none') return 'none';
+  if (read.list.coverage !== 'listed') return 'unavailable';
+  return 'off';
+}
+
+/**
+ * The grid row the transport cells occupy while the picker is CLOSED, and the column the
+ * Subtitles cell sits in.
+ *
+ * Both are needed for the second of the picker's two explicit focus moves (D13): closing it
+ * has to put the ring back on the control the viewer opened it from, and `clampTarget`
+ * cannot work that out — with the scrub row empty (the usual state on this television, since
+ * `scrubRowCount` returns 0 until the element reports a finite duration) its answer is
+ * `firstTarget`, which is Play/Pause.
+ *
+ * The column is DERIVED from the same table the row renders rather than written as `4`, so
+ * that a REORDER of `TRANSPORT_CELLS` moves the ring with the cell. **It is not Retry that
+ * makes this necessary, and no test can tell the two spellings apart.** `RETRY_CELL` is
+ * APPENDED (`TransportBar.tsx`: "always LAST", which is the one growth that row's focus model
+ * tolerates), so `findIndex` answers 4 for both values of `retry` and the parameter changes
+ * nothing today — measured: replacing this whole function with `() => 4` is green on every
+ * row in `test:tv`. Named as undiscriminable rather than defended, in the shape of task 4's
+ * X2: the derivation is kept because it is free and a reorder is the realistic edit, not
+ * because anything would redden.
+ *
+ * A `findIndex` that answered -1 (the cell gone altogether) clamps to column 0 rather than
+ * off the grid, which is the same visible outcome as deleting the move — and
+ * `TransportBar.test.tsx`'s `TWIN_CELL` walk is what makes that unreachable.
+ */
+const TRANSPORT_ROW = 1;
+const subtitlesColumn = (retry: boolean): number =>
+  transportCells({ retry }).findIndex((c) => c.id === 'subtitles');
+
+/**
+ * Said twice, from one constant: a failed read and a coverage that is not `listed` are the
+ * SAME fact to the viewer — the box cannot enumerate this download's files — and two copies
+ * of one sentence are two sentences to keep in step.
+ */
+const CANNOT_SEE = 'The box cannot see this download’s files, so it has nothing to offer.';
+
+/**
+ * Why there is nothing to choose, for a picker opened over a list with no entries at all.
+ *
+ * It lives here rather than in the picker because the sentences are the states of THIS
+ * route's read, and a component that derived them would be restating them. A listed envelope
+ * always carries at least one row (the lister answers `listed` if and only if it produced
+ * one), so the empty cases are exactly: not answered yet, the read failed, no live handle,
+ * and a release that ships nothing.
+ *
+ * It is NOT the band's `message`. `mayHide` is `message === ''`, so a sentence there would
+ * pin the 480px band over the picture for the rest of the film; this one belongs to the
+ * picker, goes away with it, and carries no `role="status"`.
+ */
+function emptyPickerHint(read: SubtitleRead): string {
+  // The arms are in `subtitleCellState`'s own order, so the two can be read against each
+  // other: `loading`, `unavailable` (a failed read), `none`, `unavailable` (any coverage
+  // that is not `listed`). The last arm is a `listed` envelope with no rows, which the
+  // backend cannot send — silence rather than a sentence, because the only honest thing to
+  // say about a shape nothing can produce is nothing.
+  if (read.k === 'loading') return 'Still checking this release for subtitle files.';
+  if (read.k === 'failed') return CANNOT_SEE;
+  if (read.list.coverage === 'none') return 'This release ships no subtitle files.';
+  if (read.list.coverage !== 'listed') return CANNOT_SEE;
+  return '';
 }
 
 const detailOf = (err: unknown): string | undefined => {
@@ -303,6 +430,19 @@ function WatchScreen() {
 
   const [visible, setVisible] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
+  /**
+   * Is the subtitle picker open? ROUTE STATE, beside `editOpen`, and that is structural
+   * (D13).
+   *
+   * Two guards need it and they live on opposite sides of the boundary: `onBack`'s ladder is
+   * here in the route, while `mayHide` is `Playing`'s. A flag owned by the picker itself
+   * would make both of them unreachable code no test could redden — and the Back one is the
+   * load-bearing half, because the ladder's second rung calls `setVisible(false)`
+   * DIRECTLY and `mayHide` guards only the auto-hide timer. Without a rung ahead of it, one
+   * Back press fades the band out from under an open, focused menu and the next leaves the
+   * film.
+   */
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(Number.NaN);
   const [ended, setEnded] = useState(false);
@@ -355,6 +495,224 @@ function WatchScreen() {
   const index = askedIndex !== undefined ? askedIndex : files?.[0]?.index;
   const chosenFile = files?.find((f) => f.index === index) ?? null;
   const identity = watchIdentity({ status: arrival.k === 'ok' ? arrival.status : null, file: chosenFile });
+
+  // --- the sidecar list -------------------------------------------------------------
+  /**
+   * ONE READ PER (TITLE, FILE), AND NO POLL. The Subtitles cell has to say something from
+   * the moment the band exists, so "has not answered yet" is a state of its own here rather
+   * than an empty list: `{k:'loading'}` is `checking`, and an empty `subtitles` array with
+   * `coverage: "none"` is the quite different `none in this release`. Waiting for a chosen
+   * sidecar's bytes is a poll (`_data/subtitles.pollSubtitles`) and belongs to the press that
+   * chooses one, not here — `chooseSubtitle` below is that press, and for one whole stage
+   * nothing was: see its header, and C7.
+   *
+   * KEYED ON THE RESOLVED FILE INDEX, and gated on the arrival, because `index` is undefined
+   * until `/files` answers and the list the television wants is the one filtered to the
+   * episode on screen. Reading before the arrival settles would ask for the whole pack's
+   * sidecars and then ask again — two libtorrent file walks for one answer.
+   *
+   * `allow401` IS NOT OPTIONAL HERE. Without it apiClient's rejection interceptor
+   * hard-navigates to `/bigscreen/pair` from inside its own handler, behind a module-scoped
+   * flag it never resets — so one 401 on a subtitle list would take the viewer out of the
+   * film, and a subtitle list is never worth that. `saveProgress` opts out for the same
+   * reason and `services/streaming.subtitles.test.ts` is where the opt-out is proved.
+   *
+   * EVERY FAILED READ IS `unavailable`, and that is deliberate rather than lazy: the nine
+   * cell states are the nine things the television can say, `unreadable` means a sidecar
+   * this box cannot decode, and a cell left saying `checking` for the rest of the film would
+   * be the only one of the nine that is a lie. An operator who needs the difference has the
+   * backend log; a viewer's next press is the same either way. `notArriving` is the same
+   * judgement made once more, for the four ways a fetch can end without bytes.
+   */
+  const [subtitleRead, setSubtitleRead] = useState<SubtitleRead>({ k: 'loading' });
+  /**
+   * THE CHOSEN SIDECAR'S OWN FILE INDEX, and the element's error.
+   *
+   * THE ONLY PRODUCER IS THE PICKER (task 14), reached by OK on the Subtitles cell. Until it
+   * shipped, `chosen` was `null` in every state this route could reach and the `<track>`'s
+   * own rules were only provable where they live — which is why they still live there
+   * (`_player/SubtitleTrackElement.test.tsx`, `chosenCellState`), while `page.track.test.tsx`
+   * pins the composition (one mount, inside the `<video>`, never mapped over a list) and
+   * `page.subtitles.test.tsx` is the one place the element is seen MOUNTED, through a choice.
+   *
+   * CLEARED WITH THE READ, in the same effect and for the same reason: an index is only
+   * meaningful against the list it came from, so a new title or a new episode must not carry
+   * a choice — on a season pack the chosen index is another episode's file entirely. The
+   * element's fault goes with it, because a fresh track has not failed yet.
+   */
+  const [chosenIndex, setChosenIndex] = useState<number | null>(null);
+  const [trackFault, setTrackFault] = useState(false);
+  /**
+   * THE FETCH VERDICT: the bytes were asked for and they are not coming.
+   *
+   * A BOOLEAN, not the poll's outcome. Four causes land here — the poll exhausted its 48 s,
+   * a read threw, the box refused the gate with a 409, the POST itself threw — and the cell
+   * names none of them, for the same reason every failed list read above is `unavailable`:
+   * the operator has the backend log and the viewer's next press is the same for all four.
+   * `_data/subtitles.notArrivingAfter` is where the poll's seven outcomes are folded down,
+   * once, under a `Record` `tsc` will not let anyone leave incomplete.
+   */
+  const [notArriving, setNotArriving] = useState(false);
+  /**
+   * THE GENERATION: a monotonic counter, and the only thing standing between a poll that
+   * outlived its episode and the list it would write over.
+   *
+   * THIS IS THE SECOND ASYNC WRITER INTO `subtitleRead`, and the first one needed this fix
+   * twice in its own review (the leading `loading` reset, and the `catch`'s `!cancelled`).
+   * A poll lives up to 48 s and a season pack's episodes share a torrent, so the previous
+   * episode's answer arriving after the new one's would put ANOTHER EPISODE'S sidecars on
+   * the screen — and `ready` with it, which is what mounts a `<track>` on the wrong file.
+   *
+   * Bumped in exactly two places, each with its own reason: the read effect's cleanup (a
+   * title change, an episode change, an unmount) and every press (a new choice supersedes
+   * the poll the last one started, including a press on the same entry, which is the retry).
+   */
+  const subtitleGen = useRef(0);
+  const arrived = arrival.k === 'ok';
+  useEffect(() => {
+    // Before the guard: a new arrival or a new file invalidates the old answer, and a stale
+    // `off` on a title whose list has not been read yet is a claim nothing measured. The
+    // verdict goes with them: it is an answer about a sidecar in the list being replaced.
+    //
+    // TWO OF THESE THREE LINES ARE UNFALSIFIABLE HERE, MEASURED RATHER THAN ASSUMED, in the
+    // shape the `askedFourK` ref above uses. Deleting `setNotArriving(false)` is GREEN on all
+    // 1543 rows of `test:tv`, and so is deleting `setTrackFault(false)` — which has been here
+    // since task 12 — because the verdict and the fault are only ever VISIBLE while something
+    // is chosen (`chosenCellState` answers `null` otherwise) and the line above clears the
+    // choice. Both are kept, for two reasons that do not depend on this suite: the only
+    // producer of a choice is a press, and a press that stopped clearing them (which IS
+    // reddened, by `page.fetch.test.tsx` and `page.subtitles.test.tsx`) would leave this as
+    // the last guard; and an edit that carried a choice across an episode change — the
+    // obvious "keep the viewer's language" feature — makes both of them load-bearing on the
+    // first attempt. Recorded here instead of defended by a row that cannot fail.
+    setSubtitleRead({ k: 'loading' });
+    setChosenIndex(null);
+    setTrackFault(false);
+    setNotArriving(false);
+    let cancelled = false;
+    /**
+     * ONE CLEANUP, RETURNED ON BOTH PATHS, AND THE GENERATION BUMP IS IN IT rather than in
+     * the body above. A cleanup runs before the next effect body on a title or episode
+     * change AND on unmount, so one line covers both cases; bumping in the body as well
+     * would be one rule written twice, and the copy a test can see (the episode change)
+     * would leave the other one deletable with nothing red. The unmount half is not
+     * decorative on this television: an abandoned poll keeps asking a box that caps itself
+     * at two downloads, 24 more times, re-enumerating a torrent's files on every read.
+     */
+    const invalidate = () => {
+      cancelled = true;
+      subtitleGen.current += 1;
+    };
+    if (!torrentId || !arrived) return invalidate;
+    void (async () => {
+      try {
+        const list = await streamingService.getSubtitles(torrentId, index, { allow401: true });
+        if (!cancelled) setSubtitleRead({ k: 'ok', list });
+      } catch {
+        // Deliberately not narrowed. A 404 (unknown torrent), a 401 (dead session, which the
+        // flag above kept from navigating), a 503 and a service that is not there at all all
+        // mean the same thing to the one cell that reads this: nothing to offer.
+        if (!cancelled) setSubtitleRead({ k: 'failed' });
+      }
+    })();
+    return invalidate;
+  }, [torrentId, index, arrived]);
+
+  /**
+   * THE PRESS THAT CHOOSES A SIDECAR IS THE PRESS THAT ASKS FOR ITS BYTES.
+   *
+   * THE WIRE THIS STAGE SHIPPED WITHOUT (C7). `fetchSubtitle` and `pollSubtitles` were built,
+   * tested and reviewed with NO production caller: the service had the POST, this module had
+   * the bounded poll, the cell had a word for the wait and the element had a mount gate, and
+   * nothing connected them — so choosing any sidecar whose bytes were not already on disk set
+   * the cell to `fetching` and then did nothing, for the rest of the film. Sixteen adversarial
+   * per-task reviews passed it, because the defect was in a seam no task touched.
+   *
+   * A HANDLER, NOT AN EFFECT, and that is the decision that shapes the rest. An effect keyed
+   * on `chosenIndex` would not re-run when the viewer picks the SAME entry again — which is
+   * exactly the press someone makes after reading `not arriving`, i.e. the retry. So the press
+   * owns the POST, and `Off` is a press that deliberately sends nothing.
+   *
+   * A READY ENTRY SENDS NOTHING EITHER. Admission re-deadlines pieces and the box's admission
+   * budget is a shared resource (D4); for a file already complete on disk that is a cost with
+   * no benefit. The element's own `!chosen.ready` gate stays the only thing between a choice
+   * and a load.
+   *
+   * THE TWO INDICES ARE DIFFERENT NUMBERS, and they are the easiest thing here to get wrong:
+   * the POST and the poll's `index` take the SIDECAR's own libtorrent file index, while the
+   * list read takes the VIDEO file index being watched, so the list stays filtered to the
+   * episode on screen. They differ in every season pack and in most single-file releases.
+   *
+   * `allow401` ON BOTH CALLS, for the reason the read effect above states: apiClient's
+   * rejection interceptor hard-navigates to `/bigscreen/pair` from inside its own handler,
+   * behind a module-scoped flag it never resets. A subtitle is never worth a film.
+   */
+  const chooseSubtitle = useCallback(
+    (choice: number | null) => {
+      // The fault belongs to the element that failed, so a NEW choice has not failed yet —
+      // without this the cell would read `unreadable` over a track that has not been asked to
+      // load. The verdict is cleared for the same reason, which is also what makes a second
+      // press on the same entry a retry the viewer can see. Closing the picker is the route's
+      // job too: the two explicit focus moves are driven by this flag, so the component that
+      // owns the flag has to be the one that owns the restore.
+      setChosenIndex(choice);
+      setTrackFault(false);
+      setNotArriving(false);
+      setPickerOpen(false);
+      // EVERY PRESS SUPERSEDES THE LAST ONE'S POLL, before anything is awaited: two polls
+      // writing the same state is two different episodes' lists racing on a pack, and the
+      // second press is the one the viewer is watching.
+      subtitleGen.current += 1;
+      const generation = subtitleGen.current;
+      const isCancelled = () => subtitleGen.current !== generation;
+      if (choice === null) return;
+      const entry =
+        subtitleRead.k === 'ok'
+          ? subtitleRead.list.subtitles.find((e) => e.index === choice) ?? null
+          : null;
+      if (entry === null || entry.ready) return;
+      void (async () => {
+        try {
+          // THE SIDECAR'S OWN FILE INDEX. Never the row's position in the list (the list is
+          // filtered and deduplicated, so a position names another file) and never the video
+          // index below.
+          await streamingService.fetchSubtitle(torrentId, entry.index, { allow401: true });
+        } catch {
+          // A 409 from a refused gate, a 404, a 503, a dead session the interceptor was told
+          // not to act on: all of them mean the bytes are not coming, and none of them is
+          // worth a second sentence on a cell the viewer reads at three metres.
+          //
+          // GUARDED, AND THIS ONE IS REACHABLE — unlike the poll's tail below. A POST is in
+          // flight for as long as the box takes to answer, so a press on a DIFFERENT entry
+          // (or on Off) lands first and this rejection arrives afterwards: writing the verdict
+          // then would say `not arriving` about the sidecar the viewer has just chosen.
+          if (!isCancelled()) setNotArriving(true);
+          return;
+        }
+        const result = await pollSubtitles({
+          // THE VIDEO FILE INDEX, so every answer is the same filtered list the route read on
+          // arrival — the cell, the picker and the `<track>` all read it from one place.
+          read: () => streamingService.getSubtitles(torrentId, index, { allow401: true }),
+          index: entry.index,
+          isCancelled,
+          onList: (list) => {
+            // RE-CHECKED HERE, not only through the poll's contract: `pollSubtitles` calls
+            // `onList` BEFORE its own cancellation check, so a poll superseded while its read
+            // was in flight still hands back exactly one stale answer. On a pack that answer
+            // is the previous episode's sidecars.
+            if (isCancelled()) return;
+            setSubtitleRead({ k: 'ok', list });
+          },
+        });
+        // NO SECOND CANCELLATION GUARD HERE, and that is measured rather than forgotten:
+        // `cancelled` maps to `false` in `notArrivingAfter`'s own table, and this line resumes
+        // on a microtask after the poll's last check, where no press can interleave. A guard
+        // would be dead code — the shape this stage keeps finding.
+        if (notArrivingAfter(result.outcome)) setNotArriving(true);
+      })();
+    },
+    [torrentId, index, subtitleRead],
+  );
 
   const progress = useWatchProgress({
     userId,
@@ -517,6 +875,21 @@ function WatchScreen() {
    * owes both of them a real exit; inventing one here would be inventing the shell.
    */
   const onBack = useCallback(() => {
+    // RUNG 1, AND IT IS AHEAD OF BOTH OF THE OTHERS. Ahead of `visible` because that rung
+    // calls `setVisible(false)` directly, so without this one a Back press under an open
+    // picker fades the band — and the menu inside it — to `opacity: 0` while the ring is
+    // still in there, and the next press leaves the film. Ahead of `editOpen` too, which is
+    // not cosmetic: the scrub cell UNMOUNTS when the picker replaces the band's rows, and
+    // its `onEditOpen` effect has no cleanup, so a pending edit (reachable with the gyro
+    // cursor, which can click one control while another holds focus) is still reported open
+    // while the picker is up. With the edit rung first, that Back press would blur and
+    // refocus a cell that is no longer on screen and the picker would have no way out.
+    // Nothing else is needed for the stale flag: the scrub cell's remount re-reports
+    // `false`, and while the picker is open `mayHide` refuses the hide anyway.
+    if (phase === 'playing' && pickerOpen) {
+      setPickerOpen(false);
+      return;
+    }
     if (phase === 'playing' && editOpen) {
       // Cancelling is the cell's own `onBlur`, so the cancel is a blur and an immediate
       // refocus of the SAME element: the edit goes and the ring does not move.
@@ -532,7 +905,7 @@ function WatchScreen() {
       return;
     }
     leave(HOME);
-  }, [phase, editOpen, visible, leave]);
+  }, [phase, pickerOpen, editOpen, visible, leave]);
   useBackKey(onBack);
 
   // --- the verdicts only the screen can act on -------------------------------------
@@ -555,10 +928,35 @@ function WatchScreen() {
   if (phase === 'playing' && arrival.k === 'ok') {
     const src = streamSrc(torrentId, index);
     if (src) {
+      // THE WHOLE LIST, not `offerable(...)`: the element's own mount gate is the one place
+      // `convertible` is read, and filtering here would state that rule twice.
+      const chosen =
+        subtitleRead.k === 'ok' && chosenIndex !== null
+          ? subtitleRead.list.subtitles.find((e) => e.index === chosenIndex) ?? null
+          : null;
+      // Both halves from the one state, so the attribute and the words can never disagree
+      // about which state the screen believes it is in.
+      const subtitleState = subtitleCellState(subtitleRead, chosen, trackFault, notArriving);
+      const subtitles: SubtitleCellView = { stateId: subtitleState, note: cellLabel(subtitleState) };
+      // EVERY LISTED ENTRY, offers first and the formats this box will not convert after —
+      // `pickerRows` owns that order, and the grid's row counts are chunked over this same
+      // list, so the order and the count come from one place. A non-convertible row IS
+      // rendered and IS focusable, which is why this is not `offerable(...)`.
+      const rows = subtitleRead.k === 'ok' ? pickerRows(subtitleRead.list) : [];
       return (
         <Playing
           src={src}
+          torrentId={torrentId}
           status={arrival.status}
+          subtitles={subtitles}
+          track={chosen}
+          onTrackUnreadable={() => setTrackFault(true)}
+          pickerOpen={pickerOpen}
+          onPickerOpen={setPickerOpen}
+          pickerRows={rows}
+          chosenSubtitleIndex={chosenIndex}
+          emptyPickerHint={emptyPickerHint(subtitleRead)}
+          onChooseSubtitle={chooseSubtitle}
           askedFourK={askedFourK}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
           // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never
@@ -631,7 +1029,17 @@ function WatchScreen() {
  */
 function Playing({
   src,
+  torrentId,
   status,
+  subtitles,
+  track,
+  onTrackUnreadable,
+  pickerOpen,
+  onPickerOpen,
+  pickerRows: subtitleRows,
+  chosenSubtitleIndex,
+  emptyPickerHint: pickerHint,
+  onChooseSubtitle,
   askedFourK,
   contiguous,
   resumeAtSeconds,
@@ -648,7 +1056,40 @@ function Playing({
   onStop,
 }: {
   src: string;
+  /** For the `<track>`'s URL, which is spelled on this side from the file index. */
+  torrentId: string;
   status: TorrentStatus;
+  /**
+   * What the Subtitles cell says. IT GOES TO THE CELL AND NOWHERE ELSE — never into
+   * `messageFor`. `mayHide` is `playing && !editOpen && message === ''`, so a steady sentence
+   * in that slot pins the 480px band over the picture for the rest of the film; stage 8
+   * measured exactly that, and a subtitle state is steady by nature.
+   */
+  subtitles: SubtitleCellView;
+  /**
+   * The chosen sidecar, or null for Off. The route owns the choice; this component owns the
+   * one conjunct the route cannot see, `recovery.kind === 'reloading'`.
+   */
+  track: SubtitleTrack | null;
+  /** The `<track>` element's own load failure, reported up so the cell can say so. */
+  onTrackUnreadable: () => void;
+  /**
+   * The picker's open flag and its setter, both the ROUTE's (D13).
+   *
+   * It is a prop rather than state here because `onBack`'s ladder lives in the route while
+   * `mayHide` lives in this component, and one flag has to satisfy both. The state is the
+   * route's for the same reason `editOpen` is.
+   */
+  pickerOpen: boolean;
+  onPickerOpen: (open: boolean) => void;
+  /** Every listed entry, in `pickerRows` order. The grid's counts are chunked over it. */
+  pickerRows: readonly SubtitlePickerRow[];
+  /** The torrent file index showing now, or null for Off. */
+  chosenSubtitleIndex: number | null;
+  /** Why there is nothing to choose, for a list with no entries. Never the band's message. */
+  emptyPickerHint: string;
+  /** A picker press that chose something. `null` is Off. */
+  onChooseSubtitle: (index: number | null) => void;
   /** The press that started this torrent asked for 2160p. False also means "unknown". */
   askedFourK: boolean;
   contiguous: ContiguousRun | null;
@@ -766,7 +1207,9 @@ function Playing({
           return;
         // DISCRETE AND IDEMPOTENT. The remote's ▶ and ⏸ are two keys, not a toggle: a viewer
         // pressing ▶ on a playing title must not stop it. Both still live on the one
-        // focusable cell (`TWIN_CELL`), so the on-screen-twin contract is untouched.
+        // focusable cell because `TRANSPORT_CELLS` holds a single `playPause` cell — not
+        // because of `TWIN_CELL`, which records that mapping for a test and which nothing
+        // here reads.
         case 'play':
           if (!playing) void video.play()?.catch?.(() => {});
           return;
@@ -791,11 +1234,18 @@ function Playing({
           // before anything leaves the player.
           onStop();
           return;
+        case 'subtitles':
+          // THE PICKER REPLACES THE BAND'S ROWS (D13). Not a cycle-on-OK, because nothing
+          // arrow-driven can live inside a transport cell — the scrub cell eats the
+          // horizontal arrows while focused — and on this television the transport row is
+          // usually the only row, so there is nowhere else to put a list.
+          onPickerOpen(true);
+          return;
         default:
           return;
       }
     },
-    [playing, seekTo, engine, onStop],
+    [playing, seekTo, engine, onStop, onPickerOpen],
   );
 
   // Long enough to read at three metres, and it suppresses the auto-hide while it is up (a
@@ -823,7 +1273,12 @@ function Playing({
    * what is going on.
    */
   const message = messageFor({ failure, recovery, stall, status, resumeNote, discloseArrival, askedFourK });
-  const mayHide = playing && !editOpen && message === '';
+  // `!pickerOpen` IS THE FOURTH SUPPRESSION, and it is not covered by the other three: the
+  // picker says nothing in the band's message line (deliberately — a steady sentence there
+  // pins the band over the picture for the rest of the film), so without this conjunct the
+  // quiet period would fade an open, focused menu to `opacity: 0` with the ring still inside
+  // it. `--hidden` is paint only, so the viewer would be arrowing around an invisible list.
+  const mayHide = playing && !editOpen && !pickerOpen && message === '';
   const mayHideRef = useRef(mayHide);
   useLayoutEffect(() => {
     mayHideRef.current = mayHide;
@@ -950,8 +1405,49 @@ function Playing({
   // The Retry cell is offered only for a failure a press can change. `badRequest` is not
   // one, and `session`/`gone` leave the player altogether.
   const retryable = failure !== null && failure.kind !== 'badRequest';
-  const rowCounts = [scrubRowCount(duration), transportCellCount({ retry: retryable })];
+  /**
+   * ONE GRID, TWO SHAPES (D13). The picker is a `rowCounts` REPLACEMENT, not a second grid:
+   * `useFocusGrid` allows only one live instance per screen, and during an overlapping mount
+   * the incoming one is the dead one.
+   */
+  const rowCounts = pickerOpen
+    ? pickerRowCounts(subtitleRows.length)
+    : [scrubRowCount(duration), transportCellCount({ retry: retryable })];
   const grid = useFocusGrid({ rowCounts });
+
+  /**
+   * THE TWO EXPLICIT FOCUS MOVES, in both directions, and neither is optional.
+   *
+   * `clampTarget` (`_focus/model.ts:65-69`) is what runs when the shape changes, and its
+   * answer is wrong in both directions here, because the two shapes' columns mean different
+   * things: opening puts the ring on `clamp(4, 0, n-1)` of the picker's own first row — some
+   * unrelated language — and closing puts it on `firstTarget`, which with an empty scrub row
+   * (the usual state on this set) is Play/Pause rather than the control the viewer opened the
+   * picker from.
+   *
+   * ON THE EDGE, NOT ON THE VALUE. `pickerOpen` is false on mount, so an effect that ran on
+   * every commit would drag the ring onto the Subtitles cell on arrival — where the whole
+   * route's contract is that it lands on Play/Pause.
+   *
+   * AFTER THE GRID'S OWN RECONCILE, which is what makes it the last word: `useFocusGrid`'s
+   * reconcile effect is registered inside the hook call above and therefore runs first, so
+   * it applies `clampTarget`'s answer and this moves off it. Both targets are read from a ref
+   * written in a layout effect, so this effect's deps stay the edge alone and a fresh
+   * `pickerRows` array per render cannot re-trigger it.
+   */
+  const focusTargets = useRef({ open: pickerTarget(subtitleRows, chosenSubtitleIndex), retry: retryable });
+  useLayoutEffect(() => {
+    focusTargets.current = { open: pickerTarget(subtitleRows, chosenSubtitleIndex), retry: retryable };
+  });
+  const pickerWasOpen = useRef(pickerOpen);
+  const setFocus = grid.setFocus;
+  useEffect(() => {
+    const was = pickerWasOpen.current;
+    pickerWasOpen.current = pickerOpen;
+    if (was === pickerOpen) return;
+    const { open, retry } = focusTargets.current;
+    setFocus(pickerOpen ? open : { row: TRANSPORT_ROW, col: subtitlesColumn(retry) });
+  }, [pickerOpen, setFocus]);
 
   return (
     <div className="bs-player">
@@ -986,8 +1482,33 @@ function Playing({
           onEnded(true);
         }}
         onError={onError}
+      >
+        {/* EXACTLY ONE `<track>`, AND IT HAS TO BE IN HERE. A text track is a child of the
+            media element; the same element rendered as a sibling of the `<video>` is inert
+            and nothing on this surface would report it. One mount, never a `.map` over the
+            offerable entries: two `<track default>` elements both reach `showing` and Blink
+            enforces no winner, so a second element is two cue lines on the picture rather
+            than a wrong one. The element's own rules — the mount gate, the two `kind` arms,
+            the key that makes a switch a remount, and `onErrorCapture` — live in
+            `SubtitleTrackElement` with its own suite. */}
+        <SubtitleTrackElement
+          torrentId={torrentId}
+          chosen={track}
+          reloading={recovery.kind === 'reloading'}
+          onUnreadable={onTrackUnreadable}
+        />
+      </video>
+      {/* The scrim FADES WITH THE BAND, on the same `visible` flag and never on `playing`.
+          It exists to make the band legible, and native text-track cues paint inside the
+          video element's box — the other `z-index: -1` layer, earlier in source order — so
+          a scrim that stays up paints over every cue for the whole film and the auto-hide
+          does not rescue them. Faded rather than unmounted: the stylesheet does license
+          unmounting it (it holds no focus), but a 480px layer appearing and disappearing is
+          a repaint where the point was a composited fade. */}
+      <div
+        className={visible ? 'bs-player__scrim' : 'bs-player__scrim bs-player__scrim--hidden'}
+        aria-hidden="true"
       />
-      <div className="bs-player__scrim" aria-hidden="true" />
       {/* The band FADES; it is never unmounted and its counts never change. Its child order
           is written into the stylesheet's own block: the stream's hint, then the scrub cell
           (which brings its own hint and its row), then the transport row. The hint is
@@ -1000,22 +1521,42 @@ function Playing({
             {message}
           </p>
         )}
-        <ScrubBar
-          row={0}
-          focusProps={grid.focusProps}
-          position={position}
-          duration={duration}
-          contiguous={contiguous}
-          onSeek={seekTo}
-          onEditOpen={onEditOpen}
-        />
-        <TransportBar
-          row={1}
-          focusProps={grid.focusProps}
-          playing={playing}
-          retry={retryable}
-          onAction={act}
-        />
+        {/* THE PICKER REPLACES THESE TWO ROWS; IT DOES NOT SIT OVER THEM (D13). An overlay
+            would need either a second `useFocusGrid` — which the hook forbids, and of two
+            the INCOMING one is the dead one — or a `rowCounts` declaring the transport row
+            AND the picker, which puts four more reachable (row, col) pairs on a screen where
+            a ring on a cell no element claims looks exactly like nothing being focused.
+            The scrub cell going with it is deliberate: it claims the horizontal arrows while
+            focused, which are the picker's own. */}
+        {pickerOpen ? (
+          <SubtitlePicker
+            rows={subtitleRows}
+            chosenIndex={chosenSubtitleIndex}
+            emptyHint={pickerHint}
+            focusProps={grid.focusProps}
+            onChoose={onChooseSubtitle}
+          />
+        ) : (
+          <>
+            <ScrubBar
+              row={0}
+              focusProps={grid.focusProps}
+              position={position}
+              duration={duration}
+              contiguous={contiguous}
+              onSeek={seekTo}
+              onEditOpen={onEditOpen}
+            />
+            <TransportBar
+              row={TRANSPORT_ROW}
+              focusProps={grid.focusProps}
+              playing={playing}
+              retry={retryable}
+              subtitles={subtitles}
+              onAction={act}
+            />
+          </>
+        )}
       </div>
     </div>
   );

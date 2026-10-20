@@ -1,6 +1,12 @@
 // frontend/src/services/streaming.ts
 import apiClient from './api-client';
-import { StreamingInfo, StreamingProgress, VideoFile } from '@/types';
+import {
+  StreamingInfo,
+  StreamingProgress,
+  SubtitleAdmission,
+  SubtitleList,
+  VideoFile,
+} from '@/types';
 
 export const streamingService = {
   // Get streaming information for a torrent.
@@ -43,6 +49,66 @@ export const streamingService = {
   // Get the list of video files in a torrent
   getFiles: async (torrentId: string): Promise<VideoFile[]> => {
     const response = await apiClient.get(`/streaming/${torrentId}/files`);
+    return response.data;
+  },
+
+  // The sidecar subtitle list for one torrent, as an ENVELOPE (`SubtitleList`) and never a
+  // bare array: `coverage` is the only thing that separates "this release ships no .srt"
+  // from "this download has no live handle, so the box cannot see its files at all", and
+  // an empty array cannot say which.
+  //
+  // `fileIndex` is the VIDEO file index being watched, so a season pack answers only the
+  // episode on screen. Built key-by-key rather than as a literal, the same way
+  // `getStreamingInfo` is and for the same measured reason: an absent value must be an
+  // ABSENT PARAM. The backend VALIDATES `file_index` against the torrent's video files and
+  // 404s one that is not among them, so `?file_index=undefined` would turn a list the
+  // television can read into "The box doesn't recognise this title."
+  //
+  // `allow401` opts out of the client's global 401 redirect — see `saveProgress` below for
+  // the mechanism. A subtitle list is never worth evicting a viewer from a film, and the
+  // interceptor's hard navigation happens inside its own rejection handler behind a
+  // module-scoped flag that is never reset, so one unguarded 401 here would also silence
+  // every later one in the same page load.
+  getSubtitles: async (
+    torrentId: string,
+    fileIndex?: number,
+    opts?: { allow401?: boolean },
+  ): Promise<SubtitleList> => {
+    const params: Record<string, number> = {};
+    if (fileIndex !== undefined) params.file_index = fileIndex;
+    const response = await apiClient.get(`/streaming/${torrentId}/subtitles`, {
+      ...(Object.keys(params).length > 0 ? { params } : {}),
+      // `ready` flips underneath this URL while a download runs, so a cached answer is
+      // the one thing the television must never believe. The authoritative half is the
+      // backend's own `Cache-Control: no-store` on the response; this is the request
+      // half. NOT `cache: 'no-store'` — that is a `fetch` option, and axios 1.12.2
+      // resolves its adapter in the order `['xhr', 'http', 'fetch']`, so in a browser the
+      // XHR adapter runs and reads no `cache` key at all. A `cache` field here would be a
+      // guard that cannot be observed to work or to be missing, which is worse than none.
+      headers: { 'Cache-Control': 'no-store' },
+      ...(opts?.allow401 ? { __allow401: true } : {}),
+    });
+    return response.data;
+  },
+
+  // Ask the box to admit one sidecar's pieces. THE ONLY MUTATING SUBTITLE CALL, and it
+  // answers 202 BEFORE the bytes arrive — the outcome is learned by polling the list (see
+  // `(bigscreen)/_data/subtitles.ts`), never from this response. `admitted: 0` is a
+  // success. A refused gate is a 409 and arrives as a rejection whose
+  // `response.data.reason` names the gate.
+  //
+  // `index` is the torrent's own libtorrent file index, the same number the list's `index`
+  // carries — never a row's position in the list.
+  fetchSubtitle: async (
+    torrentId: string,
+    index: number,
+    opts?: { allow401?: boolean },
+  ): Promise<SubtitleAdmission> => {
+    const response = await apiClient.post(
+      `/streaming/${torrentId}/subtitles/${index}/fetch`,
+      undefined,
+      opts?.allow401 ? { __allow401: true } : undefined,
+    );
     return response.data;
   },
 

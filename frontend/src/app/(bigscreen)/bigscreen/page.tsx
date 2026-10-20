@@ -9,6 +9,7 @@ import { NAV_TARGETS, NavRow } from '../_components/NavRow';
 import { Rail, railCellCount, type RailModel } from '../_components/Rail';
 import { readStored, useFocusGrid, type FocusProps } from '../_focus/useFocusGrid';
 import { useBackKey } from '../_focus/useBackKey';
+import { isInShell, tabStore } from '../_data/shellSession';
 import { TV_RAILS, fetchRail, type CatalogRail, type TvRailSpec } from '../_data/rails';
 import { fetchContinueWatching, fetchMyList, type ProfileRail } from '../_data/continueWatching';
 import { useTvProfile } from '../_data/useTvProfile';
@@ -67,18 +68,31 @@ import { useTvProfile } from '../_data/useTvProfile';
 const PROFILES = '/bigscreen/profiles';
 
 /**
- * BACK on home does nothing, on purpose. Home is the root of this surface; leaving the app is
- * the shell's job in a later stage, and a `window.close()` from a browser tab does nothing
- * useful. The hook is still installed, so the press is claimed rather than handed to the
- * browser, which can walk history to wherever this page was entered from (the picker
- * replaces itself with home, so that is often another copy of this screen). Walking out of
- * (bigscreen) into the web app is unrecoverable on this device: a remote cannot type a URL.
+ * BACK ON HOME, WHICH NOW HAS TWO ANSWERS.
  *
- * STAGE 10 OWES THIS A REAL ANSWER. Inside the webOS shell, Back at the root is how a viewer
- * expects to leave an app, and swallowing it means they cannot. The shell is the only place
- * that can exit cleanly, so it should replace `stayOnHome` with its own handler.
+ * OUTSIDE THE APP it does nothing, exactly as before. Home is the root of this surface and a
+ * `window.close()` from an ordinary tab does nothing useful. The hook is still installed, so
+ * the press is CLAIMED rather than handed to the browser, which can walk history to wherever
+ * this page was entered from (the picker replaces itself with home, so that is often another
+ * copy of this screen). Walking out of (bigscreen) into the web app is unrecoverable on this
+ * device: a remote cannot type a URL.
+ *
+ * INSIDE THE APP it tries to leave, because Back at the root is how a viewer expects to close
+ * one and swallowing it means they cannot. `isInShell` is the flag the layout captured from the
+ * shell's `?from=app`.
+ *
+ * AND IT SAYS SO WHEN IT CANNOT. `window.close()` on a document the script did not open is
+ * refused outright in standard Chromium; whether webOS permits it for an app's own window is
+ * NOT KNOWN — no reading has been taken on this set (device reading 39). So the close is
+ * attempted and, if this document is still here a tick later, the viewer is told which button
+ * does work. A press that does nothing and says nothing is precisely the state the paragraph
+ * above refuses for the browser case; it must not be reintroduced for the app case on the
+ * strength of an untested API.
+ *
+ * The tick matters: a `close()` that succeeds tears the document down, so the note is never
+ * painted. A synchronous `setState` beside the call would flash it on the way out.
  */
-const stayOnHome = () => {};
+const EXIT_NOTE = 'Press Home to leave Freeflix.';
 
 /** Fetch a rail this far before it scrolls into view: a screenful and a bit at 1080p. */
 const LOOKAHEAD = '600px 0px';
@@ -251,7 +265,29 @@ export default function HomePage() {
   const router = useRouter();
   const { profile, loading: profileLoading, clear } = useTvProfile();
   const profileId = profile?.id ?? null;
-  useBackKey(stayOnHome);
+  const [exitNote, setExitNote] = useState('');
+  /**
+   * SET ON MOUNT, NOT JUST CLEARED ON UNMOUNT. `next.config.ts` has `reactStrictMode: true`, so
+   * in development React runs this effect mount -> unmount -> mount. A ref initialised to `true`
+   * with only a cleanup would be left `false` by that first simulated unmount and never set back,
+   * and the note below would be dead for the whole dev session while every test stayed green —
+   * RTL does not render under StrictMode unless a row asks it to. One of them now does.
+   */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const leaveApp = useCallback(() => {
+    if (!isInShell(tabStore())) return;
+    try {
+      window.close();
+    } catch {
+      // Refused by the engine rather than ignored. Same outcome for the viewer.
+    }
+    setTimeout(() => { if (mounted.current) setExitNote(EXIT_NOTE); }, 0);
+  }, []);
+  useBackKey(leaveApp);
 
   // One entry per rail that has answered, keyed by slot id. A missing key is a placeholder.
   const [settled, setSettled] = useState<Settled>({});
@@ -484,6 +520,11 @@ export default function HomePage() {
     <main className="bs-shell">
       <header className="bs-shell__head">
         <h1>Freeflix</h1>
+        {exitNote ? (
+          <p className="bs-shell__exit" role="status">
+            {exitNote}
+          </p>
+        ) : null}
       </header>
       <div className="bs-shell__scroll" ref={scrollerRef}>
         {top}

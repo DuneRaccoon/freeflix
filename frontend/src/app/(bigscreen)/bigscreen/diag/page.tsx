@@ -233,7 +233,15 @@ const CLIPS: Clip[] = [
  */
 type ClipReading = {
   http: string;
-  present: 'yes' | 'no' | 'unknown';
+  /**
+   * `Presence`, not the three values this had: the codec probe collapsed every non-2xx into
+   * `no`, so a 500 or a 403 on a clip printed FILE NOT PRESENT and told the operator to run an
+   * ffmpeg line for a file that is already there. That is F6 — fixed for the sidecar probe in
+   * `f14edd8` and reported there as still live here, because stage 8's fixtures live in
+   * `page.test.tsx`, which was not in that task's file set. Readings 16-18 are still untaken,
+   * so this instrument has never yet been read wrong on the set; it would have been.
+   */
+  present: Presence;
   error: string;
   dims: string;
   duration: string;
@@ -277,10 +285,11 @@ function readCodecReadings(): Record<string, ClipReading> {
         const v = (row as Record<string, unknown>)[key];
         if (typeof v === 'string' && v !== '') out[c.id][key] = v;
       }
-      // `present` is validated against its three values rather than trusted, because it is the
-      // field the "FILE NOT PRESENT" branch keys on.
+      // `present` is validated rather than trusted, because it is the field the two paragraphs
+      // under the table key on. Shares `isPresenceValue` with the sidecar arms so a record
+      // written by one half of this page cannot be rejected by the other.
       const p = (row as Record<string, unknown>).present;
-      if (p === 'yes' || p === 'no' || p === 'unknown') out[c.id].present = p;
+      if (isPresenceValue(p)) out[c.id].present = p;
     }
     return out;
   } catch {
@@ -291,6 +300,310 @@ function readCodecReadings(): Record<string, ClipReading> {
 function writeCodecReadings(readings: Record<string, ClipReading>): void {
   try {
     sessionStorage.setItem(CODEC_STORAGE, JSON.stringify(readings));
+  } catch {
+    /* A television that refuses storage still shows the readings on screen. */
+  }
+}
+
+/**
+ * STAGE 9 — THE SUBTITLE INSTRUMENT. Five arms, and the first one needs nothing that is not
+ * already in this repository.
+ *
+ * NO SUITE ANYWHERE CAN ANSWER THE QUESTION THIS SECTION EXISTS FOR. jsdom 25.0.1 implements
+ * no text-track machinery at all — `window.TextTrack` is undefined, `video.textTracks` is a
+ * plain zero-length array even with a `<track default>` child present, `trackEl.track` is
+ * undefined and `trackEl.readyState` is a hardcoded 0 — and the backend image has no browser
+ * binary. So "do WebVTT cues paint on this television" is unanswerable by every instrument
+ * this project owns except a panel and a pair of eyes. That is reading 27a, and it is gate A
+ * on the stage's "subtitles work on the television" claim.
+ *
+ * ARM 27a NEEDS NO CLIP, NO TORRENT, NO FASTAPI AND NO AUTH, and that is the whole design.
+ * Measured on Chromium 155: a `<track default>` inserted after `loadedmetadata` reaches
+ * `mode: 'showing'` with its cues parsed EVEN WITH THE MEDIA ELEMENT IN THE ERROR STATE. So
+ * the arm mounts a `<video>` whose `src` cannot resolve on purpose, puts the committed
+ * hand-typed `.vtt` beside it, and a blank screen then has ONE candidate cause. Every other
+ * playback path on this surface runs through libtorrent, FastAPI, the session gate and the ARM
+ * download cap; stage 8's codec rows are still blocked on four clips nobody has produced.
+ *
+ * THE TWO PROBE FILES ARE COMMITTED, unlike those clips. They are a few hundred bytes of
+ * hand-typed text, `frontend/.gitignore` un-ignores `*.vtt` under `public/samples/` for
+ * exactly them, and reading 27a's premise is that they are already there.
+ *
+ * `cue-probe.vtt` IS WRITTEN IN THE CONVERTER'S OWN OUTPUT GRAMMAR, byte for byte in shape:
+ * `WEBVTT`, a blank line, no cue identifiers, `HH:MM:SS.mmm --> HH:MM:SS.mmm` with one space
+ * each side, LF endings (`backend/app/subtitles/vtt.py`'s emitter). A probe file written in a
+ * laxer form would measure one of the five leniencies Chromium 155 was measured to allow and
+ * Chromium 120 may not, which is a different question from the one being asked. It carries no
+ * `NOTE` block for the same reason: the provenance rides in CUE 1's own text, where the
+ * operator reads it, instead of in a header whose support would be a second candidate cause.
+ * Its first cue runs 0 -> 10:00 because an errored element's clock never advances, so a cue
+ * that starts later is one no arm but 27b can ever paint.
+ *
+ * `cue-probe-line.vtt` DIFFERS BY EXACTLY ONE VARIABLE — `line:-4` on every timing line —
+ * which is stage 8's lesson about clips 1 and 2 applied to a text file. Its CUE 1 names the
+ * file, because an operator who cannot tell which of two identical-looking files is on screen
+ * transcribes the wrong arm, and that is worse than a one-line text difference in a reading
+ * about POSITION.
+ *
+ * WHAT THIS SECTION DOES NOT DO: claim the band geometry. `line:-4`'s real question (reading
+ * 32) is whether a cue can be moved clear of the 480px scrim and the ~334px band, and this
+ * page's video box is not the player's geometry at all. Drawing a 480px guide here would be a
+ * fabricated measurement. So the arm asks the one question it can answer honestly — does the
+ * setting move the cue AT ALL on this engine, compared with arm 27a's identical file without
+ * it — and the limit is printed beside it.
+ *
+ * EVERY FETCH IS A PLAIN `fetch` WITH `cache: 'no-store'` AND `credentials: 'same-origin'`,
+ * the `_player/classify.ts` pattern, and never `apiClient`: that client's interceptor
+ * hard-navigates to the sign-in page on a 401, which would take the operator off the
+ * instrument mid-reading and leave the reading untranscribed. `no-store` because a cached 404
+ * from before the files were copied over is the one answer this probe must never give.
+ */
+const SUBTITLE_STORAGE = 'bs-diag:subtitles';
+
+/** Committed, hand-typed, and in the converter's own output grammar. See the block above. */
+const CUE_PROBE = 'cue-probe.vtt';
+const CUE_PROBE_LINE = 'cue-probe-line.vtt';
+
+/**
+ * Stage 8's control clip, REUSED rather than re-specified: arm 27b's only job is to repeat
+ * 27a's question over a real decoded frame, and clip 4 is the one AV combination this project
+ * has ever measured. It is a gitignored binary and it is not in this checkout, so 27b reads
+ * FILE NOT PRESENT until someone produces it — which is why 27a is the gate and 27b is the
+ * tie-breaker.
+ */
+const CONTROL_CLIP = CLIPS[3].file;
+
+/**
+ * A `src` that cannot resolve, on purpose. The arm that uses it is measuring a `<track>` on an
+ * element in the ERROR state, which is the state that needs no clip; a src that worked would
+ * make the arm depend on an artefact nobody has made.
+ */
+const BOGUS_VIDEO_SRC = SAMPLES_BASE + 'there-is-deliberately-no-clip-here.mkv';
+
+type SubtitleArm = {
+  id: string;
+  /** The row number in the stage-9 readings sheet. Printed, so a cell cannot be mis-filed. */
+  reading: string;
+  label: string;
+  vtt: string;
+  /** A sample clip's filename, or null for the bogus src. */
+  clip: string | null;
+  note: string;
+  /** Renders `::cue { color: var(--gold) }` and the px rulers beside the element. */
+  cueStyle?: boolean;
+  /** Adds the `video.load()` press and the track unmount, and the row that records them. */
+  doubleLoad?: boolean;
+  /** Adds the "did the cue sit higher" operator row. */
+  moved?: boolean;
+};
+
+const SUBTITLE_ARMS: SubtitleArm[] = [
+  {
+    id: 's27a',
+    reading: '27a',
+    label: 'Arm 27a — a <track> on an element in the ERROR state. No clip, no backend.',
+    vtt: CUE_PROBE,
+    clip: null,
+    note: 'GATE A. Do WebVTT cues paint on this set at all, and does a late <track default> reach mode: "showing"? A bogus video src plus the committed .vtt, so nothing here can fail for a reason other than text tracks. Transcribe every cell, and answer the VISIBLE question by hand: a zero-cue reading and an invisible-cue reading are different facts and may not share a cell.',
+  },
+  {
+    id: 's27b',
+    reading: '27b',
+    label: 'Arm 27b — the same question over a real decoded frame.',
+    vtt: CUE_PROBE,
+    clip: CONTROL_CLIP,
+    note: 'Only needed if 27a is ambiguous. BLOCKER: this clip is a gitignored binary that is not in the repository, so this arm reads FILE NOT PRESENT until someone produces it with the stage-8 sheet’s ffmpeg line. It is also the only arm whose clock advances, so it is the only one that can ever paint CUE 2, 3 or 4.',
+  },
+  {
+    id: 's30',
+    reading: '30',
+    label: 'Arm 30 — ::cue { color: var(--gold) }, and the default cue size.',
+    vtt: CUE_PROBE,
+    clip: null,
+    cueStyle: true,
+    note: 'Does ::cue apply, and does var() resolve inside it? DO NOT substitute a CSS.supports or cssRules probe: measured, Blink retains bottom/transform/padding inside a ::cue block while ignoring them at used-value time, and drops ::cue-region from cssRules entirely, so a parse probe answers yes for properties that do nothing. Compare the cue text against the px rulers below for §8.5’s 24px Read floor, and transcribe the ruler it matches rather than a judgement.',
+  },
+  {
+    id: 's32',
+    reading: '32',
+    label: 'Arm 32 — line:-4, the one lever that would live in the converter.',
+    vtt: CUE_PROBE_LINE,
+    clip: null,
+    moved: true,
+    note: 'The same four cues as arm 27a with line:-4 added, so load 27a first and compare. LIMIT, and it is this arm’s whole caveat: this page’s video box is NOT the player’s geometry, so nothing here can say whether a cue clears the 480px scrim or the ~334px band. What it can say is whether the setting moves the cue on this engine at all — if it does not, reading 29b’s candidate fixes are down to one before anyone writes a line of converter code.',
+  },
+  {
+    id: 's35',
+    reading: '35',
+    label: 'Arm 35 — does a recovery video.load() duplicate the TextTrack?',
+    vtt: CUE_PROBE,
+    clip: null,
+    doubleLoad: true,
+    note: 'Measured on Chromium 155: each video.load() APPENDS a fresh TextTrack per <track> element without discarding the previous — one element, textTracks 1 -> 2 -> 3, every copy showing, three identical cue lines stacked on the picture. Order: Load, then Sample, then press video.load() twice, then unmount the <track> and sample again. The player’s guard (unmount the element while the recovery ladder reloads) is shipped either way; this says whether it is still earned.',
+  },
+];
+
+/**
+ * ONE PROBE'S VERDICT ABOUT ONE FILE, AND IT TAKES FOUR VALUES RATHER THAN THREE.
+ *
+ * `present: res.ok ? 'yes' : 'no'` called every non-2xx answer an absent file, and the gate's
+ * own instrument then LIED TO THE OPERATOR: a 500 or a 403 from Next.js static rendered
+ * `FILE NOT PRESENT — nothing was mounted` beside a paragraph saying this build is serving a
+ * different tree, which sends them to copy in a file that is already committed. Both probe
+ * `.vtt`s ARE committed and un-ignored by name, so that action can never be the right one —
+ * and this section is the instrument for GATE A (reading 27a), so the gate's own failure mode
+ * may not be a wrong instruction. (Task 15's review measured the collapse green: nothing in
+ * the suite could tell a 500 from a 404, because the only fixture was a 404. The plan's F6
+ * says "reading 31 is gated on this probe"; row 31's instrument is a real low-seeder swarm
+ * plus the backend log and it has no diag arm at all, so the rows this page gates are 27a and
+ * 27b, and it serves 30, 32 and 35.)
+ *
+ * FOUR VALUES, BECAUSE THEY ARE FOUR DIFFERENT ACTIONS — the only reason a status class is
+ * worth having at all:
+ *   `yes`              2xx. The file is there and the element may be mounted.
+ *   `no`               EXACTLY 404. The server answered, and said this file is not there:
+ *                      copy it over, or this build is serving a different tree.
+ *   `answered <status>` any other answer. Nothing is known about the file; read the status and
+ *                      look at the server or the proxy. Copying a file over cannot help.
+ *   `unknown`          the fetch threw. No answer arrived at all, from anywhere.
+ *
+ * THE STATUS RIDES INSIDE THE VALUE, because the cell has to print it: "the server answered
+ * and it was not a 404" is not a reading. The `http` line is a separate cell and stays
+ * verbatim; this one is the verdict an operator reads first.
+ */
+const ANSWERED = 'answered ';
+type Presence = 'yes' | 'no' | 'unknown' | `${typeof ANSWERED}${number}`;
+
+/** The verdict for an answer that is neither 2xx nor 404. Never for a thrown fetch. */
+const answeredWith = (status: number): Presence => `${ANSWERED}${status}`;
+
+const isAnswered = (p: Presence): p is `${typeof ANSWERED}${number}` => p.startsWith(ANSWERED);
+
+/**
+ * A PERSISTED `present` IS VALIDATED, NOT TRUSTED — it is the field the two paragraphs under
+ * the table key on, and `answered 500` has to survive the navigation that leaving this page is
+ * (the operator probes, walks to the set, comes back). A bare `typeof p === 'string'` would
+ * let a poisoned record print anything at all inside a reading cell.
+ */
+const isPresenceValue = (v: unknown): v is Presence =>
+  v === 'yes' || v === 'no' || v === 'unknown'
+  // NOT `answered 404`. Both probes map exactly 404 to `no`, so that spelling is one this page
+  // cannot produce — and admitting it would print "THE SERVER ANSWERED 404 — not an absence"
+  // beside the rule saying a 404 is the one answer that IS one. Reachable only from a stale or
+  // poisoned record, which is the case this validator exists for.
+  || (typeof v === 'string' && v.startsWith(ANSWERED) && /^\d+$/.test(v.slice(ANSWERED.length))
+      && v.slice(ANSWERED.length) !== '404');
+
+/** The one sentence that means "the server said this file is not there". */
+const ABSENT_CELL = 'FILE NOT PRESENT — nothing was mounted';
+
+/** What a `present` cell prints. The status is the whole point of the third value. */
+function presenceCell(p: Presence): string {
+  if (p === 'no') return ABSENT_CELL;
+  if (isAnswered(p)) {
+    return `THE SERVER ANSWERED ${p.slice(ANSWERED.length)} — not an absence, and nothing was mounted`;
+  }
+  return p;
+}
+
+/**
+ * `unknown` is the one value with no colour, and that is deliberate: it is not a verdict about
+ * the file. A 404 and a 500 are both failures the operator has to act on, by two different
+ * actions, so both are painted as failures and the TEXT is what tells them apart.
+ */
+const presenceClass = (p: Presence): string | undefined =>
+  p === 'yes' ? 'bs-yes' : p === 'unknown' ? undefined : 'bs-no';
+
+/**
+ * One arm's row. Every field is a string so what is rendered is what was persisted and what
+ * gets transcribed, and the three facts mutation (c) exists for — the HTTP status, the cue
+ * count, and whether text was VISIBLE — are three separate fields on purpose. Collapsing them
+ * into one ok/failed cell is exactly what makes a bodiless 401 indistinguishable from a
+ * malformed file on a screen with no devtools: the 401 on the subtitle routes carries no body
+ * (D11, structural), a signature-valid zero-cue body loads at readyState 2 and fires NO EVENT
+ * AT ALL, and an invisible cue is a third thing again.
+ */
+type SubtitleReading = {
+  http: string;
+  present: Presence;
+  clipHttp: string;
+  clipPresent: Presence;
+  tracks: string;
+  mode: string;
+  cues: string;
+  readyState: string;
+  event: string;
+  loads: string;
+  visible: string;
+  styled: string;
+  moved: string;
+  at: string;
+};
+
+/** "not taken" / "not answered", never blank — the sheet's own rule, in the instrument. */
+const BLANK_SUBTITLE: SubtitleReading = {
+  http: 'not probed',
+  present: 'unknown',
+  clipHttp: 'not probed',
+  clipPresent: 'unknown',
+  tracks: 'not taken',
+  mode: 'not taken',
+  cues: 'not taken',
+  readyState: 'not taken',
+  event: 'not taken',
+  loads: 'not taken',
+  visible: 'not answered',
+  styled: 'not answered',
+  moved: 'not answered',
+  at: 'not taken',
+};
+
+/**
+ * What a machine field prints when the ENGINE does not expose the thing at all, as opposed to
+ * a value the operator has not sampled yet ("not taken") or one that is exposed and zero
+ * ("0"). Three states, because jsdom collapses two of them: in this project's own suite
+ * `textTracks.length` reads 0 (a plain zero-length array sits where the list should be) and
+ * `trackEl.readyState` reads 0 (hardcoded), while `mode` and `cues.length` read this em dash.
+ * A field that printed "0" for all four would make the suite's own output look like a reading.
+ */
+const NO_VALUE = '—';
+
+function blankSubtitleReadings(): Record<string, SubtitleReading> {
+  return Object.fromEntries(SUBTITLE_ARMS.map((a) => [a.id, { ...BLANK_SUBTITLE }]));
+}
+
+/** Restored field by field against the blank, for the reason `readCodecReadings` gives. */
+function readSubtitleReadings(): Record<string, SubtitleReading> {
+  const out = blankSubtitleReadings();
+  try {
+    const raw = sessionStorage.getItem(SUBTITLE_STORAGE);
+    if (!raw) return out;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return out;
+    for (const arm of SUBTITLE_ARMS) {
+      const row = (parsed as Record<string, unknown>)[arm.id];
+      if (!row || typeof row !== 'object') continue;
+      for (const key of [
+        'http', 'clipHttp', 'tracks', 'mode', 'cues', 'readyState', 'event', 'loads',
+        'visible', 'styled', 'moved', 'at',
+      ] as const) {
+        const v = (row as Record<string, unknown>)[key];
+        if (typeof v === 'string' && v !== '') out[arm.id][key] = v;
+      }
+      for (const key of ['present', 'clipPresent'] as const) {
+        const p = (row as Record<string, unknown>)[key];
+        if (isPresenceValue(p)) out[arm.id][key] = p;
+      }
+    }
+    return out;
+  } catch {
+    return out;
+  }
+}
+
+function writeSubtitleReadings(readings: Record<string, SubtitleReading>): void {
+  try {
+    sessionStorage.setItem(SUBTITLE_STORAGE, JSON.stringify(readings));
   } catch {
     /* A television that refuses storage still shows the readings on screen. */
   }
@@ -594,7 +907,9 @@ export default function BigScreenDiagnostics() {
       const res = await fetch(url, { method: 'HEAD' });
       updateClip(clip.id, {
         http: `HEAD ${url} -> ${res.status} ${res.statusText}`.trimEnd(),
-        present: res.ok ? 'yes' : 'no',
+        // EXACTLY 404, the same ladder as the sidecar probe: `no` is the only value whose
+        // action — produce the file — is about the file at all.
+        present: res.ok ? 'yes' : res.status === 404 ? 'no' : answeredWith(res.status),
       });
       return res.ok;
     } catch (err) {
@@ -649,6 +964,173 @@ export default function BigScreenDiagnostics() {
     setClips(next);
     writeCodecReadings(next);
     setActiveClip(null);
+  }, []);
+
+  /**
+   * STAGE 9's subtitle instrument. `subtitleReadings` is the persisted record, `activeArm` is
+   * one mounted element at a time (the codec section's reason: one question at a time, and the
+   * VISIBLE answer can only be given about one picture), and `trackMounted` is arm 35's own
+   * lever — the player unmounts the `<track>` while the recovery ladder reloads, so the arm
+   * that measures the duplication has to be able to do the same thing by hand.
+   */
+  const [subtitleReadings, setSubtitleReadings] =
+    useState<Record<string, SubtitleReading>>(blankSubtitleReadings);
+  const [activeArm, setActiveArm] = useState<string | null>(null);
+  const [trackMounted, setTrackMounted] = useState(true);
+  const subtitleVideoRef = useRef<HTMLVideoElement | null>(null);
+  const subtitleTrackRef = useRef<HTMLTrackElement | null>(null);
+  // Mirrored in a ref for the reason the clip readings are: every write MERGES one field into
+  // one row, and doing that inside a setState updater (which React may call twice) would
+  // persist a value derived from a state React had not committed.
+  const subtitleReadingsRef = useRef<Record<string, SubtitleReading>>(blankSubtitleReadings());
+
+  const updateArm = useCallback((id: string, patch: Partial<SubtitleReading>) => {
+    const prev = subtitleReadingsRef.current[id] ?? BLANK_SUBTITLE;
+    const next = { ...subtitleReadingsRef.current, [id]: { ...prev, ...patch } };
+    subtitleReadingsRef.current = next;
+    writeSubtitleReadings(next);
+    setSubtitleReadings(next);
+  }, []);
+
+  useEffect(() => {
+    // In an effect, not a useState initialiser: this renders on the server too, where
+    // sessionStorage does not exist. Same reason as the key log's and the clips' restore.
+    const saved = readSubtitleReadings();
+    subtitleReadingsRef.current = saved;
+    setSubtitleReadings(saved);
+  }, []);
+
+  /**
+   * One HEAD against Next.js static, kept verbatim, and the init is the `classify.ts` one.
+   *
+   * `no-store` because a cached 404 from before the file was copied over is the one answer
+   * this probe may never give; `credentials: 'same-origin'` because the whole point of
+   * `/samples/` is that nothing on this path is gated and a cookie would not change that —
+   * stating it is what keeps the next hand from reaching for `apiClient`, whose 401
+   * interceptor hard-navigates and would take the operator off the page mid-reading.
+   *
+   * A thrown fetch is `unknown`, NOT absence: "copy the file over" is the one action that
+   * cannot help a LAN failure. And an answer that is not a 404 is its own class, for the same
+   * reason one step further in — see `Presence` above, which is F6 from task 15's review.
+   */
+  const probeSample = useCallback(
+    async (file: string): Promise<{ line: string; present: Presence }> => {
+      const url = SAMPLES_BASE + file;
+      try {
+        const res = await fetch(url, {
+          method: 'HEAD',
+          cache: 'no-store',
+          credentials: 'same-origin',
+        });
+        return {
+          line: `HEAD ${url} -> ${res.status} ${res.statusText}`.trimEnd(),
+          // EXACTLY 404, not `>= 400` and not `!res.ok`: `no` is the only value that means
+          // "the server answered, and said this file is not there", and it is the only one
+          // whose action — copy the file over — is about the file at all.
+          present: res.ok ? 'yes' : res.status === 404 ? 'no' : answeredWith(res.status),
+        };
+      } catch (err) {
+        return { line: `HEAD ${url} -> fetch failed: ${String(err)}`, present: 'unknown' };
+      }
+    },
+    [],
+  );
+
+  /** True only when everything this arm needs answered 2xx. */
+  const probeArm = useCallback(async (arm: SubtitleArm): Promise<boolean> => {
+    const vtt = await probeSample(arm.vtt);
+    updateArm(arm.id, { http: vtt.line, present: vtt.present });
+    if (arm.clip === null) return vtt.present === 'yes';
+    const clip = await probeSample(arm.clip);
+    updateArm(arm.id, { clipHttp: clip.line, clipPresent: clip.present });
+    return vtt.present === 'yes' && clip.present === 'yes';
+  }, [probeSample, updateArm]);
+
+  const probeAllArms = useCallback(() => {
+    // Parallel across arms, for the reason the clip probe is: one request that never settles
+    // must not stop the others from being read.
+    void Promise.all(SUBTITLE_ARMS.map((a) => probeArm(a)));
+  }, [probeArm]);
+
+  /**
+   * PROBE FIRST, MOUNT SECOND — the codec section's rule, and it is sharper here. A `<track>`
+   * whose `src` 404s fires exactly the same `error` as one whose body no parser accepts, and
+   * the element gets ONE load: nothing retries it. So a missing probe file would be
+   * transcribed as "this television does not paint cues", which is the reading this whole
+   * section exists to take.
+   */
+  const loadArm = useCallback(async (arm: SubtitleArm) => {
+    const ok = await probeArm(arm);
+    setTrackMounted(true);
+    setActiveArm(ok ? arm.id : null);
+  }, [probeArm]);
+
+  /**
+   * Sample the live elements. Called from `loadedmetadata`, the video's `error` and the
+   * operator's own press, because `mode`, `cues.length` and `readyState` all change over time
+   * — hence `at`, which says WHEN the row was taken.
+   *
+   * An em dash means the engine does not expose the thing at all, which is a different fact
+   * from "not taken" (not sampled yet) and from "0" (exposed, and zero). In this project's own
+   * suite `textTracks.length` reads 0 and `readyState` reads 0 — jsdom has a zero-length plain
+   * array where the list should be and a hardcoded 0 on the element — and the rest read the em
+   * dash. Nothing here is asserted anywhere: the page is an instrument, not a claim.
+   */
+  const sampleArm = useCallback((id: string, at: string) => {
+    const v = subtitleVideoRef.current;
+    const trackEl = subtitleTrackRef.current;
+    const list = v
+      ? (v.textTracks as unknown as
+        { length: number; [i: number]: { mode?: string; cues?: { length: number } | null } | undefined }
+        | undefined)
+      : undefined;
+    const first = list && list.length > 0 ? list[0] : undefined;
+    updateArm(id, {
+      tracks: list ? String(list.length) : NO_VALUE,
+      mode: first && typeof first.mode === 'string' ? first.mode : NO_VALUE,
+      cues: first && first.cues ? String(first.cues.length) : NO_VALUE,
+      readyState: trackEl ? String(trackEl.readyState) : NO_VALUE,
+      at,
+    });
+  }, [updateArm]);
+
+  /**
+   * WHICH of `load`/`error` fired, in the order they fired, appended rather than replaced: a
+   * track that loads and then errors is a different reading from one that only errors, and the
+   * element's own `readyState` is a hardcoded 0 in every suite here, so the event is the only
+   * instrument. Both are CAPTURE props, which is not a style choice — react-dom 19's
+   * `listenToNonDelegatedEvent` block covers `embed`/`source`/`link` and `case "track":` falls
+   * through without them, and the native events do not bubble, so `onLoad`/`onError` on a
+   * `<track>` are dead code (`_player/SubtitleTrackElement.tsx` carries the measurement).
+   */
+  const recordTrackEvent = useCallback((id: string, kind: 'load' | 'error') => {
+    const prev = subtitleReadingsRef.current[id]?.event ?? BLANK_SUBTITLE.event;
+    updateArm(id, { event: prev === BLANK_SUBTITLE.event ? kind : `${prev}, ${kind}` });
+  }, [updateArm]);
+
+  /** Reading 35: `textTracks.length` after each `video.load()`, as a sequence (1 -> 2 -> 3). */
+  const callLoadAgain = useCallback((id: string) => {
+    const v = subtitleVideoRef.current;
+    if (!v) return;
+    try {
+      v.load();
+    } catch (err) {
+      updateArm(id, { loads: `video.load() threw: ${String(err)}` });
+      return;
+    }
+    const list = v.textTracks as unknown as { length: number } | undefined;
+    const count = list ? String(list.length) : NO_VALUE;
+    const prev = subtitleReadingsRef.current[id]?.loads ?? BLANK_SUBTITLE.loads;
+    updateArm(id, { loads: prev === BLANK_SUBTITLE.loads ? count : `${prev} -> ${count}` });
+  }, [updateArm]);
+
+  const clearSubtitleReadings = useCallback(() => {
+    const next = blankSubtitleReadings();
+    subtitleReadingsRef.current = next;
+    setSubtitleReadings(next);
+    writeSubtitleReadings(next);
+    setActiveArm(null);
+    setTrackMounted(true);
   }, []);
 
   const major = chromeMajor(ua);
@@ -864,9 +1346,7 @@ export default function BigScreenDiagnostics() {
                 </tr>
                 <tr>
                   <th>File present?</th>
-                  <td className={r.present === 'yes' ? 'bs-yes' : r.present === 'no' ? 'bs-no' : undefined}>
-                    {r.present === 'no' ? 'FILE NOT PRESENT — nothing was mounted' : r.present}
-                  </td>
+                  <td className={presenceClass(r.present)}>{presenceCell(r.present)}</td>
                 </tr>
                 <tr>
                   <th>MediaError.code</th>
@@ -909,6 +1389,15 @@ export default function BigScreenDiagnostics() {
                 again.
               </p>
             ) : null}
+            {isAnswered(r.present) ? (
+              <p className="bs-no">
+                <strong>THE SERVER ANSWERED, AND IT WAS NOT A 404.</strong> The status in the HTTP
+                line above is the reading, and it is not an absence: nothing was mounted, so this
+                is not a codec result either. Do <strong>not</strong> run the ffmpeg line — the
+                server, or something in front of it, answered about the route rather than about
+                the file, and producing the clip again cannot change that. Transcribe the status.
+              </p>
+            ) : null}
             {activeClip === c.id ? (
               <>
                 <video
@@ -924,6 +1413,275 @@ export default function BigScreenDiagnostics() {
                 />
                 <p style={{ color: 'var(--muted)', fontSize: 20, wordBreak: 'break-all' }}>
                   {SAMPLES_BASE + c.file}
+                </p>
+              </>
+            ) : null}
+          </div>
+        );
+      })}
+      <h2>Sidecar subtitles (stage 9)</h2>
+      {/* Named container, because two of the sentences below are deliberately repeated in an
+          arm's own note — an operator reads the arm they are loading, not the preamble — and a
+          claim with two copies is a claim where deleting either leaves a test green. The
+          section's prose is asserted HERE and an arm's guidance on its own row. */}
+      <div data-subtitle-intro>
+        <p>
+          <strong>No suite in this project can answer the question this section asks.</strong>{' '}
+          jsdom implements no text-track machinery at all — <code>window.TextTrack</code> is
+          undefined, <code>video.textTracks</code> is a plain zero-length array even with a{' '}
+          <code>&lt;track default&gt;</code> child present, <code>trackEl.track</code> is
+          undefined and <code>trackEl.readyState</code> is a hardcoded <code>0</code> — and the
+          backend image has no browser binary. So whether WebVTT cues paint on this television is
+          unanswerable by every instrument this project owns except a panel and a pair of eyes.
+          This section is that instrument. <strong>It asserts nothing and claims nothing</strong>;
+          every cell starts at <em>not taken</em> and stays there until it is sampled.
+        </p>
+        <p>
+          <strong>Arm 27a needs no clip, no torrent, no FastAPI and no auth.</strong> Measured: a{' '}
+          <code>&lt;track default&gt;</code> inserted after <code>loadedmetadata</code> reaches{' '}
+          <code>mode: &quot;showing&quot;</code> with its cues parsed <strong>even with the media
+          element in the error state</strong>, so the arm mounts a <code>&lt;video&gt;</code> whose{' '}
+          <code>src</code> cannot resolve on purpose and puts the committed hand-typed{' '}
+          <code>.vtt</code> beside it. A blank screen then has <strong>one</strong> candidate
+          cause. The two probe files <strong>are in this repository</strong> — a few hundred bytes
+          of hand-typed text each, un-ignored by name — unlike the four codec clips above, which
+          nobody has produced.
+        </p>
+        <p>
+          <strong>Probe first, mount second</strong>, and it matters more here than it does for a
+          clip: a <code>&lt;track&gt;</code> whose <code>src</code> 404s fires exactly the same{' '}
+          <code>error</code> as one whose body no parser accepts, and the element gets{' '}
+          <strong>one</strong> load — nothing retries it. A missing probe file would otherwise be
+          transcribed as “this set does not paint cues”.
+        </p>
+        <p>
+          <strong>Transcribe every cell verbatim</strong> into rows <strong>27a, 27b, 30, 32 and
+          35</strong> of{' '}
+          <code>docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md</code> — the five
+          this page is the instrument for, and no others — and{' '}
+          <strong>answer the VISIBLE question by hand on every arm you load</strong>: a zero-cue
+          reading and an invisible-cue reading are different facts and may not share a cell. A
+          signature-valid body with no cues in it loads at <code>readyState 2</code> and fires{' '}
+          <strong>no event at all</strong>, and the 401 on the subtitle routes is bodiless by
+          design — so “it worked / it failed” is the one shape this page may never print.
+        </p>
+      </div>
+      <div className="bs-controls">
+        <button className="bs-btn" type="button" onClick={probeAllArms}>
+          Probe every arm’s files (HEAD only)
+        </button>
+        <button className="bs-btn bs-btn--ghost" type="button" onClick={clearSubtitleReadings}>
+          Clear subtitle readings
+        </button>
+      </div>
+      {SUBTITLE_ARMS.map((arm) => {
+        const r = subtitleReadings[arm.id] ?? BLANK_SUBTITLE;
+        const active = activeArm === arm.id;
+        const cls = (v: string) => (v === 'yes' ? 'bs-yes' : v === 'no' ? 'bs-no' : undefined);
+        // Built as data so each row is one line to read and the per-arm rows (the clip, the
+        // load() sequence, the two extra operator questions) are additions rather than
+        // branches inside the table.
+        const rows: Array<{ label: string; value: string; cls?: string }> = [
+          { label: 'HTTP — the .vtt (verbatim)', value: r.http },
+          {
+            label: 'Subtitle file present?',
+            value: presenceCell(r.present),
+            cls: presenceClass(r.present),
+          },
+          ...(arm.clip === null
+            ? []
+            : [
+              { label: 'HTTP — the clip (verbatim)', value: r.clipHttp },
+              {
+                label: 'Clip present?',
+                value: presenceCell(r.clipPresent),
+                cls: presenceClass(r.clipPresent),
+              },
+            ]),
+          { label: 'textTracks.length', value: r.tracks },
+          { label: 'textTracks[0].mode', value: r.mode },
+          { label: 'cues.length', value: r.cues },
+          { label: 'trackEl.readyState', value: r.readyState },
+          { label: 'which of load/error fired', value: r.event },
+          ...(arm.doubleLoad
+            ? [{ label: 'after each video.load(), textTracks.length', value: r.loads }]
+            : []),
+          { label: 'sampled at', value: r.at },
+          {
+            label: 'Cue text VISIBLE on the panel? (operator)',
+            value: r.visible,
+            cls: cls(r.visible),
+          },
+          ...(arm.cueStyle
+            ? [{ label: 'Cue text was GOLD? (operator)', value: r.styled, cls: cls(r.styled) }]
+            : []),
+          ...(arm.moved
+            ? [
+              {
+                label: 'Cue sat HIGHER than arm 27a’s? (operator)',
+                value: r.moved,
+                cls: cls(r.moved),
+              },
+            ]
+            : []),
+        ];
+        return (
+          <div key={arm.id} data-subtitle-arm={arm.id} style={{ marginBottom: 32 }}>
+            <h3 style={{ fontSize: 28, marginBottom: 8 }}>{arm.label}</h3>
+            <p style={{ color: 'var(--muted)', fontSize: 20 }}>
+              Reading {arm.reading}. {arm.note}
+            </p>
+            <div className="bs-controls">
+              <button className="bs-btn bs-btn--ghost" type="button" onClick={() => void loadArm(arm)}>
+                Load {arm.vtt}
+                {arm.clip === null ? '' : ` + ${arm.clip}`}
+              </button>
+              <button className="bs-btn bs-btn--ghost" type="button"
+                      onClick={() => updateArm(arm.id, { visible: 'yes' })}>
+                Cue text visible: yes
+              </button>
+              <button className="bs-btn bs-btn--ghost" type="button"
+                      onClick={() => updateArm(arm.id, { visible: 'no' })}>
+                Cue text visible: no
+              </button>
+              {arm.cueStyle ? (
+                <>
+                  <button className="bs-btn bs-btn--ghost" type="button"
+                          onClick={() => updateArm(arm.id, { styled: 'yes' })}>
+                    Cue text was gold: yes
+                  </button>
+                  <button className="bs-btn bs-btn--ghost" type="button"
+                          onClick={() => updateArm(arm.id, { styled: 'no' })}>
+                    Cue text was gold: no
+                  </button>
+                </>
+              ) : null}
+              {arm.moved ? (
+                <>
+                  <button className="bs-btn bs-btn--ghost" type="button"
+                          onClick={() => updateArm(arm.id, { moved: 'yes' })}>
+                    Cue sat higher: yes
+                  </button>
+                  <button className="bs-btn bs-btn--ghost" type="button"
+                          onClick={() => updateArm(arm.id, { moved: 'no' })}>
+                    Cue sat higher: no
+                  </button>
+                </>
+              ) : null}
+            </div>
+            <table className="bs-facts">
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.label}>
+                    <th>{row.label}</th>
+                    <td className={row.cls}>{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {r.present === 'no' || r.clipPresent === 'no' ? (
+              <p className="bs-no">
+                <strong>FILE NOT PRESENT.</strong> The HTTP lines above are the reading. This is
+                not a text-track result and must not be transcribed as one — nothing was
+                mounted, so nothing was asked to parse or paint a cue. The <code>.vtt</code>{' '}
+                files are committed, so a 404 on one of those means this build is serving a
+                different tree; the clip is a gitignored binary and its ffmpeg line is in the
+                stage-8 readings sheet.
+              </p>
+            ) : null}
+            {/* A SECOND STATE WITH A DIFFERENT ACTION, and keeping it out of the paragraph
+                above is the whole of F6: that one says "copy the file over / check the tree",
+                which is the one thing that cannot help here. A 403 or a 500 is an answer about
+                the ROUTE, from the server or whatever sits in front of it.
+                ITS GROUNDS ARE NOT `.vtt`-ONLY. This fires on `clipPresent` too, and the clip
+                is a gitignored binary nobody has produced — so the reason given to the operator
+                is the status being an answer, not the artefact being committed. The earlier
+                wording argued from "both `.vtt` probes are committed" while the condition
+                covered a file that is not committed at all. */}
+            {isAnswered(r.present) || isAnswered(r.clipPresent) ? (
+              <p className="bs-no">
+                <strong>THE SERVER ANSWERED, AND IT WAS NOT A 404.</strong> The status in the
+                HTTP lines above is the reading, and it is not an absence: nothing was mounted,
+                so this is not a text-track result either. Do <strong>not</strong> copy a file
+                over or produce one — whichever artefact was asked for, a 403 or a 500 is the
+                server, or something in front of it, answering about the route rather than about
+                the file. Transcribe the status.
+              </p>
+            ) : null}
+            {active ? (
+              <>
+                {/* The ::cue arm's whole instrument. Inline, because the TV stylesheet ships
+                    no ::cue rule and must not grow one on the strength of an untaken
+                    reading — bigscreen.css:978 says exactly that. var() inside ::cue is half
+                    the question: a rule that applies with an unresolved custom property is
+                    indistinguishable on the panel from a rule that did not apply. */}
+                {arm.cueStyle ? <style>{'::cue { color: var(--gold); }'}</style> : null}
+                <video
+                  className="bs-video"
+                  data-subtitle-player={arm.id}
+                  ref={subtitleVideoRef}
+                  src={arm.clip === null ? BOGUS_VIDEO_SRC : SAMPLES_BASE + arm.clip}
+                  // `metadata`, PINNED BY THE SUITE AND NOT A DEFAULT TO BE TIDIED: with
+                  // `none` the set fetches nothing until a play press, so neither
+                  // `loadedmetadata` nor the bogus src's `error` ever fires — and those two
+                  // are what call `sampleArm` by themselves. Every machine cell would then sit
+                  // at "not taken" on the television until the operator pressed Sample, which
+                  // is the one state an untaken reading is indistinguishable from.
+                  preload="metadata"
+                  controls
+                  onLoadedMetadata={() => sampleArm(arm.id, 'loadedmetadata')}
+                  onError={() => sampleArm(arm.id, 'video error (expected on the bogus src)')}
+                >
+                  {trackMounted ? (
+                    <track
+                      data-subtitle-track={arm.id}
+                      ref={subtitleTrackRef}
+                      default
+                      kind="subtitles"
+                      srcLang="en"
+                      label={`cue probe ${arm.reading}`}
+                      src={SAMPLES_BASE + arm.vtt}
+                      onLoadCapture={() => recordTrackEvent(arm.id, 'load')}
+                      onErrorCapture={() => recordTrackEvent(arm.id, 'error')}
+                    />
+                  ) : null}
+                </video>
+                <div className="bs-controls">
+                  <button className="bs-btn bs-btn--ghost" type="button"
+                          onClick={() => sampleArm(arm.id, 'operator pressed Sample this arm')}>
+                    Sample this arm now
+                  </button>
+                  {arm.doubleLoad ? (
+                    <>
+                      <button className="bs-btn bs-btn--ghost" type="button"
+                              onClick={() => callLoadAgain(arm.id)}>
+                        Call video.load() again
+                      </button>
+                      <button className="bs-btn bs-btn--ghost" type="button"
+                              onClick={() => setTrackMounted(!trackMounted)}>
+                        {trackMounted ? 'Unmount the <track>' : 'Mount the <track> again'}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+                {arm.cueStyle ? (
+                  <>
+                    <p style={{ color: 'var(--muted)', fontSize: 20 }}>
+                      Compare the cue’s letter height against these three and transcribe{' '}
+                      <strong>which line it matches</strong>, not a judgement. §8.5’s Read floor
+                      is the first one.
+                    </p>
+                    {[24, 32, 40].map((px) => (
+                      <p key={px} style={{ fontFamily: 'var(--font-ui)', fontSize: px, margin: '4px 0' }}>
+                        {px}px — CUE 1 of 4 reference line
+                      </p>
+                    ))}
+                  </>
+                ) : null}
+                <p style={{ color: 'var(--muted)', fontSize: 20, wordBreak: 'break-all' }}>
+                  {SAMPLES_BASE + arm.vtt}
+                  {' · '}
+                  {arm.clip === null ? BOGUS_VIDEO_SRC : SAMPLES_BASE + arm.clip}
                 </p>
               </>
             ) : null}

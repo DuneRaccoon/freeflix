@@ -21,6 +21,19 @@ def test_fake_heuristics_off_by_default():
 
 
 def test_extensions_are_lowercased_with_dot():
+    # The single casing witness for every extension set in Settings, including
+    # stage 9's two subtitle sets. `blocked_extensions`/`video_extensions` are
+    # compared against `content_guard.py:20`'s already-lowercased suffix, so one
+    # capital letter there makes an extension unmatchable with no error anywhere.
+    # The two subtitle sets have NO reader yet — stage 9 task 3 lands the lister
+    # that compares against them — so for those two this pins the rule before the
+    # comparison exists, rather than describing one that does.
     s = Settings()
-    for ext in s.blocked_extensions | s.video_extensions:
+    sets = (
+        s.blocked_extensions
+        | s.video_extensions
+        | s.subtitle_extensions
+        | s.subtitle_convertible_extensions
+    )
+    for ext in sets:
         assert ext.startswith(".") and ext == ext.lower()

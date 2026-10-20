@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { StrictMode } from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type { CatalogItem } from '@/types';
 import type { CardItem } from '../_components/Card';
@@ -1307,6 +1308,126 @@ describe('/bigscreen home: Back', () => {
     await answer('trending');
     expect(fireEvent.keyDown(window, { key: 'Enter', keyCode: 13 })).toBe(true);
     expect(fireEvent.keyDown(window, { key: 'a', keyCode: 65 })).toBe(true);
+  });
+
+  describe('inside the webOS app', () => {
+    // `bs:shell` is what the layout captured from the shell's `?from=app`. The global
+    // beforeEach clears sessionStorage, so every row ABOVE this block is the browser case.
+    const enterApp = () => sessionStorage.setItem('bs:shell', '1');
+    /**
+     * One macrotask, which is what the handler's `setTimeout(…, 0)` is waiting on.
+     *
+     * NOT `waitFor`. RTL's `waitFor` disables the React act environment for its duration, which
+     * is this repository's recorded flake mechanism; and a poll would pass here even if the
+     * note never arrived on the tick the production code actually uses.
+     */
+    const tick = () => act(async () => { await new Promise((r) => setTimeout(r, 1)); });
+
+    it('asks the window to close, which the browser case must never do', async () => {
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      enterApp();
+      useProfile(BEN);
+      renderHome();
+      await answer('trending');
+      expect(fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 461 })).toBe(false);
+      await settle();
+      expect.soft(close).toHaveBeenCalledTimes(1);
+      // Still a root: closing is leaving the app, never navigating inside it.
+      expect.soft(router.push).not.toHaveBeenCalled();
+      expect.soft(router.replace).not.toHaveBeenCalled();
+      close.mockRestore();
+    });
+
+    it('tells the viewer which button works when the close is refused', async () => {
+      // THE ROW THAT MATTERS, and the reason the handler is not just `window.close()`.
+      // `close()` on a document the script did not open is refused outright in standard
+      // Chromium, and whether webOS permits it for an app's own window is NOT KNOWN on this
+      // set — device reading 39. This row renders what a viewer sees when the API does
+      // nothing: a press that did nothing and said nothing is the state the browser case
+      // already refuses, and it must not come back for the app case on the strength of an
+      // untested API.
+      //
+      // EVERY ROW IN THIS BLOCK SPIES ON `close`, INCLUDING THE ONES THAT ASSERT IT IS NOT
+      // CALLED. jsdom's `window.close()` is NOT a no-op — it tears the window down, and an
+      // unspied call takes `document.body` away from every test that follows in the file
+      // (measured: four cascading "Cannot read properties of undefined" failures).
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      enterApp();
+      useProfile(BEN);
+      renderHome();
+      await answer('trending');
+      fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 461 });
+      await tick();
+      expect(screen.getByText('Press Home to leave Freeflix.')).toBeInTheDocument();
+      close.mockRestore();
+    });
+
+    it('still says it under StrictMode, which is how the app runs in development', async () => {
+      // `reactStrictMode: true` makes React mount, unmount and remount every component in dev.
+      // A `mounted` ref that is only cleared on unmount is left false by that first simulated
+      // unmount, and the note is dead for the whole dev session with every other row here
+      // green — RTL does not use StrictMode unless asked. This row is the asking.
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      enterApp();
+      useProfile(BEN);
+      render(
+        <StrictMode>
+          <HomePage />
+        </StrictMode>,
+      );
+      await answer('trending');
+      fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 461 });
+      await tick();
+      expect(screen.getByText('Press Home to leave Freeflix.')).toBeInTheDocument();
+      close.mockRestore();
+    });
+
+    it('says nothing when the close works', async () => {
+      // Non-vacuity for the row above: with a `close` that actually tears the document down,
+      // the note must not flash on the way out. Modelled by unmounting inside the spy, which
+      // is the closest jsdom has to a document being taken away.
+      let unmountFn: (() => void) | null = null;
+      const close = vi.spyOn(window, 'close').mockImplementation(() => { unmountFn?.(); });
+      enterApp();
+      useProfile(BEN);
+      const view = renderHome();
+      unmountFn = view.unmount;
+      await answer('trending');
+      fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 461 });
+      await tick();
+      expect.soft(close).toHaveBeenCalled();
+      expect.soft(screen.queryByText('Press Home to leave Freeflix.')).toBeNull();
+      close.mockRestore();
+    });
+
+    it('leaves the browser case exactly as it was', async () => {
+      // The flag is absent (the global beforeEach cleared it). No close, no note, and the
+      // press is still CLAIMED — handing it to the browser would walk history out of
+      // (bigscreen), which a remote cannot recover from.
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      useProfile(BEN);
+      renderHome();
+      await answer('trending');
+      expect(fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 461 })).toBe(false);
+      await tick();
+      expect.soft(close, 'an ordinary tab must not try to close itself').not.toHaveBeenCalled();
+      expect.soft(screen.queryByText('Press Home to leave Freeflix.')).toBeNull();
+      close.mockRestore();
+    });
+
+    it('does not inherit the flag from the device store', async () => {
+      // The decision in one row: shell-ness is a TAB fact. A desktop browser opened later at
+      // the same address must not believe it is the app.
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      localStorage.setItem('bs:shell', '1');
+      useProfile(BEN);
+      renderHome();
+      await answer('trending');
+      fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 461 });
+      await tick();
+      expect(close).not.toHaveBeenCalled();
+      close.mockRestore();
+    });
   });
 
   it('stops claiming Back once the screen is gone', async () => {

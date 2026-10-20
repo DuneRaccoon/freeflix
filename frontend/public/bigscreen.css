@@ -869,24 +869,24 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-list__fail { color: var(--danger); }
 
 /* --- the player: video, scrim, band, transport row, scrub cell ----------------- */
-/* Rendered by _player/TransportBar and _player/ScrubBar inside the band the watch route
-   mounts. The shape the rules below assume, top to bottom:
+/* Rendered by _player/ScrubBar, _player/TransportBar and _player/SubtitlePicker inside the
+   band the watch route mounts. The shape the rules below assume, top to bottom:
 
      .bs-player                      fixed, full-bleed, the film's own stacking context
        video.bs-player__video        absolute, z-index -1
-       .bs-player__scrim             absolute, bottom-anchored, z-index -1
+       .bs-player__scrim[--hidden]   absolute, bottom-anchored, z-index -1; fades WITH the band
        .bs-player__bar[--hidden]     the band: carries the safe inset, fades by opacity
-         .bs-player__hint            the STREAM's line, when there is one to say (the route)
-         .bs-player__hint            the scrub cell's reserved status line (ScrubBar)
-         .bs-player__row             the scrub row: one cell, full width
-         .bs-player__row             the transport row: one cell per TRANSPORT_CELLS entry
+         .bs-player__hint            the STREAM's line, only while there is one (the route)
+         .bs-player__hint, __row     CLOSED: the scrub cell's line and row (ScrubBar)
+         .bs-player__row             CLOSED: the transport row, one cell per transportCells()
+         .bs-player__hint, __row ×N  OPEN: the picker's line (always) + pickerRowCounts rows
 
-   TWO hint lines, not one, and they are the same class deliberately: the route's line (why the
-   stream stopped, what the ladder is doing, where a resume was reduced to) and the cell's line
-   (why a pending seek lands where it does) are the same geometry, and the band is
-   bottom-anchored, so either one wrapping grows the band UPWARDS and no control moves. Neither
-   is a focus stop. The route's line only exists while there is something to say, which is also
-   when the auto-hide is suppressed — so it cannot be faded out from under the viewer.
+   THREE users of .bs-player__hint, not two, and the same class deliberately: each is one
+   reserved line in a bottom-anchored band, so a wrap grows the band UPWARDS, nothing moves,
+   and none is a focus stop. Their auto-hide guards DIFFER and the picker's is NOT its text:
+   the route's line exists only while `message !== ''`, itself the suppression; the scrub
+   cell's has none; the picker's is always there and `!pickerOpen` suppresses it (`mayHide`).
+   Count: `grep -rl 'className="bs-player__hint"' 'src/app/(bigscreen)'`.
 
    NONE OF THIS IS DECORATION:
 
@@ -894,11 +894,11 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      parent's own outline, and this element has two of them. That already cost this
      stylesheet its one full-bleed focus stop once (see .bs-hero, found by rendering in
      Chromium at 1920x1080, not by reading it).
-   - The scrim is scoped to the BAND, not the viewport. Fill rate over a decoding 1080p
-     surface is this screen's whole budget, and a full-viewport gradient is composited over
-     every frame of the film for its entire length. 480px covers the band — two 60px+ rows,
-     a reserved hint line, three 24px gaps and the 54px safe inset come to ~334px — and
-     leaves ~146px for the gradient to reach nothing.
+   - The scrim is scoped to the BAND, not the viewport. Fill rate over a decoding 1080p surface
+     is this screen's whole budget, and a full-viewport gradient is composited over every frame
+     of the film for its entire length. 480px covers the CLOSED band — two 60px+ rows, a
+     reserved hint line, three 24px gaps and the 54px safe inset, ~334px. An OPEN picker's rows
+     are NOT in that figure and can exceed it; unread, like the width below.
    - --hidden sets OPACITY ONLY (§8.3, hazard 4). `display: none`, `visibility: hidden`,
      `inert` and unmounting all blur the focused control, and with the focus grid's counts
      unchanged its reconcile effect never re-runs: the ring is gone for good on a surface
@@ -907,8 +907,12 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
    - .bs-player__row is `flex-wrap: nowrap`. .bs-controls (the diag harness's row) wraps and
      must not be borrowed: the focus model counts one row per container, so a container that
      re-flowed would draw one focus row on two visual lines — Right would land on a control
-     on the next line and Down would skip one. The six transport cells measure ~1290px with
-     their gaps, inside the 1728px the safe area leaves.
+     on the next line and Down would skip one. The ~1290px recorded here (inside the 1728px
+     the safe area leaves) was SIX cells — five plus Retry — and it was never read off the
+     set either. Stage 9 inserted a Subtitles cell, so the row is six cells without Retry and
+     SEVEN with, and that one cell's aria-hidden sub-line can be twenty characters ("none in
+     this release"), wider than every label in the row. Device reading 33 is the measurement
+     that replaces this number; until it is transcribed, this row's width is UNKNOWN.
    - .bs-player__scrub takes NO `transform` — not even a transition for one. It is
      full-bleed, and a scaled 1728px box crosses the safe inset and shows the page behind
      it; .bs-hero:focus refuses scale for the same reason. The ring is the house ring.
@@ -917,12 +921,19 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      What .bs-msg is actually reused FOR is its reserved min-height — a line appearing
      unreserved nudges the control the ring is sitting on — so that is what this copies.
 
-   COMBINING: every class here is used ALONE on its own element, except the one modifier
-   .bs-player__bar + .bs-player__bar--hidden. The transport cells wear the existing .bs-btn
-   (+ .bs-btn--ghost) unchanged, exactly as home and the detail screens do; no modifier is
-   added to .bs-btn from this block. No positional selector: the three track layers are
-   three named classes, and the played layer paints over the ready layer by source order,
-   the same mechanism .bs-card__fallback documents. No new colour token. */
+   COMBINING: every class here is used ALONE on its own element, except TWO modifiers driven by
+   the SAME flag: .bs-player__bar + .bs-player__bar--hidden, and .bs-player__scrim +
+   .bs-player__scrim--hidden. The scrim's one job is to make the BAND legible, so with the band
+   hidden it has none and a reason to go: native cues paint inside the video element's box, the
+   other z-index: -1 layer, so an always-on scrim paints over every cue for the whole film,
+   which the auto-hide alone does not rescue. Both modifiers set OPACITY ONLY, for different
+   reasons — the band's is hazard 4 (blurring the focused control), the scrim's is that a
+   disappearing 480px layer is a repaint where the point was a composited fade; and it is
+   aria-hidden: a wash, not content. The transport cells and the picker's rows wear the
+   existing .bs-btn (+ .bs-btn--ghost) unchanged, as home and the detail screens do; no
+   modifier is added to .bs-btn from this block. No positional selector: the three track layers
+   are three named classes, the played one painting over the ready one by source order, as
+   .bs-card__fallback documents. No new colour token. */
 .bs-player {
   position: fixed;
   inset: 0;
@@ -953,7 +964,19 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   /* --ink written out as rgba, as .bs-hero__scrim does: a gradient needs the alpha stops
      and there is no colour-mix on this surface. */
   background: linear-gradient(to top, var(--ink) 0%, rgba(10, 10, 11, 0.82) 45%, rgba(10, 10, 11, 0) 100%);
+  /* The SAME curve as .bs-player__bar's, deliberately: the two layers move together, and
+     two durations would show the gradient outliving the band it exists for. */
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* Faded, never unmounted and never display:none — see the COMBINING note above. The
+   gradient is ~0.82 alpha at 45% of 480px, so there is no cue position inside the video
+   box that clears it; fading it is the whole fix, and it is the normal state (the band is
+   hidden for almost the entire film). With the band UP, a cue may still sit behind the BAND,
+   which is the element carrying `position: relative` with no z-index of its own and therefore
+   paints above both -1 layers at z-index: auto; .bs-player__row is static and stacks nothing
+   itself, so a z-index put THERE would do nothing. That is left unsolved on purpose, with no
+   ::cue rule and no `line:` guess, because no reading from the set has scoped it. */
+.bs-player__scrim--hidden { opacity: 0; }
 .bs-player__bar {
   position: relative;
   padding: var(--safe-y) var(--safe-x);
@@ -1026,4 +1049,25 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   display: block;
   height: 100%;
   background: var(--gold);
+}
+
+/* --- stage 10: the app's own chrome ------------------------------------- */
+/* APPENDED, NOT FILED BESIDE .bs-shell__head, AND THAT IS DELIBERATE. Twenty-five
+   `bigscreen.css:NNN` citations across six documents point into lines 884-1028 — the player
+   block — and every one of them moves if a rule is inserted above it. Nothing in this file is
+   ordered by the cascade here (every class below is used ALONE on its own element), so the
+   cost of appending is organisational distance and the cost of inserting is twenty-five stale
+   citations in prose that nothing recompiles. The real fix is for documents to stop citing a
+   stylesheet by line; until one of them does, new rules land here.
+
+   COMBINING: used ALONE on its own element, like every other class in this file.
+
+   The exit note on home, shown only when Back inside the webOS app asked to close the window
+   and the window is still here (device reading 39 is whether that ever happens). It sits in
+   .bs-shell__head's flex row, which is `align-items: baseline`, so it rides the heading's
+   baseline with no vertical rule of its own. */
+.bs-shell__exit {
+  margin: 0;
+  color: var(--muted);
+  font-size: 28px;
 }

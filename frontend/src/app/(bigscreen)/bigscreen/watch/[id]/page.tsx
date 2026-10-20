@@ -1207,7 +1207,9 @@ function Playing({
           return;
         // DISCRETE AND IDEMPOTENT. The remote's ▶ and ⏸ are two keys, not a toggle: a viewer
         // pressing ▶ on a playing title must not stop it. Both still live on the one
-        // focusable cell (`TWIN_CELL`), so the on-screen-twin contract is untouched.
+        // focusable cell because `TRANSPORT_CELLS` holds a single `playPause` cell — not
+        // because of `TWIN_CELL`, which records that mapping for a test and which nothing
+        // here reads.
         case 'play':
           if (!playing) void video.play()?.catch?.(() => {});
           return;

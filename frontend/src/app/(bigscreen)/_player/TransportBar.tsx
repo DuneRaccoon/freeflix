@@ -72,8 +72,10 @@ export type TransportCellId =
  * viewer pressing ▶ on a playing title STOPS it, and ⏸ on a paused one resumes it — a
  * recognised key mapped to the wrong semantic, which `useMediaKeys`' "an unrecognised key is
  * a missing shortcut, never a missing feature" defence does not cover. `play` and `pause` are
- * therefore their own actions, handled idempotently by the consumer, and `TWIN_CELL` below is
- * what keeps the on-screen-twin contract intact: all three still live on the one control.
+ * therefore their own actions, handled idempotently by the consumer. All three still live on
+ * the one control because `TRANSPORT_CELLS` holds a single `playPause` cell and nothing adds a
+ * second; `TWIN_CELL` below RECORDS that mapping for a test to walk and `tsc` to check, and no
+ * production path reads it (measured — `noDeadExports.test.ts` declares it test-only).
  */
 export type TransportAction = TransportCellId | 'play' | 'pause';
 
@@ -133,6 +135,11 @@ export const MEDIA_TWINS: Record<MediaKeyAction, TransportAction> = {
  * A `Record` over the whole action union, so a seventh action fails `tsc` here until it has
  * been given a cell to live on, and `TransportBar.test.tsx` walks it to prove every media key
  * still reaches something a remote can focus.
+ *
+ * WHAT IT IS NOT: the thing that makes the contract true. The watch route's `act` switch
+ * handles each action directly and never consults this table, so an entry changed here moves
+ * no pixel — it reddens a test. That makes this a second, hand-written statement of a rule
+ * production states elsewhere, which is the shape that lets the two drift apart silently.
  */
 export const TWIN_CELL: Record<TransportAction, TransportCellId> = {
   playPause: 'playPause',

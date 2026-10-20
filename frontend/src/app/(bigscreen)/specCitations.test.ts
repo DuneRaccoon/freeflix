@@ -32,10 +32,14 @@
  * that guessed would be a test with an opinion. Module-level citations are out of reach by
  * construction — `config.py:67-69` is a `Settings` field block and `providers/quality.py:12` is a
  * module-level `re.compile`, so "a def whose name the sentence contains" has nothing to say about
- * them. And it polices **this spec only**: the `docs/superpowers/plans/` tree holds 22 more
- * `manager.py:<line>` citations, many of them already stale by the line-shift that any backend
- * commit causes, and dragging those into a frontend suite would make a plan's history
- * unmaintainable. The two files below are the ones whose citations were measured stale.
+ * them. Nor does it police DRIFT WITHIN a function: measured, moving §4.2's `:1778` to `:1800`
+ * — 22 lines down, still inside `stream_file_range`'s 100-odd — is green here, so a citation can
+ * still rot into the wrong line of the right function. And it polices **this spec only**: the
+ * `docs/superpowers/plans/` tree holds **68** more `torrent/manager.py:<line>` citations (98
+ * across `docs/`, 46 of the plans' ones below line 1264), many already stale by
+ * the line-shift that any backend commit causes, and dragging those into a frontend suite would
+ * make a plan's history unmaintainable. The two files below are the ones whose citations were
+ * measured stale.
  *
  * WHERE IT RUNS: `npm run test:tv` (this directory is the glob) and `npx vitest run`. In no build
  * and in no CI, like every other guard on this surface.
@@ -158,7 +162,15 @@ function sentenceWith(block: string, needle: string): string | null {
   return null;
 }
 
-type Citation = { raw: string; key: string; from: number; to: number; sentence: string };
+type Citation = {
+  raw: string;
+  key: string;
+  from: number;
+  to: number;
+  sentence: string;
+  /** True when `sentenceWith` found no sentence and the whole block was used instead. */
+  viaFallback: boolean;
+};
 
 function citationsIn(text: string): Citation[] {
   const found: Citation[] = [];
@@ -167,12 +179,14 @@ function citationsIn(text: string): Citation[] {
     for (const m of block.matchAll(re)) {
       const key = sourceFor(m[1]);
       if (key === null) continue;
+      const sentence = sentenceWith(block, m[0]);
       found.push({
         raw: m[0],
         key,
         from: Number(m[2]),
         to: Number(m[3] ?? m[2]),
-        sentence: sentenceWith(block, m[0]) ?? block,
+        sentence: sentence ?? block,
+        viaFallback: sentence === null,
       });
     }
   }
@@ -207,6 +221,20 @@ describe('the TV spec cites Python by line, so the lines have to be real', () =>
     expect(enclosingDef(managerDefs, prio!.end, prio!.end)!.name).toBe('prioritize_video_files');
     // One line past a block is OUTSIDE it: the property every citation below leans on.
     expect(enclosingDef(managerDefs, skip!.start, skip!.end + 1)).not.toBe(skip);
+
+    // THE TWO RULES ABOVE THAT NO REAL CITATION REACHES, on fixtures. Measured: with the
+    // trailing-blank trim deleted, and with `enclosingDef` taking the OUTERMOST containing def
+    // instead of the innermost, every assertion in this file stayed green — the spec happens to
+    // cite only methods with no nested `def` and no citation happens to land in the blank lines
+    // under one. Both rules are load-bearing for the next citation, so both get a control.
+    const nested = pythonDefs(
+      ['def outer():', '    x = 1', '    def inner():', '        pass', '    return x', ''].join('\n'),
+    );
+    expect(nested.map((d) => d.name)).toEqual(['outer', 'inner']);
+    expect(enclosingDef(nested, 4, 4)!.name).toBe('inner');
+    const trailing = pythonDefs(['def a():', '    pass', '', '', 'def b():', '    pass', ''].join('\n'));
+    // `a`'s block is lines 1-2; the two blank lines under it are not part of it.
+    expect([trailing[0].start, trailing[0].end]).toEqual([1, 2]);
   });
 
   it('finds the citations it is supposed to be policing, in every spelling', () => {
@@ -216,7 +244,13 @@ describe('the TV spec cites Python by line, so the lines have to be real', () =>
     // the "recorder asserted == [] with no positive control" shape.
     expect(found.length).toBeGreaterThanOrEqual(5);
     expect(new Set(found.map((c) => c.raw)).size).toBeGreaterThanOrEqual(4);
-    // Every citation got a SENTENCE, not the whole block as a fallback.
+    // Every citation got a SENTENCE, not the whole block as a fallback. The obvious
+    // spelling of this — `c.sentence.includes(c.raw)` — is true BY CONSTRUCTION, because
+    // `sentenceWith` returns only a sentence that contains the needle and the fallback is the
+    // block that contains it too: measured, with `sentenceWith` stubbed to return null for
+    // every citation, that assertion stayed green while every sentence was a whole block. The
+    // flag is the instrument; the `includes` check is kept as the weaker one it always was.
+    expect(found.filter((c) => c.viaFallback).map((c) => c.raw)).toEqual([]);
     expect(found.every((c) => c.sentence.includes(c.raw))).toBe(true);
 
     // The path matcher's own control, on a fixture rather than on the spec: one file, three
@@ -230,6 +264,25 @@ describe('the TV spec cites Python by line, so the lines have to be real', () =>
       'torrent/manager.py',
       'torrent/manager.py',
     ]);
+
+    // THE RANGE'S END, which every "leaks one line past the block" mutation depends on and
+    // which no assertion here read: measured, dropping `(?:-(\d+))?` from the regex collapsed
+    // every ranged citation to its first line and all four tests stayed green — the guard would
+    // have gone on policing starts in silence.
+    const ranged = citationsIn('One (`torrent/manager.py:1629-1644`) range.');
+    expect([ranged.length, ranged[0].from, ranged[0].to]).toEqual([1, 1629, 1644]);
+
+    // THE BLOCK SPLITTER. Its own comment argues that without it a sentence could be read
+    // across two bullets; measured, collapsing the whole document into one block left all four
+    // tests green, because this spec's bullets happen to end in full stops. A bullet that does
+    // not is the case the rule is for, so the rule gets the fixture its comment claims.
+    const bullets = citationsIn(
+      '- Alpha cites `torrent/manager.py:1629-1644` with no full stop\n' +
+        '- Beta cites `torrent/manager.py:1646` instead.',
+    );
+    expect(bullets.length).toBe(2);
+    expect(bullets[0].sentence).not.toContain('1646');
+    expect(bullets[1].sentence).not.toContain('1629');
   });
 
   it('resolves every citation into a def its own sentence names', () => {

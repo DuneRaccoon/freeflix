@@ -295,9 +295,9 @@ stage unmodified). Every line number in this paragraph was read on `feat/tv-stag
 (the `bare_401` handler, `main.py:205-208` — re-resolved 2026-10-20 on
 `feat/tv-stage9-subtitles`; the `:188-191` that stood here was stale, and at the stage-8 merge
 the handler was at `:193-196`) on the stated grounds that "the player's error handler checks the status
-explicitly". **It does not.** `VideoPlayer.tsx:906-933` reads only `video.error?.code`; grep for
+explicitly". **It does not.** `VideoPlayer.tsx:1032-1059` reads only `video.error?.code`; grep for
 `401` under the player and streaming directories returns nothing. An empty 401 surfaces as
-`MediaError` 2 or 4, which `:909` routes into `attemptRecovery()` whenever `downloadProgress < 100`,
+`MediaError` 2 or 4, which `:1035` routes into `attemptRecovery()` whenever `downloadProgress < 100`,
 and both `PatchedVideoPlayer` and the page swallow "network error"/"buffering" strings during an
 active download. Result: an expired session on a downloading title is an endless silent retry.
 

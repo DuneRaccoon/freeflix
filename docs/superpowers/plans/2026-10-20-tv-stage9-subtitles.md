@@ -642,8 +642,16 @@ reddens on it. Re-resolved: `stream_file_range` at `:1778`, the cap at
 `:1864`, the truncating `return` at `:1876`, and **the defect is unchanged and still live** —
 `piece_timeout`, which would replace the flat 300 s, is passed by no production caller. §4.5's
 `main.py:188-191` for the bodiless 401 is `:205-208` on this branch (`:193-196` at the stage-8
-merge, which is the figure task 16's text carries). Both corrected. **Four stale citations in one
-spec, found by grepping a pattern rather than by reading the two the brief named.**
+merge, which is the figure task 16's text carries — the task text itself says `:194-196`, the
+def-only span of the same handler). Both corrected. **Four stale citations in one
+spec, found by grepping a pattern rather than by reading the two the brief named.** *(Task-16
+review: the same section's two `VideoPlayer.tsx` citations were stale too and were left as
+out-of-scope, with `:1020` named as the replacement — also wrong. `handleError` is
+`VideoPlayer.tsx:1032-1059` and the `downloadProgress < 100` route into `attemptRecovery()` is
+`:1035-1038`; both re-resolved in place, line-count neutral, because §4.5 sits above every
+`:NNN` reference this plan and the readings sheet make into that spec. The guard does not police
+`.tsx`, so that correction is unprotected — a fifth stale citation in the one section the task
+rewrote is what being out of the guard's reach looks like.)*
 
 **3. This plan's own backend citations are ~+124 lines off in this branch's tree.** The branch's
 commits inserted that much above them: the false docstring at `manager.py:1140-1143` resolves at
@@ -659,8 +667,11 @@ rows: `.bs-player__bar`'s `position: relative` is `:980-981` (plan: `:957-958`),
 at lines below 1264, across **eight files**, and all fourteen were written and verified by this
 branch's own tasks (`api/subtitles.py` ×3, `models.py:1291-1292`, `subtitles/sidecars.py`,
 `test_sidecar_lister.py` ×3, `test_prioritize_video_files_list.py` ×2, `test_subtitles_list.py`
-×2, `test_subtitles_vtt_route.py`, `test_sidecar_admission.py`). Another **22** sit in the
-`docs/` tree. A first draft of the correction ran to 28 lines and
+×2, `test_subtitles_vtt_route.py`, `test_sidecar_admission.py`). Another **98** sit in the
+`docs/` tree — **68** of them in `docs/superpowers/plans/`, 46 of those below 1264. *(The "22"
+that stood here, and the same figure in `specCitations.test.ts`'s header, were wrong: corrected
+by the task-16 review, measured with `grep -roIE '…manager\.py:[0-9]+' docs` minus the
+`test_content_guard_manager.py` and `assets/manager.py` spellings.)* A first draft of the correction ran to 28 lines and
 shifted every one of them, including the three the spec edits had just been written against. The
 shipped version replaces the four false lines with four true ones — `git diff --stat` is **4
 insertions, 4 deletions** — so `skip_non_video_files` stays at `:1629`, `prioritize_video_files`

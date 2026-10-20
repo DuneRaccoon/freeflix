@@ -17,8 +17,10 @@ import { statusOf } from '../../../_data/httpStatus';
 import {
   cellLabel,
   chosenCellState,
+  notArrivingAfter,
   pickerRowCounts,
   pickerRows,
+  pollSubtitles,
   type SubtitleCellState,
   type SubtitlePickerRow,
 } from '../../../_data/subtitles';
@@ -187,13 +189,14 @@ function byteAt(
 }
 
 /**
- * Which of the eight cell states the sidecar list and the viewer's choice put the cell in.
+ * Which of the nine cell states the sidecar list and the viewer's choice put the cell in.
  *
  * THE CHOICE IS ASKED FIRST, and it answers only when there is one: `chosenCellState` returns
  * `null` for the unchosen case so the list-derived arms below stay the single statement of
- * what a list alone means. `on`, `fetching` and `unreadable` live there; `noCues` is reachable
- * from nothing on this surface yet — a WebVTT body with no cues is refused by the route with a
- * 415, so the state exists for the day the television learns that from a sibling read.
+ * what a list alone means. `on`, `fetching`, `notArriving` and `unreadable` live there;
+ * `noCues` is reachable from nothing on this surface yet — a WebVTT body with no cues is
+ * refused by the route with a 415, so the state exists for the day the television learns that
+ * from a sibling read.
  *
  * `coverage: "listed"` IS `off` EVEN WITH NOTHING OFFERABLE. A release that ships only an
  * `.ass` is listed, and `none in this release` would be a false sentence about it — the file
@@ -210,8 +213,9 @@ function subtitleCellState(
   read: SubtitleRead,
   chosen: SubtitleTrack | null,
   trackFault: boolean,
+  notArriving: boolean,
 ): SubtitleCellState {
-  const chosenState = chosenCellState(chosen, trackFault);
+  const chosenState = chosenCellState(chosen, trackFault, notArriving);
   if (chosenState !== null) return chosenState;
   if (read.k === 'loading') return 'loading';
   if (read.k === 'failed') return 'unavailable';
@@ -499,7 +503,8 @@ function WatchScreen() {
    * than an empty list: `{k:'loading'}` is `checking`, and an empty `subtitles` array with
    * `coverage: "none"` is the quite different `none in this release`. Waiting for a chosen
    * sidecar's bytes is a poll (`_data/subtitles.pollSubtitles`) and belongs to the press that
-   * chooses one, not here.
+   * chooses one, not here — `chooseSubtitle` below is that press, and for one whole stage
+   * nothing was: see its header, and C7.
    *
    * KEYED ON THE RESOLVED FILE INDEX, and gated on the arrival, because `index` is undefined
    * until `/files` answers and the list the television wants is the one filtered to the
@@ -512,11 +517,12 @@ function WatchScreen() {
    * film, and a subtitle list is never worth that. `saveProgress` opts out for the same
    * reason and `services/streaming.subtitles.test.ts` is where the opt-out is proved.
    *
-   * EVERY FAILED READ IS `unavailable`, and that is deliberate rather than lazy: the eight
-   * cell states are the eight things the television can say, `unreadable` means a sidecar
+   * EVERY FAILED READ IS `unavailable`, and that is deliberate rather than lazy: the nine
+   * cell states are the nine things the television can say, `unreadable` means a sidecar
    * this box cannot decode, and a cell left saying `checking` for the rest of the film would
-   * be the only one of the eight that is a lie. An operator who needs the difference has the
-   * backend log; a viewer's next press is the same either way.
+   * be the only one of the nine that is a lie. An operator who needs the difference has the
+   * backend log; a viewer's next press is the same either way. `notArriving` is the same
+   * judgement made once more, for the four ways a fetch can end without bytes.
    */
   const [subtitleRead, setSubtitleRead] = useState<SubtitleRead>({ k: 'loading' });
   /**
@@ -536,15 +542,68 @@ function WatchScreen() {
    */
   const [chosenIndex, setChosenIndex] = useState<number | null>(null);
   const [trackFault, setTrackFault] = useState(false);
+  /**
+   * THE FETCH VERDICT: the bytes were asked for and they are not coming.
+   *
+   * A BOOLEAN, not the poll's outcome. Four causes land here — the poll exhausted its 48 s,
+   * a read threw, the box refused the gate with a 409, the POST itself threw — and the cell
+   * names none of them, for the same reason every failed list read above is `unavailable`:
+   * the operator has the backend log and the viewer's next press is the same for all four.
+   * `_data/subtitles.notArrivingAfter` is where the poll's seven outcomes are folded down,
+   * once, under a `Record` `tsc` will not let anyone leave incomplete.
+   */
+  const [notArriving, setNotArriving] = useState(false);
+  /**
+   * THE GENERATION: a monotonic counter, and the only thing standing between a poll that
+   * outlived its episode and the list it would write over.
+   *
+   * THIS IS THE SECOND ASYNC WRITER INTO `subtitleRead`, and the first one needed this fix
+   * twice in its own review (the leading `loading` reset, and the `catch`'s `!cancelled`).
+   * A poll lives up to 48 s and a season pack's episodes share a torrent, so the previous
+   * episode's answer arriving after the new one's would put ANOTHER EPISODE'S sidecars on
+   * the screen — and `ready` with it, which is what mounts a `<track>` on the wrong file.
+   *
+   * Bumped in exactly two places, each with its own reason: the read effect's cleanup (a
+   * title change, an episode change, an unmount) and every press (a new choice supersedes
+   * the poll the last one started, including a press on the same entry, which is the retry).
+   */
+  const subtitleGen = useRef(0);
   const arrived = arrival.k === 'ok';
   useEffect(() => {
     // Before the guard: a new arrival or a new file invalidates the old answer, and a stale
-    // `off` on a title whose list has not been read yet is a claim nothing measured.
+    // `off` on a title whose list has not been read yet is a claim nothing measured. The
+    // verdict goes with them: it is an answer about a sidecar in the list being replaced.
+    //
+    // TWO OF THESE THREE LINES ARE UNFALSIFIABLE HERE, MEASURED RATHER THAN ASSUMED, in the
+    // shape the `askedFourK` ref above uses. Deleting `setNotArriving(false)` is GREEN on all
+    // 1543 rows of `test:tv`, and so is deleting `setTrackFault(false)` — which has been here
+    // since task 12 — because the verdict and the fault are only ever VISIBLE while something
+    // is chosen (`chosenCellState` answers `null` otherwise) and the line above clears the
+    // choice. Both are kept, for two reasons that do not depend on this suite: the only
+    // producer of a choice is a press, and a press that stopped clearing them (which IS
+    // reddened, by `page.fetch.test.tsx` and `page.subtitles.test.tsx`) would leave this as
+    // the last guard; and an edit that carried a choice across an episode change — the
+    // obvious "keep the viewer's language" feature — makes both of them load-bearing on the
+    // first attempt. Recorded here instead of defended by a row that cannot fail.
     setSubtitleRead({ k: 'loading' });
     setChosenIndex(null);
     setTrackFault(false);
-    if (!torrentId || !arrived) return;
+    setNotArriving(false);
     let cancelled = false;
+    /**
+     * ONE CLEANUP, RETURNED ON BOTH PATHS, AND THE GENERATION BUMP IS IN IT rather than in
+     * the body above. A cleanup runs before the next effect body on a title or episode
+     * change AND on unmount, so one line covers both cases; bumping in the body as well
+     * would be one rule written twice, and the copy a test can see (the episode change)
+     * would leave the other one deletable with nothing red. The unmount half is not
+     * decorative on this television: an abandoned poll keeps asking a box that caps itself
+     * at two downloads, 24 more times, re-enumerating a torrent's files on every read.
+     */
+    const invalidate = () => {
+      cancelled = true;
+      subtitleGen.current += 1;
+    };
+    if (!torrentId || !arrived) return invalidate;
     void (async () => {
       try {
         const list = await streamingService.getSubtitles(torrentId, index, { allow401: true });
@@ -556,10 +615,104 @@ function WatchScreen() {
         if (!cancelled) setSubtitleRead({ k: 'failed' });
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return invalidate;
   }, [torrentId, index, arrived]);
+
+  /**
+   * THE PRESS THAT CHOOSES A SIDECAR IS THE PRESS THAT ASKS FOR ITS BYTES.
+   *
+   * THE WIRE THIS STAGE SHIPPED WITHOUT (C7). `fetchSubtitle` and `pollSubtitles` were built,
+   * tested and reviewed with NO production caller: the service had the POST, this module had
+   * the bounded poll, the cell had a word for the wait and the element had a mount gate, and
+   * nothing connected them — so choosing any sidecar whose bytes were not already on disk set
+   * the cell to `fetching` and then did nothing, for the rest of the film. Sixteen adversarial
+   * per-task reviews passed it, because the defect was in a seam no task touched.
+   *
+   * A HANDLER, NOT AN EFFECT, and that is the decision that shapes the rest. An effect keyed
+   * on `chosenIndex` would not re-run when the viewer picks the SAME entry again — which is
+   * exactly the press someone makes after reading `not arriving`, i.e. the retry. So the press
+   * owns the POST, and `Off` is a press that deliberately sends nothing.
+   *
+   * A READY ENTRY SENDS NOTHING EITHER. Admission re-deadlines pieces and the box's admission
+   * budget is a shared resource (D4); for a file already complete on disk that is a cost with
+   * no benefit. The element's own `!chosen.ready` gate stays the only thing between a choice
+   * and a load.
+   *
+   * THE TWO INDICES ARE DIFFERENT NUMBERS, and they are the easiest thing here to get wrong:
+   * the POST and the poll's `index` take the SIDECAR's own libtorrent file index, while the
+   * list read takes the VIDEO file index being watched, so the list stays filtered to the
+   * episode on screen. They differ in every season pack and in most single-file releases.
+   *
+   * `allow401` ON BOTH CALLS, for the reason the read effect above states: apiClient's
+   * rejection interceptor hard-navigates to `/bigscreen/pair` from inside its own handler,
+   * behind a module-scoped flag it never resets. A subtitle is never worth a film.
+   */
+  const chooseSubtitle = useCallback(
+    (choice: number | null) => {
+      // The fault belongs to the element that failed, so a NEW choice has not failed yet —
+      // without this the cell would read `unreadable` over a track that has not been asked to
+      // load. The verdict is cleared for the same reason, which is also what makes a second
+      // press on the same entry a retry the viewer can see. Closing the picker is the route's
+      // job too: the two explicit focus moves are driven by this flag, so the component that
+      // owns the flag has to be the one that owns the restore.
+      setChosenIndex(choice);
+      setTrackFault(false);
+      setNotArriving(false);
+      setPickerOpen(false);
+      // EVERY PRESS SUPERSEDES THE LAST ONE'S POLL, before anything is awaited: two polls
+      // writing the same state is two different episodes' lists racing on a pack, and the
+      // second press is the one the viewer is watching.
+      subtitleGen.current += 1;
+      const generation = subtitleGen.current;
+      const isCancelled = () => subtitleGen.current !== generation;
+      if (choice === null) return;
+      const entry =
+        subtitleRead.k === 'ok'
+          ? subtitleRead.list.subtitles.find((e) => e.index === choice) ?? null
+          : null;
+      if (entry === null || entry.ready) return;
+      void (async () => {
+        try {
+          // THE SIDECAR'S OWN FILE INDEX. Never the row's position in the list (the list is
+          // filtered and deduplicated, so a position names another file) and never the video
+          // index below.
+          await streamingService.fetchSubtitle(torrentId, entry.index, { allow401: true });
+        } catch {
+          // A 409 from a refused gate, a 404, a 503, a dead session the interceptor was told
+          // not to act on: all of them mean the bytes are not coming, and none of them is
+          // worth a second sentence on a cell the viewer reads at three metres.
+          //
+          // GUARDED, AND THIS ONE IS REACHABLE — unlike the poll's tail below. A POST is in
+          // flight for as long as the box takes to answer, so a press on a DIFFERENT entry
+          // (or on Off) lands first and this rejection arrives afterwards: writing the verdict
+          // then would say `not arriving` about the sidecar the viewer has just chosen.
+          if (!isCancelled()) setNotArriving(true);
+          return;
+        }
+        const result = await pollSubtitles({
+          // THE VIDEO FILE INDEX, so every answer is the same filtered list the route read on
+          // arrival — the cell, the picker and the `<track>` all read it from one place.
+          read: () => streamingService.getSubtitles(torrentId, index, { allow401: true }),
+          index: entry.index,
+          isCancelled,
+          onList: (list) => {
+            // RE-CHECKED HERE, not only through the poll's contract: `pollSubtitles` calls
+            // `onList` BEFORE its own cancellation check, so a poll superseded while its read
+            // was in flight still hands back exactly one stale answer. On a pack that answer
+            // is the previous episode's sidecars.
+            if (isCancelled()) return;
+            setSubtitleRead({ k: 'ok', list });
+          },
+        });
+        // NO SECOND CANCELLATION GUARD HERE, and that is measured rather than forgotten:
+        // `cancelled` maps to `false` in `notArrivingAfter`'s own table, and this line resumes
+        // on a microtask after the poll's last check, where no press can interleave. A guard
+        // would be dead code — the shape this stage keeps finding.
+        if (notArrivingAfter(result.outcome)) setNotArriving(true);
+      })();
+    },
+    [torrentId, index, subtitleRead],
+  );
 
   const progress = useWatchProgress({
     userId,
@@ -783,7 +936,7 @@ function WatchScreen() {
           : null;
       // Both halves from the one state, so the attribute and the words can never disagree
       // about which state the screen believes it is in.
-      const subtitleState = subtitleCellState(subtitleRead, chosen, trackFault);
+      const subtitleState = subtitleCellState(subtitleRead, chosen, trackFault, notArriving);
       const subtitles: SubtitleCellView = { stateId: subtitleState, note: cellLabel(subtitleState) };
       // EVERY LISTED ENTRY, offers first and the formats this box will not convert after —
       // `pickerRows` owns that order, and the grid's row counts are chunked over this same
@@ -803,16 +956,7 @@ function WatchScreen() {
           pickerRows={rows}
           chosenSubtitleIndex={chosenIndex}
           emptyPickerHint={emptyPickerHint(subtitleRead)}
-          onChooseSubtitle={(choice) => {
-            // The fault belongs to the element that failed, so a NEW choice has not failed
-            // yet — without this the cell would read `unreadable` over a track that has not
-            // been asked to load. Closing the picker is the route's job too: the two explicit
-            // focus moves are driven by this flag, so the component that owns the flag has to
-            // be the one that owns the restore.
-            setChosenIndex(choice);
-            setTrackFault(false);
-            setPickerOpen(false);
-          }}
+          onChooseSubtitle={chooseSubtitle}
           askedFourK={askedFourK}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
           // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never

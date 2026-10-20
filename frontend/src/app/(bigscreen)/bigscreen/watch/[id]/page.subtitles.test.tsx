@@ -5,8 +5,9 @@
  * WHY IT IS A SEPARATE FILE. `page.test.tsx` is the arrival states, the paint-only hide and
  * the Back escalation; these rows are a second shape of the same screen — the band's rows
  * REPLACED — and they need their own `openPicker()` walk rather than its `playing()`. The
- * cell's own rows (what the eight states say, that the list is read once per episode, that
- * the cell is unconditional) stay there.
+ * cell's own rows (what the nine states say, that the list is read once per episode, that
+ * the cell is unconditional) stay there, and the POST that a press on an unready entry sends
+ * is `page.fetch.test.tsx`.
  *
  * FOUR HARNESS FACTS, EACH OF WHICH COST SOMETHING TO LEARN:
  *
@@ -77,6 +78,13 @@ vi.mock('@/services/streaming', () => ({
     saveProgress: vi.fn(),
     updateProgress: vi.fn(),
     getSubtitles: vi.fn(),
+    // ADDED BY TASK 17, AND ITS ABSENCE WAS NOT A HARMLESS OMISSION. The route now sends the
+    // admission POST from the press that chooses an unready entry, and most fixtures here are
+    // unready — so with this key missing the handler called `undefined`, the TypeError landed
+    // in its own `catch`, and the cell read `not arriving` instead of `fetching`. A mock
+    // factory that lists fewer methods than the route calls is a passing suite describing a
+    // route that threw. The POST's own rows are in `page.fetch.test.tsx`.
+    fetchSubtitle: vi.fn(),
   },
 }));
 vi.mock('@/services/torrents', () => ({
@@ -307,6 +315,7 @@ beforeEach(() => {
   svc.getProgressByMovie.mockResolvedValue(null);
   svc.saveProgress.mockResolvedValue(null as never);
   svc.getSubtitles.mockResolvedValue(listOf([track()]));
+  svc.fetchSubtitle.mockResolvedValue({ admitted: 1, budget_ms: 45_000 });
 });
 
 afterEach(async () => {

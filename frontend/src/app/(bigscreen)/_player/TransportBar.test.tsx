@@ -308,8 +308,8 @@ describe('TransportBar', () => {
   });
 
   it('says its state in a sub-line that is NOT part of the cell’s name', () => {
-    // Every state, because the eight phrasings are the eight things this television can say
-    // about subtitles and the cell is the only place seven of them appear. The words come
+    // Every state, because the nine phrasings are the nine things this television can say
+    // about subtitles and the cell is the only place eight of them appear. The words come
     // from `_data/subtitles.cellLabel` and are asserted to be EXACTLY that: a label built
     // here — or one with a language interpolated into it — reddens this row, and the row is
     // `flex-wrap: nowrap`, so an overflowed cell is one the D-pad can focus and the viewer
@@ -346,7 +346,7 @@ describe('TransportBar', () => {
     // IS `cellLabel(state)` — the shape the interface's own docstring warns about ("a test
     // that re-derived the words it is checking checks nothing"), written into the tests
     // rather than into the component. So this fixture's note is deliberately not one of the
-    // eight phrasings: the screen owns the words and this component may not second-guess
+    // nine phrasings: the screen owns the words and this component may not second-guess
     // them, because the picker's chosen language will ride in the same slot.
     const handed = 'whatever the screen said';
     expect

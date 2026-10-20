@@ -150,7 +150,7 @@ export const TWIN_CELL: Record<TransportAction, TransportCellId> = {
  * What the Subtitles cell SAYS — decided by the screen, rendered verbatim here.
  *
  * TWO FIELDS AND NO LOGIC, deliberately. `note` arrives already rendered (the screen asks
- * `_data/subtitles.cellLabel`), so there is one place the eight phrasings live and this
+ * `_data/subtitles.cellLabel`), so there is one place the nine phrasings live and this
  * component cannot drift from it; `stateId` is the same answer in machine-readable form, put
  * on the cell as `data-subtitles` so a test can read which state the screen believes it is in
  * without matching prose. A single field would force one of the two to be derived from the

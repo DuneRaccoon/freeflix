@@ -355,8 +355,14 @@ describe('the route’s source, for the mount no render can reach', () => {
     );
     // AND THE CELL READS THE SAME CHOICE THE ELEMENT DOES. Passing `null` here instead would
     // leave the cell saying `off` over showing subtitles, with nothing anywhere to notice.
-    expect.soft(src, 'the cell is derived from the choice and the fault').toMatch(
-      /subtitleCellState\(\s*subtitleRead,\s*chosen,\s*trackFault\s*\)/,
+    //
+    // THE FOURTH ARGUMENT IS THE FETCH VERDICT, and it is pinned here for the same reason as
+    // the other three: a literal `false` in its place compiles, renders, and makes
+    // `notArriving` a state the television can never reach — which is exactly the shape C7
+    // was, a correct component with nothing wired to it. `page.fetch.test.tsx` reddens on
+    // that mutation through the screen; this line reddens on it in one place.
+    expect.soft(src, 'the cell is derived from the choice, the fault and the verdict').toMatch(
+      /subtitleCellState\(\s*subtitleRead,\s*chosen,\s*trackFault,\s*notArriving\s*\)/,
     );
   });
 

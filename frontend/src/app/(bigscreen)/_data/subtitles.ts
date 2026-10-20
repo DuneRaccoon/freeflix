@@ -128,7 +128,7 @@ export function pickerRowCounts(entryCount: number): number[] {
 }
 
 /**
- * Every state the Subtitles cell can be in. EXACTLY EIGHT, and the count is deliberate:
+ * Every state the Subtitles cell can be in. EXACTLY NINE, and the count is deliberate:
  * collapsing any two of them would make the television say one sentence about two different
  * situations, and the viewer's next press would differ between them.
  *
@@ -136,6 +136,17 @@ export function pickerRowCounts(entryCount: number): number[] {
  * band can be on screen before it answers), the second is a sidecar chosen whose bytes are
  * not here. `unavailable` and `none` are the two the backend is most careful to separate —
  * the box cannot see this download's files at all, versus this release ships nothing to show.
+ *
+ * `notArriving` IS THE NINTH AND IT IS WHERE A FETCH ENDS BADLY: the poll gave up, a read
+ * threw, or the box refused the admission. A ninth state rather than a reuse, because this
+ * stage has twice refused exactly that conflation (`none`'s double meaning, and the
+ * 415/`unreadable` pair the backend's format gate stopped producing) and because
+ * `unreadable` is the OPPOSITE measurement — the bytes arrived and the load still produced
+ * nothing. Not `stalled` either: the band's own `messageFor` already carries a playback
+ * `stall`, and two things called stall on one screen is how a word stops meaning anything.
+ * It does not say WHICH of the four causes it was; the operator has the backend log and the
+ * viewer's next press is the same for all four, which is the same judgement the route's read
+ * effect already makes when it calls EVERY failed list read `unavailable`.
  */
 export const SUBTITLE_CELL_STATES = [
   'loading',
@@ -144,6 +155,7 @@ export const SUBTITLE_CELL_STATES = [
   'off',
   'on',
   'fetching',
+  'notArriving',
   'unreadable',
   'noCues',
 ] as const;
@@ -174,6 +186,11 @@ export const SUBTITLE_CELL_LABELS: Record<SubtitleCellState, string> = {
   on: 'on',
   // Chosen, admitted, and the bytes are not here yet.
   fetching: 'fetching',
+  // The admission was asked for and the bytes did not come: the poll gave up, a read threw,
+  // or the box refused the gate. The viewer's next press on this entry is the retry, which is
+  // why it is a handler and not an effect (an effect keyed on the choice would not re-run for
+  // the same choice).
+  notArriving: 'not arriving',
   // A 415 the box cannot decode, or the `<track>` element's own error.
   unreadable: 'unreadable',
   // Decoded and converted, and there was nothing in it. Its own state because a WebVTT body
@@ -188,7 +205,7 @@ export function cellLabel(state: SubtitleCellState): string {
 }
 
 /**
- * The three cell states a CHOSEN sidecar reaches, or `null` when nothing is chosen.
+ * The four cell states a CHOSEN sidecar reaches, or `null` when nothing is chosen.
  *
  * `null` rather than a state, so the caller's own list-derived answer (`loading`,
  * `unavailable`, `none`, `off`) stays the single source for the unchosen case instead of
@@ -200,6 +217,44 @@ export function cellLabel(state: SubtitleCellState): string {
  * were there and the load still did not produce cues. A 415 the box cannot decode reads the
  * same way to the viewer and the same way here.
  *
+ * `notArriving` IS THE ROUTE'S FETCH VERDICT, and it is a BOOLEAN rather than the poll's own
+ * outcome on purpose: four different causes land on it (the poll exhausted its budget, a read
+ * threw, the box refused the gate with a 409, the POST itself threw) and the cell names none
+ * of them. Handing the outcome in instead would invite an arm per cause here, which is the
+ * taxonomy the route already folds down with `notArrivingAfter`.
+ *
+ * THE ARM ORDER, AND THE TWO PAIRS OF IT NOTHING CAN DISTINGUISH — named rather than
+ * defended with a row, in the shape of the backend's X2:
+ *
+ *  - `chosen.ready` is asked BEFORE the verdict, and `ready && verdict` is unreachable today:
+ *    a poll only reports `exhausted` or `error` with the last list still unready, and a poll
+ *    that saw the entry ready reports `ready`, which is not a verdict at all. It is ordered
+ *    this way because it is the only order that cannot produce a LIE if it ever does become
+ *    reachable — a mounted `<track>` (the element's gate is `ready`) beside a cell reading
+ *    `not arriving`.
+ *  - `fault` is asked BEFORE the verdict for the same reason and with the same reachability:
+ *    `fault` can only be set by an element that MOUNTED, which needs `ready`, which ends the
+ *    poll at `ready`. Both orders therefore answer identically for every state the route can
+ *    produce.
+ *
+ * AND THE MEASUREMENT IS MORE AWKWARD THAN THAT PARAGRAPH, so it is written out rather than
+ * summarised. Three arms in a total order cannot have one PAIR exchanged on its own: "swap
+ * `fault` and the verdict" carries `ready` across between them, and that spelling DOES redden
+ * — two rows, both of them about `fault` outranking `ready`, which is a different claim and
+ * one that is already defended. The ISOLATED pair is a `fault && notArriving` arm ahead of
+ * everything else, and that is GREEN on all 1543 rows of `test:tv`; swapping only `ready` and
+ * the verdict is GREEN on all 1543 as well. So both pairs the verdict takes part in are
+ * undiscriminable, the order is kept for the reason above, and no row is written to defend it.
+ *
+ * NOT CONSULTED: `reloading`. While the recovery ladder runs a `video.load()` the element
+ * unmounts the `<track>` (D14) and this cell still says `on`. Measured rather than
+ * overlooked: both recovery kinds put a sentence in the band's own message line ("Lost the
+ * stream — trying again (attempt N)."), which makes `message !== ''` and suppresses the
+ * auto-hide, so the viewer is already being told what is happening by the channel that owns
+ * recoveries — beside a cell whose word describes their CHOICE rather than the element's
+ * momentary absence. A word that flickers for the length of one `video.load()` is less honest
+ * than one that does not.
+ *
  * NOT CONSULTED: `convertible`. A non-convertible entry is rendered in the picker as a
  * focusable row that is not selectable, so it never becomes the chosen one — the rule lives
  * there and in the element's own mount gate, and stating it a third time here would make
@@ -208,10 +263,13 @@ export function cellLabel(state: SubtitleCellState): string {
 export function chosenCellState(
   chosen: SubtitleTrack | null,
   fault: boolean,
+  notArriving: boolean,
 ): SubtitleCellState | null {
   if (chosen === null) return null;
   if (fault) return 'unreadable';
-  return chosen.ready ? 'on' : 'fetching';
+  if (chosen.ready) return 'on';
+  if (notArriving) return 'notArriving';
+  return 'fetching';
 }
 
 /** How long between polls. The backend sends `Retry-After: 2` on its own not-ready answer. */
@@ -243,6 +301,46 @@ export type SubtitlePollOutcome =
   | 'exhausted'
   /** The caller asked to stop (the route unmounted, or the viewer chose again). */
   | 'cancelled';
+
+/**
+ * Which of the poll's seven outcomes puts the cell on `notArriving`. TWO OF THEM.
+ *
+ * The other five are decisions with reasons, not an omission:
+ *
+ *  - `exhausted` and `error` are the two that leave the chosen entry unready with nothing
+ *    further coming, and they are the whole reason the state exists. Before this wire was
+ *    built the press sent nothing at all, so the cell sat on `fetching` for the rest of the
+ *    film; a poll that stops without the bytes is the same screen unless it says so.
+ *  - `ready` is the success. The list the poll already handed to `onList` says so and the
+ *    cell reads it off the entry — the verdict has nothing to add.
+ *  - `cancelled` belongs to a press or an episode change that has ALREADY written its own
+ *    state. A verdict from a superseded poll is exactly the stale write the route's
+ *    generation guard exists to drop.
+ *  - `none`, `unknown` and `gone` each change the LIST, and the route's own `.find(...)` over
+ *    the refreshed list then makes `chosen` null, so the list-derived arms answer and the
+ *    picker stops offering the row. A cell state for them would be one rule written twice,
+ *    which is this stage's most frequent finding.
+ *
+ * A `Record` OVER THE WHOLE UNION — not a `switch` with a `default`, not an `includes` over
+ * two strings. `tsc` refuses the file if an eighth outcome is ever added without a decision
+ * here, which is C7's lesson put where nobody has to remember it: that round existed because
+ * a seam between two correct components was assigned to nobody, and a seam that cannot
+ * compile is one nobody has to notice.
+ */
+const NOT_ARRIVING_AFTER: Record<SubtitlePollOutcome, boolean> = {
+  exhausted: true,
+  error: true,
+  ready: false,
+  cancelled: false,
+  none: false,
+  unknown: false,
+  gone: false,
+};
+
+/** Does this outcome mean the viewer should be told the bytes are not coming? */
+export function notArrivingAfter(outcome: SubtitlePollOutcome): boolean {
+  return NOT_ARRIVING_AFTER[outcome];
+}
 
 export interface SubtitlePollResult {
   outcome: SubtitlePollOutcome;
@@ -286,6 +384,19 @@ const sleep = (ms: number): Promise<void> =>
  * once, on the press, and the television learns the outcome here — that split is what keeps a
  * poll from re-deadlining libtorrent's pieces on every tick, and this module cannot send it
  * anyway, having no service to send it with.
+ *
+ * THE PRESS IS THE CALLER, AND FOR ONE WHOLE STAGE THERE WAS NO CALLER AT ALL. This function
+ * and the service's POST shipped tested and unreferenced (C7): four components each described
+ * a neighbour nothing had been told to connect them to, so every choice of an unready sidecar
+ * set the cell to `fetching` and did nothing for ever. The caller is the route's own
+ * `chooseSubtitle`, and `onList` is the wire — the cell, the picker and the `<track>` all
+ * read the same `subtitleRead`, so feeding every answer back there is what makes one poll
+ * update three screens.
+ *
+ * `onList` IS CALLED BEFORE THIS LOOP'S OWN CANCELLATION CHECK, deliberately and with a
+ * consequence the caller must handle: a poll that was superseded while its read was in flight
+ * still hands that one stale answer back. The route re-checks its generation inside `onList`
+ * for exactly that reason, and the plan says why ("not only by the poll's own contract").
  *
  * Five of the six exits are reached BEFORE the budget: a ready entry, `none`, `unknown`, an
  * entry that has left the list, and a read that threw. Only a sidecar that stays unready

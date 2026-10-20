@@ -1567,9 +1567,10 @@ describe('what it records', () => {
  * ARGUMENT and nothing in this file exercises apiClient's interceptor; the arm that proves
  * the flag actually suppresses the hard navigation is
  * `src/services/streaming.subtitles.test.ts`, which swaps the adapter and runs the real
- * interceptors. And four of the eight cell states (`on`, `fetching`, `unreadable`, `noCues`)
- * describe a sidecar the viewer has CHOSEN, which takes the picker: these rows cover only the
- * four a list alone can reach, and the chosen four live in `page.subtitles.test.tsx`.
+ * interceptors. And five of the nine cell states (`on`, `fetching`, `notArriving`,
+ * `unreadable`, `noCues`) describe a sidecar the viewer has CHOSEN, which takes the picker:
+ * these rows cover only the four a list alone can reach. The chosen ones live in
+ * `page.subtitles.test.tsx`, and the fetch's own verdict in `page.fetch.test.tsx`.
  */
 describe('the Subtitles cell', () => {
   /** The transport row only. `.bs-player__row` also matches the scrub cell's own row. */

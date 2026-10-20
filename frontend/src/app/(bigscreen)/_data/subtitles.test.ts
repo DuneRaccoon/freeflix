@@ -33,11 +33,13 @@ import {
   SUBTITLE_POLL_MS,
   cellLabel,
   chosenCellState,
+  notArrivingAfter,
   offerable,
   pickerRowCounts,
   pickerRows,
   pollSubtitles,
   subtitleTrackSrc,
+  type SubtitlePollOutcome,
   unsupported,
 } from './subtitles';
 
@@ -227,12 +229,12 @@ describe('pickerRowCounts', () => {
 });
 
 describe('the cell\'s words', () => {
-  it('has a phrase for exactly the eight states', () => {
-    expect.soft(SUBTITLE_CELL_STATES).toHaveLength(8);
+  it('has a phrase for exactly the nine states', () => {
+    expect.soft(SUBTITLE_CELL_STATES).toHaveLength(9);
     expect.soft(Object.keys(SUBTITLE_CELL_LABELS).sort()).toEqual([...SUBTITLE_CELL_STATES].sort());
   });
 
-  it('says each of the eight things, exactly — and they are distinct and short', () => {
+  it('says each of the nine things, exactly — and they are distinct and short', () => {
     // The strings are pinned here; the RENDERED row (accessible name, sub-line, measured
     // width) is task 12's.
     //
@@ -251,6 +253,7 @@ describe('the cell\'s words', () => {
       off: 'off',
       on: 'on',
       fetching: 'fetching',
+      notArriving: 'not arriving',
       unreadable: 'unreadable',
       noCues: 'no cues',
     });
@@ -267,42 +270,112 @@ describe('the cell\'s words', () => {
 });
 
 /**
- * The three states a CHOSEN sidecar reaches. Task 13's half of the cell.
+ * The four states a CHOSEN sidecar reaches. The cell's other half.
  *
  * It lives here, as a pure function, for the reason the `<track>` element lives in its own
- * component: nothing on the television can choose a sidecar until the picker lands, so a
- * chosen-state branch written inside the route would ship unreachable from every test that
- * renders the route. These three rows are the instrument until then.
+ * component: nothing on the television could choose a sidecar until the picker landed, so a
+ * chosen-state branch written inside the route would have shipped unreachable from every test
+ * that rendered the route. The picker and the fetch are now both built, so the route's own
+ * suites see all four through the screen — these rows are the function's contract, which is
+ * where the arm ORDER lives.
  */
 describe('the chosen sidecar’s own cell state', () => {
-  it('answers null when nothing is chosen, whatever the element did', () => {
-    // BOTH fault arms, because `fault` is a latch the route clears with the choice: a version
-    // that asked about the fault BEFORE asking whether anything is chosen would say
-    // `unreadable` over an Off cell, and one arm cannot see that.
-    expect.soft(chosenCellState(null, false), 'nothing chosen').toBeNull();
-    expect.soft(chosenCellState(null, true), 'nothing chosen, stale fault').toBeNull();
+  it('answers null when nothing is chosen, whatever else is true', () => {
+    // ALL THREE second-and-third arms, because both of them are latches the route clears with
+    // the choice: a version that asked about the fault — or about the fetch verdict — BEFORE
+    // asking whether anything is chosen would say `unreadable` or `not arriving` over an Off
+    // cell, and one arm cannot see the other.
+    expect.soft(chosenCellState(null, false, false), 'nothing chosen').toBeNull();
+    expect.soft(chosenCellState(null, true, false), 'nothing chosen, stale fault').toBeNull();
+    expect.soft(chosenCellState(null, false, true), 'nothing chosen, stale verdict').toBeNull();
   });
 
-  it('is `on` once the bytes are measured here, and `fetching` until then', () => {
-    // The two are not interchangeable: `fetching` is a sidecar whose admission is still
-    // running, and the viewer's next press differs — waiting, against turning it off.
-    expect.soft(chosenCellState(track(4, { ready: true }), false)).toBe('on');
-    expect.soft(chosenCellState(track(4, { ready: false }), false)).toBe('fetching');
+  it('is `on` when the bytes are here, `notArriving` when they are not coming, `fetching` while waiting', () => {
+    // THE THREE ARE NOT INTERCHANGEABLE AND THE VIEWER'S NEXT PRESS IS DIFFERENT FOR EACH:
+    // nothing (it is showing), the same entry again (the retry — which is why the POST is sent
+    // by a handler and not by an effect keyed on the choice), or Off. Three inputs, three
+    // outputs, in one row: a second row for the verdict would have had to restate one of
+    // these two lines, and a restated assertion cannot fail independently of the one it
+    // copies.
+    expect.soft(chosenCellState(track(4, { ready: true }), false, false)).toBe('on');
+    expect.soft(chosenCellState(track(4, { ready: false }), false, true)).toBe('notArriving');
+    expect.soft(chosenCellState(track(4, { ready: false }), false, false)).toBe('fetching');
   });
 
   it('the element’s own failure outranks readiness, both ways round', () => {
     // By the time the `<track>` has failed, `ready` is a measurement that has been overtaken:
     // the bytes were there and the load still produced nothing. BOTH readiness values,
     // because the ready one alone is also green under "drop the fault check and return `on`".
-    expect.soft(chosenCellState(track(4, { ready: true }), true), 'ready and failed').toBe('unreadable');
-    expect.soft(chosenCellState(track(4, { ready: false }), true), 'unready and failed').toBe('unreadable');
+    expect.soft(chosenCellState(track(4, { ready: true }), true, false), 'ready and failed').toBe('unreadable');
+    expect.soft(chosenCellState(track(4, { ready: false }), true, false), 'unready and failed').toBe('unreadable');
   });
 
-  // REFUSED, AND NAMED SO IT IS NOT ADDED BACK: a row asserting that none of the three
-  // answers is one of the four states a list alone decides. The two rows above already pin
+  // REFUSED, AND NAMED SO IT IS NOT ADDED BACK: a row asserting that none of the four
+  // answers is one of the four states a list alone decides. The rows above already pin
   // the exact values, so that assertion is logically implied by them — every mutation it
-  // could catch reddens them first — and it would be a fourth row that cannot fail dressed
+  // could catch reddens them first — and it would be a row that cannot fail dressed
   // as the contract with the caller. The contract is in `chosenCellState`'s own header.
+  //
+  // REFUSED FOR A SECOND REASON, AND IT IS THE INTERESTING ONE: the two precedences the
+  // verdict is involved in are UNDISCRIMINABLE through this television, so no row defends
+  // them. `fault` and `ready` are both asked BEFORE the verdict, and both pairs are
+  // unreachable together — a poll only answers `exhausted` or `error` with its last list
+  // still unready (a ready entry ends it at `ready`, which is not a verdict), and `fault`
+  // needs an element that MOUNTED, which needs `ready`. A row would have to construct a
+  // state the route cannot produce; the order is kept because it is the only one that cannot
+  // put a mounted `<track>` beside a cell reading `not arriving`, and that reason is written
+  // in the function.
+  //
+  // MEASURED, AND NOT AS NEATLY AS "both swaps are green": three arms in a total order
+  // cannot have one pair exchanged alone. Swapping `fault` with the verdict carries `ready`
+  // between them and reddens TWO rows — both about `fault` outranking `ready`, a claim the
+  // row above already defends. The isolated pairs (a `fault && notArriving` arm ahead of
+  // everything; `ready` and the verdict exchanged) are GREEN on all 1543 rows of `test:tv`.
+});
+
+describe('notArrivingAfter', () => {
+  it('is true for exactly the two outcomes that leave the entry unready with nothing coming', () => {
+    // THE TABLE IS HAND-WRITTEN HERE, NOT READ OFF THE MODULE. A test that asserted against
+    // the same map it is checking checks nothing — the shape the transport cell's own
+    // "renders the words it is HANDED" row exists for.
+    //
+    // A `Record` OVER THE UNION rather than seven loose lines, so that an eighth outcome
+    // cannot be added to the poll without `tsc` stopping on BOTH tables: the production
+    // decision and this one. That is C7's lesson in the type system — the seam that round
+    // existed for was one nobody was assigned, and a seam that cannot compile needs no owner.
+    const expected: Record<SubtitlePollOutcome, boolean> = {
+      exhausted: true,
+      error: true,
+      ready: false,
+      cancelled: false,
+      none: false,
+      unknown: false,
+      gone: false,
+    };
+    const rows = Object.entries(expected) as Array<[SubtitlePollOutcome, boolean]>;
+    // THE POSITIVE CONTROL FOR THE LOOP ITSELF: a `for` over an empty table asserts nothing
+    // and passes, which is this branch's most-found shape.
+    expect.soft(rows, 'every outcome got a row').toHaveLength(7);
+    // ONE ASSERTION PER OUTCOME, never a filter over the true ones: `exhausted` and `error`
+    // are two separate production decisions and one of them cannot discriminate the other.
+    for (const [outcome, want] of rows) {
+      expect.soft(notArrivingAfter(outcome), outcome).toBe(want);
+    }
+  });
+
+  it('answers `notArriving` only through a state the cell actually renders', () => {
+    // THE JOIN, in one line, because the two halves are owned by different functions: the
+    // verdict is a boolean the route holds and this is the state it becomes. Without this the
+    // two could drift — `notArrivingAfter` could be right about every outcome while the cell
+    // said `fetching` — and the route's own suite is where the WIRE is proved
+    // (`page.fetch.test.tsx`), not here.
+    expect.soft(chosenCellState(track(4, { ready: false }), false, notArrivingAfter('exhausted'))).toBe(
+      'notArriving',
+    );
+    expect.soft(chosenCellState(track(4, { ready: false }), false, notArrivingAfter('cancelled'))).toBe(
+      'fetching',
+    );
+  });
 });
 
 /** A reader over a script of answers, recording every call and every wait. */

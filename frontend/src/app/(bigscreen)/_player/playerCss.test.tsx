@@ -6,8 +6,20 @@
  * renamed in the stylesheet — is invisible to every render test on this surface: the
  * element still renders, still focuses, still clicks, and on the television it has no
  * geometry at all. The two halves are checked here: every `bs-` class the player's
- * components actually render has a rule, and the four declarations the player's behaviour
- * depends on say what they must.
+ * components actually render has a rule, and the declarations the player's behaviour depends
+ * on say what they must. (It read "the four declarations" until stage 9. The number was wrong
+ * by then, and no command could ever have checked it, so it is gone rather than corrected —
+ * the rule this file now applies to the stylesheet's comments, applied to its own.)
+ *
+ * AND ONE MORE THING, ADDED BY STAGE 9: what the stylesheet's own COMMENTS claim. That block
+ * opens with an inventory of the band — which component renders which class, in what order —
+ * and the inventory went stale the moment the subtitle picker added a third `.bs-player__hint`
+ * and a second kind of row without anyone editing it. Prose goes stale silently, so the two
+ * inventory rows at the bottom of this file read the SOURCES and compare them with what the
+ * block says. One row reads the ROUTE's source on its own — the scrim's `aria-hidden`, which
+ * no component here renders — for the same reason the rest of the file reads the sheet's text
+ * rather than a computed style: there is no other instrument. The render-time pin for that one
+ * belongs in the route's own suite, which is not this file's to edit.
  *
  * Modelled on `bigscreen/profiles/page.test.tsx`'s own `bigscreen.css` block, which pins
  * `.bs-profiles`' `nowrap` for the same reason this pins `.bs-player__row`'s.
@@ -17,13 +29,17 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
+import type { ReactElement } from 'react';
 import type { FocusProps } from '../_focus/useFocusGrid';
-import { TransportBar } from './TransportBar';
+import { SUBTITLE_CELL_STATES, cellLabel } from '../_data/subtitles';
+import { TransportBar, type SubtitleCellView } from './TransportBar';
 import { ScrubBar } from './ScrubBar';
 
 const css = readFileSync(join(process.cwd(), 'public/bigscreen.css'), 'utf8');
+const BIGSCREEN = join(process.cwd(), 'src/app/(bigscreen)');
+const ROUTE = join(BIGSCREEN, 'bigscreen/watch/[id]/page.tsx');
 
 /** The declarations of a single-selector rule, exactly as `profiles/page.test.tsx` reads them. */
 const rule = (selector: string): string => {
@@ -81,11 +97,126 @@ const decl = (body: string, prop: string): string | null => {
   return m === null ? null : m[1].trim().replace(/\s+/g, ' ');
 };
 
+/**
+ * `linear-gradient(<direction>, <stop>, ...)` split into its parts, or `null` when the value
+ * is not a gradient at all.
+ *
+ * It counts parens rather than calling `.split(',')`, and that is measured rather than tidy:
+ * the scrim's middle stop is an `rgba()` carrying three commas of its own, so a naive split
+ * reports five stops for a three-stop gradient — and a row whose expected list was written
+ * from the same naive reader would agree with it.
+ */
+const gradient = (value: string | null): { direction: string; stops: string[] } | null => {
+  const m = value === null ? null : /^linear-gradient\((.*)\)$/.exec(value);
+  if (m === null) return null;
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < m[1].length; i++) {
+    const c = m[1][i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === ',' && depth === 0) {
+      parts.push(m[1].slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(m[1].slice(start).trim());
+  return { direction: parts[0], stops: parts.slice(1) };
+};
+
+/**
+ * Every JSX opening tag in `src`, from its `<` to the `>` that closes it.
+ *
+ * The brace depth is not decoration either: `onClick={() => f()}` puts a `>` inside a prop,
+ * so a regex that stopped at the first `>` would cut the tag in half and an attribute written
+ * after that prop would read as absent.
+ *
+ * NAMED LIMIT, measured rather than claimed: comments are NOT stripped, so a tag written
+ * inside one counts as a tag. That covers both the `//` between two props which this directory
+ * writes, and a `<p className="..." />` quoted in prose: putting the second into `recovery.ts`
+ * reddens both inventory rows at the bottom of this file. It is the CONSERVATIVE direction —
+ * it over-reports a renderer, and the failure names the file — which is the safe way round for
+ * a guard whose whole job is to notice that prose has gone stale. Stripping `//` is what is
+ * refused: a `https://` in a string would take the rest of its line, `className` included.
+ */
+const openingTags = (src: string): string[] => {
+  const tags: string[] = [];
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] !== '<' || !/[A-Za-z]/.test(src[i + 1] ?? '')) continue;
+    let depth = 0;
+    for (let j = i + 1; j < src.length; j++) {
+      const c = src[j];
+      if (c === '{') depth++;
+      else if (c === '}') depth--;
+      else if (c === '>' && depth === 0) {
+        tags.push(src.slice(i, j + 1));
+        i = j;
+        break;
+      }
+    }
+  }
+  return tags;
+};
+
+/**
+ * The opening tags whose `className` names `cls` — ELEMENT-SCOPED, which is the whole value:
+ * a file-wide `/aria-hidden/` is true of a file where the attribute sits on the wrong node.
+ * Both quoted and braced spellings, because this surface writes both.
+ */
+const tagsWithClass = (cls: string, src: string): string[] =>
+  openingTags(src).filter((t) =>
+    new RegExp(`className=(?:"[^"]*\\b${cls}\\b|\\{[^}]*\\b${cls}\\b)`).test(t),
+  );
+
+/** Every non-test source under `(bigscreen)`, by path relative to it. `engineContract`'s idiom. */
+const tvSources = (dir = BIGSCREEN): Array<{ id: string; src: string }> =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) return tvSources(p);
+    if (!/\.tsx?$/.test(e.name) || /\.test\.tsx?$/.test(e.name)) return [];
+    return [{ id: relative(BIGSCREEN, p), src: readFileSync(p, 'utf8') }];
+  });
+
+/** The files that RENDER `cls`, never the ones whose prose mentions it. */
+const renderersOf = (cls: string, dir?: string): string[] =>
+  tvSources(dir)
+    .filter((f) => tagsWithClass(cls, f.src).length > 0)
+    .map((f) => f.id)
+    .sort();
+
+/** The player block's own inventory comment, which the last two rows keep honest. */
+const playerBlock = (): string => {
+  const at = css.indexOf('/* Rendered by _player/');
+  expect(at, 'the player block opens with its inventory').toBeGreaterThan(-1);
+  return css.slice(at, css.indexOf('*/', at));
+};
+
 const fp = (): ((row: number, col: number) => FocusProps) => () => ({
   tabIndex: -1,
   ref: () => {},
   onFocus: () => {},
 });
+
+/**
+ * A Subtitles-cell view. WHICH state it carries is deliberately not this file's business —
+ * the rows below are about the CLASS the sub-line wears, not the word in it — so it takes a
+ * state off the list and reads that state's own label instead of naming either.
+ */
+const subtitlesView = (): SubtitleCellView => ({
+  stateId: SUBTITLE_CELL_STATES[0],
+  note: cellLabel(SUBTITLE_CELL_STATES[0]),
+});
+
+/** The `bs-` class names a tree actually renders, sorted. */
+const classesOf = (node: ReactElement): string[] => {
+  const { container } = render(node);
+  const used = new Set<string>();
+  for (const el of container.querySelectorAll('*')) {
+    for (const name of el.classList) if (name.startsWith('bs-')) used.add(name);
+  }
+  return [...used].sort();
+};
 
 describe('bigscreen.css, as the player relies on it', () => {
   it('.bs-player__row does not wrap: one focus row is one visual line', () => {
@@ -170,7 +301,11 @@ describe('bigscreen.css, as the player relies on it', () => {
     // Fill rate over a decoding 1080p surface is the budget: a full-viewport gradient layer
     // is composited over every frame of video for the whole film.
     const body = rule('.bs-player__scrim');
-    expect.soft(body).toMatch(/height:\s*\d+px/);
+    // 480px EXACTLY, not `/height:\s*\d+px/`, which is the matcher this row shipped with and
+    // is green at `height: 1px`. Three comments do arithmetic on this number — the next row's,
+    // the stylesheet's own `~334px` bullet, and the route's — so it is the one height any of
+    // them can be read against.
+    expect.soft(decl(body, 'height'), 'the scrim is 480px of band, not a viewport').toBe('480px');
     expect.soft(body).not.toMatch(/inset:\s*0/);
     expect.soft(body).not.toMatch(/top:\s*0/);
   });
@@ -226,6 +361,85 @@ describe('bigscreen.css, as the player relies on it', () => {
     expect.soft(scrimT, 'the same curve as the band’s').toBe(decl(rule('.bs-player__bar'), 'transition'));
   });
 
+  it('the scrim is a GRADUATED wash, never a black band across the bottom 480px', () => {
+    // MEASURED GREEN BEFORE THIS ROW EXISTED, at this branch tip and not quoted from anywhere:
+    // flattening `background` to a flat opaque `var(--ink)` left `npm run test:tv` at
+    // 1526/1526 passed, 62 files. With this row it is 1533 passed, 1 failed, and the one is
+    // here. What is on the screen under that mutation is a hard black band over the bottom
+    // fifth of every frame of the film,
+    // for the ~5 s the band is up after each press — and THREE comments do arithmetic on the
+    // stops it no longer has ("~0.82 alpha at 45% of 480px": the fade row above, the
+    // stylesheet's own scrim comment, and the route's suite). The scrim's OPACITY is pinned
+    // twice over. Its shape was not pinned at all, which is the half the viewer looks at.
+    const g = gradient(decl(rule('.bs-player__scrim'), 'background'));
+    expect(g, 'the scrim is a gradient, not a flat colour').not.toBeNull();
+    // Upwards, away from the band: `to bottom` with these stops is opaque at the TOP, i.e.
+    // the wash over the picture and the clear part over the controls.
+    expect.soft(g!.direction, 'it fades upwards, away from the band').toBe('to top');
+    // The stops the arithmetic is done on: opaque where the band sits, ~0.82 at 45%, and fully
+    // TRANSPARENT at 100% — the last is what keeps the top ~146px off the picture entirely.
+    expect.soft(g!.stops).toEqual([
+      'var(--ink) 0%',
+      'rgba(10, 10, 11, 0.82) 45%',
+      'rgba(10, 10, 11, 0) 100%',
+    ]);
+  });
+
+  it('the gradient reader is not vacuous', () => {
+    // A reader that returned a shape for everything would make the row above green forever,
+    // and one that split on every comma would agree with a wrong expectation written from it.
+    expect.soft(gradient('var(--ink)'), 'a flat colour is not a gradient').toBeNull();
+    expect.soft(gradient(null), 'and a missing declaration is not one either').toBeNull();
+    expect.soft(gradient('linear-gradient(to top, #000 0%, #fff 100%)')).toEqual({
+      direction: 'to top',
+      stops: ['#000 0%', '#fff 100%'],
+    });
+    expect
+      .soft(
+        gradient('linear-gradient(to top, rgba(1, 2, 3, 0.5) 45%, #fff 100%)')?.stops,
+        'the commas inside rgba() are not stop separators',
+      )
+      .toEqual(['rgba(1, 2, 3, 0.5) 45%', '#fff 100%']);
+  });
+
+  it('the scrim is aria-hidden: it is a wash, and the band it backs is the content', () => {
+    // MEASURED GREEN BEFORE THIS ROW EXISTED, re-measured here rather than inherited: dropping
+    // `aria-hidden="true"` from the scrim left `npm run test:tv` at 1526/1526 passed, 62 files
+    // (the plan recorded 1391 when task 10 ran, which is that date's suite, not this one). With
+    // this row it is 1533 passed, 1 failed. The scrim holds no focus, has no text and is never
+    // queried, so nothing behavioural on this surface can see it — and an announced 480px
+    // decorative <div> over the picture is one edit away. The stylesheet's COMBINING note
+    // makes the claim ("a wash, not content"); this is the only thing that checks it.
+    //
+    // IT READS THE ROUTE'S SOURCE rather than rendering: the scrim is a page file's own
+    // markup, a page may not export the band, and the render-time pin belongs in the route's
+    // suite, which this round's task does not own. Source text is the instrument the file that
+    // owns the claim actually has.
+    const tags = tagsWithClass('bs-player__scrim', readFileSync(ROUTE, 'utf8'));
+    expect(tags, 'exactly one element writes the scrim class').toHaveLength(1);
+    expect.soft(tags[0], 'and it is hidden from the accessibility tree').toMatch(
+      /aria-hidden=(?:"true"|\{true\})/,
+    );
+  });
+
+  it('the opening-tag reader is element-scoped, and a `>` inside a prop does not end a tag', () => {
+    const src = [
+      '<div className="wash" aria-hidden="true" />',
+      '<div className={on ? "band" : "band band--hidden"}>',
+      '<p className="plain">x</p>',
+    ].join('\n');
+    expect.soft(tagsWithClass('band', src), 'the braced spelling is found too').toHaveLength(1);
+    // THE NEGATIVE CONTROL, and it is the point: a file-wide `/aria-hidden/` is true of this
+    // fixture, so the row above would pass with the attribute on the WRONG element.
+    expect.soft(tagsWithClass('band', src)[0]).not.toMatch(/aria-hidden/);
+    expect.soft(tagsWithClass('wash', src)[0]).toMatch(/aria-hidden/);
+    expect.soft(tagsWithClass('nope', src), 'and it is not true of everything').toEqual([]);
+    // And the brace depth: the arrow's `>` sits inside a prop, so the tag runs past it.
+    expect
+      .soft(tagsWithClass('c', '<div className="c" onClick={() => f()} aria-hidden="true" />')[0])
+      .toMatch(/aria-hidden/);
+  });
+
   it('reserves the hint line’s height without the double inset .bs-msg would bring', () => {
     // `.bs-msg` carries `padding: 0 var(--safe-x)` itself, and the band already carries the
     // safe inset, so a `.bs-msg` inside the band would sit 192px from each edge. The hint
@@ -249,18 +463,46 @@ describe('bigscreen.css, as the player relies on it', () => {
   it('every bs- class the player renders has a rule in the stylesheet', () => {
     // The whole point of this file: without it, a typo'd class name renders a geometry-less
     // element that passes every other test on this surface.
-    const { container } = render(
+    //
+    // THE `subtitles` VIEW IS NOT OPTIONAL HERE. Without it the Subtitles cell renders no
+    // sub-line, so nothing this row sees comes from the cell's own state — see the next row
+    // for what that did and did not cost.
+    const used = classesOf(
       <>
         <ScrubBar row={0} focusProps={fp()} position={10} duration={1000} contiguous={null} onSeek={() => {}} />
-        <TransportBar row={1} focusProps={fp()} playing retry onAction={() => {}} />
+        <TransportBar row={1} focusProps={fp()} playing retry subtitles={subtitlesView()} onAction={() => {}} />
       </>,
     );
-    const used = new Set<string>();
-    for (const el of container.querySelectorAll('*')) {
-      for (const name of el.classList) if (name.startsWith('bs-')) used.add(name);
-    }
-    expect(used.size, 'the components render bs- classes at all').toBeGreaterThan(4);
-    const missing = [...used].filter((name) => !hasRule(`.${name}`)).sort();
+    expect(used.length, 'the components render bs- classes at all').toBeGreaterThan(4);
+    const missing = used.filter((name) => !hasRule(`.${name}`)).sort();
+    expect(missing, `no rule for ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('the Subtitles cell’s sub-line is covered on the cell’s OWN render', () => {
+    // THE FINDING, AND IT IS NOT THE ONE THE BRIEF PREDICTED. The row above was written with
+    // no `subtitles` view, so the sub-line never appeared in it — but renaming
+    // `.bs-player__commit`'s rule in the stylesheet reddened that row anyway. MEASURED, with
+    // no view passed: `missing` came back as `["bs-player__commit"]`. The witness is
+    // `<ScrubBar>`, which renders the same class (`ScrubBar.tsx:172`) because the fixture
+    // above hands it `duration={1000}`.
+    //
+    // So the gap was never a class without a rule. It is that the ONLY witness is a sibling
+    // component that returns `null` unless the duration is finite (`ScrubBar.tsx:62`, and the
+    // early return above the markup) — and a finite duration has never been reported for an
+    // in-progress stream on this television, which is why `scrubRowCount` can be 0 and why
+    // D13 says the transport row is usually the only row. In that state, the state the SET is
+    // actually in, the catch-all saw the cell's sub-line through nothing at all.
+    const withView = classesOf(
+      <TransportBar row={0} focusProps={fp()} playing subtitles={subtitlesView()} onAction={() => {}} />,
+    );
+    const without = classesOf(<TransportBar row={0} focusProps={fp()} playing onAction={() => {}} />);
+    // POSITIVE AND NEGATIVE CONTROL: the view is what puts the class there, so neither the
+    // claim below nor this row is green on an empty set, and an unconditionally-rendered
+    // sub-line — which would make "no state yet" and a state indistinguishable in the DOM —
+    // reddens the second of them.
+    expect.soft(withView, 'the view renders the sub-line').toContain('bs-player__commit');
+    expect.soft(without, 'and nothing renders it without one').not.toContain('bs-player__commit');
+    const missing = withView.filter((name) => !hasRule(`.${name}`)).sort();
     expect(missing, `no rule for ${missing.join(', ')}`).toEqual([]);
   });
 
@@ -269,5 +511,50 @@ describe('bigscreen.css, as the player relies on it', () => {
     expect.soft(hasRule('.bs-player__row')).toBe(true);
     expect.soft(hasRule('.bs-btn--ghost')).toBe(true);
     expect.soft(hasRule('.bs-player__typo-that-does-not-exist')).toBe(false);
+  });
+
+  it('the block’s inventory names every _player component that renders a band class', () => {
+    // THE DEFECT THIS ROW IS BUILT FROM, and it would have reddened on it: the inventory's
+    // first line read "Rendered by _player/TransportBar and _player/ScrubBar" for the whole of
+    // stage 9, while `SubtitlePicker` rendered a third `.bs-player__hint` and a second kind of
+    // row into the same band. D16 made updating exactly this class of comment a requirement
+    // "or it becomes a lie", and nothing could tell that it had become one.
+    //
+    // A SET, not a count: a hand-maintained total reddens on arithmetic, this reddens on the
+    // file, and the failure names which component is missing from the prose.
+    const components = tvSources(join(BIGSCREEN, '_player'))
+      .filter((f) => /className=(?:"[^"]*bs-player__|\{[^}]*bs-player__)/.test(f.src))
+      .map((f) => basename(f.id, '.tsx'))
+      .sort();
+    expect(components.length, 'some _player component renders a band class').toBeGreaterThan(1);
+    const block = playerBlock();
+    const unnamed = components.filter((c) => !block.includes(c));
+    expect(unnamed, `the inventory does not name ${unnamed.join(', ')}`).toEqual([]);
+  });
+
+  it('three components render a hint line, which is what the inventory now says', () => {
+    // The other half of the same staleness: the block said "TWO hint lines, not one" and went
+    // on to reassure that the line "only exists while there is something to say, which is also
+    // when the auto-hide is suppressed". That is true of the route's line and FALSE of the
+    // picker's, which is rendered unconditionally and whose auto-hide is held off by
+    // `!pickerOpen` in `mayHide` instead — a different guard, on a different flag.
+    //
+    // A fourth renderer reddens this row, and the repair is to edit the inventory above the
+    // rules, which is the thing that did not happen last time. The route is in the list, which
+    // is why this scans all of `(bigscreen)` and not just `_player`.
+    expect(renderersOf('bs-player__hint')).toEqual([
+      '_player/ScrubBar.tsx',
+      '_player/SubtitlePicker.tsx',
+      'bigscreen/watch/[id]/page.tsx',
+    ]);
+  });
+
+  it('the two --hidden modifiers are the only modifiers in the player block', () => {
+    // The COMBINING note's "except TWO modifiers driven by the SAME flag" had no instrument.
+    // A third `.bs-player__*--*` is a visual state of the band that something has to toggle,
+    // on a surface where the band's states are counted by hand in two places; the controls in
+    // this block wear `.bs-btn` unchanged precisely so that there is nothing else to toggle.
+    const modifiers = [...new Set(noComments(css).match(/\.bs-player[\w-]*--[\w-]+/g) ?? [])].sort();
+    expect(modifiers).toEqual(['.bs-player__bar--hidden', '.bs-player__scrim--hidden']);
   });
 });

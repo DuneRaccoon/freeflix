@@ -869,24 +869,24 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-list__fail { color: var(--danger); }
 
 /* --- the player: video, scrim, band, transport row, scrub cell ----------------- */
-/* Rendered by _player/TransportBar and _player/ScrubBar inside the band the watch route
-   mounts. The shape the rules below assume, top to bottom:
+/* Rendered by _player/ScrubBar, _player/TransportBar and _player/SubtitlePicker inside the
+   band the watch route mounts. The shape the rules below assume, top to bottom:
 
      .bs-player                      fixed, full-bleed, the film's own stacking context
        video.bs-player__video        absolute, z-index -1
        .bs-player__scrim[--hidden]   absolute, bottom-anchored, z-index -1; fades WITH the band
        .bs-player__bar[--hidden]     the band: carries the safe inset, fades by opacity
-         .bs-player__hint            the STREAM's line, when there is one to say (the route)
-         .bs-player__hint            the scrub cell's reserved status line (ScrubBar)
-         .bs-player__row             the scrub row: one cell, full width
-         .bs-player__row             the transport row: one cell per TRANSPORT_CELLS entry
+         .bs-player__hint            the STREAM's line, only while there is one (the route)
+         .bs-player__hint, __row     CLOSED: the scrub cell's line and row (ScrubBar)
+         .bs-player__row             CLOSED: the transport row, one cell per transportCells()
+         .bs-player__hint, __row ×N  OPEN: the picker's line (always) + pickerRowCounts rows
 
-   TWO hint lines, not one, and they are the same class deliberately: the route's line (why the
-   stream stopped, what the ladder is doing, where a resume was reduced to) and the cell's line
-   (why a pending seek lands where it does) are the same geometry, and the band is
-   bottom-anchored, so either one wrapping grows the band UPWARDS and no control moves. Neither
-   is a focus stop. The route's line only exists while there is something to say, which is also
-   when the auto-hide is suppressed — so it cannot be faded out from under the viewer.
+   THREE users of .bs-player__hint, not two, and the same class deliberately: each is one
+   reserved line in a bottom-anchored band, so a wrap grows the band UPWARDS, nothing moves,
+   and none is a focus stop. Their auto-hide guards DIFFER and the picker's is NOT its text:
+   the route's line exists only while `message !== ''`, itself the suppression; the scrub
+   cell's has none; the picker's is always there and `!pickerOpen` suppresses it (`mayHide`).
+   Count: `grep -rl 'className="bs-player__hint"' 'src/app/(bigscreen)'`.
 
    NONE OF THIS IS DECORATION:
 
@@ -894,11 +894,11 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      parent's own outline, and this element has two of them. That already cost this
      stylesheet its one full-bleed focus stop once (see .bs-hero, found by rendering in
      Chromium at 1920x1080, not by reading it).
-   - The scrim is scoped to the BAND, not the viewport. Fill rate over a decoding 1080p
-     surface is this screen's whole budget, and a full-viewport gradient is composited over
-     every frame of the film for its entire length. 480px covers the band — two 60px+ rows,
-     a reserved hint line, three 24px gaps and the 54px safe inset come to ~334px — and
-     leaves ~146px for the gradient to reach nothing.
+   - The scrim is scoped to the BAND, not the viewport. Fill rate over a decoding 1080p surface
+     is this screen's whole budget, and a full-viewport gradient is composited over every frame
+     of the film for its entire length. 480px covers the CLOSED band — two 60px+ rows, a
+     reserved hint line, three 24px gaps and the 54px safe inset, ~334px. An OPEN picker's rows
+     are NOT in that figure and can exceed it; unread, like the width below.
    - --hidden sets OPACITY ONLY (§8.3, hazard 4). `display: none`, `visibility: hidden`,
      `inert` and unmounting all blur the focused control, and with the focus grid's counts
      unchanged its reconcile effect never re-runs: the ring is gone for good on a surface
@@ -921,19 +921,19 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      What .bs-msg is actually reused FOR is its reserved min-height — a line appearing
      unreserved nudges the control the ring is sitting on — so that is what this copies.
 
-   COMBINING: every class here is used ALONE on its own element, except TWO modifiers, and
-   they are driven by the SAME flag: .bs-player__bar + .bs-player__bar--hidden, and
-   .bs-player__scrim + .bs-player__scrim--hidden. The scrim's one job is to make the BAND
-   legible, so with the band hidden it has no job and a reason to go: native text-track
-   cues paint inside the video element's box, which is the other z-index: -1 layer, so an
-   always-on scrim paints over every cue for the whole film and the auto-hide alone does
-   not rescue them. Both modifiers set OPACITY ONLY, for different reasons — the band's is
-   hazard 4 (blurring the focused control), the scrim's is that a disappearing 480px layer
-   is a repaint where the point was a composited fade. The transport cells wear the existing .bs-btn
-   (+ .bs-btn--ghost) unchanged, exactly as home and the detail screens do; no modifier is
-   added to .bs-btn from this block. No positional selector: the three track layers are
-   three named classes, and the played layer paints over the ready layer by source order,
-   the same mechanism .bs-card__fallback documents. No new colour token. */
+   COMBINING: every class here is used ALONE on its own element, except TWO modifiers driven by
+   the SAME flag: .bs-player__bar + .bs-player__bar--hidden, and .bs-player__scrim +
+   .bs-player__scrim--hidden. The scrim's one job is to make the BAND legible, so with the band
+   hidden it has none and a reason to go: native cues paint inside the video element's box, the
+   other z-index: -1 layer, so an always-on scrim paints over every cue for the whole film,
+   which the auto-hide alone does not rescue. Both modifiers set OPACITY ONLY, for different
+   reasons — the band's is hazard 4 (blurring the focused control), the scrim's is that a
+   disappearing 480px layer is a repaint where the point was a composited fade; and it is
+   aria-hidden: a wash, not content. The transport cells and the picker's rows wear the
+   existing .bs-btn (+ .bs-btn--ghost) unchanged, as home and the detail screens do; no
+   modifier is added to .bs-btn from this block. No positional selector: the three track layers
+   are three named classes, the played one painting over the ready one by source order, as
+   .bs-card__fallback documents. No new colour token. */
 .bs-player {
   position: fixed;
   inset: 0;

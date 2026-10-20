@@ -1261,10 +1261,10 @@ class TorrentManager:
                                       save_path: str) -> List[Dict[str, Any]]:
         """A torrent's video-file list read from its STORED RESUME DATA.
 
-        Resume data carries the whole `info` dict, so `lt.read_resume_data(...).ti`
-        yields the authoritative file list — index, path and size — for a torrent
-        that is no longer in the libtorrent session (round-trip verified against
-        the pinned libtorrent 2.0.11). Nothing is added to the session here.
+        INERT TODAY, and this text said otherwise until stage 9: the three
+        `save_resume_data()` calls here are flagless, libtorrent 2.0.11 drops the
+        `info` dict without `save_info_dict`, so `.ti` is None for EVERY blob
+        this app writes. Adds nothing to the session. Repair: stage-7 follow-up 5.
 
         It reads the metadata rather than walking save_path because the INDEX is
         the thing being resolved: `?file_index=N` is a libtorrent file index, and

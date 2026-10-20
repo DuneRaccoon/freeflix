@@ -2,7 +2,7 @@
 
 Branch `feat/tv-stage9-subtitles`, off `master` at `4cad98b` (the stage 8 merge).
 
-Spec: `docs/superpowers/specs/2026-09-22-webos-tv-app-design.md` — §7.5 is the stage, §4.4 the current state, §10's table row at `:796`, §11 point 4 at `:824`, §13's out-of-scope list at `:894`, §14 row 9 at `:923`.
+Spec: `docs/superpowers/specs/2026-09-22-webos-tv-app-design.md` — §7.5 is the stage, §4.4 the current state, §10's `torrent/manager.py` table row, §11 point 4, §13's out-of-scope list, §14 row 9. **The section numbers are the durable handle and the line numbers are not:** task 16's edits grew that file from 924 to 1020 lines and moved every one of these (`:796`→`:872`, `:824`→`:916`, `:894`→`:990`, `:923`→`:1019`, §4.4's grep set `:264-265`→`:269-270`, §7.5's styling promise `:667-669`→its own bullet, and the two `1226-1228` sites are gone). A line number into a file the task itself edits is stale the moment the task runs.
 
 **Read `2026-10-20-tv-stage9-design-notes.md` first.** It is the design record: seven adversarially-checked recon areas, four competing designs, three judge panels, and the three things all four designs missed. Everything below carries a `file:line`, and **every citation in this plan was re-verified against the tree at `4cad98b` while writing it** — the dossier's own corrections drifted by ±1–2 lines in a dozen places, and one claim four independent recon passes agreed on ("the stale `manager.py:1226-1228` citation appears at three spec sites") is wrong: `grep -c` says **two** (`:267` in §4.4, `:662` in §7.5). §10's row at `:796` carries no line number at all. Four scouts corrected the same thing the same wrong way; do not inherit a number from a correction without opening the file.
 
@@ -612,6 +612,101 @@ none is missing.
   only change an answer for a top-level file named exactly like the folder every other file sits
   under. Named there rather than claimed.
 
+### C6 — Task 16: the prescribed `grep -c` is unsatisfiable, two MORE spec citations were stale, and a docstring fix had to be line-count neutral
+
+Six measurements, from the documentation task. Four of them are about citations, which is what
+this task exists to fix.
+
+**1. `grep -c 'not taken' …device-readings.md` cannot equal 12, and the figure is the count of row
+NUMBERS.** Measured on the sheet as written: **26** lines, 26 occurrences. The sheet has
+**fourteen rows** under twelve numbers because this plan's own table splits 27 and 29 into a/b;
+rule 1 then requires reading 27a's six facts in six separate cells (its own words: a zero-cue
+reading and an invisible-cue reading "may not share a cell"); and rules 1 and 2 use the phrase
+themselves. For scale, **both sibling sheets measure 75.** The three replacement falsifiers, all
+run: `grep -c '| \*\*not taken\*\* |'` = **20** (14 row-status cells + 27a's six facts); all
+**14/14** data rows of the rows table end in `**not taken** |` (header and separator excluded);
+and `grep -nE '\|\s*\|\s*$'` returns **nothing** — no table row has an empty final cell, which is
+what "a blank is a failure, not a pass" actually asserts. A hand-maintained total is the
+count-pin shape of hazard 15; the per-cell form reddens on the blank instead of on the
+arithmetic.
+
+**2. The stale `1226-1228` was at two sites, as the brief insisted — and two OTHER Python
+citations in the same spec were stale, one of them into the same function.** `grep -c '1226-1228'`
+= 2 (§4.4, §7.5), confirmed before editing. Then, by grepping **every** `*.py:<line>` in the file:
+§4.2 point 4 cited `torrent/manager.py:1389-1401` for `stream_file_range`'s hard `cap = 300.0`,
+and that range now lands inside `get_completed_video_file_info` (`:1323`), at its gate 3 — the
+same function `1226-1228` was landing in at the stage-8 merge, where it was that function's
+docstring. In *this* tree `1226-1228` straddles the end of `precompute_episode_map` and the `def`
+line of `_persist_episode_map`, i.e. it is inside no function at all, which is how the guard
+reddens on it. Re-resolved: `stream_file_range` at `:1778`, the cap at
+`:1864`, the truncating `return` at `:1876`, and **the defect is unchanged and still live** —
+`piece_timeout`, which would replace the flat 300 s, is passed by no production caller. §4.5's
+`main.py:188-191` for the bodiless 401 is `:205-208` on this branch (`:193-196` at the stage-8
+merge, which is the figure task 16's text carries). Both corrected. **Four stale citations in one
+spec, found by grepping a pattern rather than by reading the two the brief named.**
+
+**3. This plan's own backend citations are ~+124 lines off in this branch's tree.** The branch's
+commits inserted that much above them: the false docstring at `manager.py:1140-1143` resolves at
+**`:1264-1267`**, and hazard 1's `manager.py:328` (wanted-progress is `status.progress`) at
+**`:452`**. Recorded because the task text says to correct a docstring at a line number that is no
+longer that docstring, and because `bigscreen.css` moved the same way for the readings sheet's
+rows: `.bs-player__bar`'s `position: relative` is `:980-981` (plan: `:957-958`),
+`flex-wrap: nowrap` is `:991` (`:968`), `isolation: isolate` is `:944` (`:933`),
+`.bs-player__track` is `:1028` (`:1005`). `:893-896`, `:899-901` and `:910-915` still resolve.
+
+**4. The docstring correction had to be LINE-COUNT NEUTRAL, and that is not a style point.**
+**fourteen** citations of the form `manager.py:<line>` in `backend/app` and `backend/tests` point
+at lines below 1264, across **eight files**, and all fourteen were written and verified by this
+branch's own tasks (`api/subtitles.py` ×3, `models.py:1291-1292`, `subtitles/sidecars.py`,
+`test_sidecar_lister.py` ×3, `test_prioritize_video_files_list.py` ×2, `test_subtitles_list.py`
+×2, `test_subtitles_vtt_route.py`, `test_sidecar_admission.py`). Another **22** sit in the
+`docs/` tree. A first draft of the correction ran to 28 lines and
+shifted every one of them, including the three the spec edits had just been written against. The
+shipped version replaces the four false lines with four true ones — `git diff --stat` is **4
+insertions, 4 deletions** — so `skip_non_video_files` stays at `:1629`, `prioritize_video_files`
+at `:1646` and `stream_file_range` at `:1778`. **A docstring fix in a heavily-cited file is an
+edit with a blast radius, and the only safe size is the one it replaced.**
+
+**5. The optional docs test shipped, and ten mutations say it discriminates.**
+`frontend/src/app/(bigscreen)/specCitations.test.ts` (4 tests) resolves every
+`torrent/manager.py:` and `main.py:` citation in the spec into the `def` whose block contains it,
+and requires the citation's **own sentence** to name that def — the brief's "surrounding sentence"
+read as a paragraph would have been green under a swap, because §4.4 and §7.5 each name both
+selectors a few words apart (the "degenerate tuple that hides an argument swap" shape; measured on
+that assertion alone, with §4.4's two citations swapped — sentence window **RED**, paragraph
+window **GREEN**, and green on the honest document too, so the difference is the swap and nothing
+else). **Twelve mutations: eleven reddened and the twelfth is the control above, deliberately
+green.** The eleven: the brief's own (revert either site to `1226-1228`), a swap at each of the
+two sites, a range leaking one line past a `def`'s block, the same at `main.py`'s decorated
+handler, a sentence that stops naming the function it cites, a citation stripped of its path,
+**a comment line inserted above `prioritize_video_files` in production** (the drift that caused
+all four stale citations), a production rename of `skip_non_video_files`, and narrowing the
+guard's own path matcher to exact keys — which makes it blind to the long and bare spellings this
+spec already uses elsewhere, the "matcher so specific it misses the live spellings" shape, caught
+by a three-spelling fixture rather than by the document. Two more findings from writing it: a
+FastAPI handler's natural citation
+includes its `@app.exception_handler` line, so a def's span starts at its first decorator
+(without that, §4.5's honest `main.py:205-208` reads as "inside no def at all"); and **a pytest
+cannot host this guard at all** — `backend/Dockerfile` copies `app/`, `tests/`, `serve.py` and
+`shell.py`, so `docs/` does not exist in the image the backend suite runs in. It sits under
+`(bigscreen)` so it runs in `npm run test:tv` **and** `npx vitest run`; hazard 16 is why that
+placement is deliberate.
+
+**The three frontend counts, measured not quoted (C3's lesson), in a `git worktree add --detach`
+at task 16's parent `4ec439a` so no sibling's uncommitted work is in them:** `npm run test:tv`
+**1388 → 1522 passed / 61 files** and `npx vitest run` **2340 → 2483 passed / 149 files** — i.e.
+the plan's branch-start figures are stale by the branch's own fifteen tasks, and a task that
+quoted them would have reported a 134-test fiction. `tsc --noEmit` clean, `npm run build`
+compiles. Task 16 itself adds **4** tests in **1** file (the citation guard): **1526 / 62** and
+**2487 / 150**, each held across 15 and 3 consecutive runs respectively.
+
+**6. Smaller, and both already corrected in place.** Hazard 17's "`frontend/public/samples/` IS
+EMPTY" is stale — task 15 committed the two `.vtt` cue probes into it behind a
+`!/public/samples/*.vtt` negation, and the blocker is a **video**. And the device-readings section
+above said "Four rules inherited verbatim" while task 16 said five and both sibling sheets list
+five under a header that says four; the new sheet carries five and names the two that are stage
+9's own.
+
 ---
 
 ## What ships inert or absent, and what the television shows instead
@@ -906,7 +1001,7 @@ Correct the false docstring at `manager.py:1140-1143` and file the `save_info_di
 
 **Does not:** take any reading. Does not change `handle.save_resume_data()` at any of the three sites. Does not produce a video clip. Does not mark the stage done.
 
-**Mutate.** No test; the falsifiers are mechanical and must be run. `grep -n '1226-1228' docs/superpowers/specs/2026-09-22-webos-tv-app-design.md` returns nothing. `grep -c 'not taken' docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` equals 12. `grep -rIn -- '\.ass\b' backend/app frontend/src` returns only deliberate stage-9 occurrences. Optionally, a docs test asserting every `manager.py:<line>` citation in the spec resolves to a `def` whose name the surrounding sentence also contains — mutation: revert one citation to `1226-1228` → reddens. That mutation is worth having: this stale citation survived two spec sites, six recon passes and four designs.
+**Mutate.** The falsifiers are mechanical and must be run. `grep -n '1226-1228' docs/superpowers/specs/2026-09-22-webos-tv-app-design.md` returns nothing. ~~`grep -c 'not taken' docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` equals 12.~~ **That figure is the count of row NUMBERS and no sheet in this format can satisfy it — measured 26, against 75 in each sibling sheet; see C6.** Use instead: every data row of the rows table ends in `**not taken** |`, `grep -c '| \*\*not taken\*\* |'` equals the number of status cells the sheet declares, and `grep -nE '\|\s*\|\s*$'` returns nothing, which is what "a blank is a failure" actually asserts. `grep -rIn -- '\.ass\b' backend/app frontend/src` returns only deliberate stage-9 occurrences. **And the docs test is no longer optional: it shipped** as `frontend/src/app/(bigscreen)/specCitations.test.ts`, asserting every `manager.py:<line>` and `main.py:<line>` citation in the spec resolves into a `def` whose name the citation's **own sentence** contains — mutation: revert one citation to `1226-1228` → reddens. That mutation is worth having: this stale citation survived two spec sites, six recon passes and four designs. A paragraph-wide search would NOT have been worth having: §4.4 and §7.5 each name both selectors a few words apart, so a swap stays green under it — measured on that assertion alone, sentence window red and paragraph window green.
 
 **Depends on:** all.
 
@@ -914,7 +1009,7 @@ Correct the false docstring at `manager.py:1140-1143` and file the `save_info_di
 
 ## The device readings
 
-New sheet, rows numbered **27 onward** so numbering stays globally continuous and unique. Four rules inherited verbatim: a verbatim transcribed string or the words "not taken"; **a blank is a failure, not a pass**; transcribe the raw string, never "ok", "works" or "as expected"; measurement versus assumption called out per row.
+New sheet, rows numbered **27 onward** so numbering stays globally continuous and unique. **Five** rules inherited verbatim, not four — this sentence listed four and task 16 asked for five, and both sibling sheets carry five under a header that says four: a verbatim transcribed string or the words "not taken"; **a blank is a failure, not a pass**; transcribe the raw string, never "ok", "works" or "as expected"; **this document has no test, deliberately — the instrument is tested, the sheet is not**; measurement versus assumption called out per row.
 
 | # | Reading | Gates "done"? | Instrument | Status |
 |---|---|---|---|---|
@@ -957,7 +1052,7 @@ New sheet, rows numbered **27 onward** so numbering stays globally continuous an
 14. **`page.test.tsx:268` REPLACES `HTMLMediaElement.prototype.load` WITH A `vi.fn()`**, so the `<track>` duplication task 13 prevents is invisible to the suite in two independent ways. **Countermeasure:** assert the element's absence; reading 35 for the consequence.
 15. **THE DIVERGENCE REGISTRY'S COUNT PIN DOES NOT REDDEN WHEN A SEVENTH DIVERGENCE APPEARS** — the maps are additive by hand (`engineContract.test.ts:286-288`). **Countermeasure:** task 13's entry, predicate and count bump, with three separate mutations.
 16. **`test:tv` IS A DIRECTORY GLOB** (`package.json:13`), so a guard test outside `src/app/(bigscreen)/` is silently absent from it. **Countermeasure:** task 13's `crossOrigin` guard lives inside that directory.
-17. **`frontend/public/samples/` IS EMPTY**, so stage 8's rows 16–18 and this stage's 27b are blocked on an artefact nobody has made. **Countermeasure:** 27a's instrument needs no clip.
+17. **`frontend/public/samples/` HAS NO CLIP**, so stage 8's rows 16–18 and this stage's 27b are blocked on an artefact nobody has made. **Countermeasure:** 27a's instrument needs no clip. *(Corrected by task 16: "IS EMPTY" was true when this was written and is not any more — task 15 committed `cue-probe.vtt` and `cue-probe-line.vtt` into that directory behind a `!/public/samples/*.vtt` negation in `frontend/.gitignore`, and reading 27a's whole premise is that those two are already there. The blocker is a **video**, and both readings sheets now say so.)*
 18. **THREE VERIFICATION INSTRUMENTS RUN NOWHERE.** `test:tv` is in no build and no CI, `next build` happens inside the image build where a test failure must not break an image, and every mutation here is manual. **One green run proves nothing.** Loop the suites.
 19. **NEVER RECREATE THE BACKEND CONTAINER.** `up`/`down`/`restart`/`-V` mid-download leaves a torrent seeding at 100% with no files on disk and there is no `force_recheck` path. One-off containers only, for every probe and every test run.
 20. **`grep '\.ass'` IS THE WRONG INSTRUMENT HERE** — 20 in-scope hits, all `.assign`/`.asset`/`.assets`. Any guard anchors `\.ass\b`, or it is permanently red for reasons unrelated to subtitles.

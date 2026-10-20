@@ -17,6 +17,15 @@ new file, not an append, because that sheet's verdict is a *stage-7* verdict gat
 1-3 and is still **NOT REACHED**. Mixing stage-8 rows into it would let one verdict answer for
 two stages, and would let a taken stage-8 reading mask an untaken stage-7 gate.
 
+**And a third sheet, on the same terms:**
+`docs/superpowers/plans/2026-10-20-tv-stage9-device-readings.md` holds rows **27-38** (stage 9's
+sidecar subtitles, fourteen rows under twelve numbers, four gates). **Stage 8's rows 16-26 do not
+block it** — stage 9's own gate row is specified to need no clip, precisely so it does not inherit
+the missing-clip blocker below — but its row **27b** does, because it wants the same
+`frontend/public/samples/` clip nobody has produced. That directory is no longer empty: stage 9
+committed two hand-typed `.vtt` cue probes into it (`frontend/.gitignore` excludes the directory's
+*contents* and negates `*.vtt`). There is still **no clip**.
+
 > **How to read this document.** Four rules, inherited verbatim from the stage-7 sheet.
 >
 > 1. **Every cell is either a string transcribed verbatim off the television, or the words
@@ -658,7 +667,9 @@ remount. Those are properties of the **instrument**. Every value it will print i
 ## Follow-ups this sheet will create
 
 1. **Produce the four clips.** The command lines above are written down and **never run**; the
-   `frontend/public/samples/` directory is gitignored and empty. Until they exist, rows 16-18 are
+   `frontend/public/samples/` directory is gitignored and carries **no clip** (stage 9 committed
+   two `.vtt` cue probes into it through a `!/public/samples/*.vtt` negation, so "empty" is no
+   longer the right word for it — "no video" is). Until the clips exist, rows 16-18 are
    not takeable and the diag page will say **FILE NOT PRESENT**, which is the correct reading of
    this checkout.
 2. **Run `ffmpeg -encoders` before trusting those lines**, and fix this sheet in place if `dca`,

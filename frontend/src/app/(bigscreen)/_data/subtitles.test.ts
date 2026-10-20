@@ -526,6 +526,35 @@ describe('pollSubtitles', () => {
     expect.soft(s.waits).toHaveLength(1);
   });
 
+  it('hands back the answer that was in flight when it was cancelled, BEFORE its own check', async () => {
+    // THE CONTRACT THE ROUTE'S OWN GUARD DEPENDS ON, and the review found it unpinned.
+    // `onList` is called before the post-read cancellation check, so a poll superseded while
+    // its read was in flight still delivers exactly one stale answer — on a season pack, the
+    // previous episode's sidecars, `ready` among them. The route therefore re-checks its
+    // generation INSIDE `onList` (`watch/[id]/page.tsx`, and deleting that check reddens
+    // `page.fetch.test.tsx`'s episode-change row).
+    //
+    // WITHOUT THIS ROW, MEASURED: moving `onList?.(list)` to AFTER the check here — a
+    // perfectly reasonable hardening — is GREEN on all 1555 rows of `test:tv`, which would
+    // silently turn the route's guard into dead code with nothing red to say so. The row
+    // above cannot see it: it passes no `onList`.
+    const s = script([NOT_READY]);
+
+    const result = await pollSubtitles({
+      read: s.read,
+      index: 4,
+      wait: s.wait,
+      onList: s.onList,
+      isCancelled: () => s.read.mock.calls.length >= 2,
+    });
+
+    expect.soft(result.outcome).toBe('cancelled');
+    expect.soft(result.reads).toBe(2);
+    // TWO ANSWERS HANDED OVER FOR TWO READS, the cancelled one included. One would mean the
+    // check runs first and the caller's own guard is unnecessary.
+    expect.soft(s.lists, 'every read that answered was handed over').toHaveLength(2);
+  });
+
   it('issues nothing at all if it is cancelled before the first read', async () => {
     const s = script([NOT_READY]);
 

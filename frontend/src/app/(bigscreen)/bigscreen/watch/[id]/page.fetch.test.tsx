@@ -522,6 +522,37 @@ describe('the presses that must not ask the box for anything', () => {
     // keep the read count above and say `not arriving` about the sidecar now being fetched.
     expect.soft(subState(), 'the cancelled poll reported nothing').toBe('fetching');
   });
+
+  it('a press on an entry already on disk also stops the poll the last press started', async () => {
+    // THE THIRD CLASS OF PRESS, AND THE REVIEW FOUND IT UNDEFENDED. `chooseSubtitle` bumps the
+    // generation BEFORE its two "sends nothing" early returns, and its own comment says so
+    // ("EVERY PRESS SUPERSEDES THE LAST ONE'S POLL, before anything is awaited"). The rows
+    // above prove that for a press that starts a poll of its own and for `Off`; moving the
+    // bump BEHIND those early returns — so only those two classes still cancel — was GREEN on
+    // all 1555 rows of `test:tv`. This is the measurement that makes the comment true.
+    //
+    // THE COST IT BUYS, on this box rather than in the abstract: the abandoned poll re-reads
+    // the list 24 more times at two-second intervals, and each read re-enumerates the
+    // torrent's files on a backend that caps itself at two active downloads. The cell's word
+    // cannot see it — `chosenCellState` asks `ready` before the verdict, which is exactly the
+    // precedence that keeps a dead poll's `exhausted` from putting `not arriving` beside a
+    // mounted `<track>` — so the read count is the only instrument there is.
+    const MIXED = listOf([track({ ready: true }), spanish()]);
+    svc.getSubtitles.mockResolvedValue(MIXED);
+    await choose('Spanish');
+    expect.soft(posts(), 'the unready one was asked for').toHaveLength(1);
+    expect.soft(reads().length, 'and its poll issued one read').toBe(2);
+
+    await clickOn(subCell());
+    await clickOn(cell('English'));
+
+    expect.soft(posts(), 'the ready one asked for nothing').toHaveLength(1);
+    expect.soft(subState(), 'and it is simply on').toBe('on');
+    // FIVE INTERVALS. A poll left running would be five reads further on, and both builds
+    // would still say `on`.
+    await tick(SUBTITLE_POLL_MS * 5 + 50, 12);
+    expect.soft(reads().length, 'the superseded poll stopped at the press').toBe(2);
+  });
 });
 
 // ===================================================================================

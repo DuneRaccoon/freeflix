@@ -1568,8 +1568,8 @@ describe('what it records', () => {
  * the flag actually suppresses the hard navigation is
  * `src/services/streaming.subtitles.test.ts`, which swaps the adapter and runs the real
  * interceptors. And four of the eight cell states (`on`, `fetching`, `unreadable`, `noCues`)
- * describe a sidecar the viewer has CHOSEN, which nothing on this surface can do yet — the
- * picker is a later task, and these rows cover only the four a list alone can reach.
+ * describe a sidecar the viewer has CHOSEN, which takes the picker: these rows cover only the
+ * four a list alone can reach, and the chosen four live in `page.subtitles.test.tsx`.
  */
 describe('the Subtitles cell', () => {
   /** The transport row only. `.bs-player__row` also matches the scrub cell's own row. */

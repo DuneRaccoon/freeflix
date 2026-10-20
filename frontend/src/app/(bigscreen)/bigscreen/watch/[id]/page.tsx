@@ -230,12 +230,19 @@ function subtitleCellState(
  * `scrubRowCount` returns 0 until the element reports a finite duration) its answer is
  * `firstTarget`, which is Play/Pause.
  *
- * The column is DERIVED from the same table the row renders, not written as `4`: Retry comes
- * and goes, and a literal would be a second statement of the cell's position that nothing
- * keeps in step with `TRANSPORT_CELLS`. A `findIndex` that answered -1 (the cell gone
- * altogether) clamps to column 0 rather than off the grid, which is the same visible outcome
- * as deleting the move — and `TransportBar.test.tsx`'s `TWIN_CELL` walk is what makes that
- * unreachable.
+ * The column is DERIVED from the same table the row renders rather than written as `4`, so
+ * that a REORDER of `TRANSPORT_CELLS` moves the ring with the cell. **It is not Retry that
+ * makes this necessary, and no test can tell the two spellings apart.** `RETRY_CELL` is
+ * APPENDED (`TransportBar.tsx`: "always LAST", which is the one growth that row's focus model
+ * tolerates), so `findIndex` answers 4 for both values of `retry` and the parameter changes
+ * nothing today — measured: replacing this whole function with `() => 4` is green on every
+ * row in `test:tv`. Named as undiscriminable rather than defended, in the shape of task 4's
+ * X2: the derivation is kept because it is free and a reorder is the realistic edit, not
+ * because anything would redden.
+ *
+ * A `findIndex` that answered -1 (the cell gone altogether) clamps to column 0 rather than
+ * off the grid, which is the same visible outcome as deleting the move — and
+ * `TransportBar.test.tsx`'s `TWIN_CELL` walk is what makes that unreachable.
  */
 const TRANSPORT_ROW = 1;
 const subtitlesColumn = (retry: boolean): number =>
@@ -515,12 +522,12 @@ function WatchScreen() {
   /**
    * THE CHOSEN SIDECAR'S OWN FILE INDEX, and the element's error.
    *
-   * THE ONLY PRODUCER IS THE PICKER, WHICH IS A LATER TASK — the transport cell's press is a
-   * committed no-op and its row pins that pressing it changes nothing. So `chosen` is `null`
-   * for every state this route can reach today, and the `<track>`'s own rules are proved
-   * where they live (`_player/SubtitleTrackElement.test.tsx`, `chosenCellState`) rather than
-   * through this screen. `page.track.test.tsx` says so in those words and pins what is left:
-   * that the one mount sits inside the `<video>` and is not mapped over a list.
+   * THE ONLY PRODUCER IS THE PICKER (task 14), reached by OK on the Subtitles cell. Until it
+   * shipped, `chosen` was `null` in every state this route could reach and the `<track>`'s
+   * own rules were only provable where they live — which is why they still live there
+   * (`_player/SubtitleTrackElement.test.tsx`, `chosenCellState`), while `page.track.test.tsx`
+   * pins the composition (one mount, inside the `<video>`, never mapped over a list) and
+   * `page.subtitles.test.tsx` is the one place the element is seen MOUNTED, through a choice.
    *
    * CLEARED WITH THE READ, in the same effect and for the same reason: an index is only
    * meaningful against the list it came from, so a new title or a new episode must not carry

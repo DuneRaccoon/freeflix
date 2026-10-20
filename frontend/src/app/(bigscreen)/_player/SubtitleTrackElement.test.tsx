@@ -1,13 +1,13 @@
 /**
  * The one `<track>`: its mount gate, its two `kind` arms, its key, and its error prop.
  *
- * WHY THE ELEMENT HAS ITS OWN SUITE AT ALL. The route cannot reach a CHOSEN sidecar yet —
- * the picker is a later task and the transport cell's press is a committed no-op whose own
- * row pins that pressing it changes the cell's state not at all — so every rule below would
- * be unreachable if the element were four lines inside `page.tsx`'s `<video>`. What is left
- * of the composition is pinned in `bigscreen/watch/[id]/page.track.test.tsx`: that the one
+ * WHY THE ELEMENT HAS ITS OWN SUITE AT ALL. It shipped a task before anything on this
+ * surface could CHOOSE a sidecar, so every rule below would have been unreachable if the
+ * element were four lines inside `page.tsx`'s `<video>`. The picker (task 14) is now the
+ * chooser and `bigscreen/watch/[id]/page.subtitles.test.tsx` sees the element MOUNTED
+ * through a choice; what stays in `page.track.test.tsx` is the composition — that the one
  * mount sits INSIDE the `<video>`, that it is not mapped over a list, and that the route
- * renders no track in any state it can reach today.
+ * renders no track until a choice is made.
  *
  * TWO LIMITS, WRITTEN DOWN RATHER THAN LEFT TO BE DISCOVERED.
  *

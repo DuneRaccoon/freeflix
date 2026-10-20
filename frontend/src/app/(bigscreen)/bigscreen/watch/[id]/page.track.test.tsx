@@ -3,13 +3,14 @@
  *
  * WHAT THIS FILE CAN AND CANNOT CLAIM, SAID FIRST BECAUSE IT SHAPES EVERY ROW.
  *
- * Nothing on this surface can CHOOSE a sidecar yet. The picker is a later task, and the
- * transport cell's press is a committed no-op whose own row in `page.test.tsx` pins that
- * pressing it leaves the cell's state exactly as it was — so making the press a stand-in
- * chooser would redden that row. The route therefore has `chosen === null` in every state it
- * can reach today, and the element's own rules (the mount gate, the two `kind` arms, the key
- * that makes a switch a remount, `onErrorCapture`) are proved where they live, in
- * `_player/SubtitleTrackElement.test.tsx` and in `_data/subtitles.ts`'s `chosenCellState`.
+ * NO ROW HERE CHOOSES A SIDECAR, and that is now a property of this FILE rather than of the
+ * surface. When these rows were written nothing could choose at all; the picker (task 14) can,
+ * and `page.subtitles.test.tsx` is where a choice mounts the element and its `src` is read.
+ * Every row below leaves the picker shut, so `chosen` is `null` throughout — which is what
+ * makes the zero-count row and the source pins mean what they say. The element's own rules
+ * (the mount gate, the two `kind` arms, the key that makes a switch a remount,
+ * `onErrorCapture`) are proved where they live, in `_player/SubtitleTrackElement.test.tsx`
+ * and in `_data/subtitles.ts`'s `chosenCellState`.
  *
  * What is left for this file is the composition, and it is not nothing: a `<track>` is a
  * CHILD of the media element, so the same element rendered as a sibling of the `<video>` is
@@ -228,7 +229,7 @@ describe('the route’s <video> and its one track', () => {
     expect(trackEls()).toHaveLength(1);
   });
 
-  it('renders no track in any state the route can reach today', async () => {
+  it('renders no track until the viewer has chosen one, at every coverage', async () => {
     // Four coverages, because they are the four shapes the list can answer with and each one
     // reaches the `<video>` through a different cell state. A ready, convertible, paired
     // sidecar is in the first of them and still mounts nothing — which is the point: a
@@ -265,7 +266,9 @@ describe('the route’s <video> and its one track', () => {
 });
 
 /**
- * The composition, against the source — the only instrument for it while nothing can choose.
+ * The composition, against the source. Still the only instrument for it: a `<track>` rendered
+ * as a SIBLING of the `<video>` is inert and no render would report it, and "one element,
+ * never one per offerable entry" is a property of the call site, not of a reachable state.
  */
 describe('the route’s source, for the mount no render can reach', () => {
   const PAGE = readFileSync(

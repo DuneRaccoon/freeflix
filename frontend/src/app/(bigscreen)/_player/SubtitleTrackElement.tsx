@@ -1,13 +1,13 @@
 /**
  * EXACTLY ONE `<track>`, and every attribute on it is a measured decision (D14/D15).
  *
- * WHY THIS IS A COMPONENT AND NOT FOUR LINES INSIDE THE `<video>`. The route cannot reach a
- * CHOSEN sidecar yet: the picker that chooses one is a later task, and the transport cell's
- * press is a committed no-op whose own row pins that the cell's state does not change when it
- * is pressed. So an element written inline in `page.tsx` would ship with every one of its
- * rules unfalsifiable. Here the mount rule, the two `kind` arms, the key and the error prop
- * are all reachable from a props object, and `page.track.test.tsx` pins the composition that
- * is left — that the one mount sits INSIDE the `<video>` and is not mapped over a list.
+ * WHY THIS IS A COMPONENT AND NOT FOUR LINES INSIDE THE `<video>`. It shipped (task 13) a
+ * task before anything on this surface could CHOOSE a sidecar, so an element written inline
+ * in `page.tsx` would have shipped with every one of its rules unfalsifiable. Here the mount
+ * rule, the two `kind` arms, the key and the error prop are all reachable from a props
+ * object. The picker (task 14) is now the chooser, so the route does reach a mounted element
+ * — `page.subtitles.test.tsx` is where that is seen — and `page.track.test.tsx` still pins
+ * the composition: one mount, INSIDE the `<video>`, never mapped over a list.
  *
  * ONE ELEMENT, KEYED ON THE TORRENT'S OWN FILE INDEX. Measured: two `<track default>`
  * elements both reach `mode: 'showing'` — Blink enforces no winner — and a track's mode is

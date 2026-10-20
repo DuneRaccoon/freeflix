@@ -223,6 +223,43 @@ describe('the probe is HEAD-only, structurally', () => {
   });
 });
 
+describe('no component in _player installs a window key listener of its own', () => {
+  it('calls none of the four key hooks, while the screen calls all of them', () => {
+    // THE BAN EVERY HEADER IN THIS DIRECTORY STATES AND NOTHING MEASURED. `ScrubBar`,
+    // `TransportBar` and `SubtitlePicker` each open on "it owns no focus grid" / "no Back
+    // handler", and all four hooks say in their own docstrings that one screen means one
+    // live instance: the listeners are on `window` and check no scope.
+    //
+    // MEASURED, and it is why this exists: adding a live `useFocusGrid` inside
+    // `SubtitlePicker` left all 1518 TV rows green, and so did adding a `useBackKey`. Both
+    // are inert only BY MOUNT ORDER — the route's listeners register on the route's first
+    // mount, long before the picker exists, and `useBackKey`'s own docstring is explicit
+    // that "of two, whichever registered first claims the press and the other never hears
+    // it". Mount these components in the other order, or make one of them the first thing
+    // on a screen, and the second listener is the live one. No behavioural assertion on
+    // this surface can see that, because the order it depends on is the one the tests
+    // happen to use.
+    //
+    // The call shape, not the import: `SubtitlePicker` legitimately imports `FocusProps`
+    // from `useFocusGrid`, which is the type half and claims nothing.
+    const HOOKS = ['useFocusGrid', 'useBackKey', 'useRevealOnKey', 'useMediaKeys'] as const;
+    for (const { id, src } of playerSources()) {
+      for (const hook of HOOKS) {
+        expect(code(src), `${id} calls ${hook}`).not.toMatch(new RegExp(`\\b${hook}\\s*\\(`));
+      }
+    }
+    // THE POSITIVE CONTROL, without which a typo'd hook name above passes for ever: the
+    // screen that owns the one live instance of each hook does call all four by these
+    // exact spellings.
+    const routeSrc = code(
+      read(join(process.cwd(), 'src/app/(bigscreen)/bigscreen/watch/[id]/page.tsx')),
+    );
+    for (const hook of HOOKS) {
+      expect(routeSrc, `the screen calls ${hook}`).toMatch(new RegExp(`\\b${hook}\\s*\\(`));
+    }
+  });
+});
+
 /**
  * Every place the two players deliberately disagree, with the reason. An entry here
  * is a promise that the divergence is intended; the predicate beside it is the proof

@@ -88,6 +88,11 @@ function refusalSentence(row: SubtitlePickerRow): string {
  * A choice that is no longer in the list reads as `Off` rather than as a cell index: the
  * list is re-read per (title, file), and an index carried across an episode change names
  * another episode's file entirely.
+ *
+ * THE NULL EARLY RETURN IS THE SAME RULE STATED TWICE, and that is named rather than
+ * claimed: `index` is a `number` on every row, so `findIndex` against `null` answers -1 and
+ * the line below already returns 0. Deleting it is green on every row — the shape this
+ * branch keeps finding. It is kept as documentation of the intent, not as a guard.
  */
 function pickerCellIndex(
   rows: readonly SubtitlePickerRow[],

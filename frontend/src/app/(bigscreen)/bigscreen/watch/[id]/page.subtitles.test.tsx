@@ -688,6 +688,15 @@ describe('a listed format this box cannot convert', () => {
     // contract exists on a picker row, and the format is the part the viewer can act on.
     expect.soft(unservable.textContent, 'with its format').toContain('.ass');
     expect.soft(pickerHint(), 'and the hint is empty until it is pressed').toBe('');
+    // AND THE LINE IS HELD OPEN WHILE IT IS EMPTY, which is a geometry claim the component
+    // makes in a comment and nothing measured: rendering the `<p>` only when there is
+    // something to say was GREEN on all 19 rows. `.bs-player__hint` reserves one line
+    // (`min-height`), so a refusal arriving does not nudge the control the ring is sitting
+    // on — on a remote that reads as the screen moving under you. jsdom computes nothing
+    // from a linked stylesheet, so this is the element's presence plus the rule's text.
+    expect
+      .soft(document.querySelectorAll('.bs-player__hint:not([role])'), 'the empty line is still there')
+      .toHaveLength(1);
 
     await clickOn(unservable);
     // THE PRESS IS ANSWERED, and the hint is a DIFFERENT string from the row's own text, so
@@ -847,6 +856,13 @@ describe('the row text', () => {
     const hasRule = (name: string) => new RegExp(`(?:^|\\n|,|\\s)\\.${name}[\\s,:{]`).test(css);
     expect.soft(hasRule('bs-player__row'), 'the matcher is not vacuous').toBe(true);
     expect.soft(hasRule('bs-player__typo-that-does-not-exist')).toBe(false);
+    // The hint's reserved line is a PROPERTY of the rule, not just of the class existing:
+    // the row above asserts the empty `<p>` is rendered, and this is the half that says
+    // rendering it reserves space. Read from the stylesheet TEXT, because a linked
+    // stylesheet contributes nothing to jsdom's computed styles.
+    expect
+      .soft(/\.bs-player__hint\s*\{[^}]*min-height\s*:/.test(css), 'the hint holds a line open')
+      .toBe(true);
 
     svc.getSubtitles.mockResolvedValue(listOf([track(), track({ index: 11, format: 'ssa', convertible: false, reason: 'unsupported-format', label: 'Thai' })]));
     await openPicker();
@@ -909,6 +925,13 @@ describe('Off and the empty picker', () => {
       expect.soft(ring(), `${name}: exactly one ring`).toHaveLength(1);
       expect.soft(ring()[0], `${name}: on the focused cell`).toBe(document.activeElement);
       expect.soft(pickerHint(), `${name}: with the reason`).toMatch(sentence);
+      // OFF IS THE CURRENT CHOICE WHEN NOTHING IS CHOSEN, and it wears the dress that says
+      // so. Pinned here because the only other dress assertion in this file is taken AFTER
+      // a language has been chosen, so `cell !== 0 && cell === currentCell` — Off never
+      // primary, i.e. the picker opening with no cell marked as current — was GREEN on all
+      // 19 rows and on all 1518 in `test:tv`. The viewer who has subtitles off sees this
+      // state on every open.
+      expect.soft(pickerCells()[0]?.className, `${name}: Off is the current choice`).toBe('bs-btn');
       // STILL NOT IN THE BAND'S MESSAGE LINE, which is what `mayHide` reads.
       expect.soft(statusLines(), `${name}: and not in the message line`).toEqual([]);
       view.unmount();

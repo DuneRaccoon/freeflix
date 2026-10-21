@@ -17,6 +17,7 @@ import { episodeTraces, latestSeasonWatched, nextUnwatched, seasonFinished } fro
 import { AutoNextToggle } from '../../../_components/AutoNextToggle';
 import { useAutoNext } from '../../../_data/autoNext';
 import { useTvProfile } from '../../../_data/useTvProfile';
+import { HEADER_CELLS } from '../../../_components/Header';
 import { useFocusGrid } from '../../../_focus/useFocusGrid';
 import { useBackKey } from '../../../_focus/useBackKey';
 
@@ -294,7 +295,13 @@ function Loaded({
     };
   }, [open, entry, traces, tmdbId, profileId, onLocked]);
 
-  const epBase = seasons.length > 0 ? 2 : 1;
+  /**
+   * Row 0 is the top bar (`TitleScreen` renders it), row 1 the actions, row 2 the season
+   * picker when there is one, and the episodes follow.
+   */
+  const ACTION_ROW = 1;
+  const SEASON_ROW = 2;
+  const epBase = seasons.length > 0 ? SEASON_ROW + 1 : SEASON_ROW;
   const emptySeason = !!entry && episodes.length === 0;
   /**
    * ROW 0 IS TWO CELLS NOW: the subject's control, and the auto-next toggle beside it.
@@ -307,6 +314,7 @@ function Loaded({
    */
   const ACTION_CELLS = 2;
   const rowCounts = [
+    HEADER_CELLS,
     ACTION_CELLS,
     ...(seasons.length > 0 ? [seasons.length] : []),
     ...(entry && episodes.length > 0
@@ -315,13 +323,16 @@ function Loaded({
         ? [1]
         : []),
   ];
-  const grid = useFocusGrid({ rowCounts });
+  // The actions, not the menu above them: this screen exists to be pressed.
+  const grid = useFocusGrid({ rowCounts, initialRow: ACTION_ROW });
 
   // Row 0's control can be swapped for a different one (a Home button for the shared action,
   // or one episode's action for another's) and an unmounted focused control drops DOM focus to
   // <body>. The grid still knows where the viewer is; put DOM focus back.
   useEffect(() => {
-    if (grid.focused.row === 0 && document.activeElement === document.body) grid.setFocus({ row: 0, col: 0 });
+    if (grid.focused.row === ACTION_ROW && document.activeElement === document.body) {
+      grid.setFocus({ row: ACTION_ROW, col: 0 });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject, pending]);
 
@@ -350,7 +361,9 @@ function Loaded({
     subjectVersion.current++;
     setPending(false);
     setSubject({ season, episode: ep.episode_number, name: ep.name, action: state.action });
-    grid.setFocus({ row: 0, col: 0 });
+    // The shared action control, which this press has just swapped — NAMED, because a
+    // literal row here is what broke when the top bar took row 0.
+    grid.setFocus({ row: ACTION_ROW, col: 0 });
   };
 
   const recheck = async () => {
@@ -393,10 +406,10 @@ function Loaded({
         key={`${subject.season}:${subject.episode}`}
         action={subject.action}
         request={{ mediaType: 'tv', tmdbId, season: subject.season, episode: subject.episode }}
-        focusProps={grid.focusProps(0, 0)}
+        focusProps={grid.focusProps(ACTION_ROW, 0)}
         onRecheck={recheck}
       />
-      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(0, 1)} />
+      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(ACTION_ROW, 1)} />
     </>
   ) : (
     <>
@@ -406,13 +419,13 @@ function Loaded({
         </p>
       )}
       {/* The label never changes: this control only ever goes home, so it must not say anything else. */}
-      <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(0, 0)} onClick={goHome}>
+      <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(ACTION_ROW, 0)} onClick={goHome}>
         Back to home
       </button>
       {/* HERE TOO, and that is what makes `ACTION_CELLS` a constant: the two arms of this
           ternary are the same focus row, so a toggle in only one of them would change the
           row's count every time the subject resolved. */}
-      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(0, 1)} />
+      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(ACTION_ROW, 1)} />
     </>
   );
 
@@ -430,7 +443,7 @@ function Loaded({
               type="button"
               className="bs-show__season"
               aria-pressed={s.season_number === open}
-              {...grid.focusProps(1, i)}
+              {...grid.focusProps(SEASON_ROW, i)}
               onClick={() => openSeason(s.season_number)}
             >
               {s.name || `Season ${s.season_number}`}
@@ -461,7 +474,7 @@ function Loaded({
               className="bs-btn bs-btn--ghost"
               {...grid.focusProps(epBase, 0)}
               onClick={() =>
-                grid.setFocus({ row: 1, col: Math.max(0, seasons.findIndex((s) => s.season_number === open)) })
+                grid.setFocus({ row: SEASON_ROW, col: Math.max(0, seasons.findIndex((s) => s.season_number === open)) })
               }
             >
               Pick another season
@@ -488,6 +501,7 @@ function Loaded({
       eyebrow={eyebrowOf(show, seasons.length)}
       title={show.name}
       overview={show.overview || null}
+      focusPropsFor={grid.focusProps}
       actions={actions}
       below={below}
     />

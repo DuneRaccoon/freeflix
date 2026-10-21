@@ -109,6 +109,53 @@ afterEach(() => {
 });
 
 describe('show detail screen', () => {
+  describe('the way back to the menu', () => {
+    const menuItem = (name: string) => screen.getByRole('link', { name });
+
+    it('carries the top bar, which this screen had no equivalent of', async () => {
+      // REPORTED FROM THE LIVING ROOM: "show/movie pages have no way to return to the main
+      // menu". The "Back to home" button below is one arm of a ternary and is REPLACED by
+      // the primary action the moment an episode resolves, so on the normal path there was
+      // nothing on screen that left — only the remote's Back key, whose identity on this
+      // television is still unverified.
+      await mount();
+      expect(menuItem('Home')).toBeInTheDocument();
+      expect(menuItem('Search')).toBeInTheDocument();
+    });
+
+    it('lands the ring on the actions, not on the menu above them', async () => {
+      await mount();
+      expect(document.activeElement).not.toBe(menuItem('Home'));
+      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+
+    it('is one Up from the actions', async () => {
+      await mount();
+      fireEvent.keyDown(window, { key: 'ArrowUp' });
+      expect(document.activeElement).toBe(menuItem('Home'));
+    });
+
+    it('is still one Up after an episode press has swapped the action', async () => {
+      // The press moves the ring to the shared control with an explicit setFocus, and that
+      // call named row 0 — which the bar now owns. It put the ring in the MENU instead.
+      await mount();
+      await waitFor(() => expect(epButtons()).toHaveLength(3));
+      stateFor.mockResolvedValue(stateOf({ kind: 'play' }));
+      fireEvent.click(epButtons()[1]);
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Play' })));
+      fireEvent.keyDown(window, { key: 'ArrowUp' });
+      expect(document.activeElement).toBe(menuItem('Home'));
+    });
+
+    it('reaches the season picker on the way down, not row 1', async () => {
+      // The other literal row the bar shifted: opening a season sets focus to the picker.
+      await mount();
+      await waitFor(() => expect(epButtons()).toHaveLength(3));
+      fireEvent.keyDown(window, { key: 'ArrowDown' });
+      expect(document.activeElement?.className).toContain('bs-show__season');
+    });
+  });
+
   it('renders the show by `name` (a ShowDetail has no `title`)', async () => {
     await mount();
     expect(screen.getByRole('heading', { level: 1, name: 'Thrones Like' })).toBeInTheDocument();

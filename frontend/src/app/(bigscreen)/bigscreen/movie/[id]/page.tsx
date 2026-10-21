@@ -10,6 +10,7 @@ import { atSize } from '../../../_components/Hero';
 import { PrimaryAction } from '../../../_components/PrimaryAction';
 import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
+import { HEADER_CELLS } from '../../../_components/Header';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { statusOf } from '../../../_data/httpStatus';
 import { titleStateFor, type TitleAction, type TitleState } from '../../../_data/title';
@@ -210,7 +211,13 @@ function Loaded({
    */
   const [fourK, setFourK] = useState(false);
   const cells = actionCellsFor(!!profile, state.action.kind);
-  const { focused, focusProps, setFocus } = useFocusGrid({ rowCounts: [cells.length] });
+  /** Row 0 is the top bar, which `TitleScreen` renders; the actions are row 1. */
+  const ACTION_ROW = 1;
+  const { focused, focusProps, setFocus } = useFocusGrid({
+    rowCounts: [HEADER_CELLS, cells.length],
+    // The actions, not the menu above them: this screen exists to be pressed.
+    initialRow: ACTION_ROW,
+  });
   const list = useMyList(profile?.id ?? null, detail);
 
   /**
@@ -246,8 +253,8 @@ function Loaded({
     const was = previousCount.current;
     previousCount.current = count;
     if (count >= was) return; // only a SHRINK can strand the ring
-    if (focused.row !== 0 || focused.col < count) return; // the ring is on a cell that survived
-    setFocus({ row: 0, col: count - 1 });
+    if (focused.row !== ACTION_ROW || focused.col < count) return; // the ring survived
+    setFocus({ row: ACTION_ROW, col: count - 1 });
   }, [count, focused, setFocus]);
 
   /**
@@ -269,6 +276,7 @@ function Loaded({
 
   return (
     <TitleScreen
+      focusPropsFor={focusProps}
       art={atSize(detail.backdrop_url, 'w1920')}
       eyebrow={eyebrowOf(detail)}
       title={detail.title}
@@ -279,12 +287,12 @@ function Loaded({
             key={cell}
             action={state.action}
             request={request}
-            focusProps={focusProps(0, c)}
+            focusProps={focusProps(ACTION_ROW, c)}
             onRecheck={onRecheck}
           />
         ) : cell === 'list' ? (
           <div key={cell} className="bs-title__action">
-            <button type="button" className="bs-btn bs-btn--ghost" {...focusProps(0, c)} onClick={list.toggle}>
+            <button type="button" className="bs-btn bs-btn--ghost" {...focusProps(ACTION_ROW, c)} onClick={list.toggle}>
               {list.label}
             </button>
             {list.failed && (
@@ -309,7 +317,7 @@ function Loaded({
               type="button"
               className="bs-btn bs-btn--ghost bs-title__toggle"
               aria-pressed={fourK}
-              {...focusProps(0, c)}
+              {...focusProps(ACTION_ROW, c)}
               onClick={() => setFourK((on) => !on)}
             >
               {FOURK_LABEL}

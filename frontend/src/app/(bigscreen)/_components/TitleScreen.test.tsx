@@ -55,3 +55,62 @@ describe('TitleScreen', () => {
     expect(bare.container.querySelectorAll(FOCUS_STOPS)).toHaveLength(0);
   });
 });
+
+describe('the way back to the menu', () => {
+  const props = () => ({ tabIndex: -1 as const, ref: () => {}, onFocus: () => {} });
+  const menu = () => [...document.querySelectorAll('.bs-head__item')].map((l) => l.textContent);
+
+  it('carries the top bar when the screen hands it a grid', () => {
+    // THE REPORTED DEAD END. The bar went on the browsing screens only, on the reasoning
+    // that a title screen is "a flow, not a place" with its own way back. The show screen's
+    // "Back to home" is one arm of a ternary and is REPLACED by the primary action as soon
+    // as an episode resolves; the movie screen never had one. So on the normal path the only
+    // way out was the remote's Back key, whose identity on this set is unverified.
+    render(
+      <TitleScreen art={null} title="Dune" overview={null} actions={<button>Go</button>} focusPropsFor={props} />,
+    );
+    expect(menu()).toEqual(['Home', 'Search', 'My List', 'Switch profile', 'Diagnostics']);
+  });
+
+  it('puts the bar at row 0 and asks for one cell per menu item', () => {
+    // The row the screen must declare as `HEADER_CELLS` before its own actions.
+    const asked: Array<[number, number]> = [];
+    render(
+      <TitleScreen
+        art={null}
+        title="Dune"
+        overview={null}
+        actions={<button>Go</button>}
+        focusPropsFor={(row, col) => {
+          asked.push([row, col]);
+          return props();
+        }}
+      />,
+    );
+    expect(asked).toEqual([
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [0, 3],
+      [0, 4],
+    ]);
+  });
+
+  it('marks no section, because a title screen is in none', () => {
+    render(
+      <TitleScreen art={null} title="Dune" overview={null} actions={<button>Go</button>} focusPropsFor={props} />,
+    );
+    expect(document.querySelector('[aria-current]')).toBeNull();
+  });
+
+  it('carries NO bar for the status frames, which own row 0 themselves', () => {
+    // `LoadStatus`, `LockedRedirect` and the player's `Gone` are built from this frame and
+    // each renders its own named ways out, starting at row 0. A bar would both take that row
+    // and duplicate a control they already have.
+    const { container } = render(
+      <TitleScreen art={null} title="Couldn’t load this show" overview={null} actions={<button>Try again</button>} />,
+    );
+    expect(container.querySelector('.bs-head')).toBeNull();
+    expect(container.querySelector('.bs-shell__head')).toBeNull();
+  });
+});

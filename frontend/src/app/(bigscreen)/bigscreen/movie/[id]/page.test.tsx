@@ -108,6 +108,40 @@ afterEach(() => {
 });
 
 describe('movie detail screen', () => {
+  describe('the way back to the menu', () => {
+    const menuItem = (name: string) => screen.getByRole('link', { name });
+
+    it('carries the top bar, which this screen never had any equivalent of', async () => {
+      // REPORTED FROM THE LIVING ROOM: "show/movie pages have no way to return to the main
+      // menu". This screen's actions are Play, My List and the 4K ask — not one of them
+      // leaves. The only way out was the remote's Back key, whose identity on this
+      // television is still unverified, and the Magic Remote is a pointer.
+      await mount();
+      expect(menuItem('Home')).toBeInTheDocument();
+      expect(menuItem('My List')).toBeInTheDocument();
+    });
+
+    it('lands the ring on the actions, not on the menu above them', async () => {
+      await mount();
+      expect(document.activeElement).toBe(primary());
+    });
+
+    it('is one Up from the actions, and one Down back', async () => {
+      await mount();
+      fireEvent.keyDown(window, { key: 'ArrowUp' });
+      expect(document.activeElement).toBe(menuItem('Home'));
+      fireEvent.keyDown(window, { key: 'ArrowDown' });
+      expect(document.activeElement).toBe(primary());
+    });
+
+    it('counts the bar as its own row, so the actions are still one row', async () => {
+      await mount();
+      const stops = document.querySelectorAll('[tabindex]');
+      expect(stops.length).toBe(5 + actionCells().length);
+      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+  });
+
   it('asks for the cheap detail form (no server-side torrent searches)', async () => {
     await mount();
     expect(getDetail).toHaveBeenCalledTimes(1);

@@ -1078,6 +1078,84 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   color: var(--muted);
 }
 .bs-search__actions { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px var(--safe-x) 0; }
+
+/* --- THE SPLIT: a keyboard on the left, the results on the right ------------------- */
+/* Rendered by bigscreen/search/page.tsx. Two columns of ONE grid, because the two panes are
+   two ranges of one focus grid's rows (see _focus/panes.ts) and this is the geometry that
+   matches: everything in column 1 is the left pane, everything in column 2 the right.
+
+   THE LEFT COLUMN IS MEASURED BY THE KEYBOARD, not chosen: `max-content` takes exactly the
+   width of its widest row, which is the ten digits. At the key size below that is
+   10*88 + 9*12 = 988px, leaving ~690px of the 1728px the safe area allows for the results.
+   Writing a number here instead would be a second copy of an arithmetic the keys already
+   decide, and it would be wrong the moment a key changed size.
+
+   The children carry their own `--safe-x` padding (they are shared with the single-column
+   screens), so the grid cancels it and applies the inset once, itself. */
+.bs-search {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0 48px;
+  align-items: start;
+  padding: 0 var(--safe-x) var(--safe-y);
+}
+.bs-search__pane { min-width: 0; }
+/* Measured by the keyboard rather than by the column: the pane hugs its content, so the
+   space between the two panes is the 48px the grid sets and not whatever is left over. */
+.bs-search__pane--input { justify-self: start; }
+/* The pane that GROWS. Recent searches, the failure note, the empty note and the results
+   stack in it, and it is the one that gets taller as pages arrive. */
+.bs-search__pane--results { display: flex; flex-direction: column; }
+.bs-search .bs-search__field { margin: 24px 0 8px; }
+.bs-search .bs-kb { padding: 16px 0 8px; gap: 12px; }
+.bs-search .bs-kb__row { gap: 12px; }
+/* Narrower and shorter than the single-column keyboard this screen used to be: 120px keys
+   put the digit row at 1344px, which leaves no room for a second column at all. 88px is
+   still well past the 64px focus-target floor and the glyph is still legible at ten feet
+   (28px, the token tier). */
+.bs-search .bs-kb__key { width: 88px; min-height: 76px; font-size: 28px; }
+.bs-search .bs-kb__key--word { min-width: 132px; font-size: 20px; }
+.bs-search .bs-search__actions { padding: 16px 0 0; }
+.bs-search .bs-search__results { padding: 24px 0 0; }
+.bs-search .bs-search__alert,
+.bs-search .bs-search__status { padding: 24px 0 0; }
+
+/* The results, as a fluid grid rather than a row of fixed-width cards. RESULT_COLUMNS in
+   _data/searchPaging.ts is the same 3 and searchCss.test.tsx pins the two together: the
+   focus model is told `RESULT_COLUMNS` cells per row, so a stylesheet that drew four would
+   put a card where no cell is and leave the ring on nothing.
+
+   `1fr` columns and an `aspect-ratio` on the art, NOT the base rule's fixed 240x360: the
+   right column's width is whatever the keyboard leaves, so a fixed card width would either
+   overflow it or leave a gutter, and a fixed art height would distort the poster. */
+.bs-search__row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 0 0 24px;
+  align-items: start;
+}
+.bs-search__row .bs-card--poster { width: auto; }
+.bs-search__row .bs-card--poster .bs-card__art { height: auto; aspect-ratio: 2 / 3; }
+/* The fallback title-card's clamp is tuned to the base rule's 326px box; in a narrower,
+   fluid box it simply clamps sooner, which is the right failure. */
+.bs-search__row .bs-card--poster .bs-card__fallback { aspect-ratio: 2 / 3; height: auto; }
+
+/* Recent searches fill the right pane when there is nothing else to put in it: ONE PER ROW,
+   because the pane is a column. The horizontal row this replaces was six pills wide, which
+   does not fit beside a keyboard. */
+.bs-search .bs-search__recents { padding: 24px 0 0; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.bs-search .bs-search__recent { max-width: 100%; }
+/* Not a focus stop and not an alert: the field's own status line says which state this is,
+   and this is the place that says it where the viewer is looking for results. */
+.bs-search__empty,
+.bs-search__more {
+  margin: 0;
+  padding: 24px 0;
+  font-size: 24px;
+  line-height: 1.4;
+  color: var(--muted);
+}
 /* RECENT SEARCHES. Offered only with an empty query and nothing found, so this row is a way
    to START rather than something to step over on the way to the answers. nowrap, like every
    other focus row on this surface: the model counts one row per container, so a row that
@@ -1113,12 +1191,11 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 .bs-search__recent:focus { outline: var(--focus-ring) solid var(--gold-lite); outline-offset: 2px; box-shadow: var(--halo); }
 .bs-search__status { padding: 16px var(--safe-x) 0; font-size: 24px; line-height: 1.4; color: var(--muted); margin: 0; }
 .bs-search__alert { padding: 16px var(--safe-x) 0; font-size: 24px; line-height: 1.4; color: var(--danger); margin: 0; }
-/* A vertical grid, not a rail: a search answers up to two pages and the viewer scans down
-   it. One container per row, no wrap, for the same count contract as the keyboard.
-   6 posters are 6*240 + 5*24 = 1560px inside the safe area. The vertical padding is the
-   focus ring's room — a focused card scales 1.06 and then draws a 4px ring outside that. */
-.bs-search__results { padding: 16px 0 var(--safe-y); }
-.bs-search__row { display: flex; align-items: flex-start; gap: 24px; padding: 16px var(--safe-x); }
+/* The results' own rules live in the split block above, which is the only layout this
+   screen has. They used to be here, as a full-width rail of six 240px posters — and when the
+   split was added the new rules were written ABOVE these, so these won on source order and
+   the third card of every row hung off the right of the screen. Rendering it at 1920x1080 is
+   what found that; the arithmetic in searchCss.test.ts had read the new rule and passed. */
 
 /* --- My List: the removable grid ---------------------------------------------- */
 /* Rendered by bigscreen/list/page.tsx. The screen is otherwise built from classes that

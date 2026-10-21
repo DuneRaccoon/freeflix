@@ -7,6 +7,7 @@ import { tvService } from '@/services/tv';
 import { HEADER_CELLS } from '../../_components/Header';
 import { KEYBOARD_ROW_COUNTS } from '../../_components/Keyboard';
 import { TYPING_PAUSE_MS } from '../../_data/searchQuery';
+import { RESULT_COLUMNS } from '../../_data/searchPaging';
 import SearchPage from './page';
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
@@ -68,19 +69,32 @@ const KEY_CELLS = KEYBOARD_ROW_COUNTS.reduce((a, b) => a + b, 0);
  */
 const BAR_CELLS = HEADER_CELLS;
 /**
- * The action row. The Search key is always there; `Go to N results` is APPENDED only when
- * there are results to go to, so this row is one cell wide for every state that has none.
- * (It was a flat 2 when the second cell was a permanent "Back to home" link — that way home
- * is in the bar now, with everywhere else.)
+ * The action row: the Search key, and nothing else, in every state.
+ *
+ * It was 2 when a permanent "Back to home" link sat beside it (that way home is in the bar
+ * now), and 2-when-there-are-results when `Go to N results` was appended. With the split the
+ * results are one Right press from the keyboard, so that cell bought nothing and is gone.
  */
 const ACTION_CELLS = 1;
-const ACTION_CELLS_WITH_RESULTS = 2;
 
 const arrow = (k: string) => fireEvent.keyDown(window, { key: k });
 const back = () => fireEvent.keyDown(window, { key: 'Backspace' });
 const key = (name: string) => screen.getByRole('button', { name });
 const typeIn = (text: string) => {
   for (const ch of text) fireEvent.click(key(ch === ' ' ? 'Space' : ch));
+};
+/**
+ * Press Right until the ring is in the results, and no further.
+ *
+ * A fixed count overshoots: the first keyboard row has 7 cells, so the 7th Right crosses
+ * and the 8th and 9th walk ACROSS the results row. Every one of these assertions is about
+ * where the crossing LANDS, so it has to stop on arrival.
+ */
+const crossIntoResults = () => {
+  for (let i = 0; i < 14; i++) {
+    if (document.activeElement?.classList.contains('bs-card')) return;
+    arrow('ArrowRight');
+  }
 };
 const searchKey = () => screen.getByRole('button', { name: 'Search' });
 const pressSearch = async () => {
@@ -117,23 +131,55 @@ function walkTheGrid(label: string): Set<Element> {
     visited.add(inTabOrder[0]);
   };
   record('on arrival');
-  // More presses than the surface has rows and columns, so the sweep cannot stop early:
-  // 6 keyboard rows + the action row + at most 7 result rows, and 10 cells in the widest row.
-  const ROWS = 16;
+  // More presses than either pane has rows, and than the widest row of either has cells.
+  const ROWS = 12;
   const COLS = 12;
+
+  /**
+   * TWO SWEEPS, because the screen is two panes rather than one column.
+   *
+   * Sweep A is the original serpentine and covers the bar and the left pane: Right to the
+   * end of a row, Left back to its start, Down. It also wanders into the first results row
+   * and back, which is harmless.
+   *
+   * Sweep B covers the right pane, and the shape it has is forced by one fact: in the right
+   * pane a Left press at column 0 CROSSES BACK to the keyboard, so a bounded left-walk
+   * cannot be written without knowing each row's width (a short last row makes column 0 the
+   * last column too). So it lets the cross happen and comes back: Left until it leaves,
+   * Right until it has re-entered and reached the end of the row it left, then Down to the
+   * next one. Each pass covers one results row in both directions and advances by one.
+   *
+   * The first version of this walk did Right/Left/Down once from the top left and reached 34
+   * of 45 cells while asserting it had reached them all — it always ended a pass in the LEFT
+   * pane, so every results row after the first was unreachable, and it got stuck on the
+   * action row at the bottom.
+   */
   for (let i = 0; i < ROWS; i++) arrow('ArrowUp');
-  record('at the top');
+  for (let i = 0; i < COLS; i++) arrow('ArrowLeft');
+  record('at the top left');
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       arrow('ArrowRight');
-      record(`row ${r}, right x${c + 1}`);
+      record(`A: row ${r}, right x${c + 1}`);
     }
     for (let c = 0; c < COLS; c++) {
       arrow('ArrowLeft');
-      record(`row ${r}, left x${c + 1}`);
+      record(`A: row ${r}, left x${c + 1}`);
     }
     arrow('ArrowDown');
-    record(`down x${r + 1}`);
+    record(`A: down x${r + 1}`);
+  }
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      arrow('ArrowLeft');
+      record(`B: row ${r}, left x${c + 1}`);
+    }
+    for (let c = 0; c < COLS; c++) {
+      arrow('ArrowRight');
+      record(`B: row ${r}, right x${c + 1}`);
+    }
+    arrow('ArrowDown');
+    record(`B: down x${r + 1}`);
   }
   return visited;
 }
@@ -438,9 +484,13 @@ describe('search screen', () => {
       await pressSearch();
       expect(cardTitles()).toEqual(['Hot Show', 'Mid Movie', 'Dull Movie']);
       expect(screen.getByText(/^3 results for/)).toBeInTheDocument();
-      // A second copy of the merge is how the two drift apart; this reuses the web's.
+      // The merge lives in `_data/searchPaging`, not inline here and no longer the web's
+      // `mergeDedupe`: a paged search must NOT re-sort what is already on screen, because
+      // the ring is at a (row, col) and re-ordering moves it onto a different film. A second
+      // copy of the rule is how the two drift apart, so this pins where it lives.
       const src = readFileSync('src/app/(bigscreen)/bigscreen/search/page.tsx', 'utf8');
-      expect(src).toMatch(/mergeDedupe[\s\S]*from '@\/lib\/mergeCatalog'/);
+      expect(src).toMatch(/appendResults[\s\S]*from '\.\.\/\.\.\/_data\/searchPaging'/);
+      expect(src).not.toMatch(/mergeCatalog/);
     });
 
     it('links a movie to the movie screen and a show to the show screen', async () => {
@@ -515,7 +565,7 @@ describe('search screen', () => {
       fireEvent.click(key('B'));
       await pressSearch();
       expect(cardTitles()).toEqual(['Second']);
-      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS_WITH_RESULTS + 1);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS + 1);
     });
   });
 
@@ -755,8 +805,8 @@ describe('search screen', () => {
     });
 
     it('declares exactly as many cells as it renders with results on screen', async () => {
-      // Seven results: a full row of six and a second row of one, so a short last row is
-      // covered as well as a full one.
+      // Seven results: two full rows of RESULT_COLUMNS and a short last row of one, so a
+      // partial row is covered as well as full ones.
       movieSearch.mockResolvedValue(
         page(Array.from({ length: 7 }, (_, i) => item({ tmdb_id: i + 1, title: `Film ${i + 1}`, popularity: 100 - i }))),
       );
@@ -768,7 +818,7 @@ describe('search screen', () => {
       expect(document.activeElement).toBe(searchKey());
       await pressSearch();
       await waitFor(() => expect(cards()).toHaveLength(7));
-      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS_WITH_RESULTS + 7);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS + 7);
       // Rows appearing BELOW the viewer must not pull the ring off the key they pressed.
       expect(document.activeElement).toBe(searchKey());
       expectEveryCellReachable('with results');
@@ -798,8 +848,9 @@ describe('search screen', () => {
       typeIn('AB');
       await pressSearch();
       await waitFor(() => expect(cards()).toHaveLength(1));
-      // Down from the keyboard, through the action row, onto the card.
-      for (let i = 0; i < 10; i++) arrow('ArrowDown');
+      // Right off the end of the keyboard's first row, which is what the split made of
+      // "six Downs past the keys".
+      crossIntoResults();
       expect(document.activeElement).toBe(cards()[0]);
       back();
       expect(queryText()).toBe('A');
@@ -885,58 +936,222 @@ describe('search screen', () => {
     });
   });
 
-  describe('getting to the results', () => {
-    const jump = () => screen.queryByRole('button', { name: /^Go to \d+ result/ });
-
-    it('is not offered until there is something to go to', async () => {
-      render(<SearchPage />);
-      expect(jump()).toBeNull();
-      typeIn('ZZZ');
-      await pressSearch();
-      expect(jump(), 'and not for a search that found nothing').toBeNull();
-    });
-
-    it('says how many there are, and moves the ring onto the first one', async () => {
-      // The results sit under six rows of keyboard: without this, reaching what the viewer
-      // just searched for is six Downs. With it, one press.
-      movieSearch.mockResolvedValue(
-        page(Array.from({ length: 3 }, (_, i) => item({ tmdb_id: i + 1, title: `Film ${i + 1}` }))),
-      );
+  describe('getting to the results: the split', () => {
+    const results = (n: number) =>
+      page(Array.from({ length: n }, (_, i) => item({ tmdb_id: i + 1, title: `Film ${i + 1}`, popularity: 100 - i })));
+    const searched = async (n: number) => {
+      movieSearch.mockResolvedValue(results(n));
       render(<SearchPage />);
       typeIn('BAT');
       await pressSearch();
-      expect(jump()).toHaveTextContent('Go to 3 results');
-      await act(async () => {
-        fireEvent.click(jump()!);
-      });
+      await waitFor(() => expect(cards()).toHaveLength(n));
+    };
+
+    it('offers no jump cell, because Right is the way across now', async () => {
+      // `Go to N results` existed because the results sat under six rows of keyboard. The
+      // split replaced the six Downs with one Right, so the cell is gone and the action row
+      // is one cell wide in every state.
+      await searched(3);
+      expect(screen.queryByRole('button', { name: /^Go to \d+ result/ })).toBeNull();
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS + 3);
+    });
+
+    it('crosses from the end of a keyboard row into the first result', async () => {
+      // THE ASK, in one assertion.
+      await searched(3);
+      expect(document.activeElement).toBe(key('A'));
+      crossIntoResults();
       expect(document.activeElement).toBe(cards()[0]);
     });
 
-    it('counts one result in the singular', async () => {
-      movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'Only' })]));
+    it('comes back to the keyboard on Left', async () => {
+      await searched(3);
+      crossIntoResults();
+      expect(document.activeElement).toBe(cards()[0]);
+      arrow('ArrowLeft');
+      // The LAST key of the row it came from, so the ring keeps travelling the way it was
+      // pushed rather than jumping to the start of the keyboard.
+      expect(document.activeElement).toBe(key('G'));
+    });
+
+    it('does not fall into the results on Down from the bottom of the keyboard', async () => {
+      // The results are BESIDE the keyboard, not below it. Plain `move` would go to the next
+      // populated row, which is the first result.
+      await searched(3);
+      for (let i = 0; i < 12; i++) arrow('ArrowDown');
+      expect(document.activeElement).toBe(searchKey());
+      arrow('ArrowDown');
+      expect(document.activeElement).toBe(searchKey());
+    });
+
+    it('reaches the bar with Up from the results, not the keyboard row beside them', async () => {
+      await searched(3);
+      crossIntoResults();
+      expect(document.activeElement).toBe(cards()[0]);
+      arrow('ArrowUp');
+      expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Home' }));
+    });
+
+    it('remembers the row each pane was on when crossing back and forth', async () => {
+      await searched(6);
+      crossIntoResults();
+      arrow('ArrowDown');
+      expect(document.activeElement).toBe(cards()[3]);
+      arrow('ArrowLeft');
+      expect(document.activeElement).toBe(key('G'));
+      // ...and Right returns to the SECOND results row, not to the first.
+      arrow('ArrowRight');
+      expect(document.activeElement).toBe(cards()[3]);
+    });
+
+    it('refuses to cross while there is nothing to cross to', async () => {
+      render(<SearchPage />);
+      for (let i = 0; i < 10; i++) arrow('ArrowRight');
+      expect(document.activeElement).toBe(key('G'));
+    });
+
+    it('lays the results out RESULT_COLUMNS to a row', async () => {
+      // The count the focus model is told and the count the stylesheet draws have to be the
+      // same number, or a card lands where no cell is.
+      await searched(7);
+      const rows = [...document.querySelectorAll('.bs-search__row')];
+      expect(rows.map((r) => r.querySelectorAll('.bs-card').length)).toEqual([
+        RESULT_COLUMNS,
+        RESULT_COLUMNS,
+        1,
+      ]);
+    });
+  });
+
+  describe('the typing pause and the Search key together', () => {
+    it('does not re-run the search the Search key already ran', async () => {
+      // The pause timer is armed by the keystroke and captures "this query is worth asking
+      // about". A press before it fires makes that false — and a timer that acted on its
+      // captured answer sent a second, identical search half a second later.
+      vi.useFakeTimers();
+      try {
+        movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'Only' })]));
+        render(<SearchPage />);
+        typeIn('BAT');
+        await act(async () => {
+          fireEvent.click(searchKey());
+        });
+        expect(movieSearch).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          vi.advanceTimersByTime(TYPING_PAUSE_MS * 3);
+        });
+        expect(movieSearch).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('infinite scroll', () => {
+    const pageOf = (ids: number[], over: Partial<CatalogPage> = {}): CatalogPage => ({
+      ...page(ids.map((i) => item({ tmdb_id: i, title: `Film ${i}`, popularity: 100 - i }))),
+      ...over,
+    });
+
+    it('asks for the next page when the ring reaches the last row', async () => {
+      movieSearch.mockResolvedValueOnce(pageOf([1, 2, 3], { page: 1, total_pages: 3 }));
+      tvSearch.mockResolvedValue(pageOf([], { page: 1, total_pages: 0 }));
       render(<SearchPage />);
       typeIn('BAT');
       await pressSearch();
-      expect(jump()).toHaveTextContent('Go to 1 result');
+      await waitFor(() => expect(cards()).toHaveLength(3));
+      movieSearch.mockResolvedValueOnce(pageOf([4, 5, 6], { page: 2, total_pages: 3 }));
+      await act(async () => {
+        crossIntoResults();
+      });
+      await waitFor(() => expect(cards()).toHaveLength(6));
+      expect(movieSearch).toHaveBeenLastCalledWith('BAT', 2);
+      // ...and it stops there. An early trigger cascades: with two rows on screen the first
+      // is one-from-last, so appending leaves the ring still one-from-last and it asks
+      // again — this walked to page 3 untouched before the trigger moved onto the last row.
+      expect(movieSearch.mock.calls.map(([, n]) => n)).toEqual([1, 2]);
     });
 
-    it('is APPENDED, so arriving results never move the ring off the Search key', async () => {
-      // The focus model tolerates growth at the END of a row and nothing else: a cell added
-      // at or before the focused column leaves DOM focus on the element that just became the
-      // next column while the model still points at the old one.
-      const slow = deferred<CatalogPage>();
-      movieSearch.mockReturnValueOnce(slow.promise);
-      tvSearch.mockResolvedValueOnce(page([item({ tmdb_id: 1, title: 'First' })]));
+    it('APPENDS, so the card under the ring does not move', async () => {
+      // The ring is at a (row, col). A page that re-sorted the list would leave it on a
+      // different film with no press behind the change.
+      movieSearch.mockResolvedValueOnce(pageOf([1, 2, 3], { page: 1, total_pages: 3 }));
+      tvSearch.mockResolvedValue(pageOf([], { page: 1, total_pages: 0 }));
       render(<SearchPage />);
       typeIn('BAT');
-      for (let i = 0; i < KEYBOARD_ROW_COUNTS.length; i++) arrow('ArrowDown');
-      expect(document.activeElement).toBe(searchKey());
+      await pressSearch();
+      await waitFor(() => expect(cards()).toHaveLength(3));
+      // A second page whose titles are MORE popular than the first's: a re-sort would put
+      // them in front.
+      movieSearch.mockResolvedValueOnce(
+        page([item({ tmdb_id: 9, title: 'Blockbuster', popularity: 9999 })]),
+      );
       await act(async () => {
-        slow.resolve(page([]));
+        crossIntoResults();
       });
-      await waitFor(() => expect(jump()).not.toBeNull());
-      expect(document.activeElement, 'still on the key they pressed').toBe(searchKey());
+      await waitFor(() => expect(cards()).toHaveLength(4));
+      expect(cardTitles()).toEqual(['Film 1', 'Film 2', 'Film 3', 'Blockbuster']);
+      expect(document.activeElement).toBe(cards()[0]);
       expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+
+    it('asks once, not once per press', async () => {
+      movieSearch.mockResolvedValueOnce(pageOf([1, 2, 3], { page: 1, total_pages: 9 }));
+      tvSearch.mockResolvedValue(pageOf([], { page: 1, total_pages: 0 }));
+      render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      await waitFor(() => expect(cards()).toHaveLength(3));
+      const slow = deferred<CatalogPage>();
+      movieSearch.mockReturnValueOnce(slow.promise);
+      await act(async () => {
+        crossIntoResults();
+        arrow('ArrowLeft');
+        crossIntoResults();
+      });
+      expect(movieSearch.mock.calls.filter(([, p]) => p === 2)).toHaveLength(1);
+      await act(async () => {
+        slow.resolve(pageOf([4], { page: 2, total_pages: 9 }));
+      });
+    });
+
+    it('does not ask when the search has no more pages', async () => {
+      movieSearch.mockResolvedValue(pageOf([1, 2, 3], { page: 1, total_pages: 1 }));
+      tvSearch.mockResolvedValue(pageOf([], { page: 1, total_pages: 0 }));
+      render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      await waitFor(() => expect(cards()).toHaveLength(3));
+      movieSearch.mockClear();
+      await act(async () => {
+        crossIntoResults();
+      });
+      expect(movieSearch).not.toHaveBeenCalled();
+      expect(screen.queryByText(/Keep pressing down/)).toBeNull();
+    });
+
+    it('stops asking after a page fails, and keeps what arrived', async () => {
+      // An endless retry against a dead box would be the typing pause's loop again, one
+      // layer down.
+      movieSearch.mockResolvedValueOnce(pageOf([1, 2, 3], { page: 1, total_pages: 9 }));
+      tvSearch.mockResolvedValue(pageOf([], { page: 1, total_pages: 0 }));
+      render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      await waitFor(() => expect(cards()).toHaveLength(3));
+      movieSearch.mockRejectedValueOnce(new Error('down'));
+      tvSearch.mockRejectedValueOnce(new Error('down'));
+      await act(async () => {
+        crossIntoResults();
+      });
+      await waitFor(() => expect(screen.queryByText(/Keep pressing down/)).toBeNull());
+      expect(cards()).toHaveLength(3);
+      movieSearch.mockClear();
+      await act(async () => {
+        arrow('ArrowLeft');
+        crossIntoResults();
+      });
+      expect(movieSearch).not.toHaveBeenCalled();
     });
   });
 

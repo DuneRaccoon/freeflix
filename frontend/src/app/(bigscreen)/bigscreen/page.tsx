@@ -11,6 +11,7 @@ import { readStored, useFocusGrid, type FocusProps } from '../_focus/useFocusGri
 import { useBackKey } from '../_focus/useBackKey';
 import { isInShell, tabStore } from '../_data/shellSession';
 import { TV_RAILS, fetchRail, type CatalogRail, type TvRailSpec } from '../_data/rails';
+import { RAILS_ON_SCREEN, pickRails, sessionSeed, withPages } from '../_data/railLineup';
 import { fetchContinueWatching, fetchMyList, type ProfileRail } from '../_data/continueWatching';
 import { useTvProfile } from '../_data/useTvProfile';
 
@@ -160,18 +161,36 @@ interface Slot {
   placeholder: RailModel;
 }
 
-const LEAD = TV_RAILS[0];
-const REST = TV_RAILS.slice(1);
+/**
+ * The headline rail, then the two profile slots, then everything else.
+ *
+ * A FUNCTION OF THE SESSION'S LINEUP, where this used to be a module-scope constant over
+ * the whole of `TV_RAILS`. The pool is now 31 rails and `pickRails` draws
+ * `RAILS_ON_SCREEN` of them per session, so "the lineup" is no longer knowable at module
+ * scope — and it must not be recomputed per render either, or the focus grid's rows would
+ * change shape under the viewer. It is memoised on the seed below.
+ */
+function buildLineup(specs: readonly TvRailSpec[]): readonly Slot[] {
+  const [lead, ...rest] = specs;
+  return [
+    ...(lead ? [{ id: lead.key, spec: lead, placeholder: skeleton(lead) }] : []),
+    { id: CONTINUE_ID, spec: null, placeholder: absent(CONTINUE_ID) },
+    { id: LIST_ID, spec: null, placeholder: absent(LIST_ID) },
+    ...rest.map((spec): Slot => ({ id: spec.key, spec, placeholder: skeleton(spec) })),
+  ];
+}
 
-/** Trending, then the two profile slots, then everything else. */
-const LINEUP: readonly Slot[] = [
-  { id: LEAD.key, spec: LEAD, placeholder: skeleton(LEAD) },
-  { id: CONTINUE_ID, spec: null, placeholder: absent(CONTINUE_ID) },
-  { id: LIST_ID, spec: null, placeholder: absent(LIST_ID) },
-  ...REST.map((spec): Slot => ({ id: spec.key, spec, placeholder: skeleton(spec) })),
-];
-
-const SPEC_BY_KEY = new Map(TV_RAILS.map((spec) => [spec.key, spec]));
+/**
+ * What the FIRST render draws, before the session's seed is known.
+ *
+ * `sessionSeed` reads `sessionStorage`, which does not exist while Next prerenders this
+ * page — so the seed cannot be chosen during render at all without either crashing the
+ * build or making the server's HTML disagree with the client's first paint. Instead both
+ * render this fixed lineup and a LAYOUT effect swaps in the session's one before the
+ * browser paints, so the default is never seen. It must be deterministic for exactly that
+ * reason: a random default is a hydration mismatch in every rail title.
+ */
+const DEFAULT_SEED = 1;
 
 type Settled = Readonly<Record<string, RailModel>>;
 
@@ -205,9 +224,9 @@ function without(settled: Settled, keys: readonly string[]): Settled {
 }
 
 /** The catalog rail the viewer last stood on, when the saved position is on one. */
-function savedCatalogSpec(): TvRailSpec | null {
+function savedCatalogSpec(lineup: readonly Slot[]): TvRailSpec | null {
   const saved = readStored(STORAGE_KEY);
-  return saved ? (LINEUP[saved.row - FIRST_RAIL_ROW]?.spec ?? null) : null;
+  return saved ? (lineup[saved.row - FIRST_RAIL_ROW]?.spec ?? null) : null;
 }
 
 /**
@@ -306,6 +325,24 @@ export default function HomePage() {
   }, []);
   useBackKey(leaveApp);
 
+  /**
+   * The session's seed, and with it tonight's lineup.
+   *
+   * Null until the layout effect below runs, which is before the first paint — so the
+   * default lineup it stands in for is never on screen. See `DEFAULT_SEED`.
+   */
+  const [seed, setSeed] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    setSeed(sessionSeed());
+  }, []);
+  const specs = useMemo(() => {
+    const s = seed ?? DEFAULT_SEED;
+    return withPages(pickRails(TV_RAILS, RAILS_ON_SCREEN, s), s);
+  }, [seed]);
+  const lineup = useMemo(() => buildLineup(specs), [specs]);
+  const leadSpec = specs[0];
+  const specByKey = useMemo(() => new Map(specs.map((spec) => [spec.key, spec])), [specs]);
+
   // One entry per rail that has answered, keyed by slot id. A missing key is a placeholder.
   const [settled, setSettled] = useState<Settled>({});
   // The catalog row behind the first rail's first card: what the hero draws.
@@ -345,14 +382,14 @@ export default function HomePage() {
       if (!alive.current || generation.current.get(spec.key) !== mine) return;
       // Replaced wholesale. `lead` rides along inside the rail and is read out separately.
       setSettled((prev) => ({ ...prev, [spec.key]: rail }));
-      if (spec.key === LEAD.key) {
+      if (spec.key === leadSpec?.key) {
         setLead(rail.lead);
         // The current request for the first rail has answered, which ends a retry in flight.
         setRetry((prev) => (railCellCount(rail) > 0 ? 'idle' : prev === 'inflight' ? 'offered' : prev));
       }
     };
     fetchRail(spec).then(land, () => land(failed(spec)));
-  }, [supersede]);
+  }, [supersede, leadSpec]);
 
   /** Fetch these rails when they near the viewport, or now when nothing can watch for that. */
   const watch = useCallback(
@@ -369,6 +406,10 @@ export default function HomePage() {
 
   useEffect(() => {
     alive.current = true;
+    // Nothing is fetched under the default lineup: the seed arrives in a layout effect, so
+    // this effect's first run already has it, and gating on it means the rails that are
+    // requested are the rails that will be on screen.
+    if (seed === null || !leadSpec) return;
 
     if (typeof IntersectionObserver !== 'undefined') {
       try {
@@ -376,7 +417,7 @@ export default function HomePage() {
           (entries) => {
             for (const entry of entries) {
               if (!entry.isIntersecting) continue;
-              const spec = SPEC_BY_KEY.get(entry.target.getAttribute('data-rail') ?? '');
+              const spec = specByKey.get(entry.target.getAttribute('data-rail') ?? '');
               if (spec) begin(spec);
             }
           },
@@ -388,20 +429,20 @@ export default function HomePage() {
       }
     }
 
-    begin(LEAD);
+    begin(leadSpec);
     // The row the viewer last stood on is usually far below the lookahead, and the grid
     // holds a saved position until its row has cards. Fetch that one rail up front or the
     // restore never completes. (The rails between stay skeletons until scrolled to.)
-    const saved = savedCatalogSpec();
+    const saved = savedCatalogSpec(lineup);
     if (saved) begin(saved);
-    watch(REST);
+    watch(specs.slice(1));
 
     return () => {
       alive.current = false;
       observer.current?.disconnect();
       observer.current = null;
     };
-  }, [begin, watch]);
+  }, [begin, watch, seed, leadSpec, lineup, specs, specByKey]);
 
   // Latest router and clear, so the effect below depends on the profile alone. Neither is
   // guaranteed stable, and an effect that re-ran per render would cancel its own fetches.
@@ -441,7 +482,10 @@ export default function HomePage() {
     };
   }, [profileLoading, profileId]);
 
-  const rails = useMemo(() => LINEUP.map((slot) => settled[slot.id] ?? slot.placeholder), [settled]);
+  const rails = useMemo(
+    () => lineup.map((slot) => settled[slot.id] ?? slot.placeholder),
+    [settled, lineup],
+  );
 
   // A rail that fills in ABOVE the focused card pushes the card down, and nothing scrolls it
   // back: the focus hook scrolls when focus moves, not when layout does. Continue Watching
@@ -464,8 +508,10 @@ export default function HomePage() {
   // cannot disagree.
   const heroItem = lead && railCellCount(rails[0]) > 0 ? lead : null;
   const noCards = rails.every((rail) => railCellCount(rail) === 0);
-  const leadPending = !(LEAD.key in settled);
-  const catalogSettled = TV_RAILS.every((spec) => spec.key in settled);
+  const leadPending = !leadSpec || !(leadSpec.key in settled);
+  // The rails ON SCREEN, not the whole pool: 19 of the 31 are never fetched this session,
+  // so asking the pool would leave this false for ever and the retry offer unreachable.
+  const catalogSettled = specs.every((spec) => spec.key in settled);
   // Every catalog rail has answered and none had a card. Profile rails are not waited for:
   // a hung watchlist must not keep "try again" off a screen that has nothing else.
   const nothingToShow = noCards && catalogSettled;
@@ -498,7 +544,7 @@ export default function HomePage() {
     if (retryState !== 'offered') return;
     // Only rails with no cards are reset, and here that is all of them. A rail that has
     // items is never put back to loading: that would blank it and drop its focus.
-    const empties = TV_RAILS.filter((spec) => railCellCount(settled[spec.key] ?? skeleton(spec)) === 0);
+    const empties = specs.filter((spec) => railCellCount(settled[spec.key] ?? skeleton(spec)) === 0);
     for (const spec of empties) {
       // Requests already out for a reset rail are superseded NOW, not when its new request is
       // issued: a lazy rail is only re-watched here, and its old answer must not land in the gap.
@@ -508,8 +554,8 @@ export default function HomePage() {
     setSettled((prev) => without(prev, empties.map((spec) => spec.key)));
     setLead(null);
     setRetry('inflight');
-    if (empties.includes(LEAD)) begin(LEAD);
-    watch(empties.filter((spec) => spec !== LEAD));
+    if (leadSpec && empties.some((spec) => spec.key === leadSpec.key)) begin(leadSpec);
+    watch(empties.filter((spec) => spec.key !== leadSpec?.key));
   };
 
   let top: React.ReactNode = null;
@@ -545,7 +591,7 @@ export default function HomePage() {
       </Header>
       <div className="bs-shell__scroll" ref={scrollerRef}>
         {top}
-        {LINEUP.map((slot, i) => (
+        {lineup.map((slot, i) => (
           // The observer watches this wrapper, not the rail: `Rail` renders nothing at all
           // for an empty rail, and an element with no box has no position to approach.
           <div key={slot.id} data-rail={slot.id}>

@@ -147,8 +147,28 @@ export function useFocusGrid(opts: {
    * the viewer was than any default.
    */
   initialRow?: number;
+  /**
+   * How one press resolves, for a screen whose grid is not one sequence of rows.
+   *
+   * Defaults to `model.move`, which is every screen but search. Search is a left/right
+   * split — a keyboard beside a results grid — and needs two things `move` cannot express:
+   * Up and Down must stay in the region they started in, and a Left or Right that runs out
+   * of row must cross to the other region rather than stop. That policy is
+   * `_focus/panes.paneMove`, which is pure and tested on its own; this option is the only
+   * change the hook needs to accept it.
+   *
+   * It replaces the resolution of a PRESS and nothing else: the roving tabindex, the saved
+   * position, the pending restore, the column memory and every `clampTarget` fall-back are
+   * unchanged, so a screen that passes one is still the same grid in every other respect.
+   */
+  resolveMove?: (
+    rowCounts: RowCounts,
+    from: FocusTarget,
+    dir: Direction,
+    columnMemory: readonly number[],
+  ) => FocusTarget;
 }): FocusGrid {
-  const { rowCounts, storageKey, initialRow } = opts;
+  const { rowCounts, storageKey, initialRow, resolveMove } = opts;
   // A cheap identity for the grid's shape: a parent that passes a fresh array of the
   // same counts every render must not look like a change.
   const shape = rowCounts.join(',');
@@ -175,6 +195,13 @@ export function useFocusGrid(opts: {
   const cells = useRef<{ shape: string; byKey: Map<string, CellEntry> }>({ shape, byKey: new Map() });
 
   const initialRowRef = useRef(initialRow);
+  /**
+   * Held in a ref rather than named in the listener's deps. The listener is on `window` and
+   * only one may be live per screen; re-registering it because a closure changed is how a
+   * press lands on the old one. Read at call time instead.
+   */
+  const resolveRef = useRef(resolveMove);
+  resolveRef.current = resolveMove;
   // Layout effect so a key press can never see the previous render's counts.
   useLayoutEffect(() => {
     rowCountsRef.current = rowCounts;
@@ -275,7 +302,8 @@ export function useFocusGrid(opts: {
       const counts = rowCountsRef.current;
       if (isEmptyGrid(counts)) return;
       const from = clampTarget(counts, focusedRef.current);
-      go(move(counts, from, dir, columnMemory.current), { focusDom: true, user: true });
+      const resolve = resolveRef.current ?? move;
+      go(resolve(counts, from, dir, columnMemory.current), { focusDom: true, user: true });
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

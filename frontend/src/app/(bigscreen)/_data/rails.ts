@@ -88,6 +88,89 @@ export const TV_RAILS: readonly TvRailSpec[] = [
     movieParams: { genres: '878' },
     tvParams: { genres: '10765' },
   },
+  {
+    key: 'genre-crime',
+    title: 'Crime',
+    eyebrow: 'Genre',
+    shape: 'poster',
+    movieParams: { genres: '80' },
+    tvParams: { genres: '80' },
+  },
+
+  // ----------------------------------------------------------------------------------
+  // Below here the pool is the TELEVISION'S OWN, and the web has none of it. A rail is
+  // two HTTP requests, so the lineup on screen is a random SUBSET of this pool
+  // (`RAILS_ON_SCREEN`) rather than all of it: the variety is in which rails are drawn
+  // tonight, not in drawing thirty of them at once.
+  //
+  // THE ONE TRAP IN WRITING NEW SPECS, read off `providers/catalog.py:96-126`: any of
+  // `genres`/`year`/`origin`/`lang`/`provider` switches the upstream request to
+  // `api=discover`, and `api` is then NOT SENT AT ALL. So on a filtered rail `api` is
+  // decoration and `sort` is the only thing that orders it — which is why these carry a
+  // sort and the unfiltered ones carry an api.
+  //
+  // AND SORT IS NOT TRANSLATED PER MODE (nothing in `providers/` touches it; it goes
+  // straight upstream). `primary_release_date` is a movie field and `first_air_date` a tv
+  // one, so a date sort belongs in ONE half's params, never in both. (The 'new' rail
+  // above sends the movie spelling to both halves — inherited from the web table, which
+  // `railsDrift.test.ts` pins, so it is left exactly as it is rather than quietly fixed
+  // on one surface.)
+  { key: 'genre-animation', title: 'Animation', eyebrow: 'Genre', shape: 'poster',
+    movieParams: { genres: '16' }, tvParams: { genres: '16' } },
+  { key: 'genre-documentary', title: 'Documentary', eyebrow: 'Genre', shape: 'poster',
+    movieParams: { genres: '99' }, tvParams: { genres: '99' } },
+  { key: 'genre-family', title: 'Family', eyebrow: 'Genre', shape: 'poster',
+    movieParams: { genres: '10751' }, tvParams: { genres: '10751' } },
+  { key: 'genre-mystery', title: 'Mystery', eyebrow: 'Genre', shape: 'poster',
+    movieParams: { genres: '9648' }, tvParams: { genres: '9648' } },
+  { key: 'genre-western', title: 'Westerns', eyebrow: 'Genre', shape: 'poster',
+    movieParams: { genres: '37' }, tvParams: { genres: '37' } },
+  // TMDB has no television equivalent for these four, so they are MOVIE-ONLY rails: the
+  // `tvParams`-less shape `fetchRail` already supports ("Omit to skip shows"). Pairing
+  // them with a near-enough tv genre would put thrillers under Crime and label it Horror.
+  { key: 'genre-horror', title: 'Horror', eyebrow: 'Films', shape: 'poster',
+    movieParams: { genres: '27' } },
+  { key: 'genre-thriller', title: 'Thrillers', eyebrow: 'Films', shape: 'poster',
+    movieParams: { genres: '53' } },
+  { key: 'genre-romance', title: 'Romance', eyebrow: 'Films', shape: 'poster',
+    movieParams: { genres: '10749' } },
+  { key: 'genre-history', title: 'History', eyebrow: 'Films', shape: 'poster',
+    movieParams: { genres: '36' } },
+  // Movie 10752 is 'War'; tv 10768 is 'War & Politics'. Different ids, same shelf.
+  { key: 'genre-war', title: 'War & Politics', eyebrow: 'Genre', shape: 'poster',
+    movieParams: { genres: '10752' }, tvParams: { genres: '10768' } },
+  // ...and these two exist only on television.
+  { key: 'genre-reality', title: 'Reality TV', eyebrow: 'Series', shape: 'poster',
+    tvParams: { genres: '10764' } },
+  { key: 'genre-kids', title: 'For Younger Viewers', eyebrow: 'Series', shape: 'poster',
+    tvParams: { genres: '10762' } },
+
+  // `origin: 'anime'` is NOT a country: `catalog.py:104` reads it as genre 16 + Japanese,
+  // which is the one shelf that needs two filters and gets them from one word.
+  { key: 'anime', title: 'Anime', eyebrow: 'From Japan', shape: 'poster',
+    movieParams: { origin: 'anime' }, tvParams: { origin: 'anime' } },
+  { key: 'origin-kr', title: 'From Korea', eyebrow: 'World cinema', shape: 'poster',
+    movieParams: { origin: 'KR' }, tvParams: { origin: 'KR' } },
+  { key: 'origin-jp', title: 'From Japan', eyebrow: 'World cinema', shape: 'poster',
+    movieParams: { origin: 'JP' }, tvParams: { origin: 'JP' } },
+  { key: 'origin-gb', title: 'From Britain', eyebrow: 'World cinema', shape: 'poster',
+    movieParams: { origin: 'GB' }, tvParams: { origin: 'GB' } },
+  { key: 'origin-fr', title: 'From France', eyebrow: 'World cinema', shape: 'poster',
+    movieParams: { origin: 'FR' }, tvParams: { origin: 'FR' } },
+  { key: 'origin-in', title: 'From India', eyebrow: 'World cinema', shape: 'poster',
+    movieParams: { origin: 'IN' }, tvParams: { origin: 'IN' } },
+  { key: 'lang-es', title: 'In Spanish', eyebrow: 'World cinema', shape: 'poster',
+    movieParams: { lang: 'es' }, tvParams: { lang: 'es' } },
+  { key: 'origin-se', title: 'From Scandinavia', eyebrow: 'World cinema', shape: 'poster',
+    movieParams: { origin: 'SE' }, tvParams: { origin: 'SE' } },
+
+  // One half only, because the sort field names a column the other mode does not have.
+  { key: 'newest-films', title: 'Just Added to Cinemas', eyebrow: 'Films', shape: 'poster',
+    movieParams: { sort: 'primary_release_date.desc' } },
+  { key: 'newest-series', title: 'New Seasons', eyebrow: 'Series', shape: 'poster',
+    tvParams: { sort: 'first_air_date.desc' } },
+  { key: 'grossing', title: 'Biggest at the Box Office', eyebrow: 'Films', shape: 'poster',
+    movieParams: { sort: 'revenue.desc' } },
 ];
 
 /**

@@ -63,16 +63,14 @@ beforeEach(() => {
 });
 
 describe('TV_RAILS', () => {
-  it('is the seven-rail lineup, in render order', () => {
-    expect(TV_RAILS.map((r) => r.key)).toEqual([
-      'trending',
-      'top-rated',
-      'new',
-      'genre-action',
-      'genre-drama',
-      'genre-comedy',
-      'genre-scifi',
-    ]);
+  it('opens with the rails the lineup may headline, and is a POOL rather than an order', () => {
+    // It used to be "the seven-rail lineup, in render order", and that is the thing that
+    // changed: `pickRails` now draws RAILS_ON_SCREEN of these per session in a random
+    // order, so the order HERE is not a render order and asserting one would pin a fact
+    // the screen no longer reads. What still matters is that the three broad feeds the
+    // headline is drawn from are present and first — see `railLineup.ts`.
+    expect(TV_RAILS.slice(0, 3).map((r) => r.key)).toEqual(['trending', 'top-rated', 'new']);
+    expect(TV_RAILS.length).toBeGreaterThan(24);
     expect(TV_RAILS.every((r) => r.shape === 'poster')).toBe(true);
   });
 

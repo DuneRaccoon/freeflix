@@ -7,6 +7,7 @@ import type { CatalogItem } from '@/types';
 import type { CardItem } from '../_components/Card';
 import { HEADER_CELLS } from '../_components/Header';
 import { TV_RAILS, fetchRail, toRail, type CatalogRail } from '../_data/rails';
+import { RAILS_ON_SCREEN } from '../_data/railLineup';
 import { fetchContinueWatching, fetchMyList, type ProfileRail } from '../_data/continueWatching';
 import { useTvProfile, type TvProfile } from '../_data/useTvProfile';
 import HomePage from './page';
@@ -22,6 +23,29 @@ vi.mock('../_data/rails', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../_data/rails')>()),
   fetchRail: vi.fn(),
 }));
+/**
+ * THE LINEUP IS FIXED FOR THIS FILE, and that is a deliberate seam.
+ *
+ * `pickRails` draws a random RAILS_ON_SCREEN of the 31-rail pool per session, which is
+ * exactly what this file must not depend on: it asserts what the SCREEN does with a lineup
+ * ("trending is fetched first", "every other rail is watched", "the titles render in
+ * order"), and a shuffled lineup would make a hundred assertions depend on a seed.
+ *
+ * So here the lineup is the head of the pool in pool order, and `withPages` is the
+ * identity, which keeps `toHaveBeenCalledWith(LINEUP[0])` readable. The randomness itself
+ * is covered by `_data/railLineup.test.ts`, and `page.lineup.test.tsx` runs this screen
+ * with the REAL picker to prove it is wired to it at all — without that, a regression that
+ * ignored the lineup entirely would pass every row in this file.
+ */
+vi.mock('../_data/railLineup', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../_data/railLineup')>();
+  return {
+    ...real,
+    sessionSeed: () => 1,
+    pickRails: (pool: readonly unknown[], count: number) => pool.slice(0, count),
+    withPages: (specs: readonly unknown[]) => specs,
+  };
+});
 vi.mock('../_data/continueWatching', () => ({ fetchContinueWatching: vi.fn(), fetchMyList: vi.fn() }));
 vi.mock('../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 
@@ -29,6 +53,9 @@ const fetchRailMock = vi.mocked(fetchRail);
 const continueMock = vi.mocked(fetchContinueWatching);
 const listMock = vi.mocked(fetchMyList);
 const profileHook = vi.mocked(useTvProfile);
+
+/** The rails this file's mocked picker puts on screen: the head of the pool, in order. */
+const LINEUP = TV_RAILS.slice(0, RAILS_ON_SCREEN);
 
 /** Everything a remote, a Tab key or a screen reader could stop on. */
 const FOCUS_STOPS = 'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]';
@@ -111,7 +138,7 @@ const settle = () => act(async () => {});
 const answer = (key: string, n = 3) =>
   act(async () => { railAnswers.get(key)!.resolve(catalogRail(key, n)); });
 const answerAll = async (n = 3) => {
-  for (const spec of TV_RAILS) if (railAnswers.has(spec.key)) await answer(spec.key, n);
+  for (const spec of LINEUP) if (railAnswers.has(spec.key)) await answer(spec.key, n);
 };
 const arrow = (k: string) => fireEvent.keyDown(window, { key: k });
 
@@ -186,7 +213,7 @@ describe('/bigscreen home: progressive paint', () => {
     renderHome();
     expect(fetchRailMock).toHaveBeenCalledTimes(1);
     expect(fetchRailMock).toHaveBeenCalledWith(specOf('trending'));
-    expect(fetchRailMock).toHaveBeenCalledWith(TV_RAILS[0]);
+    expect(fetchRailMock).toHaveBeenCalledWith(LINEUP[0]);
   });
 
   it('paints the hero from the first rail, as soon as it resolves', async () => {
@@ -225,7 +252,7 @@ describe('/bigscreen home: progressive paint', () => {
   it('draws every other rail as a skeleton with nothing focusable in it', async () => {
     renderHome();
     await answer('trending');
-    for (const spec of TV_RAILS.slice(1)) {
+    for (const spec of LINEUP.slice(1)) {
       const wrapper = wrapperOf(spec.key);
       expect(wrapper.querySelectorAll('.bs-skel').length, spec.key).toBeGreaterThan(0);
       expect(stopsIn(wrapper), spec.key).toHaveLength(0);
@@ -239,7 +266,7 @@ describe('/bigscreen home: progressive paint', () => {
   it('keeps every rail’s title on screen while it is a skeleton, in lineup order', async () => {
     renderHome();
     await answer('trending');
-    expect(railTitles()).toEqual(TV_RAILS.map((s) => s.title));
+    expect(railTitles()).toEqual(LINEUP.map((s) => s.title));
   });
 
   describe('the lookahead', () => {
@@ -253,7 +280,7 @@ describe('/bigscreen home: progressive paint', () => {
       renderHome();
       expect(FakeObserver.instances).toHaveLength(1);
       const watched = [...observer().observed].map((el) => el.getAttribute('data-rail'));
-      expect(watched).toEqual(TV_RAILS.slice(1).map((s) => s.key));
+      expect(watched).toEqual(LINEUP.slice(1).map((s) => s.key));
     });
 
     it('fetches a rail the first time it nears the viewport, and only then', async () => {
@@ -300,13 +327,13 @@ describe('/bigscreen home: progressive paint', () => {
     it('fetches every rail at once when there is no IntersectionObserver', () => {
       vi.stubGlobal('IntersectionObserver', undefined);
       renderHome();
-      expect(fetchedKeys()).toEqual(TV_RAILS.map((s) => s.key));
+      expect(fetchedKeys()).toEqual(LINEUP.map((s) => s.key));
     });
 
     it('fetches every rail at once when the observer cannot be constructed', () => {
       vi.stubGlobal('IntersectionObserver', function Broken() { throw new TypeError('bad options'); });
       renderHome();
-      expect(fetchedKeys()).toEqual(TV_RAILS.map((s) => s.key));
+      expect(fetchedKeys()).toEqual(LINEUP.map((s) => s.key));
     });
 
     it('disconnects the observer on unmount', () => {
@@ -508,7 +535,7 @@ describe('/bigscreen home: the profile’s rails', () => {
       'Trending This Week',
       'Continue Watching',
       'My List',
-      ...TV_RAILS.slice(1).map((s) => s.title),
+      ...LINEUP.slice(1).map((s) => s.title),
     ]);
   });
 
@@ -531,7 +558,7 @@ describe('/bigscreen home: the profile’s rails', () => {
       continueAnswer.current.resolve(profileRail('continue-watching', 'Continue Watching', 0));
       listAnswer.current.resolve(profileRail('my-list', 'My List', 0));
     });
-    expect(railTitles()).toEqual(TV_RAILS.map((s) => s.title));
+    expect(railTitles()).toEqual(LINEUP.map((s) => s.title));
     expect(clear).not.toHaveBeenCalled();
     expect(router.replace).not.toHaveBeenCalled();
   });
@@ -737,7 +764,7 @@ describe('/bigscreen home: never nothing to focus', () => {
     async function everythingEmpty() {
       vi.stubGlobal('IntersectionObserver', undefined);
       const view = renderHome();
-      for (const spec of TV_RAILS) {
+      for (const spec of LINEUP) {
         await act(async () => { railAnswers.get(spec.key)!.resolve(catalogRail(spec.key, 0)); });
       }
       return view;
@@ -772,7 +799,7 @@ describe('/bigscreen home: never nothing to focus', () => {
       const button = screen.getByRole('button', { name: 'Try again' });
       fireEvent.click(button);
       await settle();
-      expect(fetchedKeys()).toEqual(TV_RAILS.map((s) => s.key));
+      expect(fetchedKeys()).toEqual(LINEUP.map((s) => s.key));
       // The same button, relabelled: an unmounted focused control would drop focus to <body>.
       expect(screen.getByRole('button', { name: 'Trying again…' })).toBe(button);
       expect(active()).toBe(button);
@@ -796,14 +823,14 @@ describe('/bigscreen home: never nothing to focus', () => {
       await answerAll(3);
       expect(screen.queryByRole('button', { name: /try/i })).toBeNull();
       expect(active()).toBe(document.querySelector('.bs-hero'));
-      expect(railTitles()).toEqual(TV_RAILS.map((s) => s.title));
+      expect(railTitles()).toEqual(LINEUP.map((s) => s.title));
     });
 
     it('offers Try again again when the retry fails too', async () => {
       await everythingEmpty();
       fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
       await settle();
-      for (const spec of TV_RAILS) {
+      for (const spec of LINEUP) {
         await act(async () => { railAnswers.get(spec.key)!.resolve(catalogRail(spec.key, 0)); });
       }
       expect(active()).toBe(screen.getByRole('button', { name: 'Try again' }));
@@ -812,7 +839,7 @@ describe('/bigscreen home: never nothing to focus', () => {
     it('with the lookahead, re-watches the rails instead of fetching them all', async () => {
       renderHome();
       await answer('trending', 0);
-      for (const spec of TV_RAILS.slice(1)) {
+      for (const spec of LINEUP.slice(1)) {
         await observer().see(spec.key);
         await answer(spec.key, 0);
       }
@@ -822,7 +849,7 @@ describe('/bigscreen home: never nothing to focus', () => {
       await settle();
       expect(fetchedKeys()).toEqual(['trending']);
       expect([...observer().observed].map((el) => el.getAttribute('data-rail'))).toEqual(
-        TV_RAILS.slice(1).map((s) => s.key),
+        LINEUP.slice(1).map((s) => s.key),
       );
     });
   });
@@ -1001,7 +1028,7 @@ describe('/bigscreen home: no polling', () => {
     useProfile(BEN);
     renderHome();
     await answer('trending');
-    for (const spec of TV_RAILS) if (spec !== TV_RAILS[0]) await observer().see(spec.key);
+    for (const spec of LINEUP) if (spec !== LINEUP[0]) await observer().see(spec.key);
     await answerAll();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(vi.getTimerCount()).toBe(0);
@@ -1106,7 +1133,7 @@ describe('/bigscreen home: the retry', () => {
     it('is offered at once, without waiting out the patience, when every rail has answered with no cards', async () => {
       vi.stubGlobal('IntersectionObserver', undefined);
       renderHome();
-      for (const spec of TV_RAILS) await act(async () => { railAnswers.get(spec.key)!.resolve(catalogRail(spec.key, 0)); });
+      for (const spec of LINEUP) await act(async () => { railAnswers.get(spec.key)!.resolve(catalogRail(spec.key, 0)); });
       expect(tryAgain()).toBeInTheDocument();
       expect(active()).toBe(tryAgain());
     });

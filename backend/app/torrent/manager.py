@@ -1301,10 +1301,14 @@ class TorrentManager:
                                       save_path: str) -> List[Dict[str, Any]]:
         """A torrent's video-file list read from its STORED RESUME DATA.
 
-        INERT TODAY, and this text said otherwise until stage 9: the three
-        `save_resume_data()` calls here are flagless, libtorrent 2.0.11 drops the
-        `info` dict without `save_info_dict`, so `.ti` is None for EVERY blob
-        this app writes. Adds nothing to the session. Repair: stage-7 follow-up 5.
+        WAS INERT, and is not any more: libtorrent 2.0.11 drops the `info` dict
+        unless `save_info_dict` is asked for, and every call here used to be
+        flagless, so `.ti` was None for EVERY blob this app had written. The ask
+        now lives in `_save_resume_data`, so blobs written from that point on do
+        describe their files and this function answers from them. Blobs written
+        BEFORE it stay blind for ever — a finished torrent is never re-added, so
+        its resume data is never rewritten — and those are resolved by the three
+        `_completed_*` paths below instead.
 
         It reads the metadata rather than walking save_path because the INDEX is
         the thing being resolved: `?file_index=N` is a libtorrent file index, and
@@ -1332,9 +1336,15 @@ class TorrentManager:
         try:
             ti = lt.read_resume_data(decode_resume_data(blob)).ti
             if ti is None:
-                logger.info(
-                    f"Resume data for {torrent_id} carries no metadata; cannot "
-                    f"resolve its files without the session"
+                # DEBUG, not INFO, and the wording no longer claims a failure: three
+                # `_completed_*` paths run after this one and normally succeed, so an INFO
+                # line saying the files "cannot be resolved" was emitted once per Range
+                # request and once per /info poll, immediately before a successful
+                # resolution — the only log line about this path, stating the opposite of
+                # what happened. The refusals below are where a real failure is logged.
+                logger.debug(
+                    f"Resume data for {torrent_id} carries no info dict; its files are "
+                    f"resolved from disk instead"
                 )
                 return []
             base_path = Path(save_path)
@@ -1522,6 +1532,169 @@ class TorrentManager:
             "name": path.name,
         }
 
+    def _completed_lone_video(self, torrent_id: str, blob: Optional[str],
+                              save_path: str, file_index: Optional[int],
+                              precomputed: Optional[dict]
+                              ) -> Optional[Dict[str, Any]]:
+        """The shape every completed download on this box actually has: ONE video file
+        inside the release DIRECTORY the blob names, asked for without an index.
+
+        WHAT THE OTHER TWO BLIND PATHS LEAVE OUT, measured against the real database on
+        2026-10-21 after `save_info_dict` shipped: six of seven completed downloads were
+        still unplayable, and all six looked like this —
+
+            blob.name = 'www.UIndex.org    -    The Boys S01E05 ... DDP5 1 H 264-FLUX'
+            blob.ti   = None
+            request   = GET /streaming/{id}/info        (no index: it is ONE episode)
+
+        `_completed_single_file` refuses it because `name` is a directory rather than a
+        file, and `_completed_pack_file` refuses it because without an index there is no
+        episode to look up. Both refusals were silent, so the only log line was "carries
+        no metadata" and the viewer was told a 3.7 GB complete file was "not ready for
+        streaming". A tracker-branded folder holding the episode plus an .nfo is the
+        ordinary shape of a torrent, not an exotic one.
+
+        OWNERSHIP IS `name`, AND IT IS THE WHOLE REASON THIS IS SAFE. An info-dict-less
+        blob cannot list its files, but it still says which DIRECTORY libtorrent put them
+        in — and that directory is this torrent's. So the walk starts at `save_path/name`
+        and never at `save_path`, which is NOT this torrent's: `save_path` is
+        `default_download_path / label` where label is the bare title (api/torrents.py),
+        so a second download of the same title, or the leftovers of a deleted attempt
+        (DELETE defaults to `delete_files=False`), sit in the very same folder. Walking
+        `save_path` would serve another torrent's film under this row's id, title and
+        content_id — found by review, reproduced, and this is the line that forbids it.
+        `name` is validated as a bare directory component first, because a resume blob is
+        attacker-adjacent input and a `name` of `../..` would otherwise aim the walk.
+
+        WHY ONE FILE IS NOT THE GUESS THE OTHER PATHS REFUSE. Their rule is that a
+        directory listing's ORDER is not a libtorrent file index, so an index must never be
+        resolved by position. That rule is untouched: when the torrent's own directory holds
+        **exactly one** video file there is no order to reconstruct and no choice to make —
+        it is the only candidate the content guard admits. Two or more and this refuses,
+        out loud, naming them.
+
+        THE EPISODE IS CHECKED WHEN THE ROW CAN CHECK IT. A one-entry
+        `precomputed_episodes` says which episode this torrent's single video IS, so a file
+        that parses to a different one is refused rather than served under that label —
+        otherwise a pack whose other episodes were deleted would hand back its survivor as
+        the episode somebody asked for, which is `_completed_pack_file`'s refusal
+        overturned. A map naming SEVERAL files is a pack and is refused outright: its
+        episodes are `_completed_pack_file`'s business, where an index means an episode.
+
+        THE INDEX IS ECHOED, NOT ARBITRATED. Once the file is proven to be this torrent's
+        and the right episode, the index is a label on it. So an explicit `file_index` is
+        answered with that index — because the index a client holds came from `/files` while
+        the torrent was live and is the real one, and it is carried by every resume link
+        (`progress.file_index` -> `watchHref`). Refusing it would have left exactly the
+        half-watched episode this bug is about still unplayable; reporting a convenient 0
+        and refusing 2 is the asymmetry review caught. A bare request reports the recorded
+        index when the map names one, else 0.
+
+        Carries the allocation gate through `_completed_on_disk`, like both siblings.
+        """
+        if not blob:
+            return None
+        try:
+            atp = lt.read_resume_data(decode_resume_data(blob))
+            if atp.ti is not None:
+                # The blob can describe itself; the caller's metadata path already decided
+                # and whatever it decided stands. Blind case only.
+                return None
+            name = atp.name or ""
+            blob_save_path = atp.save_path or ""
+        except Exception as e:
+            logger.info(f"Could not read the resume blob for {torrent_id}: {e}")
+            return None
+
+        # The directory must be a bare component of the save path, not a route out of it.
+        # `name in (".", "..")` is not redundant with the component test: `Path("..").name`
+        # is `".."`, not `""`, so `..` is a one-component name that walks the PARENT —
+        # found by the hostile-name row below, which is the only reason this line is here.
+        if (not name or name in (".", "..") or "/" in name or "\\" in name
+                or Path(name).name != name):
+            return None
+
+        # A mapped PACK is not this shape.
+        if precomputed and len(precomputed) > 1:
+            return None
+        want_episode = None
+        recorded_index = None
+        if precomputed and len(precomputed) == 1:
+            key, entry = next(iter(precomputed.items()))
+            try:
+                recorded_index = int(key)
+            except (TypeError, ValueError):
+                return None
+            if not isinstance(entry, dict):
+                return None
+            season, episode = entry.get("season"), entry.get("episode")
+            if season is None or episode is None:
+                return None
+            want_episode = (season, episode)
+
+        index = file_index if file_index is not None else (
+            recorded_index if recorded_index is not None else 0)
+
+        # The row's save_path first (it is what every other path here resolves against),
+        # then the blob's own, which is absolute and survives a working directory the
+        # row's relative spelling does not. They are routinely the SAME directory spelled
+        # twice, so they are deduplicated by resolved path rather than by string.
+        roots: List[tuple] = []
+        seen: set = set()
+        for base in (save_path, blob_save_path):
+            if not base:
+                continue
+            root = Path(base) / name
+            try:
+                base_real, root_real = Path(base).resolve(), root.resolve()
+            except OSError:
+                continue
+            # Belt and braces over the name check: whatever the spelling, and whatever a
+            # symlink in the way resolves to, the directory walked must sit INSIDE the save
+            # path. `..` reaching here would land on base_real itself, whose parents do not
+            # include it.
+            if base_real not in root_real.parents:
+                continue
+            if root_real in seen:
+                continue
+            seen.add(root_real)
+            roots.append((root, root_real))
+
+        for root, root_real in roots:
+            if not root.is_dir():
+                continue
+            try:
+                found = [p for p in root.rglob("*")
+                         if p.is_file() and self._is_video_file(p.name)
+                         and root_real in p.resolve().parents]
+            except OSError as e:
+                logger.info(f"Completed torrent {torrent_id}: could not walk {root} ({e})")
+                continue
+            if len(found) > 1:
+                # The refusal that cost a database probe to diagnose last time, said out
+                # loud so the next one does not.
+                logger.warning(
+                    f"Completed torrent {torrent_id}: {len(found)} video files under "
+                    f"{root} and a blob that cannot name them; refusing to choose "
+                    f"between them ({', '.join(sorted(p.name for p in found)[:4])})"
+                )
+                return None
+            if not found:
+                logger.info(
+                    f"Completed torrent {torrent_id}: no video file under {root}, so its "
+                    f"blind resume blob cannot be resolved there"
+                )
+                continue
+            if want_episode is not None and parse_episode(found[0].name) != want_episode:
+                logger.warning(
+                    f"Completed torrent {torrent_id}: the only video under {root} is "
+                    f"{found[0].name}, which is not the S{want_episode[0]}E{want_episode[1]} "
+                    f"this row recorded; refusing to serve it under that episode"
+                )
+                return None
+            return self._completed_on_disk(torrent_id, found[0], index)
+        return None
+
     def get_completed_video_file_info(self, torrent_id: str,
                                       file_index: Optional[int] = None
                                       ) -> Optional[Dict[str, Any]]:
@@ -1603,7 +1776,13 @@ class TorrentManager:
             entry = self._completed_single_file(torrent_id, blob, save_path, file_index)
             if entry is not None:
                 return entry
-            return self._completed_pack_file(torrent_id, save_path, file_index, precomputed)
+            entry = self._completed_pack_file(torrent_id, save_path, file_index, precomputed)
+            if entry is not None:
+                return entry
+            # ...and the shape BOTH of those leave out: one video file inside a release
+            # directory, which is what every download already on the box turned out to be.
+            return self._completed_lone_video(torrent_id, blob, save_path, file_index,
+                                              precomputed)
         if file_index is not None:
             match = next((f for f in files if f["index"] == file_index), None)
         else:

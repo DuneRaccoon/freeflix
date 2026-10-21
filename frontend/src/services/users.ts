@@ -20,6 +20,19 @@ export interface UserSettings {
   theme: 'dark' | 'light';
   default_quality: '720p' | '1080p' | '2160p';
   download_path?: string;
+  /**
+   * Start the next episode of a series downloading while this one is still playing
+   * (the television surface; `_data/autoNext.ts`).
+   *
+   * OPTIONAL, and that is about this repository rather than about the wire: the server
+   * always sends it (`UserSettingsResponse.auto_next_episode: bool = True`, never
+   * Optional), but a required field here is a type error in every object literal that
+   * stands in for a settings row — including the ones under `src/components/`, which the
+   * TV work does not touch. So the field is optional and every reader treats `undefined`
+   * the same way the server treats a NULL column: the feature is ON unless something
+   * says False. `autoNextFrom` is the one place that rule is written.
+   */
+  auto_next_episode?: boolean;
 }
 
 /** Write shape for PUT /users/{id}/settings. `passcode` is write-only. */
@@ -31,6 +44,8 @@ export interface UserSettingsUpdate {
   theme?: 'dark' | 'light';
   default_quality?: '720p' | '1080p' | '2160p';
   download_path?: string;
+  /** Send `false` to turn it off; omit to leave it alone. See the read shape above. */
+  auto_next_episode?: boolean;
 }
 
 export interface User {

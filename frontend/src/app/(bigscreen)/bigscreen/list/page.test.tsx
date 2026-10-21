@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { watchlistService, type WatchlistItem } from '@/services/watchlist';
+import { HEADER_CELLS } from '../../_components/Header';
 import { useTvProfile } from '../../_data/useTvProfile';
 import MyListPage from './page';
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => router }));
+vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/bigscreen/list' }));
 vi.mock('../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 vi.mock('@/services/watchlist', () => ({
   watchlistService: { list: vi.fn(), remove: vi.fn(), add: vi.fn(), update: vi.fn() },
@@ -64,6 +65,12 @@ const httpError = (status: number) => Object.assign(new Error(`HTTP ${status}`),
 
 /** Everything a remote, a Tab key or a magic-remote pointer could stop on. */
 const FOCUS_STOPS = 'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]';
+/**
+ * The top bar's own row, which every browsing screen now carries. Counted from the component
+ * rather than written as a number, so adding an item to the menu moves these expectations
+ * with it instead of reddening every count on the screen.
+ */
+const BAR_CELLS = HEADER_CELLS;
 const cells = () => Array.from(document.querySelectorAll('[tabindex]'));
 const stops = () => Array.from(document.querySelectorAll(FOCUS_STOPS));
 const cards = () => Array.from(document.querySelectorAll<HTMLAnchorElement>('.bs-card'));
@@ -708,20 +715,20 @@ describe('My List screen', () => {
     it('declares exactly as many cells as it renders, with a full list', async () => {
       await mount(manyRows(7));
       // One action row of two, then six cards and one.
-      expect(cells()).toHaveLength(2 + 7);
+      expect(cells()).toHaveLength(BAR_CELLS + 2 + 7);
       expectEveryCellReachable('loaded');
     });
 
     it('declares exactly as many cells as it renders with an empty list', async () => {
       await mount([]);
-      expect(cells()).toHaveLength(1);
+      expect(cells()).toHaveLength(BAR_CELLS + 1);
       expectEveryCellReachable('empty');
     });
 
     it('declares exactly as many cells as it renders in remove mode', async () => {
       await mount(manyRows(7));
       await enterRemoveMode();
-      expect(cells()).toHaveLength(2 + 7);
+      expect(cells()).toHaveLength(BAR_CELLS + 2 + 7);
       expectEveryCellReachable('remove mode');
     });
 
@@ -730,7 +737,7 @@ describe('My List screen', () => {
       await enterRemoveMode();
       await pressCard(cards()[0]);
       expect(cards()).toHaveLength(6);
-      expect(cells()).toHaveLength(2 + 6);
+      expect(cells()).toHaveLength(BAR_CELLS + 2 + 6);
       expectEveryCellReachable('after a removal');
     });
 
@@ -742,7 +749,7 @@ describe('My List screen', () => {
       await mount(manyRows(200));
       expect(cards()).toHaveLength(200);
       expect(rowContainers()).toHaveLength(34);
-      expect(cells()).toHaveLength(2 + 200);
+      expect(cells()).toHaveLength(BAR_CELLS + 2 + 200);
       expect(stops()).toHaveLength(cells().length);
       expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
     });

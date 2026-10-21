@@ -34,6 +34,28 @@ TORRENT_STATES = [
     "checking_fastresume"
 ]
 
+# The flag that makes a resume blob SELF-SUFFICIENT.
+#
+# libtorrent 2.0 drops the `info` dict from resume data unless it is asked for, so a
+# flagless `save_resume_data()` writes a blob whose `.ti` is None — it can restart a
+# download (it has the infohash and the piece state) but it cannot say what FILES the
+# torrent holds. Every blob this app had ever written was that shape, which made the
+# whole completed-on-disk fallback inert: `_video_files_from_resume_data` returned []
+# for every torrent, so a finished download that was no longer in the session 404ed on
+# every streaming route and the television said the title was "no longer on the box".
+#
+# `getattr` rather than a direct reference: a libtorrent build without the flag then
+# degrades to today's behaviour (a blob that still resumes) instead of failing at import.
+_SAVE_INFO_DICT = getattr(getattr(lt, "save_resume_flags_t", None), "save_info_dict", None)
+
+# How much of a file's length its allocated blocks must cover before it is accepted as
+# complete without metadata to compare against. A fully written file measures 1.0 (an
+# ext4 or APFS file reports st_blocks covering its length); a half-downloaded one in
+# libtorrent's sparse storage mode measures near zero, because the holes are not
+# allocated. 0.99 rather than 1.0 leaves room for a filesystem that rounds, and the
+# margin is nowhere near wide enough to admit a partial download.
+_ALLOCATED_AT_LEAST = 0.99
+
 # States in which every wanted byte is expected to be on disk already, so a file
 # may be served straight through with no piece gating. Deliberately NARROWER than
 # states.TERMINAL_STATES, which also holds 'error' (a download that stopped at an
@@ -364,6 +386,24 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Error loading saved torrents: {e}")
     
+    def _save_resume_data(self, handle) -> None:
+        """Ask libtorrent for resume data that can describe its own files.
+
+        THE ONE CALLER OF `save_resume_data` IN THIS FILE, so the flag cannot be
+        forgotten at one of the three sites that need it. Without `save_info_dict` the
+        blob has no `info` dict, `read_resume_data(...).ti` is None, and the completed
+        download fallback (`get_completed_video_file_info`) can resolve nothing at all —
+        which is how a finished episode became "no longer on the box" after a restart.
+
+        The blob gets bigger: the info dict carries every file name and the piece hashes,
+        so a season pack's resume data goes from a few KB to a few hundred. It is a Text
+        column in Postgres and it is written at most once per refresh tick per torrent.
+        """
+        if _SAVE_INFO_DICT is not None:
+            handle.save_resume_data(_SAVE_INFO_DICT)
+        else:
+            handle.save_resume_data()
+
     def _add_torrent(self, torrent_id: str, magnet_uri: str, save_path: Path,
                     metadata: Dict[str, Any], resume_data: Optional[str] = None) -> lt.torrent_handle:
         """Add a torrent to the libtorrent session (libtorrent 2.0 API)."""
@@ -443,7 +483,7 @@ class TorrentManager:
                             # Keep resume data fresh for fast pause/resume + crash recovery.
                             try:
                                 if handle.need_save_resume_data():
-                                    handle.save_resume_data()
+                                    self._save_resume_data(handle)
                             except Exception:
                                 pass
 
@@ -933,7 +973,7 @@ class TorrentManager:
         if torrent_id in self.active_torrents:
             handle, _ = self.active_torrents[torrent_id]
             try:
-                handle.save_resume_data()
+                self._save_resume_data(handle)
             except Exception:
                 pass
             try:
@@ -1114,7 +1154,7 @@ class TorrentManager:
         for torrent_id, (handle, _) in list(self.active_torrents.items()):
             try:
                 # Request resume data
-                handle.save_resume_data()
+                self._save_resume_data(handle)
                 
                 # Update state to paused
                 with get_db() as db:
@@ -1320,6 +1360,168 @@ class TorrentManager:
         self._resume_video_files[torrent_id] = (fingerprint, files)
         return [dict(f) for f in files]
 
+    def _completed_single_file(self, torrent_id: str, blob: Optional[str],
+                               save_path: str, file_index: Optional[int]
+                               ) -> Optional[Dict[str, Any]]:
+        """Resolve a SINGLE-FILE completed torrent from a resume blob with no info dict.
+
+        WHY THIS EXISTS AT ALL. `save_info_dict` fixes every blob written from now on,
+        and fixes nothing already on disk: a finished torrent is never re-added to the
+        session, so its resume data is never rewritten, so the blob a household already
+        has stays info-dict-less for ever. Without this, the repair would only help
+        downloads that have not happened yet — and the one the viewer is asking for
+        tonight would still be "no longer on the box".
+
+        WHAT IT CAN AND CANNOT DO. An info-dict-less blob still carries `name` and
+        `save_path`. For a SINGLE-file torrent `name` IS the file, so `save_path/name` is
+        the whole answer and the file's libtorrent index is 0. For a MULTI-file torrent
+        `name` is the containing DIRECTORY and says nothing about what is inside it or in
+        what order — and `?file_index=N` is a libtorrent index, which a directory walk
+        cannot reconstruct (pad files and non-video extras shift it). So a pack resolves
+        to None here, deliberately: serving the wrong episode is a worse answer than the
+        404, which is the same judgement `_video_files_from_resume_data` already records.
+        A pack recovers the first time it is downloaded with the flag above in place.
+
+        THE GATE IS ALLOCATION, NOT SIZE, and `_completed_on_disk` carries it for both
+        info-dict-less paths — see there for why it is stronger than the one it replaces.
+
+        Returns the same dict shape as `get_video_files`, or None.
+        """
+        if not blob:
+            return None
+        # Index 0 or nothing: this answers for a one-file torrent, and the only file in
+        # one is index 0. An explicit index of anything else is a question about a file
+        # this cannot see, which is a refusal rather than a near-enough match.
+        if file_index is not None and file_index != 0:
+            return None
+        try:
+            atp = lt.read_resume_data(decode_resume_data(blob))
+            if atp.ti is not None:
+                # The blob can describe itself; the caller's own path already used it and
+                # whatever it decided stands. This fallback is for the blind case only.
+                return None
+            name = atp.name or ""
+            blob_save_path = atp.save_path or ""
+        except Exception as e:
+            logger.info(f"Could not read the resume blob for {torrent_id}: {e}")
+            return None
+        if not name or not self._is_video_file(name):
+            return None
+        # A SINGLE-file torrent's name is a bare FILE NAME. A name carrying a separator
+        # is either a multi-file torrent (where it is the containing directory, and the
+        # `is_file()` test below already refuses it) or a shape this does not model — and
+        # a resume blob is attacker-adjacent input: it came off the wire from whoever
+        # built the torrent. Refusing anything with a separator in it is what keeps this
+        # from being a path join that could climb out of `save_path`.
+        if "/" in name or "\\" in name or Path(name).name != name:
+            return None
+
+        # The row's save_path first (every other path in this file resolves against it,
+        # and it may be relative to the process working directory), then the blob's own,
+        # which is absolute and survives a working directory the row's does not.
+        for base in (save_path, blob_save_path):
+            if not base:
+                continue
+            candidate = Path(base) / name
+            # A FILE. `is_file()` is also the multi-file test: there `name` is the
+            # directory, so this is False and the pack is left to `_completed_pack_file`.
+            if not candidate.is_file():
+                continue
+            entry = self._completed_on_disk(torrent_id, candidate, 0)
+            if entry is not None:
+                return entry
+        return None
+
+    def _completed_pack_file(self, torrent_id: str, save_path: str,
+                             file_index: Optional[int], precomputed: Optional[dict]
+                             ) -> Optional[Dict[str, Any]]:
+        """Resolve ONE episode of a completed PACK whose blob has no info dict.
+
+        `_completed_single_file` refuses a pack because a directory listing's ORDER is not
+        a libtorrent file index. This does not reconstruct the order — it does not need
+        to. `precomputed_episodes` is `{file_index: {season, episode}}`, cached on the row
+        the moment metadata was known, and it was built by running `parse_episode` over
+        the very file NAMES that are still on disk. So the index the caller asks about
+        names an episode, that episode names a file, and the association is recovered
+        rather than guessed: both halves come from the same parse of the same names.
+
+        REFUSES ON AMBIGUITY, which is the whole reason this is narrow enough to be safe.
+        A pack holding two files that parse to the same episode (a sample, a repack, a
+        proper) cannot be resolved this way, and two candidates answer None rather than
+        the larger one — picking would be the "serve the wrong episode" defect the single
+        file path refuses outright.
+
+        A BARE REQUEST IS ALSO A REFUSAL. Without an index there is no episode to look up,
+        and "the largest video file" is a statement about a movie, not about which episode
+        of a season somebody wants.
+        """
+        if file_index is None or not precomputed:
+            return None
+        want = precomputed.get(str(file_index))
+        if not isinstance(want, dict):
+            return None
+        season, episode = want.get("season"), want.get("episode")
+        if season is None or episode is None:
+            return None
+
+        base = Path(save_path)
+        if not base.is_dir():
+            return None
+        matches: List[Path] = []
+        try:
+            for path in base.rglob("*"):
+                if not path.is_file() or not self._is_video_file(path.name):
+                    continue
+                parsed = parse_episode(path.name)
+                if parsed == (season, episode):
+                    matches.append(path)
+        except OSError as e:
+            logger.info(f"Completed pack {torrent_id}: could not walk {save_path} ({e})")
+            return None
+        if len(matches) != 1:
+            if matches:
+                logger.warning(
+                    f"Completed pack {torrent_id}: {len(matches)} files parse to "
+                    f"S{season}E{episode}; refusing to choose between them"
+                )
+            return None
+        return self._completed_on_disk(torrent_id, matches[0], file_index)
+
+    def _completed_on_disk(self, torrent_id: str, path: Path,
+                           index: int) -> Optional[Dict[str, Any]]:
+        """The shared tail of both info-dict-less paths: the allocation gate, then the entry.
+
+        THE GATE IS ALLOCATION, NOT SIZE, and it is stronger than the one it stands in for.
+        `get_completed_video_file_info`'s gate 3 compares the file on disk with the size the
+        METADATA records — which is exactly what is missing here. What is available is
+        better evidence anyway: libtorrent writes at offsets in sparse storage mode, so a
+        half-downloaded file already has its FULL length with holes in it, and those holes
+        are unallocated. `st_blocks` sees them; a length comparison does not.
+        """
+        try:
+            st = os.stat(path)
+        except OSError as e:
+            logger.info(f"Completed torrent {torrent_id}: {path} unreadable ({e})")
+            return None
+        if st.st_size <= 0:
+            return None
+        allocated = getattr(st, "st_blocks", 0) * 512
+        if allocated < st.st_size * _ALLOCATED_AT_LEAST:
+            logger.warning(
+                f"Completed torrent {torrent_id}: {path.name} is {st.st_size} bytes long "
+                f"but only {allocated} are allocated; refusing to stream a sparse file as "
+                f"though every byte had arrived"
+            )
+            return None
+        return {
+            "index": index,
+            "path": str(path),
+            "size": st.st_size,
+            "downloaded": st.st_size,
+            "progress": 100.0,
+            "name": path.name,
+        }
+
     def get_completed_video_file_info(self, torrent_id: str,
                                       file_index: Optional[int] = None
                                       ) -> Optional[Dict[str, Any]]:
@@ -1355,6 +1557,14 @@ class TorrentManager:
         file was deleted or truncated, where that detail is admittedly generous.
         This fallback's whole contract is "every byte is on disk" and it will not
         claim that on evidence it does not have.
+
+        WHEN THE BLOB CANNOT DESCRIBE ITSELF, gates 3 and 4b are served by
+        `_completed_single_file` instead: a resume blob written before
+        `save_info_dict` has no file list at all, so a single-file torrent is resolved
+        from `name` and gated on ALLOCATION rather than on a size nobody recorded, and a
+        pack is refused. That is not a loosening — it is the only path that exists for
+        the downloads a household already has, and it is stricter about holes than the
+        size comparison above.
         """
         try:
             with get_db() as db:
@@ -1366,6 +1576,7 @@ class TorrentManager:
                 block_reason = row.block_reason
                 save_path = row.save_path
                 blob = row.resume_data
+                precomputed = row.precomputed_episodes
         except Exception as e:
             logger.warning(f"Completed-file lookup failed for {torrent_id}: {e}")
             return None
@@ -1383,7 +1594,16 @@ class TorrentManager:
         # live path. A non-video index is unresolvable, not merely deprioritised.
         files = self._video_files_from_resume_data(torrent_id, blob, save_path)
         if not files:
-            return None
+            # The blob carries no info dict — every blob written before `save_info_dict`
+            # was added, which is every download a household already has. Two shapes are
+            # still answerable without it: a single file, from `name` alone, and ONE
+            # episode of a pack, through the index->episode map the row cached while
+            # metadata was known. Both carry the allocation gate; anything else keeps the
+            # 404. See `_completed_single_file` and `_completed_pack_file`.
+            entry = self._completed_single_file(torrent_id, blob, save_path, file_index)
+            if entry is not None:
+                return entry
+            return self._completed_pack_file(torrent_id, save_path, file_index, precomputed)
         if file_index is not None:
             match = next((f for f in files if f["index"] == file_index), None)
         else:

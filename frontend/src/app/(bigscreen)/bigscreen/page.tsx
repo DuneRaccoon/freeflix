@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import type { CatalogItem } from '@/types';
 import { Hero } from '../_components/Hero';
-import { NAV_TARGETS, NavRow } from '../_components/NavRow';
+import { HEADER_CELLS, Header } from '../_components/Header';
 import { Rail, railCellCount, type RailModel } from '../_components/Rail';
 import { readStored, useFocusGrid, type FocusProps } from '../_focus/useFocusGrid';
 import { useBackKey } from '../_focus/useBackKey';
@@ -105,16 +105,32 @@ const LOOKAHEAD = '600px 0px';
  * returning from a detail screen would land one rail too high with no sign anything was
  * wrong. A new key means an old position is never read: it is discarded, not misread.
  * Change the row layout again and this must change with it.
+ *
+ * `:v3` BECAUSE THE NAV ROW LEFT. The header bar took its place at row 0 and the recovery
+ * panel, the hero and every rail moved — by nothing, as it happens, since the bar replaced
+ * the row it removed — but by a DIFFERENT row each: the bar is above the hero and the nav
+ * row was below it. Same rule, same reason.
  */
-const STORAGE_KEY = 'home:v2';
+const STORAGE_KEY = 'home:v3';
 
-const RECOVERY_ROW = 0;
+/** The top bar. Row 0 on every browsing screen, so Up from the content always reaches it. */
+const HEADER_ROW = 0;
+const RECOVERY_ROW = 1;
 /** How long the panel waits before offering a retry it cannot yet justify. `apiClient`
  *  sets no timeout, so without this a hung first rail reads "Loading…" forever. */
 const LOAD_PATIENCE_MS = 10_000;
-const HERO_ROW = 1;
-/** Directly under the hero, so Down from the hero reaches it and the hero still opens first. */
-const NAV_ROW = 2;
+const HERO_ROW = 2;
+/**
+ * WHERE THE CONTENT STARTS: the recovery panel's row, which is the first thing under the bar
+ * that can hold a focus stop. Not the hero's row — the panel stands in for the hero until it
+ * arrives, and a landing row that skipped it would send the ring to the BAR on exactly the
+ * screen whose whole point is that the viewer lands on "Try again".
+ *
+ * It is a preference for every fall-back, not just the first paint: the panel empties when
+ * the hero takes its place, and the ring has to find the hero rather than the menu. See
+ * `model.firstTarget`.
+ */
+const LANDING_ROW = RECOVERY_ROW;
 const FIRST_RAIL_ROW = 3;
 
 const CONTINUE_ID = 'continue-watching';
@@ -263,6 +279,7 @@ function StatusPanel({
 
 export default function HomePage() {
   const router = useRouter();
+  const pathname = usePathname();
   const { profile, loading: profileLoading, clear } = useTvProfile();
   const profileId = profile?.id ?? null;
   const [exitNote, setExitNote] = useState('');
@@ -471,8 +488,9 @@ export default function HomePage() {
   }, [showPanel, retryState]);
 
   const grid = useFocusGrid({
-    rowCounts: [recoveryCount, heroItem ? 1 : 0, NAV_TARGETS.length, ...rails.map(railCellCount)],
+    rowCounts: [HEADER_CELLS, recoveryCount, heroItem ? 1 : 0, ...rails.map(railCellCount)],
     storageKey: STORAGE_KEY,
+    initialRow: LANDING_ROW,
   });
 
   const retry = () => {
@@ -518,17 +536,15 @@ export default function HomePage() {
   return (
     // .bs-shell, not .bs-page: html and body cannot scroll, so the scroller is its own box.
     <main className="bs-shell">
-      <header className="bs-shell__head">
-        <h1>Freeflix</h1>
+      <Header row={HEADER_ROW} focusPropsFor={grid.focusProps} pathname={pathname}>
         {exitNote ? (
           <p className="bs-shell__exit" role="status">
             {exitNote}
           </p>
         ) : null}
-      </header>
+      </Header>
       <div className="bs-shell__scroll" ref={scrollerRef}>
         {top}
-        <NavRow row={NAV_ROW} focusPropsFor={grid.focusProps} />
         {LINEUP.map((slot, i) => (
           // The observer watches this wrapper, not the rail: `Rail` renders nothing at all
           // for an empty rail, and an element with no box has no position to approach.

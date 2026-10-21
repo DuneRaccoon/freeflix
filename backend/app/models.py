@@ -637,6 +637,11 @@ class UserSettingsUpdate(BaseModel):
     theme: Optional[str] = None
     default_quality: Optional[Literal['720p', '1080p', '2160p']] = None
     download_path: Optional[str] = None
+    # `exclude_unset=True` in the handler is what makes `false` writable: the loop there
+    # skips a None, so "turn it off" has to arrive as an explicit False and "do not touch
+    # it" as an absent key. An Optional[bool] default of None is the only shape that
+    # distinguishes the two.
+    auto_next_episode: Optional[bool] = None
 
 class UserSettingsResponse(BaseModel):
     """Never carries the passcode.
@@ -658,6 +663,12 @@ class UserSettingsResponse(BaseModel):
     theme: str = "dark"
     default_quality: Literal['720p', '1080p', '2160p'] = "1080p"
     download_path: Optional[str] = None
+    # NEVER Optional, and the default is True. The column is nullable because
+    # `sync_columns()` cannot add it any other way, so "unset" is the state almost every
+    # existing row is in — and a client that received `null` would have to decide what
+    # that means, in each of the two places that read it. The server decides, once:
+    # `profile_response` sends `row.auto_next_episode is not False`.
+    auto_next_episode: bool = True
 
 class UserResponse(BaseModel):
     # `id` is a plain str, not UUID: the column is `Column(String, primary_key=True)`

@@ -12,12 +12,17 @@ import type { FocusProps } from '../_focus/useFocusGrid';
  * Returns the input unchanged when it is not a TMDB sized path (`/t/p/{size}/{file}` on
  * image.tmdb.org), and null for null, undefined or an empty string.
  *
- * `w1920` is the only size on offer, on purpose. An `original` backdrop can be 3840x2160,
- * about 33MB decoded, on a television with very finite memory, and the hero is drawn in a
- * 1920-wide box regardless of what is behind it. Cheaper to delete the footgun than to
- * document it. (TMDB does serve `w1920`: a 1280x720 file becomes 1920x1080.)
+ * TWO SIZES ARE ON OFFER AND `original` IS NOT ONE OF THEM, on purpose. An `original`
+ * backdrop can be 3840x2160, about 33MB decoded, on a television with very finite memory, and
+ * the hero is drawn in a 1920-wide box regardless of what is behind it. Cheaper to delete the
+ * footgun than to document it. (TMDB does serve `w1920`: a 1280x720 file becomes 1920x1080.)
+ *
+ * `w500` is the episode list's still: the catalog hands back `w300` for a box this surface
+ * draws 256 CSS px wide, which is a 2x upscale on a 4K panel. The union is what keeps the set
+ * closed — a caller cannot reach for `original` without editing this signature, which is the
+ * whole reason the parameter is not a plain string.
  */
-export function atSize(url: string | null | undefined, size: 'w1920'): string | null {
+export function atSize(url: string | null | undefined, size: 'w1920' | 'w500'): string | null {
   if (!url) return null;
   // Both the host and the `/t/p/` prefix are required, so a URL this does not understand is
   // left alone rather than rewritten into one that may not exist.

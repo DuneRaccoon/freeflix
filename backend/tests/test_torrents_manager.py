@@ -97,7 +97,12 @@ def test_pause_unloads_and_marks_paused(mgr_db, monkeypatch):
     tid = _seed(mgr_db, state="downloading")
     calls = {}
     handle = _types.SimpleNamespace(
-        save_resume_data=lambda: calls.setdefault("saved", True),
+        # `*flags`, because the real `torrent_handle.save_resume_data` takes them and the
+        # manager now passes `save_info_dict` — without it this double raised TypeError,
+        # `pause_torrent` swallowed it, and "saved" silently stopped being recorded. The
+        # flags are captured rather than discarded so the double pins the contract instead
+        # of merely tolerating it.
+        save_resume_data=lambda *flags: calls.setdefault("saved", flags),
         pause=lambda: calls.setdefault("paused", True),
     )
     torrent_manager.active_torrents[tid] = (handle, {})
@@ -105,6 +110,10 @@ def test_pause_unloads_and_marks_paused(mgr_db, monkeypatch):
 
     assert torrent_manager.pause_torrent(tid) is True
     assert calls.get("saved") and calls.get("paused") and calls.get("removed") is handle
+    # Unloading a torrent is the LAST chance to write resume data that can describe its
+    # files: it is not re-added on startup, so this blob is the only thing standing between
+    # a paused download and "no longer on the box" after a restart.
+    assert calls["saved"] == (lt.save_resume_flags_t.save_info_dict,)
     assert tid not in torrent_manager.active_torrents
     s = mgr_db(); assert s.get(DbTorrent, tid).state == "paused"; s.close()
 

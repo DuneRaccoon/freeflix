@@ -1,14 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { CatalogItem, CatalogPage } from '@/types';
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
+import { HEADER_CELLS } from '../../_components/Header';
 import { KEYBOARD_ROW_COUNTS } from '../../_components/Keyboard';
+import { TYPING_PAUSE_MS } from '../../_data/searchQuery';
 import SearchPage from './page';
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => router }));
+vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/bigscreen/search' }));
 vi.mock('@/services/movies', () => ({ moviesService: { search: vi.fn() } }));
 vi.mock('@/services/tv', () => ({ tvService: { search: vi.fn() } }));
 
@@ -59,8 +61,20 @@ const FOCUS_STOPS = 'a[href], button, input, select, textarea, summary, [tabinde
 const cells = () => Array.from(document.querySelectorAll('[tabindex]'));
 const stops = () => Array.from(document.querySelectorAll(FOCUS_STOPS));
 const KEY_CELLS = KEYBOARD_ROW_COUNTS.reduce((a, b) => a + b, 0);
-/** The Search key and the on-screen way home: one row, two cells. */
-const ACTION_CELLS = 2;
+/**
+ * The top bar's own row, which every browsing screen now carries. Counted from the component
+ * rather than written as a number, so adding an item to the menu moves these expectations
+ * with it instead of reddening every count on the screen.
+ */
+const BAR_CELLS = HEADER_CELLS;
+/**
+ * The action row. The Search key is always there; `Go to N results` is APPENDED only when
+ * there are results to go to, so this row is one cell wide for every state that has none.
+ * (It was a flat 2 when the second cell was a permanent "Back to home" link — that way home
+ * is in the bar now, with everywhere else.)
+ */
+const ACTION_CELLS = 1;
+const ACTION_CELLS_WITH_RESULTS = 2;
 
 const arrow = (k: string) => fireEvent.keyDown(window, { key: k });
 const back = () => fireEvent.keyDown(window, { key: 'Backspace' });
@@ -139,6 +153,12 @@ function expectEveryCellReachable(label: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  // RECENT SEARCHES OUTLIVE THE SESSION on purpose (`_data/recentSearches` uses
+  // localStorage, because typing a title on a D-pad is about fifty presses and a household
+  // searches for the same handful of shows). So they outlive a TEST too: without this, a row
+  // that searched for "A" leaves a recent-search button named "A" on every later row's
+  // screen, colliding with the keyboard key of the same name.
+  localStorage.clear();
   movieSearch.mockResolvedValue(page([]));
   tvSearch.mockResolvedValue(page([]));
 });
@@ -172,14 +192,112 @@ describe('search screen', () => {
     expect(queryText()).toMatch(/Type a title/);
   });
 
-  it('does not search per keystroke — only an explicit Search press asks', async () => {
+  it('does not search per keystroke: typing asks nothing until the viewer stops', async () => {
+    // THE RULE THAT SURVIVED THE REWRITE. Nine requests for a nine-letter title is what a
+    // television's network cannot afford, and that has not changed — what changed is that
+    // the SEARCH no longer waits for a trip to a button six rows away. A pause is the same
+    // intent, expressed by stopping.
     render(<SearchPage />);
     typeIn('BATMAN');
-    expect(movieSearch).not.toHaveBeenCalled();
+    expect(movieSearch, 'nothing while the keys are still coming').not.toHaveBeenCalled();
     expect(tvSearch).not.toHaveBeenCalled();
     await pressSearch();
     expect(movieSearch).toHaveBeenCalledTimes(1);
     expect(tvSearch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the typing pause', () => {
+    // Fake timers only in here: every other row in this file drives the screen through
+    // presses and `await`, and a fake clock would make those wait for something nobody
+    // advances.
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const pause = async (ms = TYPING_PAUSE_MS) => {
+      await act(async () => {
+        vi.advanceTimersByTime(ms);
+      });
+    };
+
+    it('searches once the keys stop, with no press at all', async () => {
+      render(<SearchPage />);
+      typeIn('BAT');
+      expect(movieSearch).not.toHaveBeenCalled();
+      await pause();
+      expect(movieSearch.mock.calls).toEqual([['BAT', 1]]);
+      expect(tvSearch.mock.calls).toEqual([['BAT', 1]]);
+    });
+
+    it('costs ONE request for a whole word, not one per letter', async () => {
+      // The cleanup cancels the pending timer on every keystroke, which is the whole of the
+      // debounce: a held key repeats many times a second and the grid has no `e.repeat`
+      // guard.
+      render(<SearchPage />);
+      for (const ch of 'BATMAN') {
+        fireEvent.click(key(ch));
+        await pause(TYPING_PAUSE_MS - 50);
+      }
+      expect(movieSearch, 'nothing has gone out yet').not.toHaveBeenCalled();
+      await pause();
+      expect(movieSearch.mock.calls).toEqual([['BATMAN', 1]]);
+    });
+
+    it('waits for a query worth asking about', async () => {
+      // Two characters match a large fraction of the catalog and the answer is useless.
+      render(<SearchPage />);
+      typeIn('BA');
+      await pause(TYPING_PAUSE_MS * 4);
+      expect(movieSearch).not.toHaveBeenCalled();
+      // ...and a viewer who really wants it presses Search.
+      await pressSearch();
+      expect(movieSearch.mock.calls).toEqual([['BA', 1]]);
+    });
+
+    it('does not re-ask for a query it has already asked about', async () => {
+      render(<SearchPage />);
+      typeIn('BAT');
+      await pause();
+      expect(movieSearch).toHaveBeenCalledTimes(1);
+      // A re-render for any other reason must not spend a second request.
+      await pause(TYPING_PAUSE_MS * 4);
+      expect(movieSearch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a FAILED search for ever', async () => {
+      // THE LOOP THIS ROW EXISTS FOR. A failure leaves the query unchanged, so the condition
+      // that armed the timer is still true — without the record of what has already been
+      // ASKED, the screen hammers a dead box until the viewer leaves. `lastAuto` is that
+      // record, and it is set for an asked query whatever the answer turns out to be.
+      movieSearch.mockRejectedValue(new Error('offline'));
+      tvSearch.mockRejectedValue(new Error('offline'));
+      render(<SearchPage />);
+      typeIn('BAT');
+      await pause();
+      expect(movieSearch).toHaveBeenCalledTimes(1);
+      await pause(TYPING_PAUSE_MS * 6);
+      expect(movieSearch, 'asked once, answered once').toHaveBeenCalledTimes(1);
+      // And the Search key still re-asks, which is what it is for now.
+      await pressSearch();
+      expect(movieSearch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not re-run a restored search on arrival', async () => {
+      // Coming back from a result and finding the screen asking the box again would be a
+      // request per visit for an answer already on the screen.
+      sessionStorage.setItem('bs-search:q', 'BAT');
+      sessionStorage.setItem(
+        'bs-search:results',
+        JSON.stringify({ q: 'BAT', items: [item({ tmdb_id: 1, title: 'First' })] }),
+      );
+      render(<SearchPage />);
+      expect(cardTitles()).toEqual(['First']);
+      await pause(TYPING_PAUSE_MS * 4);
+      expect(movieSearch).not.toHaveBeenCalled();
+    });
   });
 
   it('asks both halves once each, for page 1, with the query trimmed', async () => {
@@ -248,10 +366,15 @@ describe('search screen', () => {
       // The remote's Back key identity on this device is unverified (see `useBackKey`), and
       // on this screen it deletes rather than leaves whenever anything is typed. Without a
       // control the viewer would have to guess that Clear comes first.
+      //
+      // THE CONTROL MOVED RATHER THAN WENT: it used to be a "Back to home" link in the
+      // action row, and it is the top bar now — which answers the same need better, since it
+      // offers everywhere else as well and sits at the top of every browsing screen.
       render(<SearchPage />);
       typeIn('BATMAN');
-      const home = screen.getByRole('link', { name: 'Back to home' });
+      const home = screen.getByRole('link', { name: 'Home' });
       expect(home).toHaveAttribute('href', '/bigscreen');
+      expect(home.closest('header'), 'in the bar, not in the action row').not.toBeNull();
     });
   });
 
@@ -392,7 +515,7 @@ describe('search screen', () => {
       fireEvent.click(key('B'));
       await pressSearch();
       expect(cardTitles()).toEqual(['Second']);
-      expect(cells()).toHaveLength(KEY_CELLS + ACTION_CELLS + 1);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS_WITH_RESULTS + 1);
     });
   });
 
@@ -616,7 +739,7 @@ describe('search screen', () => {
   describe('the focus grid', () => {
     it('declares exactly as many cells as it renders, with nothing searched yet', () => {
       render(<SearchPage />);
-      expect(cells()).toHaveLength(KEY_CELLS + ACTION_CELLS);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS);
       expectEveryCellReachable('idle');
     });
 
@@ -627,7 +750,7 @@ describe('search screen', () => {
       render(<SearchPage />);
       typeIn('A');
       await pressSearch();
-      expect(cells()).toHaveLength(KEY_CELLS + ACTION_CELLS);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS);
       expectEveryCellReachable('in flight');
     });
 
@@ -645,7 +768,7 @@ describe('search screen', () => {
       expect(document.activeElement).toBe(searchKey());
       await pressSearch();
       await waitFor(() => expect(cards()).toHaveLength(7));
-      expect(cells()).toHaveLength(KEY_CELLS + ACTION_CELLS + 7);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS_WITH_RESULTS + 7);
       // Rows appearing BELOW the viewer must not pull the ring off the key they pressed.
       expect(document.activeElement).toBe(searchKey());
       expectEveryCellReachable('with results');
@@ -655,7 +778,7 @@ describe('search screen', () => {
       render(<SearchPage />);
       typeIn('A');
       await pressSearch();
-      expect(cells()).toHaveLength(KEY_CELLS + ACTION_CELLS);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS);
       expectEveryCellReachable('no results');
     });
 
@@ -665,7 +788,7 @@ describe('search screen', () => {
       render(<SearchPage />);
       typeIn('A');
       await pressSearch();
-      expect(cells()).toHaveLength(KEY_CELLS + ACTION_CELLS);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS);
       expectEveryCellReachable('failed');
     });
 
@@ -684,4 +807,154 @@ describe('search screen', () => {
       expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
     });
   });
+
+  describe('recent searches', () => {
+    const recents = () => [...document.querySelectorAll<HTMLElement>('.bs-search__recent')];
+
+    it('offers nothing before anything has been searched for', () => {
+      render(<SearchPage />);
+      expect(recents()).toEqual([]);
+    });
+
+    it('remembers a search that FOUND something, and offers it next time', async () => {
+      movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'First' })]));
+      const first = render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      first.unmount();
+      // A fresh arrival: the query is gone, so the row is on offer.
+      sessionStorage.clear();
+      render(<SearchPage />);
+      expect(recents().map((r) => r.textContent)).toEqual(['BAT']);
+    });
+
+    it('does NOT remember a search that found nothing', async () => {
+      // A list of a viewer's typos is worse than no list.
+      const first = render(<SearchPage />);
+      typeIn('ZZZ');
+      await pressSearch();
+      first.unmount();
+      sessionStorage.clear();
+      render(<SearchPage />);
+      expect(recents()).toEqual([]);
+    });
+
+    it('runs the whole query at once when one is pressed', async () => {
+      movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'First' })]));
+      const first = render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      first.unmount();
+      sessionStorage.clear();
+      movieSearch.mockClear();
+      render(<SearchPage />);
+      await act(async () => {
+        fireEvent.click(recents()[0]);
+      });
+      // No pause to wait through: the viewer picked a whole query, so there is nothing left
+      // to wait for them to finish typing.
+      expect(movieSearch.mock.calls).toEqual([['BAT', 1]]);
+      expect(queryText()).toBe('BAT');
+    });
+
+    it('goes away once there is something else on the screen', async () => {
+      movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'First' })]));
+      const first = render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      first.unmount();
+      sessionStorage.clear();
+      render(<SearchPage />);
+      expect(recents()).toHaveLength(1);
+      // A row that stayed would sit between the keyboard and the results for the whole
+      // visit; it is a way to START, not something to step over on the way to the answers.
+      typeIn('X');
+      expect(recents()).toEqual([]);
+    });
+
+    it('is counted in the grid: every cell it draws is reachable', async () => {
+      movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'First' })]));
+      const first = render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      first.unmount();
+      sessionStorage.clear();
+      render(<SearchPage />);
+      expect(cells()).toHaveLength(BAR_CELLS + KEY_CELLS + ACTION_CELLS + 1);
+      expectEveryCellReachable('with a recent search');
+    });
+  });
+
+  describe('getting to the results', () => {
+    const jump = () => screen.queryByRole('button', { name: /^Go to \d+ result/ });
+
+    it('is not offered until there is something to go to', async () => {
+      render(<SearchPage />);
+      expect(jump()).toBeNull();
+      typeIn('ZZZ');
+      await pressSearch();
+      expect(jump(), 'and not for a search that found nothing').toBeNull();
+    });
+
+    it('says how many there are, and moves the ring onto the first one', async () => {
+      // The results sit under six rows of keyboard: without this, reaching what the viewer
+      // just searched for is six Downs. With it, one press.
+      movieSearch.mockResolvedValue(
+        page(Array.from({ length: 3 }, (_, i) => item({ tmdb_id: i + 1, title: `Film ${i + 1}` }))),
+      );
+      render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      expect(jump()).toHaveTextContent('Go to 3 results');
+      await act(async () => {
+        fireEvent.click(jump()!);
+      });
+      expect(document.activeElement).toBe(cards()[0]);
+    });
+
+    it('counts one result in the singular', async () => {
+      movieSearch.mockResolvedValue(page([item({ tmdb_id: 1, title: 'Only' })]));
+      render(<SearchPage />);
+      typeIn('BAT');
+      await pressSearch();
+      expect(jump()).toHaveTextContent('Go to 1 result');
+    });
+
+    it('is APPENDED, so arriving results never move the ring off the Search key', async () => {
+      // The focus model tolerates growth at the END of a row and nothing else: a cell added
+      // at or before the focused column leaves DOM focus on the element that just became the
+      // next column while the model still points at the old one.
+      const slow = deferred<CatalogPage>();
+      movieSearch.mockReturnValueOnce(slow.promise);
+      tvSearch.mockResolvedValueOnce(page([item({ tmdb_id: 1, title: 'First' })]));
+      render(<SearchPage />);
+      typeIn('BAT');
+      for (let i = 0; i < KEYBOARD_ROW_COUNTS.length; i++) arrow('ArrowDown');
+      expect(document.activeElement).toBe(searchKey());
+      await act(async () => {
+        slow.resolve(page([]));
+      });
+      await waitFor(() => expect(jump()).not.toBeNull());
+      expect(document.activeElement, 'still on the key they pressed').toBe(searchKey());
+      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    });
+  });
+
+  describe('the top bar', () => {
+    it('marks Search as the section the viewer is in', () => {
+      render(<SearchPage />);
+      const current = [...document.querySelectorAll('.bs-head__item')].filter(
+        (l) => l.getAttribute('aria-current') === 'page',
+      );
+      expect(current.map((l) => l.textContent)).toEqual(['Search']);
+    });
+
+    it('is one Up from the keyboard, and the ring does not start there', () => {
+      render(<SearchPage />);
+      expect(document.activeElement).toBe(key('A'));
+      arrow('ArrowUp');
+      expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Home' }));
+    });
+  });
+
 });

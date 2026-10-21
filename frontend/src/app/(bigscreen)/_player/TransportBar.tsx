@@ -1,7 +1,9 @@
 'use client';
+import type { NextCellStateId } from '../_data/nextEpisode';
 import type { SubtitleCellState } from '../_data/subtitles';
 import type { FocusProps } from '../_focus/useFocusGrid';
 import type { MediaKeyAction } from '../_focus/useMediaKeys';
+import { glyphFor } from './glyphs';
 
 /**
  * The transport row: one focus row, one `<button>` per cell, and nothing else.
@@ -27,6 +29,20 @@ import type { MediaKeyAction } from '../_focus/useMediaKeys';
  * an unrecognised media button has to degrade into a missing SHORTCUT rather than a missing
  * feature. `MEDIA_TWINS` is a `Record` over the hook's action union, so a seventh action
  * fails `tsc` here until it is given a cell.
+ *
+ * EVERY CELL IS AN ICON IN A CIRCLE, AND ITS NAME IS STILL IN THE DOM. Seven rectangles of
+ * prose is what a desktop player looks like; a television's transport is glyphs, which is also
+ * what the remote's own keys are. So each cell draws an inline SVG (`glyphs.tsx` — no text
+ * inside it, ever, and no filter) and the WORD it carries is revealed by `:focus` in the
+ * stylesheet. Revealed by OPACITY, never by mounting it: the label is this control's
+ * accessible name, so `display: none` would take `getByRole('button', { name: 'Pause' })` away
+ * from every test in this directory and the name away from anything that reads the screen
+ * aloud. The one thing that is `aria-hidden` is the state sub-line, for the reason it always
+ * was — it would rename the control.
+ *
+ * THE NEXT-EPISODE CELL IS THE ONE INSERTION THIS ROW ALLOWS, and `NEXT_CELL` is where the
+ * reason is written: whether the title is an episode is settled before the band exists and
+ * cannot change while it does, which is exactly what is NOT true of Retry.
  *
  * THE RETRY CELL IS APPENDED LAST, never inserted. The grid calls `go` only when the
  * clamped target CHANGES, so growth at the end never refocuses; a cell inserted at or
@@ -59,6 +75,7 @@ export type TransportCellId =
   | 'back10'
   | 'back60'
   | 'forward60'
+  | 'nextEpisode'
   | 'subtitles'
   | 'stop'
   | 'retry';
@@ -112,6 +129,30 @@ export const TRANSPORT_CELLS: readonly TransportCell[] = [
 export const RETRY_CELL: TransportCell = { id: 'retry', label: 'Try again', variant: 'primary' };
 
 /**
+ * Offered only while the title on screen IS an episode with something after it to go to.
+ *
+ * INSERTED, NOT APPENDED — which is the one growth this row's focus model does not tolerate,
+ * and it is safe here for a reason the `retry` flag cannot borrow: `next` is CONSTANT for the
+ * life of the band. Whether a title is an episode is settled before the player mounts (it is
+ * read off the watch-identity key, which the route resolves from the torrent row and the file
+ * list on arrival), and a new arrival takes the whole player down and rebuilds it. The route
+ * freezes it on mount as well, so a prop that changed underneath could not reshape the row
+ * even if something started changing it — see `Playing`'s own note.
+ *
+ * `retry`, by contrast, flips mid-film whenever the stream fails, which is why THAT cell is
+ * appended and why nothing else in this row may be.
+ *
+ * AFTER `forward60`, by id rather than by index. A reorder of `TRANSPORT_CELLS` then carries
+ * this cell with its anchor instead of silently moving it to the middle of the seek cluster,
+ * and an anchor that stopped existing is a `tsc` error on `TransportCellId`, not a cell that
+ * quietly lands at the front of the row.
+ */
+export const NEXT_CELL: TransportCell = { id: 'nextEpisode', label: 'Next episode', variant: 'ghost' };
+
+/** Where `NEXT_CELL` goes: straight after the forward jump, which is the end of the seek cluster. */
+export const NEXT_CELL_AFTER: TransportCellId = 'forward60';
+
+/**
  * What a media key MEANS. A `Record` over the hook's action union, so a seventh media action
  * fails `tsc` here until it has been given one.
  *
@@ -148,6 +189,7 @@ export const TWIN_CELL: Record<TransportAction, TransportCellId> = {
   back10: 'back10',
   back60: 'back60',
   forward60: 'forward60',
+  nextEpisode: 'nextEpisode',
   subtitles: 'subtitles',
   stop: 'stop',
   retry: 'retry',
@@ -173,12 +215,48 @@ export interface SubtitleCellView {
   note: string;
 }
 
-export function transportCells(opts: { retry: boolean }): readonly TransportCell[] {
-  return opts.retry ? [...TRANSPORT_CELLS, RETRY_CELL] : TRANSPORT_CELLS;
+/**
+ * What the Next-episode cell says under its icon — the same two fields as the Subtitles
+ * cell's view, and deliberately a SECOND interface rather than one generic shape.
+ *
+ * The two fields exist for the reasons `SubtitleCellView` sets out (words rendered verbatim
+ * so there is one place the phrasings live; a machine-readable twin so a test can read which
+ * state the screen believes it is in without matching prose), and `stateId` is typed to the
+ * union of THIS cell's states, which is what a shared `{ stateId: string }` would throw away.
+ * The duplication is two field names; what it buys is that neither cell can be handed the
+ * other's state.
+ */
+export interface NextCellView {
+  /** The next-episode verdict, `checking` while the lookup is out, `starting` after a press. */
+  stateId: NextCellStateId;
+  note: string;
+}
+
+/** Which cells the row holds. Both flags default to false: a cell has to be asked for. */
+export interface TransportCellOptions {
+  /** Append the Retry cell. Changes mid-film; see `RETRY_CELL`. */
+  retry?: boolean;
+  /** Include the Next-episode cell. Constant for the band's life; see `NEXT_CELL`. */
+  next?: boolean;
+}
+
+/** `NEXT_CELL` spliced in after its anchor, or the table unchanged. */
+function withNextCell(cells: readonly TransportCell[]): readonly TransportCell[] {
+  const at = cells.findIndex((c) => c.id === NEXT_CELL_AFTER);
+  // An anchor that is not in the table would otherwise splice at 0, putting the cell first
+  // and moving every column. Appending is the one growth this row tolerates, so that is what
+  // an impossible table degrades to rather than a silent reshuffle.
+  if (at < 0) return [...cells, NEXT_CELL];
+  return [...cells.slice(0, at + 1), NEXT_CELL, ...cells.slice(at + 1)];
+}
+
+export function transportCells(opts: TransportCellOptions): readonly TransportCell[] {
+  const base = opts.next ? withNextCell(TRANSPORT_CELLS) : TRANSPORT_CELLS;
+  return opts.retry ? [...base, RETRY_CELL] : base;
 }
 
 /** What the screen must put in `rowCounts` for this row. */
-export function transportCellCount(opts: { retry: boolean }): number {
+export function transportCellCount(opts: TransportCellOptions): number {
   return transportCells(opts).length;
 }
 
@@ -193,12 +271,13 @@ export function TransportBar({
   playing,
   retry = false,
   subtitles,
+  next,
   onAction,
 }: {
   /** The grid row this row occupies; every cell is a column of it. */
   row: number;
   focusProps: (row: number, col: number) => FocusProps;
-  /** Drives Play/Pause's label only. */
+  /** Drives Play/Pause's label and its glyph. */
   playing: boolean;
   /** Append the Retry cell. */
   retry?: boolean;
@@ -210,34 +289,57 @@ export function TransportBar({
    * into a compile error in files that are not about subtitles at all.
    */
   subtitles?: SubtitleCellView;
+  /**
+   * What the Next-episode cell says — AND whether the cell exists at all. One prop for both,
+   * because the two can never disagree: the cell is for episodes, and the lookup only runs
+   * for an episode, so a view with no cell would be a state nothing shows and a cell with no
+   * view would be a control with nothing to say. (The Subtitles cell is the other way round
+   * on purpose: its list resolves while the row is already on screen, so the cell must exist
+   * before the view does.)
+   */
+  next?: NextCellView;
   onAction: (action: TransportAction) => void;
 }) {
+  const cells = transportCells({ retry, next: next !== undefined });
   return (
     <div className="bs-player__row" role="group" aria-label="Playback controls">
-      {transportCells({ retry }).map((cell, col) => {
-        const view = cell.id === 'subtitles' ? subtitles : undefined;
+      {cells.map((cell, col) => {
+        const label = labelFor(cell, { playing });
+        const note = cellNote(cell.id, subtitles, next);
         return (
           <button
             key={cell.id}
             type="button"
-            className={cell.variant === 'ghost' ? 'bs-btn bs-btn--ghost' : 'bs-btn'}
+            className={cell.variant === 'primary' ? 'bs-tp bs-tp--primary' : 'bs-tp'}
             {...focusProps(row, col)}
             onClick={() => onAction(cell.id)}
-            // Absent on every other cell, and absent on this one until the screen has an
-            // answer: `undefined` writes no attribute at all, so "no state yet" and "state
-            // `loading`" are different things in the DOM as well as in the model.
-            data-subtitles={view?.stateId}
+            // Absent on every other cell, and absent on these two until the screen has an
+            // answer: `undefined` writes no attribute at all, so "no state yet" and a state
+            // are different things in the DOM as well as in the model.
+            data-subtitles={cell.id === 'subtitles' ? subtitles?.stateId : undefined}
+            data-next={cell.id === 'nextEpisode' ? next?.stateId : undefined}
           >
-            {labelFor(cell, { playing })}
+            {/* THE ICON CARRIES NO TEXT, and `glyphs.tsx` says why at length: SVG text would
+                land in this button's `textContent`, which this directory's tests assert is
+                exactly the cell's label. `aria-hidden` is on the `<svg>` itself, so the
+                wrapper is free to be the circle the stylesheet draws. */}
+            <span className="bs-tp__glyph">{glyphFor(cell.id, { playing })}</span>
+            {/* THE CELL'S NAME, AND IT IS NEVER `aria-hidden`. The icons are what the viewer
+                reads at three metres, so the stylesheet reveals this only while the cell has
+                focus — by OPACITY, never `display: none`, which would take the name out of
+                the accessibility tree and with it every `getByRole('button', { name })` query
+                on this surface and the television's own screen reader. */}
+            <span className="bs-tp__label">{label}</span>
             {/* `aria-hidden` IS LOAD-BEARING, not tidiness: the cell's accessible name is
                 computed from its contents, so an announced sub-line would rename the control
                 from `Subtitles` to `Subtitles off` — and every exact-name query for it, here
                 and in the route's suite, would stop finding it. `.bs-player__commit` is the
                 ScrubBar's own sub-line class, reused rather than reinvented, so this adds no
-                rule to a stylesheet that is outside PostCSS. */}
-            {view !== undefined && (
+                rule to a stylesheet that is outside PostCSS; the transport row re-places it
+                under the circle with one descendant rule. */}
+            {note !== undefined && (
               <span className="bs-player__commit" aria-hidden="true">
-                {view.note}
+                {note}
               </span>
             )}
           </button>
@@ -245,4 +347,22 @@ export function TransportBar({
       })}
     </div>
   );
+}
+
+/**
+ * The sub-line a cell shows, or `undefined` for a cell that has none.
+ *
+ * ONE FUNCTION FOR BOTH VIEWS, so "which cells may carry a sub-line" is stated once. The
+ * mutation it closes is the one `TransportBar.test.tsx` already names — render the sub-line
+ * for every cell, and with `aria-hidden` kept every accessible name still reads correctly
+ * while six cells wear a stranger's state.
+ */
+function cellNote(
+  id: TransportCellId,
+  subtitles: SubtitleCellView | undefined,
+  next: NextCellView | undefined,
+): string | undefined {
+  if (id === 'subtitles') return subtitles?.note;
+  if (id === 'nextEpisode') return next?.note;
+  return undefined;
 }

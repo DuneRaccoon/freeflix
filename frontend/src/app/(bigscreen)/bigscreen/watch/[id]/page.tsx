@@ -13,7 +13,20 @@ import { deriveStreamHealth } from '@/utils/streamHealth';
 import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
+import { useAutoNext } from '../../../_data/autoNext';
 import { statusOf } from '../../../_data/httpStatus';
+import {
+  episodeRefOf,
+  episodeScaleSeconds,
+  episodeTag,
+  findNextEpisode,
+  nearTheEnd,
+  nextCellView,
+  pastAutoNextPoint,
+  prefetchEpisode,
+  whereToWatchEpisode,
+  type NextEpisodeAnswer,
+} from '../../../_data/nextEpisode';
 import {
   cellLabel,
   chosenCellState,
@@ -31,7 +44,12 @@ import { useBackKey } from '../../../_focus/useBackKey';
 import { useFocusGrid } from '../../../_focus/useFocusGrid';
 import { useMediaKeys } from '../../../_focus/useMediaKeys';
 import { useRevealOnKey, REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
-import { classifyStatus, classifyStreamFailure, type StreamFailure } from '../../../_player/classify';
+import {
+  RETRY_AFTER_DEFAULT_MS,
+  classifyStatus,
+  classifyStreamFailure,
+  type StreamFailure,
+} from '../../../_player/classify';
 import { createRecovery, type RecoveryStatus } from '../../../_player/recovery';
 import { fileIndex, streamSrc } from '../../../_player/fileIndex';
 import { formatTime } from '../../../_player/formatTime';
@@ -44,6 +62,7 @@ import {
   TransportBar,
   transportCellCount,
   transportCells,
+  type NextCellView,
   type SubtitleCellView,
   type TransportAction,
 } from '../../../_player/TransportBar';
@@ -249,8 +268,15 @@ function subtitleCellState(
  * `TransportBar.test.tsx`'s `TWIN_CELL` walk is what makes that unreachable.
  */
 const TRANSPORT_ROW = 1;
-const subtitlesColumn = (retry: boolean): number =>
-  transportCells({ retry }).findIndex((c) => c.id === 'subtitles');
+/**
+ * BOTH FLAGS, not just `retry`. The Next-episode cell is INSERTED (after `forward60`), so with
+ * it in the row the Subtitles cell is column 5 rather than 4 — and this answer is where the
+ * ring lands when the picker closes. `retry` still changes nothing (`RETRY_CELL` is appended,
+ * so `findIndex` answers the same with and without it, which is measured and recorded below);
+ * `next` is the half that does.
+ */
+const subtitlesColumn = (opts: { retry: boolean; next: boolean }): number =>
+  transportCells(opts).findIndex((c) => c.id === 'subtitles');
 
 /**
  * Said twice, from one constant: a failed read and a coverage that is not `listed` are the
@@ -464,6 +490,13 @@ function WatchScreen() {
     setPosition(0);
     setDuration(Number.NaN);
     setEnded(false);
+    // AND `leaving`, which is new with the Next-episode press. `leave()` latches that flag so
+    // a second press cannot double-navigate, and until now every exit left this route for
+    // good. A next-episode press goes from the player TO THE PLAYER (`router.replace` to
+    // another watch URL), so React can keep this instance — and a latch that survived would
+    // leave the viewer in the next episode with Back and Stop both doing nothing. The
+    // same-torrent case is cleared by the file effect below, which this does not cover.
+    setLeaving(false);
     Promise.all([
       torrentsService.getTorrentStatus(torrentId),
       // An unreadable or empty `/files` is UNKNOWN, never "no episodes": it decides which
@@ -495,6 +528,34 @@ function WatchScreen() {
   const index = askedIndex !== undefined ? askedIndex : files?.[0]?.index;
   const chosenFile = files?.find((f) => f.index === index) ?? null;
   const identity = watchIdentity({ status: arrival.k === 'ok' ? arrival.status : null, file: chosenFile });
+
+  /**
+   * THE PLAYHEAD BELONGS TO THE FILE, NOT TO THE TORRENT, and this effect is the whole of
+   * that. It is new with the Next-episode press, and without it that press is a defect.
+   *
+   * A press inside a SEASON PACK navigates to the same torrent with a different `?file=`.
+   * The torrent id does not change, so the arrival effect above does not re-run — which is
+   * DELIBERATE and predates this (a pack's episodes share one torrent, which is why the
+   * sidecar read, the seek boundary and the progress read are each keyed on `index`, and why
+   * the player is not torn down between them). What none of that covered is the four pieces
+   * of state the arrival effect resets: the playhead carried over, so the new episode's
+   * `loadedmetadata` seeked to `Math.max(resume, position)` — half an hour into the episode
+   * the viewer had just started, silently. `ended` carried over too, which would have written
+   * the new episode's progress row `completed` before a frame of it played.
+   *
+   * NOT `started`, and not `arrival`. Keeping the player mounted across an episode of the
+   * same pack is the design; tearing it down to reset a number would be re-fetching `/files`
+   * and re-reading the sidecar list for nothing.
+   *
+   * It runs on mount too, where all four are already these values — harmless, and cheaper
+   * than a ref to suppress it.
+   */
+  useEffect(() => {
+    setPosition(0);
+    setDuration(Number.NaN);
+    setEnded(false);
+    setLeaving(false);
+  }, [index]);
 
   // --- the sidecar list -------------------------------------------------------------
   /**
@@ -748,6 +809,130 @@ function WatchScreen() {
   });
 
   const resume = progress.resume;
+
+  // =================================================================================
+  // The next episode
+  // =================================================================================
+  /**
+   * WHAT IS AFTER THIS, read once per episode, and the two time-driven things that follow
+   * from it. `_data/nextEpisode.ts` owns every rule; this is the wiring.
+   *
+   * `epRef` IS ALSO THE TEST FOR "IS THIS AN EPISODE AT ALL". It is read off the watch
+   * identity key rather than from the torrent row and the file list, because
+   * `useWatchProgress.watchIdentity` has already resolved those two against each other and a
+   * second copy of that precedence here is a second thing to keep in step. A movie answers
+   * null; so does a season pack whose file could not be resolved, which is keyed at show
+   * level and so has no current episode to count from.
+   */
+  const epRef = episodeRefOf(identity.contentId);
+  const [nextAnswer, setNextAnswer] = useState<NextEpisodeAnswer | null>(null);
+  /** The background prefetch's verdict: null until it has run. False only when the box refused. */
+  const [nextStartable, setNextStartable] = useState<boolean | null>(null);
+  /** A Next-episode press that is out. The cell says `starting…` while it is. */
+  const [goingNext, setGoingNext] = useState(false);
+  /** Why the last Next-episode press went nowhere. Cleared like the resume note; see below. */
+  const [nextFailure, setNextFailure] = useState('');
+  const autoNext = useAutoNext(userId);
+  /**
+   * THE GENERATION, exactly as the sidecar read's is and for the same reason: two async
+   * writers (the lookup and the prefetch) feed state that is only meaningful for ONE episode,
+   * and a season pack's episodes share a torrent, so the previous episode's answer arriving
+   * after the new one's would put another episode's "next up" on the screen. Bumped in the
+   * lookup effect's cleanup, which covers an episode change, a title change and an unmount in
+   * one line.
+   */
+  const nextGen = useRef(0);
+  const contentId = identity.contentId;
+  useEffect(() => {
+    setNextAnswer(null);
+    setNextStartable(null);
+    setGoingNext(false);
+    setNextFailure('');
+    const invalidate = () => {
+      nextGen.current += 1;
+    };
+    const ref = episodeRefOf(contentId);
+    // A film, or an episode nothing can name: there is nothing after it to look for, and
+    // `null` is what keeps the cell out of the row altogether.
+    if (!ref) return invalidate;
+    const generation = nextGen.current;
+    void findNextEpisode(ref).then((answer) => {
+      if (nextGen.current !== generation) return;
+      setNextAnswer(answer);
+    });
+    return invalidate;
+  }, [contentId]);
+
+  /**
+   * How long this episode is, by the only three measures that exist here. `video.duration`
+   * wins when the element has one — on this television it often never does for an in-progress
+   * stream, which is why the stored duration and TMDB's runtime are behind it.
+   */
+  const scaleSeconds = episodeScaleSeconds({
+    duration,
+    storedSeconds: resume.ready ? resume.totalSeconds : null,
+    runtimeS: nextAnswer?.runtimeS ?? null,
+  });
+
+  /**
+   * THE PREFETCH: past 80%, start the next episode downloading.
+   *
+   * ONCE PER EPISODE, latched on the content id. The effect itself re-runs about once a
+   * second (the playhead is a dependency, because that is the thing being watched), so the
+   * latch — not the dependency list — is what makes this one request.
+   *
+   * GATED ON `settled`, NOT JUST ON `on`. An unreadable settings call leaves `on` at the
+   * default for the TOGGLE's benefit, and the toggle has to render something; a multi-gigabyte
+   * download on a Raspberry Pi is the wrong thing to do on a default. `useAutoNext`'s header
+   * has the long version.
+   *
+   * NO CLEANUP, deliberately, and this is the one place that would be wrong to add one: the
+   * effect re-runs on every tick of the playhead, so a cleanup that cancelled the request
+   * would cancel it one second after it was made, every time. The generation check in the
+   * `.then` is the invalidation, and it is the same one the lookup above uses.
+   */
+  const prefetchedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!epRef || !contentId) return;
+    if (nextAnswer?.verdict.k !== 'ready') return;
+    if (!autoNext.settled || !autoNext.on) return;
+    if (!pastAutoNextPoint(position, scaleSeconds)) return;
+    if (prefetchedFor.current === contentId) return;
+    prefetchedFor.current = contentId;
+    const generation = nextGen.current;
+    const target = nextAnswer.verdict.next;
+    void prefetchEpisode({
+      tmdbId: epRef.tmdbId,
+      season: target.season,
+      episode: target.episode,
+      userId,
+    }).then((ok) => {
+      if (nextGen.current !== generation) return;
+      setNextStartable(ok);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentId, nextAnswer, autoNext.settled, autoNext.on, position, scaleSeconds, userId]);
+
+  /**
+   * THE END-OF-EPISODE PROMPT, AND IT IS NOT CREDITS DETECTION. Nothing here knows where the
+   * credits start — `END_PROMPT_S`'s own comment says so at length — so this is a fixed window
+   * measured back from the end, plus the certainty of `ended`.
+   *
+   * It is a `message`, which means the band will not auto-hide while it is up: the whole point
+   * is that the Next-episode cell is on screen and reachable when the episode runs out.
+   */
+  const nextPrompt = (() => {
+    if (nextAnswer?.verdict.k !== 'ready') return '';
+    if (!ended && !nearTheEnd(position, scaleSeconds)) return '';
+    const up = nextAnswer.verdict.next;
+    const named = up.name ? `${episodeTag(up)} · ${up.name}` : episodeTag(up);
+    // The one thing the background prefetch is worth saying out loud: it was refused, so the
+    // press may be slow or may fail, and the viewer is about to make it.
+    return nextStartable === false
+      ? `Next up: ${named} — the box couldn’t start it. Press Next episode to try.`
+      : `Next up: ${named}. Press Next episode.`;
+  })();
+
   useEffect(() => {
     if (arrival.k !== 'ok' || !resume.ready || !torrentId) return;
     let cancelled = false;
@@ -861,6 +1046,50 @@ function WatchScreen() {
     [leaving, progress, router],
   );
 
+  /**
+   * THE PRESS. It resolves where to go — which may mean starting the download, since the
+   * prefetch is a setting a viewer can turn off — and then leaves through `leave`, so the
+   * position is flushed before the player is taken down.
+   *
+   * `whereToWatchEpisode` REFUSES MORE THAN THE SHOW SCREEN DOES, and its own header says
+   * why: there is nowhere on a transport cell to print "this may be a different episode", so
+   * a pack whose file cannot be named is a refusal here rather than a disclosure.
+   */
+  const goNext = useCallback(async () => {
+    if (!epRef || nextAnswer?.verdict.k !== 'ready' || goingNext || leaving) return;
+    const target = nextAnswer.verdict.next;
+    const generation = nextGen.current;
+    setGoingNext(true);
+    setNextFailure('');
+    const dest = await whereToWatchEpisode({
+      tmdbId: epRef.tmdbId,
+      season: target.season,
+      episode: target.episode,
+      userId,
+    });
+    // The viewer left, or the episode changed under the press (Back, then something else).
+    if (nextGen.current !== generation) return;
+    setGoingNext(false);
+    if (!dest.ok) {
+      setNextFailure(dest.reason);
+      return;
+    }
+    leave(dest.href);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epRef?.tmdbId, nextAnswer, goingNext, leaving, userId, leave]);
+
+  /**
+   * The refusal goes away by itself, on the resume note's own clock and for the resume note's
+   * own reason: `mayHide` is `message === ''`, so a sentence that stayed would pin the 480px
+   * band over the picture for the rest of the film. One constant rather than two, because
+   * both are "long enough to read at three metres, and no longer".
+   */
+  useEffect(() => {
+    if (nextFailure === '') return;
+    const timer = setTimeout(() => setNextFailure(''), RESUME_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [nextFailure]);
+
   // --- Back ------------------------------------------------------------------------
   /**
    * ONE `useBackKey`, HERE. Not in a child: effects register child before parent, so a
@@ -909,14 +1138,50 @@ function WatchScreen() {
   useBackKey(onBack);
 
   // --- the verdicts only the screen can act on -------------------------------------
+  /**
+   * The verdicts only the screen can act on — and, for `gone`, the question only the screen
+   * can ask.
+   *
+   * ANSWERS WHETHER IT TOOK THE PLAYER AWAY, because a 404 from the stream probe is NOT on
+   * its own evidence that the title has gone. `classify.ts` says so in its own words: the
+   * probe is a HEAD, it reads no body, so `detail` "can never come from the HEAD probe" —
+   * and the backend's two 404s are "this torrent does not exist" and "this file is not
+   * resolvable right now", which that verdict cannot tell apart. The route already knows
+   * the rule for the other caller: `/info`'s own 404 is read as terminal ONLY when its
+   * detail is `Torrent not found`, "so the discrimination is done with the torrent's own
+   * state from `getTorrentStatus` instead". This is that same discrimination, for the probe
+   * that has no detail to go on.
+   *
+   * IT IS NOT HYPOTHETICAL. A backend restart leaves a finished download out of the
+   * libtorrent session, and until the resume data carried an info dict nothing could
+   * resolve its files — so every streaming route 404ed on a title whose every byte was on
+   * disk, and this screen told the viewer that "nothing here can bring it back" about a
+   * file they could see in the downloads folder. The backend fix is the real one; this is
+   * the half that stops a transient 404 from ever being a dead end again.
+   *
+   * AN UNREACHABLE BOX IS NOT A VERDICT EITHER. Only a 404 from the status route — the one
+   * request whose 404 means exactly one thing — takes the player down.
+   */
   const onTerminal = useCallback(
-    (failure: StreamFailure) => {
+    async (failure: StreamFailure): Promise<boolean> => {
       // A 401 mid-film means the session is gone, and this surface's front door is pairing,
       // not a sign-in form a remote cannot fill in. The position is flushed on the way.
-      if (failure.kind === 'session') leave(PAIR);
-      else if (failure.kind === 'gone') setBoundary({ k: 'gone' });
+      if (failure.kind === 'session') {
+        leave(PAIR);
+        return true;
+      }
+      if (failure.kind !== 'gone') return false;
+      try {
+        const row = await torrentsService.getTorrentStatus(torrentId);
+        // The box still has it. Whatever 404ed was about the FILE, not the title.
+        if (row) return false;
+      } catch (err) {
+        if (statusOf(err) !== 404) return false;
+      }
+      setBoundary({ k: 'gone' });
+      return true;
     },
-    [leave],
+    [leave, torrentId],
   );
 
   if (phase === 'locked') return <LockedRedirect />;
@@ -938,6 +1203,9 @@ function WatchScreen() {
       // about which state the screen believes it is in.
       const subtitleState = subtitleCellState(subtitleRead, chosen, trackFault, notArriving);
       const subtitles: SubtitleCellView = { stateId: subtitleState, note: cellLabel(subtitleState) };
+      // Both halves from one place, as the Subtitles cell's are: the words and the attribute
+      // cannot disagree about which state the screen believes it is in.
+      const next: NextCellView = nextCellView(nextAnswer, goingNext);
       // EVERY LISTED ENTRY, offers first and the formats this box will not convert after —
       // `pickerRows` owns that order, and the grid's row counts are chunked over this same
       // list, so the order and the count come from one place. A non-convertible row IS
@@ -957,6 +1225,16 @@ function WatchScreen() {
           chosenSubtitleIndex={chosenIndex}
           emptyPickerHint={emptyPickerHint(subtitleRead)}
           onChooseSubtitle={chooseSubtitle}
+          // THE CELL EXISTS ONLY FOR AN EPISODE, and `epRef` is the whole test. It is
+          // settled before this component mounts (the arrival resolved the torrent row and
+          // the file list) and a new arrival takes the player down, so it cannot change while
+          // the band is up — which is what lets `NEXT_CELL` be an insertion rather than an
+          // append. `Playing` freezes it on mount as well; see its own note.
+          episodic={epRef !== null}
+          next={next}
+          onNext={goNext}
+          nextFailure={nextFailure}
+          nextPrompt={nextPrompt}
           askedFourK={askedFourK}
           contiguous={boundary.k === 'ready' ? boundary.info.video_file.contiguous ?? null : null}
           // THE LIVE PLAYHEAD WINS. The resume read happens once on arrival and is never
@@ -1040,6 +1318,11 @@ function Playing({
   chosenSubtitleIndex,
   emptyPickerHint: pickerHint,
   onChooseSubtitle,
+  episodic: initialEpisodic,
+  next,
+  onNext,
+  nextFailure,
+  nextPrompt,
   askedFourK,
   contiguous,
   resumeAtSeconds,
@@ -1090,6 +1373,23 @@ function Playing({
   emptyPickerHint: string;
   /** A picker press that chose something. `null` is Off. */
   onChooseSubtitle: (index: number | null) => void;
+  /**
+   * Is the title on screen an episode? Decides whether the row has a Next-episode cell at
+   * all, and it is read ONCE on mount (see `episodic` below).
+   */
+  episodic: boolean;
+  /** What that cell says. Rendered verbatim; the route owns the words. */
+  next: NextCellView;
+  /** A Next-episode press. The route resolves where to go and flushes on the way out. */
+  onNext: () => void;
+  /**
+   * The end-of-episode line, or ''. It goes through `messageFor` like every other sentence in
+   * that slot, which is what makes the band stay up while it is there — the point of the
+   * prompt is that the cell is reachable when the episode runs out.
+   */
+  /** Why the last such press went nowhere, or ''. Goes through `messageFor`, high up. */
+  nextFailure: string;
+  nextPrompt: string;
   /** The press that started this torrent asked for 2160p. False also means "unknown". */
   askedFourK: boolean;
   contiguous: ContiguousRun | null;
@@ -1103,11 +1403,30 @@ function Playing({
   onPosition: (seconds: number) => void;
   onDuration: (seconds: number) => void;
   onEnded: (ended: boolean) => void;
-  onTerminal: (failure: StreamFailure) => void;
+  /**
+   * Report a verdict the band cannot act on. ANSWERS whether it took the player away: a
+   * `gone` from the probe is ambiguous and only the route can resolve it. See its own
+   * definition.
+   */
+  onTerminal: (failure: StreamFailure) => Promise<boolean>;
   onStop: () => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const getVideo = useCallback(() => ref.current, []);
+  /**
+   * FROZEN ON MOUNT, and the `useState` initialiser is the freeze: a prop change is ignored
+   * for the life of this component.
+   *
+   * This is the second of two defences against the same thing, and the route's own reasoning
+   * is the first: whether the title is an episode is settled before the band exists, and a
+   * new arrival rebuilds the player. But `NEXT_CELL` is an INSERTION into the transport row,
+   * and `useFocusGrid` calls `go` only when the clamped target CHANGES — so a flag that DID
+   * flip mid-film would leave DOM focus on the element that had just become the next column
+   * while the model still pointed at the old one, and the next press would appear to do
+   * nothing. With the freeze, that cannot happen however the route changes: the row's shape
+   * depends on this value, and this value cannot change.
+   */
+  const [episodic] = useState(initialEpisodic);
   const [playing, setPlaying] = useState(true);
   const [failure, setFailure] = useState<StreamFailure | null>(null);
   const [recovery, setRecovery] = useState<RecoveryStatus>({ kind: 'idle' });
@@ -1234,6 +1553,12 @@ function Playing({
           // before anything leaves the player.
           onStop();
           return;
+        case 'nextEpisode':
+          // The route owns everything about this press — what is next, whether it exists,
+          // where it is, and the flush on the way out. A cell that navigated itself would be
+          // a cell that could leave the player without writing the position.
+          onNext();
+          return;
         case 'subtitles':
           // THE PICKER REPLACES THE BAND'S ROWS (D13). Not a cycle-on-OK, because nothing
           // arrow-driven can live inside a transport cell — the scrub cell eats the
@@ -1245,7 +1570,7 @@ function Playing({
           return;
       }
     },
-    [playing, seekTo, engine, onStop, onPickerOpen],
+    [playing, seekTo, engine, onStop, onPickerOpen, onNext],
   );
 
   // Long enough to read at three metres, and it suppresses the auto-hide while it is up (a
@@ -1272,7 +1597,7 @@ function Playing({
    * screen: all three are states in which the band is the only thing telling the viewer
    * what is going on.
    */
-  const message = messageFor({ failure, recovery, stall, status, resumeNote, discloseArrival, askedFourK });
+  const message = messageFor({ failure, recovery, stall, status, resumeNote, nextFailure, nextPrompt, discloseArrival, askedFourK });
   // `!pickerOpen` IS THE FOURTH SUPPRESSION, and it is not covered by the other three: the
   // picker says nothing in the band's message line (deliberately — a steady sentence there
   // pins the band over the picture for the rest of the film), so without this conjunct the
@@ -1387,7 +1712,16 @@ function Playing({
       if (!ref.current) return;
       setFailure(verdict);
       if (verdict.kind === 'session' || verdict.kind === 'gone') {
-        onTerminal(verdict);
+        // The route decides, because the probe cannot: a 404 here is "the torrent is gone"
+        // and "this file is not resolvable right now" wearing the same status code, and
+        // only the status route can tell them apart. If it did NOT take the player away,
+        // the title is still on the box and this is an ordinary stream failure — so it goes
+        // to the ladder, exactly as a 503 would, instead of to a screen that says nothing
+        // can bring it back.
+        void onTerminal(verdict).then((taken) => {
+          if (taken || !ref.current) return;
+          engine.attempt(RETRY_AFTER_DEFAULT_MS);
+        });
         return;
       }
       // NOTHING TO RETRY: the box has rejected the request itself (422/416), so the same
@@ -1412,7 +1746,7 @@ function Playing({
    */
   const rowCounts = pickerOpen
     ? pickerRowCounts(subtitleRows.length)
-    : [scrubRowCount(duration), transportCellCount({ retry: retryable })];
+    : [scrubRowCount(duration), transportCellCount({ retry: retryable, next: episodic })];
   const grid = useFocusGrid({ rowCounts });
 
   /**
@@ -1446,8 +1780,10 @@ function Playing({
     pickerWasOpen.current = pickerOpen;
     if (was === pickerOpen) return;
     const { open, retry } = focusTargets.current;
-    setFocus(pickerOpen ? open : { row: TRANSPORT_ROW, col: subtitlesColumn(retry) });
-  }, [pickerOpen, setFocus]);
+    // `episodic` is frozen for this component's life, so it needs no ref: it is the same
+    // value on every commit, which is exactly what makes the column stable.
+    setFocus(pickerOpen ? open : { row: TRANSPORT_ROW, col: subtitlesColumn({ retry, next: episodic }) });
+  }, [pickerOpen, setFocus, episodic]);
 
   return (
     <div className="bs-player">
@@ -1553,6 +1889,9 @@ function Playing({
               playing={playing}
               retry={retryable}
               subtitles={subtitles}
+              // The view is also the switch: a view means the cell, no view means no cell.
+              // `episodic` is the frozen flag, so the row's shape cannot change under the ring.
+              next={episodic ? next : undefined}
               onAction={act}
             />
           </>
@@ -1577,6 +1916,8 @@ function messageFor({
   stall,
   status,
   resumeNote,
+  nextFailure,
+  nextPrompt,
   discloseArrival,
   askedFourK,
 }: {
@@ -1585,6 +1926,13 @@ function messageFor({
   stall: 'ok' | 'frozen' | 'buffering';
   status: TorrentStatus;
   resumeNote: string;
+  /**
+   * The end-of-episode line, or a refused Next-episode press. The route composes it; this
+   * function only decides where it comes in the order.
+   */
+  /** Why the last Next-episode press went nowhere, or ''. An answer to a press. */
+  nextFailure: string;
+  nextPrompt: string;
   /** The arrival disclosure's one-shot window; see `BELOW_ANY_ASK` and `Playing`. */
   discloseArrival: boolean;
   /** This client's own 4K press, taken from `title.ts`. False also means "unknown". */
@@ -1610,6 +1958,18 @@ function messageFor({
   if (recovery.kind === 'scheduled' || recovery.kind === 'reloading') {
     return `Lost the stream — trying again (attempt ${recovery.attempt}).`;
   }
+  /**
+   * A REFUSED PRESS OUTRANKS THE STREAM'S OWN STATE, and this is the one line in this
+   * function above the buffering block rather than below it. Everything below is ambient —
+   * the stream is slow, the swarm is empty, the title just started — and will still be true
+   * in ten seconds. This is the answer to something the viewer did a moment ago, and
+   * "Buffering…" in its place is a press that appears to have been swallowed, which is the
+   * one thing this surface refuses everywhere.
+   *
+   * Above the RECOVERY block it is not: a stream being rebuilt, or one that has given up, is
+   * as often as not the reason the press failed, and the viewer needs to read that first.
+   */
+  if (nextFailure !== '') return nextFailure;
   if (stall !== 'ok') {
     switch (streamAdvice(deriveStreamHealth(status), true)) {
       case 'noPeers':
@@ -1621,6 +1981,21 @@ function messageFor({
     }
   }
   if (resumeNote !== '') return resumeNote;
+  /**
+   * BELOW EVERY STREAM SENTENCE AND ABOVE EVERY ARRIVAL ONE.
+   *
+   * Below, because a stream that is failing or buffering is the more urgent thing on screen
+   * and the next episode will still be next in ten seconds. Above the arrival disclosure,
+   * because the two cannot honestly compete: that one is an 8-second window at the START of a
+   * title and this appears in its last 45 seconds, so an episode short enough for both to be
+   * true at once is under a minute long.
+   *
+   * It is also the one sentence in this function with a CONTROL behind it, which is why it
+   * outranks the two notes rather than sitting after them: the band stays up while a message
+   * is on screen, and that is what keeps the Next-episode cell reachable when the episode
+   * runs out.
+   */
+  if (nextPrompt !== '') return nextPrompt;
   // LAST, AND ONCE. The reduced-resume sentence is the more urgent of the two and both
   // are about the same arrival, so it takes the line while it is up; this one is what is
   // left to say afterwards. `discloseArrival` is the window, so a title whose bucket is

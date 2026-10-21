@@ -241,10 +241,10 @@ when it was written, which is how it rotted. Today `:62-63` falls inside the `RA
 3. **HEAD is answered with 405 — FIXED** (`3523f33`). `@router.head` exists (`:205-223`) and `head_video` (`:224-240`) answers `Content-Length`, `Content-Type` and
    `Accept-Ranges` from metadata alone — no range parse, no prioritisation, no piece wait — registered above the GET route so it cannot be shadowed. Its decorator
    comment (`:208-215`) now owns the FastAPI/Starlette mechanism this bullet used to argue.
-4. **The 300s cap truncates below `Content-Length` — STILL LIVE, and the only one of the six left.** `stream_file_range` (`torrent/manager.py:1778`) `return`s after a
-   hard `cap = 300.0` — the cap at `:1864`, the `return` at `:1876` — having already promised the full length. The `piece_timeout` that would replace the flat 300 s is
-   a parameter at `:1780` with **no production caller**: the one production call site is `api/streaming.py:346-348`, six positional arguments and no timeout, and the
-   only three callers that pass it are tests. *(Range re-resolved 2026-10-20 at stage 9 tasks 16 and 20; before task 16 it had drifted out of the function entirely.)*
+4. **The 300s cap truncates below `Content-Length` — STILL LIVE, and the only one of the six left.** `stream_file_range` (`torrent/manager.py:1998`) `return`s after a
+   hard `cap = 300.0` — the cap at `:2084`, the `return` at `:2096` — having already promised the full length. The `piece_timeout` that would replace the flat 300 s is
+   a parameter at `:2000` with **no production caller**: the one production call site is `api/streaming.py:346-348`, six positional arguments and no timeout, and the
+   only three callers that pass it are tests. *(Range re-resolved 2026-10-20 at stage 9 tasks 16 and 20; before task 16 it had drifted out of the function entirely. Re-resolved again 2026-10-21 — the resume-data repair inserted ~220 lines into `manager.py` above these, and `specCitations.test.ts` is what refused to let the numbers rot, twice: once after the first half of the repair and again after the pack path.)*
 
 Related, **both FIXED**: `.m4v`, `.ts`, `.m2ts`, `.mts`, `.vob`, `.3gp`, `.mpg` and `.mpeg` all carry `VIDEO_MIME_TYPES` entries (`9697ef0`; `:32-49`, 16 extensions,
 pinned by `backend/tests/test_video_mime_types.py`), so none of them degrades to `application/octet-stream`. And `file_size <= 0` is no longer a 416 (`e95b96d`): it is
@@ -278,10 +278,10 @@ naive `.ass` spelling now answers **58** lines, of which **35** are real `\.ass\
 
 **Two file-priority selectors zero every non-video file, and this section used to cite neither.**
 The citation that stood here resolved into `get_completed_video_file_info`'s docstring and named
-no selector at all. The gated one is `skip_non_video_files` (`torrent/manager.py:1629-1644`,
-which builds the vector at `:1637-1640` and applies it at `:1642`), run once on
-`metadata_received` and only behind `settings.content_guard_enabled` (`:704-709`). The ungated one
-is `prioritize_video_files` (`torrent/manager.py:1646`, which appends a `0` for every non-video
+no selector at all. The gated one is `skip_non_video_files` (`torrent/manager.py:1849-1864`,
+which builds the vector at `:1857-1860` and applies it at `:1862`), run once on
+`metadata_received` and only behind `settings.content_guard_enabled` (`:744-749`). The ungated one
+is `prioritize_video_files` (`torrent/manager.py:1866`, which appends a `0` for every non-video
 file at `:1695-1697` and applies the vector at `:1701`), which nothing gates and which
 `api/streaming.py:280` re-applies on every stream setup. So `.srt` sidecars are never downloaded
 by default — and **stage 9 changed neither selector**: it admits a sidecar's PIECES on demand and
@@ -687,9 +687,9 @@ profile to allow 2160p. Rationale in decision 9.
 - **Sidecar priority — stage 9 deliberately did NOT do what this bullet asked, and the mechanism
   is the reason.** The bullet said to stop zeroing priority for `.srt`/`.ass`/`.ssa`/`.vtt`
   sidecars. Two selectors zero them and **neither changed**. The gated one is
-  `skip_non_video_files` (`torrent/manager.py:1629-1644`), which runs behind
+  `skip_non_video_files` (`torrent/manager.py:1849-1864`), which runs behind
   `settings.content_guard_enabled`. The ungated one is `prioritize_video_files`
-  (`torrent/manager.py:1646`), which `api/streaming.py:280` re-applies on every stream setup.
+  (`torrent/manager.py:1866`), which `api/streaming.py:280` re-applies on every stream setup.
   Measured: a **file**-level admission is undone the next time the ungated
   selector runs, and it takes `_prioritize_window`'s raised playhead window with it, while a
   **piece**-level one survives. So a sidecar is admitted at piece level on demand, and once its

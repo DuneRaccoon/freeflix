@@ -6,15 +6,19 @@ import { useFocusGrid } from '../_focus/useFocusGrid';
 import { MEDIA_KEYS, MEDIA_KEY_CODES, type MediaKeyAction } from '../_focus/useMediaKeys';
 import type { FocusProps } from '../_focus/useFocusGrid';
 import { cellLabel, SUBTITLE_CELL_LABELS, SUBTITLE_CELL_STATES } from '../_data/subtitles';
+import { NEXT_CELL_STATES } from '../_data/nextEpisode';
 import {
   TransportBar,
   TRANSPORT_CELLS,
   RETRY_CELL,
+  NEXT_CELL,
+  NEXT_CELL_AFTER,
   MEDIA_TWINS,
   TWIN_CELL,
   transportCells,
   transportCellCount,
   labelFor,
+  type NextCellView,
   type SubtitleCellView,
   type TransportAction,
 } from './TransportBar';
@@ -40,15 +44,20 @@ function Harness({
   playing = true,
   retry = false,
   subtitles = SUB_VIEW,
+  next,
   onAction = () => {},
 }: {
   playing?: boolean;
   retry?: boolean;
   /** `null` means "the screen has no answer yet", which is a different prop from the default. */
   subtitles?: SubtitleCellView | null;
+  /** Absent by default, which is a film: the cell has to be asked for. */
+  next?: NextCellView;
   onAction?: (a: TransportAction) => void;
 }) {
-  const grid = useFocusGrid({ rowCounts: [transportCellCount({ retry })] });
+  // The count follows the props, which is the contract this harness exists to keep: a row
+  // that declared more cells than it rendered would park the ring on nothing.
+  const grid = useFocusGrid({ rowCounts: [transportCellCount({ retry, next: next !== undefined })] });
   return (
     <TransportBar
       row={0}
@@ -56,6 +65,7 @@ function Harness({
       playing={playing}
       retry={retry}
       subtitles={subtitles ?? undefined}
+      next={next}
       onAction={onAction}
     />
   );
@@ -179,8 +189,12 @@ describe('TransportBar', () => {
     expect.soft(TWIN_CELL.play).toBe('playPause');
     expect.soft(TWIN_CELL.pause).toBe('playPause');
     expect.soft(TWIN_CELL.playPause).toBe('playPause');
-    // Every action has a cell, and every cell is a cell that exists.
-    const ids = new Set(transportCells({ retry: true }).map((c) => c.id));
+    // Every action has a cell, and every cell is a cell that exists. THE WHOLE ROW, both
+    // flags on: `TWIN_CELL` is a `Record` over every action, including `nextEpisode`, so the
+    // set it is checked against has to be the one that can hold every cell. Asked with
+    // `next: false` this row reports the Next-episode cell as a twin that does not exist —
+    // which is true of that shape of row and not a defect in the table.
+    const ids = new Set(transportCells({ retry: true, next: true }).map((c) => c.id));
     for (const [action, cellId] of Object.entries(TWIN_CELL)) {
       expect.soft(ids.has(cellId), `${action} -> ${cellId}`).toBe(true);
     }
@@ -419,6 +433,160 @@ describe('TransportBar', () => {
     expect.soft(document.querySelectorAll('.bs-player__row > button')).toHaveLength(
       transportCellCount({ retry: false }),
     );
+  });
+
+  // =================================================================================
+  // The Next-episode cell
+  // =================================================================================
+
+  const nextView = (stateId: NextCellView['stateId'] = 'ready', note = 'S02 · E03'): NextCellView => ({
+    stateId,
+    note,
+  });
+  const nextCell = () => screen.getByRole('button', { name: 'Next episode' });
+
+  it('is absent until the screen asks for it, and the row’s count agrees', () => {
+    // A film has no next episode, and a cell that did nothing would be a focus stop on every
+    // film with nothing behind it.
+    const { container, unmount } = render(
+      <TransportBar row={0} focusProps={fp()} playing subtitles={SUB_VIEW} onAction={() => {}} />,
+    );
+    expect.soft(screen.queryByRole('button', { name: 'Next episode' })).toBeNull();
+    expect.soft(container.querySelectorAll('.bs-player__row > button')).toHaveLength(
+      transportCellCount({ retry: false }),
+    );
+    expect.soft(transportCellCount({ retry: false })).toBe(6);
+    unmount();
+  });
+
+  it('sits straight after the forward jump, and Retry is still last', () => {
+    // ABSOLUTE, like the Subtitles row's own ordering assertion: an id list that merely
+    // CONTAINED `nextEpisode` would be green with the cell appended after Retry, which is a
+    // second appender racing the one append this row's focus model allows.
+    expect.soft(transportCells({ next: true }).map((c) => c.id)).toEqual([
+      'playPause',
+      'back10',
+      'back60',
+      'forward60',
+      'nextEpisode',
+      'subtitles',
+      'stop',
+    ]);
+    expect.soft(transportCells({ next: true, retry: true }).at(-1)?.id).toBe(RETRY_CELL.id);
+    expect.soft(transportCellCount({ retry: false, next: true })).toBe(7);
+    expect.soft(transportCellCount({ retry: true, next: true })).toBe(8);
+    // The dress is the ghost one: a second gold circle in the row would read as a second
+    // Play button at three metres.
+    expect.soft(NEXT_CELL.variant).toBe('ghost');
+    // And the anchor is a cell that exists, so the splice can never fall back to appending.
+    expect.soft(TRANSPORT_CELLS.map((c) => c.id)).toContain(NEXT_CELL_AFTER);
+  });
+
+  it('follows its anchor if the table is reordered, rather than a column number', () => {
+    // Exercises the REAL composition against a reordered table, which is the edit that would
+    // silently move a hard-coded index onto some other control.
+    const reordered = [...TRANSPORT_CELLS].reverse();
+    const at = reordered.findIndex((c) => c.id === NEXT_CELL_AFTER);
+    const spliced = [...reordered.slice(0, at + 1), NEXT_CELL, ...reordered.slice(at + 1)];
+    expect(spliced[at + 1]?.id).toBe('nextEpisode');
+  });
+
+  it('says its state in a sub-line that is NOT part of the cell’s name', () => {
+    for (const stateId of NEXT_CELL_STATES) {
+      const { unmount } = render(
+        <TransportBar row={0} focusProps={fp()} playing next={nextView(stateId, `note-${stateId}`)} onAction={() => {}} />,
+      );
+      const el = nextCell();
+      expect.soft(el.getAttribute('data-next'), stateId).toBe(stateId);
+      const note = el.querySelector('.bs-player__commit');
+      expect.soft(note?.textContent, stateId).toBe(`note-${stateId}`);
+      expect.soft(note?.getAttribute('aria-hidden'), stateId).toBe('true');
+      unmount();
+    }
+  });
+
+  it('renders the words it is HANDED, instead of re-deriving them from the state', () => {
+    // The same mutation the Subtitles cell's own row is written for: have this component call
+    // `nextCellView` itself. Every other row hands it the real phrasing and then asserts the
+    // rendered text is that phrasing, which checks nothing.
+    render(
+      <TransportBar row={0} focusProps={fp()} playing next={nextView('ready', 'whatever the screen said')} onAction={() => {}} />,
+    );
+    expect.soft(nextCell().querySelector('.bs-player__commit')?.textContent).toBe('whatever the screen said');
+    expect.soft(nextCell().getAttribute('data-next')).toBe('ready');
+  });
+
+  it('gives each cell its own sub-line and nobody else’s', () => {
+    const { container } = render(
+      <TransportBar
+        row={0}
+        focusProps={fp()}
+        playing
+        retry
+        subtitles={SUB_VIEW}
+        next={nextView()}
+        onAction={() => {}}
+      />,
+    );
+    // Two cells carry one, and each carries its own: the mutation is a `cellNote` that
+    // returned the same view for both, which every single-view row above would miss.
+    expect.soft(container.querySelectorAll('.bs-player__commit')).toHaveLength(2);
+    expect.soft(nextCell().querySelector('.bs-player__commit')?.textContent).toBe('S02 · E03');
+    expect.soft(subCell().querySelector('.bs-player__commit')?.textContent).toBe(cellLabel('off'));
+    expect.soft([...container.querySelectorAll('[data-next]')]).toEqual([nextCell()]);
+    expect.soft([...container.querySelectorAll('[data-subtitles]')]).toEqual([subCell()]);
+  });
+
+  it('reports its own press', () => {
+    const onAction = vi.fn();
+    render(<TransportBar row={0} focusProps={fp()} playing next={nextView()} onAction={onAction} />);
+    fireEvent.click(nextCell());
+    expect(onAction).toHaveBeenCalledWith('nextEpisode');
+  });
+
+  it('is a focus stop like any other cell, in whatever state it is in', () => {
+    // Including `none` and `unknown`: a cell dressed as disabled is a control that refuses to
+    // act, and the row's declared count would still be counting it.
+    for (const stateId of NEXT_CELL_STATES) {
+      const { unmount } = render(
+        <Harness next={nextView(stateId, 'x')} />,
+      );
+      const el = nextCell();
+      expect.soft(el.getAttribute('tabindex'), stateId).not.toBeNull();
+      expect.soft(el, stateId).not.toBeDisabled();
+      unmount();
+    }
+  });
+
+  it('every cell keeps its name in the DOM, which is what the icons depend on', () => {
+    // The glyph is the only thing the viewer reads; the WORD is the accessible name, revealed
+    // by `:focus` in the stylesheet. `display: none` would have taken it out of the
+    // accessibility tree — and out of every query in this directory — which is why the
+    // reveal is opacity. This is the row that notices if the label stops being rendered.
+    const { container } = render(
+      <Harness retry next={nextView()} />,
+    );
+    for (const cell of transportCells({ retry: true, next: true })) {
+      const label = labelFor(cell, { playing: true });
+      const el = screen.getByRole('button', { name: label });
+      expect.soft(el.querySelector('.bs-tp__label')?.textContent, cell.id).toBe(label);
+      expect.soft(el.querySelector('.bs-tp__label')?.getAttribute('aria-hidden'), cell.id).toBeNull();
+      // ...and the glyph carries no text, or it would land in the name.
+      expect.soft(el.querySelector('.bs-tp__glyph')?.textContent, cell.id).toBe('');
+    }
+    expect.soft(container.querySelectorAll('svg')).toHaveLength(transportCellCount({ retry: true, next: true }));
+  });
+
+  it('draws a different glyph for Play than for Pause, on the one shared cell', () => {
+    // The label is relabelled rather than swapped and so is the picture; a glyph that did
+    // not follow would be a gold circle showing a pause bar over a paused title.
+    const { rerender } = render(<Harness playing />);
+    const paused = screen.getByRole('button', { name: 'Pause' }).querySelector('path')?.getAttribute('d');
+    rerender(<Harness playing={false} />);
+    const play = screen.getByRole('button', { name: 'Play' }).querySelector('path')?.getAttribute('d');
+    expect.soft(paused).toBeTruthy();
+    expect.soft(play).toBeTruthy();
+    expect.soft(play).not.toBe(paused);
   });
 
   it('has no media-key twin, and that is deliberate rather than forgotten', () => {

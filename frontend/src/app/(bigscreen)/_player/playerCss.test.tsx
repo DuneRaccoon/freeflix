@@ -506,6 +506,94 @@ describe('bigscreen.css, as the player relies on it', () => {
     expect(missing, `no rule for ${missing.join(', ')}`).toEqual([]);
   });
 
+  // =================================================================================
+  // The transport controls (`.bs-tp*`)
+  // =================================================================================
+
+  it('the transport row’s cells have a rule each, including the modifier', () => {
+    const missing = ['.bs-tp', '.bs-tp--primary', '.bs-tp__glyph', '.bs-tp__label'].filter(
+      (name) => !hasRule(name),
+    );
+    expect(missing, `no rule for ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('the ring moved to the circle, and BOTH halves of that are present', () => {
+    // THE ONE PLACE THIS SURFACE DRAWS THE RING ON A CHILD. The button is 88px wide and
+    // ~146px tall (circle, gap, caption), so a ring on IT would be a tall rectangle around a
+    // round control. `.bs-tp:focus` therefore suppresses its own outline and the glyph
+    // carries the house ring. Either half alone is a defect: the first on its own is a
+    // control with NO ring at all on a surface where the ring is the whole navigation model,
+    // and the second on its own is two rings.
+    expect.soft(decl(rule('.bs-tp:focus'), 'outline'), 'the button suppresses its own').toBe('none');
+    const glyph = rule('.bs-tp:focus .bs-tp__glyph');
+    expect.soft(glyph, 'and the circle carries one').toMatch(/outline:\s*var\(--focus-ring\)\s*solid/);
+    expect.soft(glyph, 'offset outside the circle').toMatch(/outline-offset:\s*4px/);
+  });
+
+  it('the cell’s NAME is hidden by opacity, never by display or visibility', () => {
+    // The label element IS the button's accessible name (the glyph is `aria-hidden` and
+    // carries no text by design). `display: none` and `visibility: hidden` both take a node
+    // out of the accessibility tree, so either one would delete the name of every control in
+    // the row — and with it every `getByRole('button', { name })` in this directory and
+    // anything that reads the screen aloud. Same shape of rule as
+    // `.bs-player__bar--hidden`'s, for a different reason.
+    const resting = rule('.bs-tp__label');
+    expect.soft(resting).toMatch(/opacity:\s*0(?![.\d])/);
+    expect.soft(resting).not.toMatch(/display:\s*none/);
+    expect.soft(resting).not.toMatch(/visibility/);
+    // ...and focus brings it back, which is the half that makes it a reveal and not a
+    // permanently invisible label.
+    expect.soft(decl(rule('.bs-tp:focus .bs-tp__label'), 'opacity')).toBe('1');
+  });
+
+  it('the label and the state share one line, and neither reaches into the next cell', () => {
+    // ONE LINE: both are absolutely positioned at the foot of the cell, so the row's height
+    // does not depend on which cells have something to say — two reserved lines would cost
+    // 34px of band over the picture for every frame the band is up.
+    // AS WIDE AS THE CELL: `left: 0; right: 0` is what stops a caption ("none in this
+    // release" is the longest) from overlapping the caption of the cell beside it. A
+    // `max-content` width would.
+    const caption = rule('.bs-tp__label, .bs-tp .bs-player__commit');
+    expect.soft(decl(caption, 'position')).toBe('absolute');
+    expect.soft(decl(caption, 'left')).toBe('0');
+    expect.soft(decl(caption, 'right')).toBe('0');
+    expect.soft(decl(caption, 'bottom')).toBe('0');
+    expect.soft(caption, 'clipped rather than allowed to grow the cell').toMatch(/-webkit-line-clamp:\s*2/);
+    // And focusing a cell swaps the two, so they are never drawn on top of each other.
+    expect.soft(decl(rule('.bs-tp:focus .bs-player__commit'), 'opacity')).toBe('0');
+  });
+
+  it('the row still fits the safe area, and this time the arithmetic is checkable', () => {
+    // The player block's own comment used to record the row's width as UNKNOWN, because the
+    // cells were pills sized to their prose. They are fixed-width circles now, so: eight
+    // cells (six base, plus Next episode and Try again) at the declared width, with
+    // `.bs-player__row`'s own gap, against the 1728px the safe area leaves.
+    const width = Number(/width:\s*(\d+)px/.exec(rule('.bs-tp'))?.[1]);
+    const gap = Number(/gap:\s*(\d+)px/.exec(rule('.bs-player__row'))?.[1]);
+    expect.soft(width, 'the cell declares a fixed width').toBeGreaterThan(0);
+    expect.soft(gap, 'the row declares a gap').toBeGreaterThan(0);
+    const cells = 8;
+    expect.soft(cells * width + (cells - 1) * gap).toBeLessThanOrEqual(1920 - 2 * 96);
+    // ...and the circle is a focus target well above the §8.5 floor of 60px.
+    expect.soft(Number(/height:\s*(\d+)px/.exec(rule('.bs-tp__glyph'))?.[1])).toBeGreaterThanOrEqual(60);
+  });
+
+  it('the band still fits inside the scrim it is lit by', () => {
+    // The transport row got taller (a circle, a gap and a caption line instead of a 60px
+    // pill), and the scrim is pinned at 480px by the row above. The closed band is the safe
+    // inset twice, a reserved hint line, the scrub row, this row, and the gaps between them.
+    const scrim = Number(/(\d+)px/.exec(decl(rule('.bs-player__scrim'), 'height') ?? '')?.[1]);
+    const cell = Number(/min-height:\s*(\d+)px/.exec(rule('.bs-tp'))?.[1]);
+    const scrub = Number(/min-height:\s*(\d+)px/.exec(rule('.bs-player__scrub'))?.[1]);
+    const gap = Number(/gap:\s*(\d+)px/.exec(rule('.bs-player__bar'))?.[1]);
+    const safeY = 54;
+    // Two hint lines (the stream's and the scrub cell's) at 24px x 1.45, rounded up.
+    const hints = 2 * 35;
+    const band = 2 * safeY + hints + scrub + cell + 3 * gap;
+    expect.soft(cell, 'the cell declares a min-height').toBeGreaterThan(0);
+    expect.soft(band, `the closed band is ~${band}px`).toBeLessThanOrEqual(scrim);
+  });
+
   it('hasRule is not vacuous', () => {
     // A matcher that answered true for everything would make the test above green forever.
     expect.soft(hasRule('.bs-player__row')).toBe(true);

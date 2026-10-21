@@ -78,6 +78,24 @@ async function mount() {
 const ringPlaced = () =>
   waitFor(() => expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1));
 const epButtons = () => screen.queryAllByRole('button', { name: /^\d+\s/ });
+
+/**
+ * Wait for the focus grid to settle: exactly one cell in the tab order, and DOM focus on it.
+ *
+ * `mount()` waits for the HEADING, which is only the first of this screen's async
+ * boundaries — the profile, the watchlist state and the ring's own placement all land after
+ * it. An assertion on `[tabindex]` or `activeElement` straight after it is the shape this
+ * surface already has a parked flake sweep for, and the rows below reproduced it: one failed
+ * at 224ms in a 20-run loop, which is a race rather than the starvation the five-figure
+ * failures in that loop were.
+ */
+const ringSettled = async () =>
+  waitFor(() => {
+    const ring = document.querySelectorAll('[tabindex="0"]');
+    expect(ring).toHaveLength(1);
+    expect(document.activeElement).toBe(ring[0]);
+  });
+
 const seasonBtn = (n: number) => screen.getByRole('button', { name: new RegExp(`Season ${n}`) });
 
 const settingsRow = (autoNext: boolean) =>
@@ -125,12 +143,13 @@ describe('show detail screen', () => {
 
     it('lands the ring on the actions, not on the menu above them', async () => {
       await mount();
+      await ringSettled();
       expect(document.activeElement).not.toBe(menuItem('Home'));
-      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
     });
 
     it('is one Up from the actions', async () => {
       await mount();
+      await ringSettled();
       fireEvent.keyDown(window, { key: 'ArrowUp' });
       expect(document.activeElement).toBe(menuItem('Home'));
     });
@@ -151,6 +170,7 @@ describe('show detail screen', () => {
       // The other literal row the bar shifted: opening a season sets focus to the picker.
       await mount();
       await waitFor(() => expect(epButtons()).toHaveLength(3));
+      await ringSettled();
       fireEvent.keyDown(window, { key: 'ArrowDown' });
       expect(document.activeElement?.className).toContain('bs-show__season');
     });

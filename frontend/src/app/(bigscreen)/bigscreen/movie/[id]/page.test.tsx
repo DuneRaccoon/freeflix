@@ -78,6 +78,24 @@ const askOrNull = () => screen.queryByRole('button', { name: 'Ask for 4K' });
  * counted.
  */
 const actionCells = () => Array.from(document.querySelectorAll<HTMLElement>('.bs-title__actions .bs-btn'));
+
+/**
+ * Wait for the focus grid to settle: exactly one cell in the tab order, and DOM focus on it.
+ *
+ * `mount()` waits for the HEADING, which is only the first of this screen's async
+ * boundaries — the profile, the watchlist state and the ring's own placement all land after
+ * it. An assertion on `[tabindex]` or `activeElement` straight after it is the shape this
+ * surface already has a parked flake sweep for, and the rows below reproduced it: one failed
+ * at 224ms in a 20-run loop, which is a race rather than the starvation the five-figure
+ * failures in that loop were.
+ */
+const ringSettled = async () =>
+  waitFor(() => {
+    const ring = document.querySelectorAll('[tabindex="0"]');
+    expect(ring).toHaveLength(1);
+    expect(document.activeElement).toBe(ring[0]);
+  });
+
 /**
  * The cells the focus MODEL is ringing, i.e. holding the roving `tabIndex` 0.
  *
@@ -123,11 +141,13 @@ describe('movie detail screen', () => {
 
     it('lands the ring on the actions, not on the menu above them', async () => {
       await mount();
+      await ringSettled();
       expect(document.activeElement).toBe(primary());
     });
 
     it('is one Up from the actions, and one Down back', async () => {
       await mount();
+      await ringSettled();
       fireEvent.keyDown(window, { key: 'ArrowUp' });
       expect(document.activeElement).toBe(menuItem('Home'));
       fireEvent.keyDown(window, { key: 'ArrowDown' });
@@ -136,9 +156,13 @@ describe('movie detail screen', () => {
 
     it('counts the bar as its own row, so the actions are still one row', async () => {
       await mount();
-      const stops = document.querySelectorAll('[tabindex]');
-      expect(stops.length).toBe(5 + actionCells().length);
-      expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+      await ringSettled();
+      // Both counts read in one `waitFor` body: the action row grows a cell when the
+      // watchlist state lands, so reading the stops and the cells at two different moments
+      // is the race itself rather than a guard against it.
+      await waitFor(() => {
+        expect(document.querySelectorAll('[tabindex]').length).toBe(5 + actionCells().length);
+      });
     });
   });
 

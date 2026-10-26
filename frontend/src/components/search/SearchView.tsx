@@ -13,9 +13,11 @@
  * Fetching strategy:
  *  - With a query → moviesService.search / tvService.search
  *  - Without query → moviesService.browse / tvService.browse
- *  - type:'all' → fetch both movie + tv and mergeDedupe
+ *  - type:'all' → fetch both movie + tv and merge them
  *  - type:'movie'|'tv' → fetch only that type
- *  - Pages accumulate for "Load more"; any query/filter change resets.
+ *  - "Load more" appends the next batch below what is shown (never re-sorting
+ *    it); `pages` holds only the latest batch, which decides whether more exist.
+ *    Any query/filter change resets.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -24,7 +26,7 @@ import SearchFilters from './SearchFilters';
 import ResultsGrid from './ResultsGrid';
 import GenreBrowse from './GenreBrowse';
 import { useSearchUrlState } from '@/lib/useSearchUrlState';
-import { mergeDedupe, hasMoreResults } from '@/lib/mergeCatalog';
+import { appendDedupe, hasMoreResults } from '@/lib/mergeCatalog';
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
 import { cn } from '@/lib/cn';
@@ -194,12 +196,8 @@ const SearchView: React.FC = () => {
         // Bail if unmounted OR if a newer generation superseded this one.
         if (!mountedRef.current || myGen !== fetchSeqRef.current) return;
 
-        setPages((prev) => {
-          const merged = page === 1 ? newPages : [...prev, ...newPages];
-          const dedupedItems = mergeDedupe(merged);
-          setItems(dedupedItems);
-          return merged;
-        });
+        setItems((prev) => appendDedupe(page === 1 ? [] : prev, newPages));
+        setPages(newPages);
       } catch {
         // Degrade to empty on error — grid shows empty state
       } finally {

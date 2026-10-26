@@ -326,6 +326,41 @@ describe('SearchView', () => {
       // Service should have been called twice
       expect(moviesSearchFn).toHaveBeenCalledTimes(2);
     });
+
+    it('appends page 2 AFTER page 1, even when page 2 is more popular', async () => {
+      const p1 = makePage([
+        { tmdb_id: 1, media_type: 'movie', title: 'First A', popularity: 50 },
+        { tmdb_id: 2, media_type: 'movie', title: 'First B', popularity: 40 },
+      ], 1, 2);
+      const p2 = makePage([
+        { tmdb_id: 3, media_type: 'movie', title: 'Second Hot', popularity: 99 },
+      ], 2, 2);
+      moviesSearchFn = vi.fn().mockResolvedValueOnce(p1).mockResolvedValueOnce(p2);
+
+      renderView({ q: 'x', type: 'movie' });
+      await waitFor(() => expect(screen.getAllByText('First B').length).toBeGreaterThan(0));
+      await userEvent.click(screen.getByRole('button', { name: /load more/i }));
+      await waitFor(() => expect(screen.getAllByText('Second Hot').length).toBeGreaterThan(0));
+
+      const order = screen
+        .getAllByText(/^(First A|First B|Second Hot)$/)
+        .map((el) => el.textContent)
+        .filter((t, i, all) => all.indexOf(t) === i);
+      expect(order).toEqual(['First A', 'First B', 'Second Hot']);
+    });
+
+    it('hides "Load more" once the last page has been loaded', async () => {
+      moviesSearchFn = vi
+        .fn()
+        .mockResolvedValueOnce(moviePage1)
+        .mockResolvedValueOnce(moviePage2);
+
+      renderView({ q: 'blade', type: 'movie' });
+      await userEvent.click(await screen.findByRole('button', { name: /load more/i }));
+      await waitFor(() => expect(screen.getAllByText('Blade Runner 2049').length).toBeGreaterThan(0));
+
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
+    });
   });
 
   // ── 6. No-query browse mode ───────────────────────────────────────────────

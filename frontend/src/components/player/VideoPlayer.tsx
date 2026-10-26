@@ -39,6 +39,9 @@ export function formatRate(kbps: number): string {
   return `${(kbps / 1_000).toFixed(1)} MB/s`;
 }
 
+/** How long the chrome stays up, while playing, after the viewer last did anything. */
+const CONTROLS_HIDE_MS = 3000;
+
 interface VideoPlayerProps {
   src: string;
   poster?: string;
@@ -84,7 +87,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const volumeBarRef = useRef<HTMLDivElement>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
-  const cursorTimeout = useRef<NodeJS.Timeout | null>(null);
+  // Mirrors of render state for `resetCursorTimeout`, which must stay one stable
+  // function: every handler below calls it, and most of them are memoised with
+  // deps that do not list it, so a version closing over state goes stale.
+  const isPlayingRef = useRef(false);
+  const controlsShownRef = useRef(true);
+  // True while something the viewer is using lives inside the chrome (an open
+  // menu, a scrub in progress): the controls must not fade out from under it.
+  const holdControlsRef = useRef(false);
+  // The pointer that started the current gesture. A tap on the picture means
+  // "show/hide the controls" on a touch screen and "play/pause" with a mouse.
+  const lastPointerTypeRef = useRef<string>('mouse');
+  // Set by a scrub's pointerup so the click a mouse fires right after it does
+  // not seek a second time.
+  const justScrubbedRef = useRef(false);
   const userInteractedRef = useRef<boolean>(false);
   // MUTUAL EXCLUSION between concurrent USER audio actions only (the mute button,
   // the volume drag, the m/ArrowUp/ArrowDown keys all early-return on it). It is
@@ -124,6 +140,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // unmuted at full volume. `handleCanPlay` converges the element onto this.
   const audioIntentRef = useRef<{ muted: boolean; volume: number }>({ muted: false, volume: 1.0 });
   const isDraggingVolumeRef = useRef<boolean>(false);
+  // Whether this load's 'canplay' has been handled. A cached or fast file can
+  // reach HAVE_FUTURE_DATA before the listener effect below first runs, and its
+  // one 'canplay' is then lost — leaving the loading overlay (and with it the
+  // centre Play button) up for good. Reset on every 'loadstart'.
+  const canPlayHandledRef = useRef<boolean>(false);
   const bufferingRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Owned exclusively by checkForStall: the playhead position sampled on the
   // PREVIOUS 1s tick. Nothing else may write it (see the note in checkForStall).
@@ -167,6 +188,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [showBufferingMessage, setShowBufferingMessage] = useState(false);
   // PiP state
   const [isPiP, setIsPiP] = useState(false);
+  // Read after mount: the server has no `document`, and reading it during render
+  // makes the server and client trees disagree (a hydration error).
+  const [canPiP, setCanPiP] = useState(false);
+  useEffect(() => { setCanPiP(Boolean(document.pictureInPictureEnabled)); }, []);
 
   /**
    * A utility hook that safely performs operations on the video element with error handling.
@@ -221,6 +246,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.volume = audioIntentRef.current.volume;
     });
   }, [applyAudioProgrammatically]);
+
+  // ── Controls visibility ────────────────────────────────────────────────────
+  // While playing, the chrome fades CONTROLS_HIDE_MS after the last sign of the
+  // viewer (a mouse move, a key, a control used); while paused it stays up.
+  const hideControls = useCallback(() => {
+    setPlayerState(prev => (prev.showControls ? { ...prev, showControls: false } : prev));
+    setShowVolumeSlider(false);
+    setHideCursor(true);
+  }, []);
+
+  const resetCursorTimeout = useCallback(() => {
+    setHideCursor(false);
+    setPlayerState(prev => (prev.showControls ? prev : { ...prev, showControls: true }));
+
+    if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+    controlsTimeout.current = null;
+
+    if (!isPlayingRef.current || holdControlsRef.current) return;
+    controlsTimeout.current = setTimeout(() => {
+      controlsTimeout.current = null;
+      // A volume drag is a hold too, but it lives in a ref, so look at fire time.
+      if (holdControlsRef.current || isDraggingVolumeRef.current) return;
+      hideControls();
+    }, CONTROLS_HIDE_MS);
+  }, [hideControls]);
 
   // Determine if a specific time is buffered
   const isTimeBuffered = useCallback((time: number): boolean => {
@@ -296,15 +346,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Toggle fullscreen
   const toggleFullscreen = useCallback(() => {
-    if (!playerRef.current) return;
+    const player = playerRef.current as (HTMLDivElement & { webkitRequestFullscreen?: () => void }) | null;
+    if (!player) return;
+    const doc = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
 
     try {
-      if (!document.fullscreenElement) {
-        playerRef.current.requestFullscreen().catch(err => {
+      if (document.fullscreenElement || doc.webkitFullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(err => console.error('Error exiting fullscreen:', err));
+        } else {
+          doc.webkitExitFullscreen?.();
+        }
+      } else if (player.requestFullscreen) {
+        player.requestFullscreen().catch(err => {
           console.error('Error attempting to enable fullscreen:', err);
         });
-      } else {
-        document.exitFullscreen();
+      } else if (player.webkitRequestFullscreen) {
+        // Older Safari / iPadOS: element fullscreen, prefixed.
+        player.webkitRequestFullscreen();
+      } else if (video?.webkitEnterFullscreen) {
+        // iPhone Safari has no element fullscreen at all — only the video's own
+        // native player, which brings its own controls.
+        video.webkitEnterFullscreen();
       }
     } catch (e) {
       console.error("Error toggling fullscreen:", e);
@@ -338,6 +402,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
+    // On a touch screen a tap on the picture toggles the chrome, never playback:
+    // there is no hover to reveal it, so a tap is the only way to bring it back,
+    // and it must not pause the film as a side effect. Play/pause is the button.
+    if (lastPointerTypeRef.current === 'touch') {
+      if (isPlayingRef.current && controlsShownRef.current) {
+        if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+        controlsTimeout.current = null;
+        hideControls();
+      } else {
+        resetCursorTimeout();
+      }
+      return;
+    }
+
     const currentTime = Date.now();
     const isDoubleClick = currentTime - lastClickTimeRef.current < 300; // 300ms threshold
 
@@ -360,7 +438,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     // Reset the cursor hide timer
     resetCursorTimeout();
-  }, [togglePlay, toggleFullscreen, debug]);
+  }, [togglePlay, toggleFullscreen, debug, hideControls, resetCursorTimeout]);
 
   // Toggle mute
   const handleToggleMute = useCallback((e: React.MouseEvent) => {
@@ -498,17 +576,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     document.removeEventListener('mouseup', stopVolumeDrag);
   }, [updateVolumeFromMouseMove]);
 
-  // Handle progress bar click with buffering awareness
-  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // Where along the scrubber a pointer is, as a 0–1 fraction.
+  const scrubFraction = useCallback((clientX: number): number => {
+    const bar = progressBarRef.current;
+    if (!bar) return 0;
+    const rect = bar.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }, []);
+
+  // Seek to a fraction of the film with buffering awareness
+  const seekToFraction = useCallback((pos: number) => {
     const video = videoRef.current;
     if (!video || !progressBarRef.current) return;
 
     try {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const rect = progressBarRef.current.getBoundingClientRect();
-      const pos = (e.clientX - rect.left) / rect.width;
       const newTime = pos * video.duration;
 
       // Check if the new time point is buffered
@@ -531,7 +613,57 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     // Reset the cursor hide timer
     resetCursorTimeout();
-  }, [isTimeBuffered, downloadProgress]);
+  }, [isTimeBuffered, downloadProgress, resetCursorTimeout]);
+
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // The pointerup that ended a drag already seeked.
+    if (justScrubbedRef.current) {
+      justScrubbedRef.current = false;
+      return;
+    }
+    seekToFraction(scrubFraction(e.clientX));
+  }, [seekToFraction, scrubFraction]);
+
+  // Drag-to-scrub (mouse and touch). The knob follows the pointer and the seek
+  // happens once, on release — seeking on every move would issue a Range request
+  // per pixel against a torrent that may not have those pieces yet.
+  const [scrubPct, setScrubPct] = useState<number | null>(null);
+  // The handlers read this, not `isDraggingProgress`: pointermove/up can arrive
+  // before React has re-rendered with the drag started.
+  const scrubbingRef = useRef(false);
+
+  const handleScrubStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* not capturable */ }
+    justScrubbedRef.current = false;
+    scrubbingRef.current = true;
+    setIsDraggingProgress(true);
+    setScrubPct(scrubFraction(e.clientX) * 100);
+  }, [scrubFraction]);
+
+  const handleScrubMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrubbingRef.current) return;
+    setScrubPct(scrubFraction(e.clientX) * 100);
+  }, [scrubFraction]);
+
+  const handleScrubEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrubbingRef.current) return;
+    e.stopPropagation();
+    scrubbingRef.current = false;
+    setIsDraggingProgress(false);
+    setScrubPct(null);
+    justScrubbedRef.current = true;
+    seekToFraction(scrubFraction(e.clientX));
+  }, [scrubFraction, seekToFraction]);
+
+  const handleScrubCancel = useCallback(() => {
+    scrubbingRef.current = false;
+    setIsDraggingProgress(false);
+    setScrubPct(null);
+  }, []);
 
   // Bounded exponential-backoff recovery: reload the element and restore the
   // playhead so the browser re-requests the active Range from the backend. After
@@ -924,6 +1056,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleLoadStart = () => {
       try {
         if (debug) console.log("Load start event");
+        canPlayHandledRef.current = false;
         setPlayerState(prev => ({ ...prev, isLoading: true }));
         setVideoIsReady(false);
         setIsBuffering(true);
@@ -945,6 +1078,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleCanPlay = () => {
       try {
         if (debug) console.log("Can play event");
+        canPlayHandledRef.current = true;
         setPlayerState(prev => ({ ...prev, isLoading: false }));
         setVideoIsReady(true);
         setIsBuffering(false);
@@ -1149,6 +1283,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('playing', handlePlaying);
     video.addEventListener('progress', updateBuffered);
 
+    // The 'canplay' that happened before these listeners existed.
+    if (!canPlayHandledRef.current && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      handleCanPlay();
+    }
+
     // Clean up by removing all event listeners
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
@@ -1226,92 +1365,49 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
-  // Reset cursor timeout function
-  const resetCursorTimeout = useCallback(() => {
-    // Show cursor and controls
-    setHideCursor(false);
-    setPlayerState(prev => ({ ...prev, showControls: true }));
-
-    // Clear any existing timeouts
-    if (cursorTimeout.current) {
-      clearTimeout(cursorTimeout.current);
-    }
-
-    if (controlsTimeout.current) {
-      clearTimeout(controlsTimeout.current);
-    }
-
-    // Set new timeouts (only when in fullscreen mode)
-    if (playerState.isPlaying && playerState.isFullscreen) {
-      // Hide controls after 3 seconds
-      controlsTimeout.current = setTimeout(() => {
-        setPlayerState(prev => ({ ...prev, showControls: false }));
-        setShowVolumeSlider(false);
-        setShowSettings(false);
-      }, 3000);
-
-      // Hide cursor after 3 seconds - slightly longer than controls
-      cursorTimeout.current = setTimeout(() => {
-        setHideCursor(true);
-      }, 3000);
-    }
-  }, [playerState.isPlaying]);
-
-  // Controls and cursor visibility management
+  // Playing starts the fade countdown; pausing cancels it and brings the chrome back.
   useEffect(() => {
-    const handleMouseMove = () => {
-      resetCursorTimeout();
-    };
-
-    const handleMouseLeave = () => {
-      if (playerState.isPlaying) {
-        setPlayerState(prev => ({ ...prev, showControls: false }));
-        setShowVolumeSlider(false);
-        setShowSettings(false);
-        setHideCursor(true);
-      }
-    };
-
-    if (playerRef.current) {
-      playerRef.current.addEventListener('mousemove', handleMouseMove);
-      playerRef.current.addEventListener('mouseleave', handleMouseLeave);
-    }
-
-    // Set initial timeouts
+    isPlayingRef.current = playerState.isPlaying;
     resetCursorTimeout();
-
-    return () => {
-      if (controlsTimeout.current) {
-        clearTimeout(controlsTimeout.current);
-      }
-
-      if (cursorTimeout.current) {
-        clearTimeout(cursorTimeout.current);
-      }
-
-      if (playerRef.current) {
-        playerRef.current.removeEventListener('mousemove', handleMouseMove);
-        playerRef.current.removeEventListener('mouseleave', handleMouseLeave);
-      }
-    };
   }, [playerState.isPlaying, resetCursorTimeout]);
 
-  // Ensure controls become visible when playback starts
   useEffect(() => {
-    if (playerState.isPlaying) {
-      resetCursorTimeout();
-    }
-  }, [playerState.isPlaying, resetCursorTimeout]);
+    controlsShownRef.current = playerState.showControls;
+  }, [playerState.showControls]);
+
+  // An open menu or a scrub holds the chrome up; letting go restarts the countdown.
+  useEffect(() => {
+    holdControlsRef.current = showSettings || showSources || isDraggingProgress;
+    resetCursorTimeout();
+  }, [showSettings, showSources, isDraggingProgress, resetCursorTimeout]);
+
+  useEffect(() => () => {
+    if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+  }, []);
 
   // Track fullscreen changes
   useEffect(() => {
+    const doc = document as Document & { webkitFullscreenElement?: Element | null };
     const handleFullscreenChange = () => {
-      const isFullscreen = document.fullscreenElement === playerRef.current;
+      const el = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+      const isFullscreen = el !== null && el === playerRef.current;
       setPlayerState(prev => ({ ...prev, isFullscreen }));
     };
+    // iPhone: the video's native fullscreen reports through the element instead.
+    const video = videoRef.current;
+    const onNativeBegin = () => setPlayerState(prev => ({ ...prev, isFullscreen: true }));
+    const onNativeEnd = () => setPlayerState(prev => ({ ...prev, isFullscreen: false }));
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    video?.addEventListener('webkitbeginfullscreen', onNativeBegin);
+    video?.addEventListener('webkitendfullscreen', onNativeEnd);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      video?.removeEventListener('webkitbeginfullscreen', onNativeBegin);
+      video?.removeEventListener('webkitendfullscreen', onNativeEnd);
+    };
   }, []);
 
   // Keep track of clicks for double-click detection
@@ -1319,9 +1415,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const lastClickTimeRef = useRef<number>(0);
 
   // Computed values for the scrubber
-  const playedPct = playerState.duration > 0
+  const playedPct = scrubPct ?? (playerState.duration > 0
     ? (playerState.currentTime / playerState.duration) * 100
-    : 0;
+    : 0);
+  // While scrubbing, the clock reads where the knob is, not where the film is.
+  const shownTime = scrubPct !== null ? (scrubPct / 100) * playerState.duration : playerState.currentTime;
 
   const controlsVisible = playerState.showControls || !playerState.isPlaying;
 
@@ -1358,19 +1456,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         !playerState.isPlaying ? 'is-paused' : ''
       )}
       tabIndex={0}
-      onMouseMove={() => resetCursorTimeout()}
-      onMouseMoveCapture={() => resetCursorTimeout()}
-      onMouseEnter={() => {
-        setPlayerState(prev => ({ ...prev, showControls: true }));
-        setHideCursor(false);
+      // Pointer events, filtered to non-touch: a finger also fires pointermove
+      // (while dragging) and pointerleave (on every lift), and neither is the
+      // viewer hovering. Touch reveals the chrome by tapping — see handleVideoClick.
+      onPointerDownCapture={e => {
+        lastPointerTypeRef.current = e.pointerType;
+        // A finger on a control is the touch screen's "still here": restart the
+        // countdown. Only while already shown — revealing is the tap's job, and
+        // revealing here would make that same tap read as "hide".
+        if (e.pointerType === 'touch' && controlsShownRef.current) resetCursorTimeout();
       }}
-      onMouseLeave={() => {
-        if (playerState.isPlaying) {
-          setPlayerState(prev => ({ ...prev, showControls: false }));
-          setShowVolumeSlider(false);
-          setShowSettings(false);
-          setHideCursor(true);
-        }
+      onPointerMove={e => { if (e.pointerType !== 'touch') resetCursorTimeout(); }}
+      onPointerLeave={e => {
+        if (e.pointerType === 'touch' || !playerState.isPlaying || holdControlsRef.current) return;
+        if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+        controlsTimeout.current = null;
+        hideControls();
       }}
       onClick={handleVideoClick}
       aria-label="Video player"
@@ -1472,7 +1573,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <div
         className={cn(
           'absolute top-0 left-0 right-0 z-40 flex items-start gap-4',
-          'px-7 pt-5 pb-14',
+          'px-4 sm:px-7 pt-[max(1rem,env(safe-area-inset-top))] sm:pt-5 pb-14',
           'transition-opacity duration-300',
           controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         )}
@@ -1549,14 +1650,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {!playerState.isLoading && !isBuffering && !playerState.error && (
         <div
           className={cn(
-            'absolute inset-0 z-30 flex items-center justify-center gap-12 pointer-events-none',
+            'absolute inset-0 z-30 flex items-center justify-center gap-8 sm:gap-12 pointer-events-none',
             'transition-opacity duration-300',
             controlsVisible ? 'opacity-100' : 'opacity-0'
           )}
         >
           {/* Skip back 10s */}
           <button
-            className="pointer-events-auto relative flex items-center justify-center w-14 h-14 rounded-full border border-hairline text-text cursor-pointer transition-transform duration-200 hover:scale-105"
+            className={cn(
+              'relative flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full border border-hairline text-text cursor-pointer transition-transform duration-200 hover:scale-105',
+              controlsVisible ? 'pointer-events-auto' : 'pointer-events-none',
+            )}
             style={{
               background: 'rgba(17,17,19,.32)',
               backdropFilter: 'blur(8px)',
@@ -1573,7 +1677,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           {/* Big play/pause */}
           <button
-            className="pointer-events-auto flex items-center justify-center w-[88px] h-[88px] rounded-full border border-text/[.18] bg-text/95 text-ink cursor-pointer transition-transform duration-200 hover:scale-105"
+            className={cn(
+              'flex items-center justify-center w-[72px] h-[72px] sm:w-[88px] sm:h-[88px] rounded-full border border-text/[.18] bg-text/95 text-ink cursor-pointer transition-transform duration-200 hover:scale-105',
+              controlsVisible ? 'pointer-events-auto' : 'pointer-events-none',
+            )}
             style={{
               boxShadow: '0 16px 50px -10px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.4)',
             }}
@@ -1595,7 +1702,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           {/* Skip forward 10s */}
           <button
-            className="pointer-events-auto relative flex items-center justify-center w-14 h-14 rounded-full border border-hairline text-text cursor-pointer transition-transform duration-200 hover:scale-105"
+            className={cn(
+              'relative flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full border border-hairline text-text cursor-pointer transition-transform duration-200 hover:scale-105',
+              controlsVisible ? 'pointer-events-auto' : 'pointer-events-none',
+            )}
             style={{
               background: 'rgba(17,17,19,.32)',
               backdropFilter: 'blur(8px)',
@@ -1615,7 +1725,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* ================= BOTTOM BAR ================= */}
       <div
         className={cn(
-          'absolute left-0 right-0 bottom-0 z-40 px-7 pt-16 pb-5',
+          'absolute left-0 right-0 bottom-0 z-40 px-4 sm:px-7 pt-16 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-5',
           'transition-opacity duration-300',
           controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         )}
@@ -1623,6 +1733,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           background: 'linear-gradient(to top, rgba(10,10,11,.92) 8%, rgba(10,10,11,.6) 55%, rgba(10,10,11,0) 100%)',
         }}
         onClick={e => e.stopPropagation()}
+        data-testid="player-controls"
       >
         {/* Scrubber */}
         <div
@@ -1634,8 +1745,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           aria-valuemax={Math.round(playerState.duration)}
           aria-valuenow={Math.round(playerState.currentTime)}
           aria-valuetext={`${formatTime(playerState.currentTime)} of ${formatTime(playerState.duration)}`}
-          className="relative h-[18px] flex items-center cursor-pointer group"
+          className="relative h-7 sm:h-[18px] flex items-center cursor-pointer group touch-none"
           onClick={handleProgressClick}
+          onPointerDown={handleScrubStart}
+          onPointerMove={handleScrubMove}
+          onPointerUp={handleScrubEnd}
+          onPointerCancel={handleScrubCancel}
           onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
             const video = videoRef.current;
             if (!video) return;
@@ -1683,7 +1798,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             />
             {/* Knob */}
             <div
-              className="absolute top-1/2 w-3.5 h-3.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              className={cn(
+                'absolute top-1/2 w-3.5 h-3.5 rounded-full transition-opacity',
+                // No hover on a touch screen, so the knob is always there to grab.
+                scrubPct !== null ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100',
+              )}
               style={{
                 left: `${playedPct}%`,
                 transform: 'translate(-50%, -50%)',
@@ -1701,10 +1820,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
 
         {/* Controls row */}
-        <div className="flex items-center gap-4">
-          {/* Play/Pause (small) */}
+        <div className="flex items-center gap-3 sm:gap-4">
+          {/* Play/Pause (small) — a phone has the big centre one within thumb reach */}
           <button
-            className="inline-flex items-center justify-center text-text hover:text-gold-lite transition-colors p-1.5 rounded-lg"
+            className="hidden sm:inline-flex items-center justify-center text-text hover:text-gold-lite transition-colors p-1.5 rounded-lg"
             onClick={togglePlay}
             aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
             aria-pressed={playerState.isPlaying}
@@ -1740,7 +1859,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <div
               ref={volumeBarRef}
               className={cn(
-                'relative h-1 rounded-full cursor-pointer transition-all duration-200',
+                'relative h-1 rounded-full cursor-pointer transition-all duration-200 [@media(hover:none)]:hidden',
                 showVolumeSlider ? 'w-22 opacity-100' : 'w-0 opacity-0 pointer-events-none group-hover/vol:w-22 group-hover/vol:opacity-100'
               )}
               style={{ width: showVolumeSlider ? '88px' : undefined, background: 'rgba(244,241,234,.16)' }}
@@ -1764,7 +1883,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           {/* Time display */}
           <div className="text-text text-xs tabular-nums whitespace-nowrap" style={{ letterSpacing: '.03em' }}>
-            <span className="font-semibold">{formatTime(playerState.currentTime)}</span>
+            <span className="font-semibold">{formatTime(shownTime)}</span>
             <span className="text-muted mx-1">/</span>
             <span className="text-muted">{formatTime(playerState.duration)}</span>
           </div>
@@ -1773,16 +1892,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="flex-1" />
 
           {/* Right cluster */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             {/* Speed pill */}
             <div className="relative">
               <button
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold transition-colors hover:border-gold/40 hover:text-gold-lite"
                 style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
-                onClick={() => setShowSettings(!showSettings)}
+                onClick={() => { setShowSources(false); setShowSettings(s => !s); }}
+                aria-expanded={showSettings}
                 aria-label="Playback speed"
               >
-                <span className="text-[9px] text-muted uppercase tracking-widest mr-0.5">Speed</span>
+                <span className="hidden sm:inline text-[9px] text-muted uppercase tracking-widest mr-0.5">Speed</span>
                 {playbackSpeed === 1 ? '1×' : `${playbackSpeed}×`}
               </button>
 
@@ -1814,7 +1934,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             {/* Audio/CC — GATED (aspirational) */}
             <button
-              className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-hairline text-text transition-colors opacity-50 cursor-not-allowed"
+              className="hidden sm:inline-flex items-center justify-center w-9 h-9 rounded-lg border border-hairline text-text transition-colors opacity-50 cursor-not-allowed"
               style={{ background: 'rgba(22,22,26,.34)' }}
               aria-label="Audio and subtitles (coming soon)"
               aria-disabled="true"
@@ -1836,12 +1956,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <button
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold transition-colors hover:border-gold/40 hover:text-gold-lite"
                   style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
-                  onClick={() => setShowSources(s => !s)}
+                  onClick={() => { setShowSettings(false); setShowSources(s => !s); }}
                   aria-label="Switch source or quality"
                   aria-expanded={showSources}
                   data-testid="source-switcher-button"
                 >
-                  <span className="text-[9px] text-muted uppercase tracking-widest mr-0.5">Source</span>
+                  <span className="hidden sm:inline text-[9px] text-muted uppercase tracking-widest mr-0.5">Source</span>
                   {sources.find(s => s.source_id === currentSourceId)?.quality || 'Auto'}
                 </button>
 
@@ -1889,7 +2009,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ) : (
               // No alternatives available → keep the gated informational pill.
               <button
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold opacity-50 cursor-not-allowed"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-hairline text-text text-xs font-semibold opacity-50 cursor-not-allowed"
                 style={{ background: 'rgba(22,22,26,.4)', letterSpacing: '.03em' }}
                 aria-label="Quality (informational)"
                 aria-disabled="true"
@@ -1903,7 +2023,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             )}
 
             {/* Picture-in-Picture */}
-            {typeof document !== 'undefined' && 'pictureInPictureEnabled' in document && (
+            {canPiP && (
               <button
                 className={cn(
                   'inline-flex items-center justify-center w-9 h-9 rounded-lg border border-hairline text-text transition-colors hover:border-gold/40',

@@ -416,7 +416,7 @@ export default function StreamingPage() {
   // Loading state — FRÈ gold-on-ink spinner
   if (isLoading) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-ink">
+      <div className="h-dvh flex flex-col items-center justify-center bg-ink">
         {/* Gold spinning ring */}
         <div
           className="w-14 h-14 rounded-full border-2 border-hairline border-t-gold animate-spin mb-6"
@@ -431,7 +431,7 @@ export default function StreamingPage() {
   // Blocked-for-safety state — the content guard rejected this torrent.
   if (torrentStatus?.state === TorrentState.BLOCKED) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-ink p-8">
+      <div className="h-dvh flex flex-col items-center justify-center bg-ink p-8">
         <div className="w-16 h-16 rounded-full border border-hairline bg-surface flex items-center justify-center mb-6">
           <ExclamationTriangleIcon className="w-8 h-8 text-gold" />
         </div>
@@ -453,7 +453,7 @@ export default function StreamingPage() {
   // Error state — FRÈ styled
   if (error || !torrentStatus) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-ink p-8">
+      <div className="h-dvh flex flex-col items-center justify-center bg-ink p-8">
         {/* Warning icon in gold tint */}
         <div className="w-16 h-16 rounded-full border border-hairline bg-surface flex items-center justify-center mb-6">
           <ExclamationTriangleIcon className="w-8 h-8 text-gold" />
@@ -489,7 +489,7 @@ export default function StreamingPage() {
   // player area shows a clean buffering panel; the player's own overlay then
   // carries the buffering / "streaming · N% downloaded" info once it mounts.
   return (
-    <div className="h-screen flex flex-col bg-ink">
+    <div className="h-dvh flex flex-col bg-ink">
       {/* FRÈ Header — glass bar, ink base */}
       <div
         className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface/80 backdrop-blur"

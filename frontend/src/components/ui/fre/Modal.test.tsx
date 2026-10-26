@@ -9,6 +9,23 @@ describe('Modal', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('locks page scroll while open and restores it on close', () => {
+    document.body.style.overflow = 'scroll';
+    const { rerender } = render(<Modal open onClose={() => {}} label="Lock">x</Modal>);
+    expect(document.body.style.overflow).toBe('hidden');
+    rerender(<Modal open={false} onClose={() => {}} label="Lock">x</Modal>);
+    expect(document.body.style.overflow).toBe('scroll');
+    document.body.style.overflow = '';
+  });
+
+  it('scrolls a panel taller than the viewport inside itself', () => {
+    render(<Modal open onClose={() => {}} label="Tall"><p>Body</p></Modal>);
+    const panel = screen.getByText('Body').parentElement!;
+    expect(panel.className).toMatch(/overflow-y-auto/);
+    expect(panel.className).toMatch(/max-h-/);
+    expect(panel.className).toMatch(/overscroll-contain/);
+  });
+
   it('renders the dialog with children when open', () => {
     render(<Modal open onClose={() => {}} label="Passcode"><p>Enter passcode</p></Modal>);
     expect(screen.getByRole('dialog', { name: 'Passcode' })).toBeInTheDocument();

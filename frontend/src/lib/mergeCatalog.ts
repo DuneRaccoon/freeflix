@@ -37,3 +37,18 @@ export function mergeDedupe(pages: CatalogPage[]): CatalogItem[] {
 export function hasMoreResults(pages: CatalogPage[]): boolean {
   return pages.some((p) => p.page < p.total_pages);
 }
+
+/**
+ * Append a newly fetched batch of pages to the items already on screen.
+ *
+ * Unlike `mergeDedupe`, the existing items keep their order: only the new batch
+ * is sorted (among itself) and appended. Re-sorting everything would slot a
+ * popular page-2 title in among the page-1 cards the viewer is already looking at.
+ */
+export function appendDedupe(existing: CatalogItem[], pages: CatalogPage[]): CatalogItem[] {
+  const seen = new Set(existing.map((item) => `${item.media_type}:${item.tmdb_id}`));
+  const fresh = mergeDedupe(pages).filter(
+    (item) => !seen.has(`${item.media_type}:${item.tmdb_id}`),
+  );
+  return [...existing, ...fresh];
+}

@@ -31,6 +31,15 @@ const Modal: React.FC<ModalProps> = ({ open, onClose, label, children, className
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // Lock page scroll while open. The overlay is `fixed`, so without this a touch
+  // scroll that reaches the end of the panel falls through to the page beneath.
+  React.useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [open]);
+
   // Focus management: capture, move focus in, trap Tab, restore on close
   React.useEffect(() => {
     if (!open) return;
@@ -77,7 +86,7 @@ const Modal: React.FC<ModalProps> = ({ open, onClose, label, children, className
 
   return (
     <div role="dialog" aria-modal="true" aria-label={label}
-      className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 sm:p-6">
       <button aria-label="Close" onClick={onClose}
         className="absolute inset-0 bg-ink/70 backdrop-blur-sm" />
       <div
@@ -85,7 +94,10 @@ const Modal: React.FC<ModalProps> = ({ open, onClose, label, children, className
         tabIndex={-1}
         className={cn(
           'relative z-[1] w-full max-w-md rounded-2xl border border-hairline',
-          'bg-surface/95 p-7 shadow-[0_30px_80px_rgba(0,0,0,0.6)]',
+          'bg-surface/95 p-5 sm:p-7 shadow-[0_30px_80px_rgba(0,0,0,0.6)]',
+          // A panel taller than the viewport (a long form on a phone) scrolls
+          // inside itself instead of overflowing off both edges of the overlay.
+          'max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto overscroll-contain',
           'focus:outline-none',
           className,
         )}

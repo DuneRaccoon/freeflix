@@ -10,6 +10,7 @@ import AvatarPicker from '@/components/users/AvatarPicker';
 import { getInitials } from '@/lib/avatars/resolve';
 import { cn } from '@/lib/cn';
 import { toast } from 'react-hot-toast';
+import { useInstall } from '@/lib/pwa/install';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,6 +162,40 @@ const SystemCard: React.FC = () => {
             </div>
           ))}
         </dl>
+      )}
+    </Card>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// App card (install as an app)
+// ---------------------------------------------------------------------------
+
+const INSTALL_COPY: Record<string, string> = {
+  installed: 'FRÈ is installed on this device.',
+  promptable: 'Install FRÈ to open it from your home screen, dock or start menu, in its own window.',
+  ios: 'In Safari, tap the Share button, then “Add to Home Screen”.',
+  insecure: 'Installing needs a secure connection. Open FRÈ over https (or on localhost) to install it.',
+  manual: 'Use your browser’s menu to install — “Install FRÈ” in Chrome or Edge, or “Add to Dock” in Safari.',
+};
+
+export const InstallCard: React.FC = () => {
+  const { state, install } = useInstall();
+  if (state === null) return null;
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <SectionHeading>App</SectionHeading>
+        {state === 'installed' && <Badge tone="success">Installed</Badge>}
+      </div>
+      <p data-testid="install-copy" className="font-ui text-sm text-muted">
+        {INSTALL_COPY[state]}
+      </p>
+      {state === 'promptable' && (
+        <Button variant="primary" size="sm" onClick={() => { void install(); }}>
+          Install app
+        </Button>
       )}
     </Card>
   );
@@ -543,6 +578,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userId }) => {
         </>
       )}
 
+      <InstallCard />
       <SystemCard />
     </div>
   );

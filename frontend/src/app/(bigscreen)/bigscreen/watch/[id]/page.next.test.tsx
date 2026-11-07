@@ -367,7 +367,7 @@ describe('the prefetch at the owner’s threshold', () => {
     expect(asked()).toHaveLength(1);
   });
 
-  it('starts NOTHING when the profile has the setting off', async () => {
+  it('starts NOTHING when the owner has the setting off', async () => {
     instance.getPlayback.mockResolvedValue(playback(false));
     const handle = await playing();
     await playTo(handle, PAST_80);

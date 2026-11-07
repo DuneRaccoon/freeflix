@@ -321,8 +321,9 @@ def test_setting_a_passcode_does_not_lock_out_the_session_that_set_it(world):
 
 
 def test_a_locked_profile_can_still_be_deleted(world):
-    """The recovery path for a forgotten passcode. Every other route on a locked profile
-    423s, so without this exemption the only way back would be a database edit."""
+    """Deletion stays exempt from the passcode gate. Every other route on a locked
+    profile 423s; a forgotten code is recovered through ``/passcode/reset`` (the owner's
+    password) or ``/passcode/reset-link`` (a member's emailed link), not by deleting."""
     client, cookie, vault = world["client"], world["owner_cookie"], world["vault"]
 
     assert client.get(f"/api/v1/users/{vault}", cookies=cookie).status_code == 423
@@ -330,8 +331,9 @@ def test_a_locked_profile_can_still_be_deleted(world):
 
 
 def test_turning_the_lock_off_still_requires_the_passcode(world):
-    """Deleting is the recovery path, NOT 'switch the lock off' — exempting settings
-    would let anyone holding the device disable it and defeat the lock entirely."""
+    """Deletion stays exempt from the passcode gate; settings do not. Exempting settings
+    would let anyone holding the device switch the lock off and defeat it entirely. The
+    recovery paths are ``/passcode/reset`` and ``/passcode/reset-link``."""
     r = world["client"].put(
         f"/api/v1/users/{world['vault']}/settings",
         json={"require_passcode": False},

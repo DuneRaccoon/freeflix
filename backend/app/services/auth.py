@@ -440,17 +440,13 @@ def revoke_all_sessions_for_account(session: Session, account_id: str) -> int:
     return len(rows)
 
 
-def mark_profile_unlocked(session: Session, row: AuthSession, profile_id: str) -> None:
-    """Record that this session entered the profile's passcode.
+def set_active_profile(session: Session, row: AuthSession, profile_id: Optional[str]) -> None:
+    """Make `profile_id` the session's one active profile; None clears it.
 
-    Reassigning the list (rather than appending in place) is required: SQLAlchemy does
-    not track mutations inside a plain JSON column, so an in-place append would never
-    be flushed.
+    Always assigns a new list: SQLAlchemy does not track mutations inside a plain JSON
+    column, so an in-place append would never be flushed.
     """
-    current = list(row.unlocked_profiles or [])
-    if profile_id not in current:
-        current.append(profile_id)
-        row.unlocked_profiles = current
+    row.unlocked_profiles = [profile_id] if profile_id is not None else []
 
 
 def purge_expired(session: Session) -> dict[str, int]:

@@ -202,8 +202,9 @@ class AuthSession(Model):
     device_name = Column(String, nullable=True)
     device_kind = Column(String, nullable=True)
 
-    # list[str] of profile ids whose passcode has been entered in this session.
-    # This is what makes the per-profile lock real rather than a client-side hint.
+    # At most one profile id: the session's active profile, written only by
+    # set_active_profile. This is what makes the per-profile lock real rather than a
+    # client-side hint.
     unlocked_profiles = Column(JSON, nullable=True)
 
     revoked_at = Column(DateTime, nullable=True)

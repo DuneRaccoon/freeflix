@@ -253,19 +253,29 @@ def test_revoke_all_sessions_kills_every_device(db_session):
     assert all(auth_service.lookup_session(db_session, r) is None for r in raws)
 
 
-def test_unlocked_profiles_are_reassigned_not_mutated(db_session):
-    """SQLAlchemy does not track in-place mutation of a plain JSON column, so an
-    append would never be flushed and the profile would appear locked forever."""
+def test_the_session_holds_exactly_one_open_profile(db_session, session_factory):
     account = _account(db_session)
     _, row = auth_service.create_session(db_session, account)
-
-    auth_service.mark_profile_unlocked(db_session, row, "profile-1")
-    auth_service.mark_profile_unlocked(db_session, row, "profile-1")  # idempotent
-    auth_service.mark_profile_unlocked(db_session, row, "profile-2")
     db_session.commit()
 
-    refreshed = db_session.query(AuthSession).filter(AuthSession.id == row.id).first()
-    assert refreshed.unlocked_profiles == ["profile-1", "profile-2"]
+    def stored():
+        fresh = session_factory()
+        try:
+            return fresh.query(AuthSession).filter(AuthSession.id == row.id).one().unlocked_profiles
+        finally:
+            fresh.close()
+
+    auth_service.set_active_profile(db_session, row, "profile-1")
+    db_session.commit()
+    assert stored() == ["profile-1"]
+
+    auth_service.set_active_profile(db_session, row, "profile-2")
+    db_session.commit()
+    assert stored() == ["profile-2"]
+
+    auth_service.set_active_profile(db_session, row, None)
+    db_session.commit()
+    assert stored() == []
 
 
 def test_cookie_attributes_match_the_proxy_topology():

@@ -352,7 +352,7 @@ async def update_user_settings(
                 .first()
             )
             if auth_row is not None:
-                auth_service.mark_profile_unlocked(session, auth_row, user_id)
+                auth_service.set_active_profile(session, auth_row, user_id)
 
         session.flush()
         return profile_response(session, profile).settings
@@ -400,6 +400,6 @@ async def unlock_profile(
                 .first()
             )
             if auth_row is not None:
-                auth_service.mark_profile_unlocked(session, auth_row, user_id)
+                auth_service.set_active_profile(session, auth_row, user_id)
 
         return PasscodeUnlockResponse(ok=True)

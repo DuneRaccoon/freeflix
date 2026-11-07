@@ -134,7 +134,8 @@ describe('DownloadsView', () => {
 
   it('remove (confirmed) calls deleteTorrent(id, true) by default', async () => {
     mockListTorrents.mockResolvedValue([
-      makeTorrent({ id: 'tor-99', movie_title: 'Delete Me' }),
+      // A pack: its raw label "Delete Me S02" is not what the row shows.
+      makeTorrent({ id: 'tor-99', movie_title: 'Delete Me S02', media_type: 'tv', season: 2, episode: null }),
     ]);
 
     render(<DownloadsView />);
@@ -143,9 +144,10 @@ describe('DownloadsView', () => {
     const removeBtn = await screen.findByRole('button', { name: 'Remove' });
     await userEvent.click(removeBtn);
 
-    // Confirm modal should appear
+    // Confirm modal should appear, naming the download as its row does
     const dialog = await screen.findByRole('dialog', { name: 'Confirm removal' });
     expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveTextContent('Remove Delete Me · Season 2 from downloads?');
 
     // Click the confirm button inside the dialog
     const confirmBtn = within(dialog).getByRole('button', { name: 'Confirm remove' });
@@ -263,6 +265,22 @@ describe('DownloadsView', () => {
     expect(within(done).getByTestId('stat-size')).toHaveTextContent(/^—$/);
     expect(within(going).getByTestId('stat-eta')).toHaveTextContent('ETA 5m');
     expect(within(going).getByTestId('stat-size')).toHaveTextContent('1.5 GB');
+  });
+
+  it('caps the ETA at >99h so a stalled download cannot overflow its slot', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({ id: 'a', movie_title: 'Edge', state: TorrentState.DOWNLOADING, eta: 99 * 3600 + 59 * 60, added_at: '2026-11-03T00:00:00' }),
+      makeTorrent({ id: 'b', movie_title: 'Over', state: TorrentState.DOWNLOADING, eta: 100 * 3600, added_at: '2026-11-02T00:00:00' }),
+      makeTorrent({ id: 'c', movie_title: 'Stalled', state: TorrentState.DOWNLOADING, eta: 5500 * 3600 + 12 * 60, added_at: '2026-11-01T00:00:00' }),
+    ]);
+    render(<DownloadsView />);
+    await screen.findByText('Stalled');
+    const eta = (name: string) => within(
+      screen.getAllByTestId('torrent-row').find((r) => within(r).queryByText(name))!,
+    ).getByTestId('stat-eta');
+    expect(eta('Edge')).toHaveTextContent(/^ETA 99h 59m$/);
+    expect(eta('Over')).toHaveTextContent(/^ETA >99h$/);
+    expect(eta('Stalled')).toHaveTextContent(/^ETA >99h$/);
   });
 
   it('every stat slot is fixed-width tabular and non-wrapping', async () => {

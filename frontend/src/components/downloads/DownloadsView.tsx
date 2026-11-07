@@ -56,6 +56,9 @@ function formatSpeed(kbps: number): string {
 function formatETA(secs?: number): string {
   if (!secs || secs <= 0) return '—';
   const h = Math.floor(secs / 3600);
+  // A stalled download's remaining/rate runs to thousands of hours and would spill out
+  // of the fixed stat slot; past 99 h the exact figure says nothing anyway.
+  if (h > 99) return '>99h';
   const m = Math.floor((secs % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m`;
@@ -319,7 +322,7 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
         label="Confirm removal"
       >
         <p className="font-ui text-sm text-text mb-4">
-          Remove <strong className="text-gold-lite">{torrent.movie_title}</strong> from downloads?
+          Remove <strong className="text-gold-lite">{title}</strong> from downloads?
         </p>
         <RadioGroup
           name={`remove-${torrent.id}`}

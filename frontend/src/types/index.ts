@@ -127,6 +127,32 @@ export interface TorrentStatus {
   media_type?: string | null;
   season?: number | null;
   episode?: number | null;
+  // Lifecycle (naive UTC strings; read with lib/parseUtc) and per-download extras.
+  size_bytes?: number | null;
+  added_at?: string | null;
+  finished_at?: string | null;
+  last_touched_at?: string | null;
+  file_index?: number | null;
+  watched_by?: WatchedBy[] | null;
+  vacuum?: VacuumInfo | null;
+}
+
+export interface WatchedBy {
+  profile_id: string;
+  display_name: string;
+  avatar?: string | null;
+  percent: number;
+}
+
+export interface VacuumInfo {
+  status: 'off' | 'scheduled' | 'kept_watching' | 'active';
+  deletes_at?: string | null;
+}
+
+export interface DiskUsage {
+  used_by_downloads_bytes: number;
+  free_bytes: number;
+  total_bytes: number;
 }
 
 // --- Stream-health / phase model (§5.2 — single source of truth) ---

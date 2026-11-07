@@ -426,6 +426,24 @@ class DetailedMovie(BaseModel):
     reviews: List[Review] = []
     related_movies: List[RelatedMovie] = []
 
+class WatchedBy(BaseModel):
+    profile_id: str
+    display_name: str
+    avatar: Optional[str] = None
+    percent: float
+
+
+class VacuumInfo(BaseModel):
+    status: Literal['off', 'scheduled', 'kept_watching', 'active']
+    deletes_at: Optional[datetime] = None
+
+
+class DiskUsageResponse(BaseModel):
+    used_by_downloads_bytes: int
+    free_bytes: int
+    total_bytes: int
+
+
 class TorrentStatus(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
@@ -460,6 +478,15 @@ class TorrentStatus(BaseModel):
     media_type: Optional[str] = None
     season: Optional[int] = None
     episode: Optional[int] = None
+
+    # Lifecycle (naive UTC) and per-download extras; account_id is never on the wire.
+    size_bytes: Optional[int] = None
+    added_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    last_touched_at: Optional[datetime] = None
+    file_index: Optional[int] = None
+    watched_by: Optional[List[WatchedBy]] = None
+    vacuum: Optional[VacuumInfo] = None
 
 
 class TorrentRequest(BaseModel):

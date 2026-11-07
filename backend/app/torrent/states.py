@@ -12,4 +12,7 @@ RESUMABLE_STATES = frozenset({"paused", "stopped"})
 # Done / dead states.
 TERMINAL_STATES = frozenset({"finished", "seeding", "error", "blocked"})
 
+# Download is complete (bytes on disk).
+COMPLETE_STATES = frozenset({"finished", "seeding"})
+
 PAUSED = "paused"

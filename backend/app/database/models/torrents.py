@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, 
+    BigInteger, Boolean, Column, DateTime, Float, ForeignKey, 
     Integer, String, Text, JSON, func
 )
 from sqlalchemy.orm import relationship, Session
@@ -44,7 +44,18 @@ class Torrent(Model):
     
     # Additional metadata
     meta_data = Column(JSON, nullable=True)
-    
+
+    # Lifecycle + ownership (spec 2026-11-06 sections 3.2/3.3). All nullable, added by
+    # sync_columns. NULL account_id means "the owner's" (legacy and schedule-cron rows).
+    # created_at/updated_at are deliberately NOT used for lifecycle: database/mixins.py
+    # evaluates default=datetime.now(...) once at import, so every row holds the process
+    # start time (noted in spec 3.3, not fixed here). Timestamps are naive UTC.
+    account_id = Column(String, nullable=True)
+    added_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    last_touched_at = Column(DateTime, nullable=True)
+    size_bytes = Column(BigInteger, nullable=True)  # a 4K film exceeds 2**31 bytes
+
     # Relationships
     download_logs = relationship("TorrentLog", back_populates="torrent", cascade="all, delete-orphan")
     movie_cache = relationship("MovieCache", foreign_keys=[movie_cache_id], back_populates="torrents")
@@ -74,7 +85,8 @@ class Torrent(Model):
             save_path=self.save_path,
             created_at=self.created_at,
             updated_at=self.updated_at,
-            eta=meta_data.get('eta'),
+            # The update loop never clears eta for a paused/finished row (stale ETA, spec 3.4).
+            eta=meta_data.get('eta') if self.state == 'downloading' else None,
             error_message=self.error_message,
             block_reason=self.block_reason,
             # Nullable columns: rows written before they existed read back as None.
@@ -82,6 +94,10 @@ class Torrent(Model):
             media_type=self.media_type,
             season=self.season,
             episode=self.episode,
+            size_bytes=self.size_bytes,
+            added_at=self.added_at,
+            finished_at=self.finished_at,
+            last_touched_at=self.last_touched_at,
         )
     
     def update_from_status(self, status: TorrentStatus, db: Session = None) -> None:

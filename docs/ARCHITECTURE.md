@@ -152,6 +152,15 @@ spelling walks straight past anything Next enforces.
 public. `settings.auth_enabled=false` turns `require_session` into a synthetic
 owner — development only.
 
+### Profile lock
+
+The session row's `unlocked_profiles` holds at most the active profile.
+`POST /users/{id}/select` writes it: `[id]` after a correct code for a locked
+profile, `[]` for an unlocked one, and a code is required on every pick.
+`POST /users/deselect` clears it when the UI returns to "Who's watching?".
+`resolve_profile` returns 423 for any locked profile that is not in the list.
+`/unlock` survives one release as an alias.
+
 ### Mail
 
 ```

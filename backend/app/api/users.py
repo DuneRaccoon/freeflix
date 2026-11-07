@@ -18,7 +18,7 @@ Three things this module exists to get right:
 * **The passcode never leaves the server.** It used to be returned in plaintext to every
   caller through ``UserResponse.settings``. It is now write-only: hashed on arrival,
   advertised only as ``has_passcode`` + ``passcode_len``, and verified by
-  ``POST /{user_id}/unlock``.
+  ``POST /{user_id}/select``.
 """
 
 from typing import Annotated, List, Optional
@@ -33,8 +33,9 @@ from app.database.models.accounts import Account, AuthSession, ROLE_OWNER, STATU
 from app.database.session import get_db
 from app.dependencies.auth import AuthContext, require_profile, require_session
 from app.models import (
-    PasscodeUnlockRequest,
-    PasscodeUnlockResponse,
+    OkResponse,
+    ProfileSelectRequest,
+    ProfileSelectResponse,
     UserCreate,
     UserResponse,
     UserSettingsResponse,
@@ -192,6 +193,27 @@ async def create_user(
         return profile_response(session, profile)
 
 
+# Declared before every ``/{user_id}`` route, so that a ``POST /{user_id}`` added later can
+# never capture "deselect" as a profile id. (Today the order is not load-bearing: Starlette
+# keeps looking past a path match whose method differs, so moving this below the
+# GET/PUT/DELETE ``/{user_id}`` routes still resolves here.)
+@router.post("/deselect", response_model=OkResponse)
+async def deselect(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Close the session's open profile, called when the UI returns to "Who's watching?".
+
+    Every locked profile is locked again afterwards. No profile id: the session holds at
+    most one, so there is nothing to name.
+    """
+    with db as session:
+        auth_row = _session_row(session, ctx)
+        if auth_row is not None:
+            auth_service.set_active_profile(session, auth_row, None)
+        return OkResponse(ok=True)
+
+
 @router.get(
     "/{user_id}",
     response_model=UserResponse,
@@ -333,7 +355,7 @@ async def update_user_settings(
         row.passcode = None
 
         if row.require_passcode and not row.passcode_hash:
-            # Otherwise require_profile would 423 forever and /unlock could never
+            # Otherwise require_profile would 423 forever and /select could never
             # succeed (verify_passcode against a NULL hash is always False) — a
             # permanent lockout from a single checkbox.
             raise HTTPException(
@@ -358,26 +380,34 @@ async def update_user_settings(
         return profile_response(session, profile).settings
 
 
-@router.post("/{user_id}/unlock", response_model=PasscodeUnlockResponse)
-async def unlock_profile(
-    user_id: str,
-    payload: PasscodeUnlockRequest,
-    db: Annotated[Session, Depends(get_db)],
-    ctx: AuthContext = Depends(require_session),
-):
-    """Enter a profile's passcode, recording the unlock on the session row.
+def _session_row(session: Session, ctx: AuthContext) -> Optional[AuthSession]:
+    """The caller's ``auth_sessions`` row, or None when there is no session (dev mode)."""
+    if not ctx.session_id:
+        return None
+    return session.query(AuthSession).filter(AuthSession.id == ctx.session_id).first()
 
-    Deliberately NOT behind ``require_profile``: that dependency is what returns 423 for
-    a locked profile, so gating the unlock with it would make a locked profile
-    impossible to open. Ownership is checked here instead.
 
-    Throttled per profile because the code is four digits — 10,000 possibilities is
-    minutes of guessing without a limit.
+def _select(
+    session: Session, user_id: str, passcode: Optional[str], ctx: AuthContext
+) -> None:
+    """Make ``user_id`` the session's one open profile, asking for its code if locked.
+
+    The session holds at most one profile, and a locked one only after a correct code on
+    THIS pick, so picking any profile relocks whichever locked profile was open. Picking
+    an unlocked profile empties the list rather than naming it: ``resolve_profile``
+    never 423s an unlocked profile, so two tabs on two unlocked profiles never relock
+    each other.
+
+    No length check: a 7-8 digit code stored before the 4-6 rule must still verify.
     """
-    with db as session:
-        profile = _owned_profile(session, user_id, ctx)
-        row = ensure_settings(session, profile)
+    profile = _owned_profile(session, user_id, ctx)
+    row = ensure_settings(session, profile)
+    auth_row = _session_row(session, ctx)
 
+    # The same predicate as resolve_profile's 423.
+    if row.require_passcode:
+        # Throttled per profile because the code is four digits: 10,000 possibilities
+        # is minutes of guessing without a limit.
         if not auth_service.rate_limiter.check(
             f"unlock:{user_id}", limit=_UNLOCK_LIMIT, window_seconds=_UNLOCK_WINDOW
         ):
@@ -386,20 +416,45 @@ async def unlock_profile(
                 detail="Too many attempts. Try again in a few minutes.",
             )
 
-        if not auth_service.verify_passcode(payload.passcode, row.passcode_hash):
+        # A missing code is a wrong code, and spends an attempt like one.
+        if not auth_service.verify_passcode(passcode or "", row.passcode_hash):
             raise HTTPException(status_code=403, detail="Incorrect passcode")
 
         # A correct code clears the budget, so a household member who fat-fingers four
         # times and then gets it right is not locked out of their own profile.
         auth_service.rate_limiter.reset(f"unlock:{user_id}")
+        if auth_row is not None:
+            auth_service.set_active_profile(session, auth_row, user_id)
+    elif auth_row is not None:
+        auth_service.set_active_profile(session, auth_row, None)
 
-        if ctx.session_id:
-            auth_row = (
-                session.query(AuthSession)
-                .filter(AuthSession.id == ctx.session_id)
-                .first()
-            )
-            if auth_row is not None:
-                auth_service.set_active_profile(session, auth_row, user_id)
 
-        return PasscodeUnlockResponse(ok=True)
+@router.post("/{user_id}/select", response_model=ProfileSelectResponse)
+async def select_profile(
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+    payload: Optional[ProfileSelectRequest] = None,
+):
+    """Pick a profile on "Who's watching?". A locked profile needs its code every time.
+
+    Deliberately NOT behind ``require_profile``: that dependency is what returns 423 for
+    a locked profile, so gating the pick with it would make a locked profile impossible
+    to open. Ownership is checked in :func:`_select` instead.
+    """
+    with db as session:
+        _select(session, user_id, payload.passcode if payload else None, ctx)
+        return ProfileSelectResponse(ok=True)
+
+
+@router.post("/{user_id}/unlock", response_model=ProfileSelectResponse)
+async def unlock_profile(
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+    payload: Optional[ProfileSelectRequest] = None,
+):
+    """Alias of /select for one release, for clients built before it existed."""
+    with db as session:
+        _select(session, user_id, payload.passcode if payload else None, ctx)
+        return ProfileSelectResponse(ok=True)

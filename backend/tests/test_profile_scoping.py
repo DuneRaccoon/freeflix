@@ -216,7 +216,7 @@ def test_locked_profile_is_refused_until_unlocked(world):
     assert client.get(f"/api/v1/watchlist/{vault}", cookies=cookie).status_code == 423
 
     assert client.post(
-        f"/api/v1/users/{vault}/unlock", json={"passcode": "4821"}, cookies=cookie
+        f"/api/v1/users/{vault}/select", json={"passcode": "4821"}, cookies=cookie
     ).status_code == 200
 
     assert client.get(f"/api/v1/users/{vault}", cookies=cookie).status_code == 200
@@ -227,7 +227,7 @@ def test_wrong_passcode_does_not_unlock(world):
     client, cookie, vault = world["client"], world["owner_cookie"], world["vault"]
 
     assert client.post(
-        f"/api/v1/users/{vault}/unlock", json={"passcode": "0000"}, cookies=cookie
+        f"/api/v1/users/{vault}/select", json={"passcode": "0000"}, cookies=cookie
     ).status_code == 403
     assert client.get(f"/api/v1/users/{vault}", cookies=cookie).status_code == 423
 
@@ -241,13 +241,14 @@ def test_another_account_gets_403_not_423_on_a_locked_profile(world):
     assert r.status_code == 403
 
 
-def test_unlock_is_refused_for_another_accounts_profile(world):
+@pytest.mark.parametrize("path", ("select", "unlock"))
+def test_unlock_is_refused_for_another_accounts_profile(world, path):
     r = world["client"].post(
-        f"/api/v1/users/{world['vault']}/unlock",
+        f"/api/v1/users/{world['vault']}/{path}",
         json={"passcode": "4821"},
         cookies=world["member_cookie"],
     )
-    assert r.status_code in (403, 404)
+    assert r.status_code == 403
 
 
 # ------------------------------------------------------------------- owner scope

@@ -650,7 +650,7 @@ class UserSettingsResponse(BaseModel):
     `UserResponse.settings` on `GET /users` and `GET /users/{id}`. `has_passcode` and
     `passcode_len` are all the keypad needs (it draws that many dots and auto-submits
     on the last digit); the code itself is verified server-side by POST
-    /users/{id}/unlock.
+    /users/{id}/select.
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -682,10 +682,13 @@ class UserResponse(BaseModel):
     updated_at: Optional[datetime] = None
     settings: UserSettingsResponse
 
-class PasscodeUnlockRequest(BaseModel):
-    passcode: str
+class ProfileSelectRequest(BaseModel):
+    """Body of ``POST /users/{id}/select``. The whole body is optional: an unlocked
+    profile is picked with none. No length check here, so a stored 7-8 digit code
+    from before the 4-6 rule still verifies."""
+    passcode: Optional[str] = None
 
-class PasscodeUnlockResponse(BaseModel):
+class ProfileSelectResponse(BaseModel):
     ok: bool
 
 

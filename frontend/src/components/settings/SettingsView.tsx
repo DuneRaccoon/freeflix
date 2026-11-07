@@ -1,10 +1,12 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '@/context/UserContext';
+import { useSession } from '@/context/SessionContext';
+import { instanceService, OwnerSettings } from '@/services/instance';
 import { usersService, UserSettings } from '@/services/users';
 import { baseService } from '@/services/api-client';
 import { avatarsService, LibraryStill } from '@/services/avatars';
-import { Badge, Button, Field, Input, Select } from '@/components/ui/fre';
+import { Badge, Button, Field, Input, Select, Toggle } from '@/components/ui/fre';
 import Avatar from '@/components/users/Avatar';
 import AvatarPicker from '@/components/users/AvatarPicker';
 import { getInitials } from '@/lib/avatars/resolve';
@@ -456,6 +458,166 @@ const RestrictionsSection: React.FC<{
 };
 
 // ---------------------------------------------------------------------------
+// Storage & playback (owner only, instance-wide)
+// ---------------------------------------------------------------------------
+
+export const StorageAndPlaybackSection: React.FC = () => {
+  const [form, setForm] = useState<OwnerSettings | null>(null);
+  const [days, setDays] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [daysError, setDaysError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    instanceService
+      .getOwnerSettings()
+      .then((s) => {
+        if (cancelled) return;
+        setForm(s);
+        setDays(String(s.autovacuum_days));
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loadFailed) {
+    return (
+      <Card>
+        <SectionHeading>Storage &amp; playback</SectionHeading>
+        <p role="alert" className="font-ui text-sm text-danger">
+          Could not load storage &amp; playback settings.
+        </p>
+      </Card>
+    );
+  }
+
+  if (!form) {
+    return (
+      <Card>
+        <SectionHeading>Storage &amp; playback</SectionHeading>
+      </Card>
+    );
+  }
+
+  const patch = (p: Partial<OwnerSettings>) => setForm({ ...form, ...p });
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = Number(days);
+    if (days.trim() === '' || !Number.isInteger(n) || n < 1 || n > 365) {
+      setDaysError('Days must be a whole number from 1 to 365');
+      return;
+    }
+    setDaysError(null);
+    setSaving(true);
+    try {
+      const saved = await instanceService.updateOwnerSettings({ ...form, autovacuum_days: n });
+      setForm(saved);
+      setDays(String(saved.autovacuum_days));
+      toast.success('Storage & playback saved');
+    } catch {
+      toast.error('Could not save storage & playback settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const vacuumOff = !form.autovacuum_enabled;
+
+  return (
+    <Card>
+      <SectionHeading>Storage &amp; playback</SectionHeading>
+      <form noValidate onSubmit={handleSave} className="space-y-5">
+        <Toggle
+          label="Delete untouched downloads automatically"
+          checked={form.autovacuum_enabled}
+          onChange={(v) => patch({ autovacuum_enabled: v })}
+        />
+
+        <Field
+          label="Days untouched before deleting"
+          htmlFor="autovacuum-days"
+          hint="Runs daily at 4 am. Playing something resets its clock."
+          error={daysError ?? undefined}
+        >
+          <Input
+            id="autovacuum-days"
+            type="number"
+            min={1}
+            max={365}
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            disabled={vacuumOff}
+          />
+        </Field>
+
+        <Toggle
+          label="Only once everyone who started it has watched"
+          checked={form.autovacuum_watched_gate}
+          onChange={(v) => patch({ autovacuum_watched_gate: v })}
+          disabled={vacuumOff}
+        />
+
+        <Field label="Watched threshold" htmlFor="autovacuum-watched-pct">
+          <div className="flex items-center gap-3">
+            <input
+              id="autovacuum-watched-pct"
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={form.autovacuum_watched_pct}
+              onChange={(e) => patch({ autovacuum_watched_pct: Number(e.target.value) })}
+              disabled={vacuumOff || !form.autovacuum_watched_gate}
+              className="w-full accent-gold"
+            />
+            <output className="font-ui text-sm text-text w-12 text-right">
+              {form.autovacuum_watched_pct}%
+            </output>
+          </div>
+        </Field>
+
+        <Toggle
+          label="Download the next episode automatically"
+          checked={form.auto_next_enabled}
+          onChange={(v) => patch({ auto_next_enabled: v })}
+        />
+
+        <Field label="Start the next episode at" htmlFor="auto-next-pct">
+          <div className="flex items-center gap-3">
+            <input
+              id="auto-next-pct"
+              type="range"
+              min={50}
+              max={95}
+              step={5}
+              value={form.auto_next_pct}
+              onChange={(e) => patch({ auto_next_pct: Number(e.target.value) })}
+              disabled={!form.auto_next_enabled}
+              className="w-full accent-gold"
+            />
+            <output className="font-ui text-sm text-text w-12 text-right">
+              {form.auto_next_pct}%
+            </output>
+          </div>
+        </Field>
+
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" isLoading={saving}>
+            Save storage &amp; playback
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // SettingsView (main export)
 // ---------------------------------------------------------------------------
 
@@ -466,6 +628,7 @@ export interface SettingsViewProps {
 
 const SettingsView: React.FC<SettingsViewProps> = ({ userId }) => {
   const { currentUser, userSettings, isLoading } = useUser();
+  const { account } = useSession();
 
   // Determine the effective userId we're editing
   const effectiveId = userId ?? currentUser?.id;
@@ -503,6 +666,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userId }) => {
         </>
       )}
 
+      {account?.role === 'owner' && <StorageAndPlaybackSection />}
       <InstallCard />
       <SystemCard />
     </div>

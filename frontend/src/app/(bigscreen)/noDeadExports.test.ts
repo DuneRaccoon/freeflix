@@ -356,10 +356,6 @@ const DECLARED_TEST_ONLY: Record<string, string> = {
     + 'mocked once, called nowhere.',
   'instanceService.updateSettings':
     'Pre-existing, outside this branch. `MembersView` mocks it; no caller renames an instance.',
-  'instanceService.getOwnerSettings':
-    'Added in Part D task D7; StorageAndPlaybackSection (D8) is the caller and deletes this line.',
-  'instanceService.updateOwnerSettings':
-    'Added in Part D task D7; StorageAndPlaybackSection (D8) is the caller and deletes this line.',
   'instanceService.getPlayback':
     'Added in Part D; Part E usePlaybackSettings is the caller and deletes this line in its task.',
 };

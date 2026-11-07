@@ -8,6 +8,24 @@ import userEvent from '@testing-library/user-event';
 
 const mockUpdateUserSettings = vi.fn();
 const mockUpdateUser = vi.fn();
+const mockGetOwnerSettings = vi.fn();
+let mockRole: 'owner' | 'member' = 'member';
+
+const DEFAULTS = {
+  autovacuum_enabled: false, autovacuum_days: 30, autovacuum_watched_gate: true,
+  autovacuum_watched_pct: 80, auto_next_enabled: true, auto_next_pct: 80,
+};
+
+vi.mock('@/context/SessionContext', () => ({
+  useSession: () => ({ account: { role: mockRole } }),
+}));
+
+vi.mock('@/services/instance', () => ({
+  instanceService: {
+    getOwnerSettings: (...a: unknown[]) => mockGetOwnerSettings(...a),
+    updateOwnerSettings: vi.fn(),
+  },
+}));
 
 const mockUser = {
   id: 'user-1',
@@ -82,6 +100,8 @@ let SettingsView: React.ComponentType<{ userId?: string }>;
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  mockRole = 'member';
+  mockGetOwnerSettings.mockResolvedValue(DEFAULTS);
   mockUpdateUserSettings.mockResolvedValue(mockUserSettings);
   mockUpdateUser.mockResolvedValue(mockUser);
   mockRoot.mockResolvedValue({
@@ -106,6 +126,21 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe('SettingsView', () => {
+  it('shows the Storage & playback section to the owner', async () => {
+    mockRole = 'owner';
+    render(<SettingsView userId="user-1" />);
+    expect(await screen.findByRole('heading', { name: 'Storage & playback' })).toBeInTheDocument();
+    expect(mockGetOwnerSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not show Storage & playback to a member, nor fetch it', async () => {
+    mockRole = 'member';
+    render(<SettingsView userId="user-1" />);
+    await screen.findByText('Settings');
+    expect(screen.queryByRole('heading', { name: 'Storage & playback' })).toBeNull();
+    expect(mockGetOwnerSettings).not.toHaveBeenCalled();
+  });
+
   it('renders the four sections (Profile, Preferences, Restrictions, Profile lock)', async () => {
     render(<SettingsView userId="user-1" />);
 

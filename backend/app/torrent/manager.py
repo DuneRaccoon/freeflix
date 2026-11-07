@@ -1411,15 +1411,29 @@ class TorrentManager:
 
     def precompute_episode_map(self, torrent_id: str) -> dict:
         """Build {str(file_index): {season, episode}} from parseable video file names
-        and persist it on the Torrent row. Returns the mapping ({} if nothing parses)."""
+        and persist it on the Torrent row. Returns the mapping ({} if nothing parses).
+
+        Once the metadata is in, an empty map is saved too: ``{}`` is "known, lists no
+        episode", which ``torrent_reuse.pack_contains`` reads as missing, so a Play on an
+        episode of an unparseable pack starts that episode's own download (spec 3.2).
+        Before the metadata nothing is saved: NULL stays "not known yet"."""
         mapping: dict = {}
         for f in self.get_video_files(torrent_id):
             ep = parse_episode(f["name"])
             if ep:
                 mapping[str(f["index"])] = {"season": ep[0], "episode": ep[1]}
-        if mapping:
+        if mapping or self._has_metadata(torrent_id):
             self._persist_episode_map(torrent_id, mapping)
         return mapping
+
+    def _has_metadata(self, torrent_id: str) -> bool:
+        entry = self.active_torrents.get(torrent_id)
+        if entry is None:
+            return False
+        try:
+            return bool(entry[0].has_metadata())
+        except Exception:
+            return False
 
     def _persist_episode_map(self, torrent_id: str, mapping: dict) -> None:
         """Persist the precomputed episode map onto the Torrent row (own session)."""

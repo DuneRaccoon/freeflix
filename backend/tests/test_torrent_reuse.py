@@ -320,6 +320,24 @@ def test_reused_pack_reports_the_episode_file(world):
     assert world.rec.add == []
 
 
+def test_a_pack_whose_names_did_not_parse_is_not_reused_for_an_episode(world):
+    # {} is what precompute_episode_map saves when the metadata is in and no file name
+    # parses: the pack is known not to list the episode, so the press starts its own.
+    world.db.add(_pack("p-blind", {}))
+    world.db.commit()
+    world.monkeypatch.setattr(torrents_api.torrent_manager, "add_torrent",
+                              _storing_add(world.rec, world.override_get_db))
+
+    r = world.client.post("/api/v1/torrents/download", json={
+        "tmdb_id": 1399, "media_type": "tv", "season": 1, "episode": 5})
+    assert r.status_code == 200, r.text
+    assert len(world.rec.add) == 1
+    assert r.json()["id"] == "r-1"
+    movie = world.rec.add[0][0]
+    assert (movie.season, movie.episode) == (1, 5)
+    assert world.rec.resume == []
+
+
 def test_for_title_returns_covering_rows_only(world):
     world.db.add_all([
         _row("movie-603", tmdb_id=603, media_type="movie"),

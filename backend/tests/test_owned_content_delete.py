@@ -212,6 +212,79 @@ def test_nothing_known_with_a_sibling_deletes_nothing(layout):
     assert any("nameless-X" in w and "sibling-B" in w for w in warnings), warnings
 
 
+# --- nested save_paths: an ancestor or descendant is a sibling too --------------------
+#
+# Equality alone missed these: a row whose save_path sits inside another row's directory
+# (a crafted TorrentRequest.save_path), or a title with a slash ("Love/Hate S01E01" lands
+# in downloads/Love/Hate S01E01, under the film "Love"), read as unshared and was rmtree'd.
+
+def test_a_row_nested_in_anothers_release_dir_never_takes_that_release(layout):
+    layout.add("A", "a1" * 20, "Release.A")
+    layout.add("M", "c1" * 20, "Whatever", save_path=layout.title / "Release.A")
+
+    assert layout.mgr.remove_torrent("M", delete_files=True) is True
+
+    assert not layout.row_exists("M")
+    assert (layout.title / "Release.A" / "a.mkv").exists()
+    assert _all_fixture_files_present(layout.title)
+
+
+def test_the_outer_row_keeps_the_entry_a_nested_row_lives_under(layout):
+    layout.add("A", "a1" * 20, "Release.A")
+    layout.add("M", "c1" * 20, "Whatever", save_path=layout.title / "Release.A")
+
+    assert layout.mgr.remove_torrent("A", delete_files=True) is True
+
+    # Release.A is A's content, but M's save_path lives under it: it is never deleted.
+    assert (layout.title / "Release.A" / "a.mkv").exists()
+    assert layout.title.exists()
+
+
+def _love_layout(layout):
+    film_dir = layout.root / "Love"
+    ep_dir = film_dir / "Hate S01E01"
+    (ep_dir / "Ep.Rel").mkdir(parents=True)
+    (ep_dir / "Ep.Rel" / "e.mkv").write_bytes(b"x")
+    (film_dir / "Love.2015").mkdir()
+    (film_dir / "Love.2015" / "f.mkv").write_bytes(b"x")
+    layout.add("TV", "d1" * 20, "Ep.Rel", save_path=ep_dir)
+    layout.add("FILM", "e1" * 20, "Love.2015", save_path=film_dir)
+    return film_dir, ep_dir
+
+
+def test_removing_the_film_love_keeps_love_hate_episodes(layout):
+    film_dir, ep_dir = _love_layout(layout)
+
+    assert layout.mgr.remove_torrent("FILM", delete_files=True) is True
+
+    assert (ep_dir / "Ep.Rel" / "e.mkv").exists()
+    # Its own content still goes.
+    assert not (film_dir / "Love.2015").exists()
+
+
+def test_removing_the_episode_deletes_only_its_own_content(layout):
+    film_dir, ep_dir = _love_layout(layout)
+
+    assert layout.mgr.remove_torrent("TV", delete_files=True) is True
+
+    assert (film_dir / "Love.2015" / "f.mkv").exists()
+    assert not (ep_dir / "Ep.Rel").exists()
+    # Emptied by its own content, so remove_dir_if_empty still takes the directory.
+    assert not ep_dir.exists()
+    assert film_dir.exists()
+
+
+def test_an_ancestor_row_never_rmtrees_even_with_leftovers(layout):
+    film_dir, ep_dir = _love_layout(layout)
+    (ep_dir / "stray.nfo").write_bytes(b"x")
+
+    assert layout.mgr.remove_torrent("TV", delete_files=True) is True
+
+    # Unshared, the leftover would go with an rmtree; with an ancestor it stays.
+    assert (ep_dir / "stray.nfo").exists()
+    assert (film_dir / "Love.2015" / "f.mkv").exists()
+
+
 # --- unshared save_path: the whole directory is this download's ------------------------
 
 def test_last_owner_out_removes_the_empty_title_dir(layout):

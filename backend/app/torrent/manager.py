@@ -1120,21 +1120,41 @@ class TorrentManager:
 
     @staticmethod
     def _siblings(db: Session, row: DbTorrent) -> List[DbTorrent]:
-        """Every other row on the same save_path. Compared RESOLVED: rows store
-        `downloads/X` relative while blobs store it absolute."""
+        """Every other row whose save_path is this one's, or an ancestor or a descendant
+        of it. Compared RESOLVED: rows store `downloads/X` relative while blobs store it
+        absolute. A nested save_path counts: a film "Love" (`downloads/Love`) holds every
+        "Love/Hate S01E01" episode, and a crafted `TorrentRequest.save_path` can sit
+        inside another download's release directory."""
         mine = Path(row.save_path).resolve()
-        return [
-            other for other in db.query(DbTorrent).filter(DbTorrent.id != row.id).all()
-            if other.save_path and Path(other.save_path).resolve() == mine
-        ]
+        found = []
+        for other in db.query(DbTorrent).filter(DbTorrent.id != row.id).all():
+            if not other.save_path:
+                continue
+            theirs = Path(other.save_path).resolve()
+            if theirs == mine or mine in theirs.parents or theirs in mine.parents:
+                found.append(other)
+        return found
 
     def _owned_paths(self, db: Session, row: DbTorrent) -> List[Path]:
         """The paths under `row.save_path` that this download alone owns: what it
-        claims, less whatever a sibling on the same save_path also claims."""
+        claims, less whatever a sibling also claims there. A sibling on the same
+        save_path claims its content names; one nested below claims the first component
+        of its save_path under this one; one above claims nothing at this level."""
         mine = self._content_claims(row.id, row.magnet, row.resume_data)
         my_hash = _v1_hex(row.magnet)
+        my_path = Path(row.save_path).resolve()
         theirs: Set[str] = set()
         for sib in self._siblings(db, row):
+            sib_path = Path(sib.save_path).resolve()
+            if sib_path != my_path:
+                if my_path in sib_path.parents:
+                    sib_claims = {sib_path.relative_to(my_path).parts[0]}
+                else:
+                    sib_claims = set()  # an ancestor: its names live a level above
+                for name in sorted(mine & sib_claims):
+                    logger.info(f"delete {row.id}: keeping {name!r}, {sib.id} lives under it")
+                theirs |= sib_claims
+                continue
             sib_claims = self._content_claims(sib.id, sib.magnet, sib.resume_data)
             if my_hash is not None and _v1_hex(sib.magnet) == my_hash:
                 # The same torrent twice owns nothing exclusively.
@@ -1156,8 +1176,8 @@ class TorrentManager:
         unshared save_path cases part ways, for Remove, the vacuum and the content guard."""
         root = settings.default_download_path
         if not plan.sibling_ids:
-            # Nobody else's download lives here: the directory is wholly this one's,
-            # leftovers included, or no one could ever clean them up.
+            # Nobody else's download lives here, above or below: the directory is wholly
+            # this one's, leftovers included, or no one could ever clean them up.
             safe_rmtree(plan.save_path, root)
             return
         if not plan.owned:

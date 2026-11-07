@@ -86,89 +86,97 @@ def tworld(db_session, override_get_db, auth_enabled, monkeypatch, session_facto
     app.dependency_overrides.clear()
 
 
+def _as(world, who):
+    """The client acting as ``who``. Cookies go on the client, not on each request:
+    httpx deprecates per-request ``cookies=``."""
+    client = world["client"]
+    client.cookies.clear()
+    client.cookies.update(world[who])
+    return client
+
+
 def _ids(resp):
     assert resp.status_code == 200, resp.text
     return {t["id"] for t in resp.json()}
 
 
 def test_member_lists_only_their_own_downloads(tworld):
-    c = tworld["client"]
-    assert _ids(c.get("/api/v1/torrents/list", cookies=tworld["member"])) == {"t-member"}
-    assert _ids(c.get("/api/v1/torrents/list", cookies=tworld["owner"])) == ALL_IDS
+    assert _ids(_as(tworld, "member").get("/api/v1/torrents/list")) == {"t-member"}
+    assert _ids(_as(tworld, "owner").get("/api/v1/torrents/list")) == ALL_IDS
+    # Every row is downloading, so the state filter alone would let all four through.
+    assert _ids(_as(tworld, "member").get("/api/v1/torrents/list",
+                                          params={"state": "downloading"})) == {"t-member"}
 
 
 def test_member_activity_count_is_scoped(tworld):
-    c = tworld["client"]
-    member = c.get("/api/v1/activity/count", cookies=tworld["member"])
-    owner = c.get("/api/v1/activity/count", cookies=tworld["owner"])
+    member = _as(tworld, "member").get("/api/v1/activity/count")
+    owner = _as(tworld, "owner").get("/api/v1/activity/count")
     assert member.status_code == 200 and owner.status_code == 200
     assert member.json()["active_downloads"] == 1
     assert owner.json()["active_downloads"] == 4
 
 
 def test_member_cannot_delete_another_accounts_download(tworld):
-    c, state_of = tworld["client"], tworld["state_of"]
+    state_of = tworld["state_of"]
 
-    r = c.delete("/api/v1/torrents/t-other", cookies=tworld["member"])
+    r = _as(tworld, "member").delete("/api/v1/torrents/t-other")
     assert r.status_code == 404
     assert r.json()["detail"] == "Torrent not found or deletion failed"
     assert state_of("t-other") == "downloading"
 
-    r = c.delete("/api/v1/torrents/t-legacy", cookies=tworld["member"])
+    r = _as(tworld, "member").delete("/api/v1/torrents/t-legacy")
     assert r.status_code == 404
     assert state_of("t-legacy") == "downloading"
 
-    r = c.delete("/api/v1/torrents/t-member", cookies=tworld["member"])
+    r = _as(tworld, "member").delete("/api/v1/torrents/t-member")
     assert r.status_code == 200, r.text
     assert state_of("t-member") is None
 
-    r = c.delete("/api/v1/torrents/t-other", cookies=tworld["owner"])
+    r = _as(tworld, "owner").delete("/api/v1/torrents/t-other")
     assert r.status_code == 200, r.text
     assert state_of("t-other") is None
 
 
 def test_not_visible_and_missing_are_indistinguishable(tworld):
-    c = tworld["client"]
-    hidden = c.delete("/api/v1/torrents/t-other", cookies=tworld["member"])
-    missing = c.delete("/api/v1/torrents/nope", cookies=tworld["member"])
+    hidden = _as(tworld, "member").delete("/api/v1/torrents/t-other")
+    missing = _as(tworld, "member").delete("/api/v1/torrents/nope")
     assert hidden.status_code == 404
     assert (hidden.status_code, hidden.json()) == (missing.status_code, missing.json())
 
 
 def test_member_cannot_pause_another_accounts_download(tworld):
-    c, state_of = tworld["client"], tworld["state_of"]
-    for action in ("pause", "stop"):
-        r = c.post("/api/v1/torrents/action/t-other", json={"action": action},
-                   cookies=tworld["member"])
-        assert r.status_code == 404, action
-        assert r.json()["detail"] == "Torrent not found or action failed"
-        assert state_of("t-other") == "downloading"
+    state_of = tworld["state_of"]
+    # t-legacy is the owner's (NULL account_id): a member may not touch it either.
+    for target in ("t-other", "t-legacy"):
+        for action in ("pause", "stop"):
+            r = _as(tworld, "member").post(f"/api/v1/torrents/action/{target}",
+                                           json={"action": action})
+            assert r.status_code == 404, (target, action)
+            assert r.json()["detail"] == "Torrent not found or action failed"
+            assert state_of(target) == "downloading"
 
-    r = c.post("/api/v1/torrents/action/t-member", json={"action": "pause"},
-               cookies=tworld["member"])
+    r = _as(tworld, "member").post("/api/v1/torrents/action/t-member", json={"action": "pause"})
     assert r.status_code == 200, r.text
     assert state_of("t-member") == "paused"
 
 
 def test_resume_is_not_scoped(tworld, monkeypatch):
-    c = tworld["client"]
     calls = []
     monkeypatch.setattr(torrent_manager, "resume_torrent",
                         lambda tid: calls.append(tid) or True)
 
-    r = c.post("/api/v1/torrents/action/t-other", json={"action": "resume"},
-               cookies=tworld["member"])
+    r = _as(tworld, "member").post("/api/v1/torrents/action/t-other", json={"action": "resume"})
     assert r.status_code == 200, r.text
     assert calls == ["t-other"]
 
-    r = c.get("/api/v1/torrents/status/t-other", cookies=tworld["member"])
+    r = _as(tworld, "member").get("/api/v1/torrents/status/t-other")
     assert r.status_code == 200, r.text
     assert r.json()["id"] == "t-other"
 
 
 def test_batch_acts_only_on_the_visible_set(tworld):
-    c, state_of = tworld["client"], tworld["state_of"]
-    r = c.post("/api/v1/torrents/batch", json={"action": "pause"}, cookies=tworld["member"])
+    state_of = tworld["state_of"]
+    r = _as(tworld, "member").post("/api/v1/torrents/batch", json={"action": "pause"})
     assert r.status_code == 200, r.text
     assert [res["id"] for res in r.json()["results"]] == ["t-member"]
     assert state_of("t-other") == "downloading"
@@ -178,7 +186,6 @@ def test_batch_acts_only_on_the_visible_set(tworld):
 
 
 def test_download_records_the_starting_account(tworld, monkeypatch):
-    c = tworld["client"]
     recorded = []
 
     async def fake_resolve(tmdb_id):
@@ -207,13 +214,12 @@ def test_download_records_the_starting_account(tworld, monkeypatch):
     monkeypatch.setattr(torrents_api.torrent_manager, "add_torrent", fake_add)
     monkeypatch.setattr(torrents_api.torrent_manager, "get_torrent_status", fake_status)
 
-    r = c.post("/api/v1/torrents/download", json={"tmdb_id": 1}, cookies=tworld["member"])
+    r = _as(tworld, "member").post("/api/v1/torrents/download", json={"tmdb_id": 1})
     assert r.status_code == 200, r.text
     assert recorded == [tworld["member_id"]]
 
 
 def test_a_member_reusing_a_legacy_row_does_not_adopt_it(tworld, monkeypatch, session_factory):
-    c = tworld["client"]
     s = session_factory()
     try:
         s.query(DbTorrent).filter(DbTorrent.id == "t-legacy").update({
@@ -240,7 +246,7 @@ def test_a_member_reusing_a_legacy_row_does_not_adopt_it(tworld, monkeypatch, se
     monkeypatch.setattr(torrents_api.catalog, "torrents", fake_torrents)
     monkeypatch.setattr(torrents_api.torrent_manager, "add_torrent", fake_add)
 
-    r = c.post("/api/v1/torrents/download", json={"tmdb_id": 604}, cookies=tworld["member"])
+    r = _as(tworld, "member").post("/api/v1/torrents/download", json={"tmdb_id": 604})
     assert r.status_code == 200, r.text
     assert r.json()["id"] == "t-legacy"
     assert added == [] and searched == []
@@ -250,13 +256,12 @@ def test_a_member_reusing_a_legacy_row_does_not_adopt_it(tworld, monkeypatch, se
         assert s.query(DbTorrent).filter(DbTorrent.id == "t-legacy").one().account_id is None
     finally:
         s.close()
-    assert "t-legacy" not in _ids(c.get("/api/v1/torrents/list", cookies=tworld["member"]))
+    assert "t-legacy" not in _ids(_as(tworld, "member").get("/api/v1/torrents/list"))
 
 
 def test_for_title_is_not_scoped(tworld):
-    c = tworld["client"]
-    r = c.get("/api/v1/torrents/for-title", params={"tmdb_id": 603, "media_type": "movie"},
-              cookies=tworld["member"])
+    r = _as(tworld, "member").get("/api/v1/torrents/for-title",
+                                  params={"tmdb_id": 603, "media_type": "movie"})
     assert _ids(r) == {"t-owner"}
 
 
@@ -290,7 +295,7 @@ def _by_id(resp):
 
 
 def test_owner_sees_who_watched(wworld):
-    rows = _by_id(wworld["client"].get("/api/v1/torrents/list", cookies=wworld["owner"]))
+    rows = _by_id(_as(wworld, "owner").get("/api/v1/torrents/list"))
     assert rows["t-member"]["watched_by"] == [
         {"profile_id": wworld["ann_id"], "display_name": "Ann", "avatar": None, "percent": 60.0}
     ]
@@ -298,7 +303,7 @@ def test_owner_sees_who_watched(wworld):
 
 
 def test_member_never_sees_watched_by(wworld):
-    rows = _by_id(wworld["client"].get("/api/v1/torrents/list", cookies=wworld["member"]))
+    rows = _by_id(_as(wworld, "member").get("/api/v1/torrents/list"))
     assert rows["t-member"]["watched_by"] is None
 
 
@@ -307,7 +312,7 @@ def test_disk_totals_are_the_same_for_everyone(wworld, monkeypatch):
                         lambda p: SimpleNamespace(total=1000, used=400, free=600))
     want = {"used_by_downloads_bytes": 150, "free_bytes": 600, "total_bytes": 1000}
     for who in ("owner", "member"):
-        r = wworld["client"].get("/api/v1/torrents/disk", cookies=wworld[who])
+        r = _as(wworld, who).get("/api/v1/torrents/disk")
         assert r.status_code == 200, r.text
         assert r.json() == want
 
@@ -316,5 +321,5 @@ def test_disk_unavailable_is_503(wworld, monkeypatch):
     def boom(p):
         raise OSError("gone")
     monkeypatch.setattr(torrents_api.shutil, "disk_usage", boom)
-    r = wworld["client"].get("/api/v1/torrents/disk", cookies=wworld["owner"])
+    r = _as(wworld, "owner").get("/api/v1/torrents/disk")
     assert r.status_code == 503

@@ -967,6 +967,8 @@ class TorrentManager:
                     season=getattr(movie, "season", None),
                     episode=getattr(movie, "episode", None),
                     account_id=account_id,
+                    # Only the API's model carries it; the schedule cron's leaves NULL.
+                    requested_quality=getattr(torrent, "requested_quality", None),
                     added_at=now,
                     last_touched_at=now,
                 )

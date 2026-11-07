@@ -84,6 +84,31 @@ def test_add_torrent_records_account_and_clock(monkeypatch, override_get_db, ses
     assert _fresh(session_factory, "t-cron").account_id is None
 
 
+def test_add_torrent_records_the_requested_quality(monkeypatch, override_get_db,
+                                                    session_factory, tmp_path):
+    inst = _manager(monkeypatch, override_get_db)
+    inst._add_torrent = lambda *a, **k: object()
+
+    async def _noop():
+        return None
+    inst.start_update_task = _noop
+    movie = SimpleNamespace(title="Film", year=None, genre="", tmdb_id=603, media_type="movie",
+                            season=None, episode=None)
+    down = SimpleNamespace(id="t-down", quality="720p", requested_quality="1080p",
+                           magnet="magnet:?xt=urn:btih:" + "b" * 40, url="u",
+                           sizes=("1.0 GB", ""))
+    asyncio.run(inst.add_torrent(movie, down, save_path=tmp_path / "Film"))
+    r = _fresh(session_factory, "t-down")
+    assert (r.quality, r.requested_quality) == ("720p", "1080p")
+
+    # The schedule cron's torrent model has no requested bucket: the column stays NULL.
+    cron = SimpleNamespace(id="t-cron", quality="720p",
+                           magnet="magnet:?xt=urn:btih:" + "c" * 40, url="u",
+                           sizes=("1.0 GB", ""))
+    asyncio.run(inst.add_torrent(movie, cron, save_path=tmp_path / "Film2"))
+    assert _fresh(session_factory, "t-cron").requested_quality is None
+
+
 class _FinishedAlert:
     pass
 

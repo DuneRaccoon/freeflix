@@ -89,6 +89,8 @@ class _DlTorrent:
     magnet: str
     url: str
     sizes: _Tuple[str, str]
+    #: The bucket the request asked for; ``quality`` is the chosen release's own.
+    requested_quality: _Optional[str] = None
 
 router = APIRouter()
 
@@ -276,6 +278,7 @@ async def _start_download(request: TorrentRequest, ctx: AuthContext) -> TorrentS
         magnet=chosen_magnet,
         url=chosen_magnet,
         sizes=(_human_size(chosen_bytes), ""),
+        requested_quality=request.quality,
     )
     save_path = PathLib(request.save_path) if request.save_path else None
     # Not scoped: anyone may start a download; the row records who did. With auth

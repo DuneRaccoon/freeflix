@@ -71,6 +71,21 @@ def test_movie_reuse_requires_the_same_quality(db_session):
     assert _find(db_session, tmdb_id=603, media_type="movie", quality="2160p") is None
 
 
+def test_reuse_matches_the_requested_quality_as_well_as_the_release(db_session):
+    db_session.add_all([
+        _row("down", tmdb_id=603, media_type="movie", quality="720p",
+             requested_quality="1080p"),
+        # Legacy: no requested bucket stored, so only its own quality matches.
+        _row("legacy", tmdb_id=604, media_type="movie", quality="720p"),
+    ])
+    db_session.flush()
+    assert _find(db_session, tmdb_id=603, media_type="movie", quality="1080p").id == "down"
+    assert _find(db_session, tmdb_id=603, media_type="movie", quality="720p").id == "down"
+    assert _find(db_session, tmdb_id=603, media_type="movie", quality="2160p") is None
+    assert _find(db_session, tmdb_id=604, media_type="movie", quality="1080p") is None
+    assert _find(db_session, tmdb_id=604, media_type="movie", quality="720p").id == "legacy"
+
+
 def test_error_and_blocked_rows_are_never_reused(db_session):
     db_session.add_all([
         _row("e", tmdb_id=603, media_type="movie", state="error"),
@@ -347,6 +362,51 @@ def test_reuse_counts_as_a_play_and_resets_the_clock(world):
     assert world.read("r1").last_touched_at == FROZEN
 
 
+def _storing_add(rec, override_get_db):
+    """An add_torrent stub that writes the row the way the real one does: the release's
+    own quality, plus the bucket the request asked for."""
+    async def adding(m, t, save_path=None, account_id=None):
+        n = len(rec.add) + 1
+        rec.add.append((m, t, account_id))
+        with override_get_db() as s:
+            s.add(Torrent(id=f"r-{n}", movie_title="Movie", tmdb_id=m.tmdb_id,
+                          media_type=m.media_type, season=m.season, episode=m.episode,
+                          quality=t.quality,
+                          requested_quality=getattr(t, "requested_quality", None),
+                          state="downloading",
+                          magnet=t.magnet, url=t.magnet, save_path=f"/tmp/r-{n}"))
+        return f"r-{n}"
+    return adding
+
+
+def test_a_downgraded_download_is_reused_at_the_quality_it_was_asked_for(world):
+    # A 1080p press whose best source is a 720p release: the second press must find it.
+    async def downgrade_only(name):
+        world.rec.catalog.append(name)
+        title = "Movie.2020.720p.WEB"
+        return [TorrentHit(title=title, seeds=30, peers=0, bytes=1000,
+                           magnet="magnet:?xt=urn:btih:" + "ee" * 20, hash="",
+                           quality=parse_quality(title))]
+
+    world.monkeypatch.setattr(torrents_api.catalog, "torrents", downgrade_only)
+    world.monkeypatch.setattr(torrents_api.torrent_manager, "add_torrent",
+                              _storing_add(world.rec, world.override_get_db))
+
+    body = {"tmdb_id": 603, "quality": "1080p"}
+    first = world.client.post("/api/v1/torrents/download", json=body)
+    assert first.status_code == 200, first.text
+    second = world.client.post("/api/v1/torrents/download", json=body)
+    assert second.status_code == 200, second.text
+
+    assert len(world.rec.add) == 1
+    assert first.json()["id"] == second.json()["id"] == "r-1"
+    row = world.read("r-1")
+    assert (row.quality, row.requested_quality) == ("720p", "1080p")
+    # The release's own bucket still answers too, and an unrelated one does not.
+    assert _find(world.db, tmdb_id=603, media_type="movie", quality="720p").id == "r-1"
+    assert _find(world.db, tmdb_id=603, media_type="movie", quality="2160p") is None
+
+
 def test_two_identical_presses_racing_start_one_download(world):
     # TestClient serialises requests, so it cannot race; two requests on one loop can.
     rec, override_get_db = world.rec, world.override_get_db
@@ -354,19 +414,13 @@ def test_two_identical_presses_racing_start_one_download(world):
     async def slow_catalog(name):
         rec.catalog.append(name)
         await asyncio.sleep(0.05)
-        title = "Movie.2020.1080p.WEB"
+        # The only source is a downgrade: the row's quality (720p) is not the request's.
+        title = "Movie.2020.720p.WEB"
         return [TorrentHit(title=title, seeds=30, peers=0, bytes=1000,
                            magnet="magnet:?xt=urn:btih:" + "cd" * 20, hash="",
                            quality=parse_quality(title))]
 
-    async def adding(m, t, save_path=None, account_id=None):
-        n = len(rec.add) + 1
-        rec.add.append((m, t, account_id))
-        with override_get_db() as s:
-            s.add(Torrent(id=f"r-{n}", movie_title="Movie", tmdb_id=603,
-                          media_type="movie", quality="1080p", state="downloading",
-                          magnet=t.magnet, url=t.magnet, save_path=f"/tmp/r-{n}"))
-        return f"r-{n}"
+    adding = _storing_add(rec, override_get_db)
 
     world.monkeypatch.setattr(torrents_api.catalog, "torrents", slow_catalog)
     world.monkeypatch.setattr(torrents_api.torrent_manager, "add_torrent", adding)
@@ -385,3 +439,4 @@ def test_two_identical_presses_racing_start_one_download(world):
     assert second.status_code == 200, second.text
     assert len(rec.add) == 1
     assert first.json()["id"] == second.json()["id"] == "r-1"
+    assert world.read("r-1").quality == "720p"

@@ -8,6 +8,7 @@ reuse never disagree about a season pack.
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database.models import Torrent
@@ -103,6 +104,11 @@ def find_reusable(session: Session, *, tmdb_id: int, media_type: str,
                   quality: str) -> Optional[Torrent]:
     """The best existing download for this title at this quality, or None.
 
+    A row matches on its release's own ``quality`` or on the ``requested_quality`` it was
+    started for, so a 1080p request answered by a 720p release is reused by the next 1080p
+    press instead of adding the same torrent again. Legacy rows hold NULL there and match
+    on ``quality`` alone.
+
     Never a row in ``error`` or ``blocked``. Ownership is not considered: a member's Play
     may reuse the owner's download (the row keeps its ``account_id``).
     """
@@ -111,7 +117,7 @@ def find_reusable(session: Session, *, tmdb_id: int, media_type: str,
         .filter(
             Torrent.tmdb_id == tmdb_id,
             Torrent.media_type == media_type,
-            Torrent.quality == quality,
+            or_(Torrent.quality == quality, Torrent.requested_quality == quality),
             Torrent.state.notin_(UNREUSABLE_STATES),
         )
         .all()

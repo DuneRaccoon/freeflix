@@ -55,6 +55,10 @@ class Torrent(Model):
     finished_at = Column(DateTime, nullable=True)
     last_touched_at = Column(DateTime, nullable=True)
     size_bytes = Column(BigInteger, nullable=True)  # a 4K film exceeds 2**31 bytes
+    # The bucket the Play press asked for, beside ``quality`` (the release's own). A 1080p
+    # request answered by a 720p release stores 720p / 1080p, so the next 1080p press
+    # reuses it (services/torrent_reuse.find_reusable). NULL on legacy and cron rows.
+    requested_quality = Column(String, nullable=True)
 
     # Relationships
     download_logs = relationship("TorrentLog", back_populates="torrent", cascade="all, delete-orphan")

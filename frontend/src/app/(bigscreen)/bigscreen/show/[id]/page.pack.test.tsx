@@ -22,7 +22,7 @@ vi.mock('@/services/users', () => ({
   // unmocked service method here is a real XHR out of jsdom.
   usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
 }));
-vi.mock('@/services/torrents', () => ({ torrentsService: { listTorrents: vi.fn(), getTorrentStatus: vi.fn(), downloadCatalogMovie: vi.fn(), performTorrentAction: vi.fn() } }));
+vi.mock('@/services/torrents', () => ({ torrentsService: { getForTitle: vi.fn(), getTorrentStatus: vi.fn(), downloadCatalogMovie: vi.fn(), performTorrentAction: vi.fn() } }));
 vi.mock('@/services/streaming', () => ({
   streamingService: { getRecentProgress: vi.fn(), getProgressByMovie: vi.fn(), getFiles: vi.fn() },
 }));
@@ -66,7 +66,7 @@ beforeEach(() => {
   vi.mocked(tvService.getSeason).mockResolvedValue(seasonTwo);
   vi.mocked(streamingService.getRecentProgress).mockResolvedValue([]);
   vi.mocked(streamingService.getProgressByMovie).mockResolvedValue(null);
-  vi.mocked(torrentsService.listTorrents).mockResolvedValue([pack()]);
+  vi.mocked(torrentsService.getForTitle).mockResolvedValue([pack()]);
 });
 
 async function mountAndSettle() {
@@ -131,7 +131,7 @@ describe('season packs', () => {
 
   describe('a pack that is STILL DOWNLOADING (its normal state for hours)', () => {
     beforeEach(() => {
-      vi.mocked(torrentsService.listTorrents).mockResolvedValue([pack({ state: 'downloading', progress: 30 } as never)]);
+      vi.mocked(torrentsService.getForTitle).mockResolvedValue([pack({ state: 'downloading', progress: 30 } as never)]);
     });
 
     it('pressing episode 2 goes to that episode\'s file, not the default file', async () => {
@@ -150,7 +150,7 @@ describe('season packs', () => {
     });
 
     it('with no readable file list (no metadata yet) it says Preparing and never navigates to the default file', async () => {
-      vi.mocked(torrentsService.listTorrents).mockResolvedValue([pack({ state: 'downloading_metadata', progress: 0 } as never)]);
+      vi.mocked(torrentsService.getForTitle).mockResolvedValue([pack({ state: 'downloading_metadata', progress: 0 } as never)]);
       vi.mocked(streamingService.getFiles).mockRejectedValue(new Error('no metadata'));
       await mountAndSettle();
       fireEvent.click(epButtons()[1]);

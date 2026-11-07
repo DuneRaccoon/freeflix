@@ -131,6 +131,7 @@ vi.mock('@/services/torrents', () => ({
     getSources: vi.fn(),
     getTorrentStatus: vi.fn(),
     listTorrents: vi.fn(),
+    getForTitle: vi.fn(),
     performTorrentAction: vi.fn(),
     deleteTorrent: vi.fn(),
     batchAction: vi.fn(),
@@ -947,7 +948,7 @@ describe('?file= rides from the screen that resolved it to the watch route', () 
     vi.mocked(tvService.getSeason).mockResolvedValue(seasonDetail);
     vi.mocked(streamingService.getRecentProgress).mockResolvedValue([]);
     vi.mocked(streamingService.getProgressByMovie).mockResolvedValue(null);
-    vi.mocked(torrentsService.listTorrents).mockResolvedValue([packRow()]);
+    vi.mocked(torrentsService.getForTitle).mockResolvedValue([packRow()]);
     if (files instanceof Error) vi.mocked(streamingService.getFiles).mockRejectedValue(files);
     else vi.mocked(streamingService.getFiles).mockResolvedValue(files);
     mountScreen(screenFor('bigscreen/show/[id]/page.tsx'));
@@ -1035,7 +1036,7 @@ describe('a 423 anywhere sends the viewer to the picker', () => {
       clear.mockImplementation(() => {
         vi.mocked(useTvProfile).mockReturnValue({ profile: null, loading: false, select, clear });
       });
-      vi.mocked(torrentsService.listTorrents).mockResolvedValue([]);
+      vi.mocked(torrentsService.getForTitle).mockResolvedValue([]);
       mountScreen(s);
       await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/bigscreen/profiles'));
       expect(clear).toHaveBeenCalled();
@@ -1047,7 +1048,7 @@ describe('a 423 anywhere sends the viewer to the picker', () => {
       // which is a different fact from "nothing here".
       expect(screen.queryByRole('button', { name: /^Play/ })).toBeNull();
       // And no wasted re-run as nobody: the first (locked) answer never reaches the torrent list.
-      expect(torrentsService.listTorrents).not.toHaveBeenCalled();
+      expect(torrentsService.getForTitle).not.toHaveBeenCalled();
       if (/movie|show|list/.test(s.file)) expect(document.body.textContent).toMatch(/locked/i);
     },
   );
@@ -1100,7 +1101,7 @@ describe('a card press lands on a screen that accepts the id the card carried', 
       if (route!.file === 'bigscreen/movie/[id]/page.tsx') {
         vi.mocked(moviesService.getDetail).mockResolvedValue(movieDetailOf(Number(id)));
         vi.mocked(streamingService.getProgressByMovie).mockResolvedValue(null);
-        vi.mocked(torrentsService.listTorrents).mockResolvedValue([]);
+        vi.mocked(torrentsService.getForTitle).mockResolvedValue([]);
         nav.params.current = { id };
         const view = render(<MoviePage />);
         // The detail screen validates the id itself and shows "Couldn't load this movie" for
@@ -1112,7 +1113,7 @@ describe('a card press lands on a screen that accepts the id the card carried', 
         vi.mocked(tvService.getSeason).mockResolvedValue(seasonDetail);
         vi.mocked(streamingService.getRecentProgress).mockResolvedValue([]);
         vi.mocked(streamingService.getProgressByMovie).mockResolvedValue(null);
-        vi.mocked(torrentsService.listTorrents).mockResolvedValue([]);
+        vi.mocked(torrentsService.getForTitle).mockResolvedValue([]);
         nav.params.current = { id };
         const view = render(<ShowPage />);
         expect(await screen.findByRole('heading', { level: 1, name: `Show ${id}` })).toBeTruthy();

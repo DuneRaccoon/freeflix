@@ -48,6 +48,17 @@ export const torrentsService = {
     return response.data;
   },
 
+  // Downloads on this box that cover one title (the server filters by the same rule as the clients)
+  getForTitle: async (params: {
+    tmdb_id: number;
+    media_type: 'movie' | 'tv';
+    season?: number;
+    episode?: number;
+  }): Promise<TorrentStatus[]> => {
+    const response = await apiClient.get(`/torrents/for-title`, { params });
+    return response.data;
+  },
+
   // Perform action on torrent (pause | resume)
   performTorrentAction: async (torrentId: string, action: TorrentAction): Promise<any> => {
     const response = await apiClient.post(`/torrents/action/${torrentId}`, { action });

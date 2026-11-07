@@ -119,9 +119,8 @@ export interface TorrentStatus {
   // chosen quality after any server-side downgrade (W1 TorrentStatus.chosen_quality)
   chosen_quality?: string;
   // Media identity, off the indexed torrent columns (TorrentStatus in backend models.py).
-  // Lets a client tell "already downloading" from "never requested" instead of minting a
-  // duplicate: POST /torrents/download mints a fresh uuid4 and add_torrent does no magnet
-  // or infohash dedupe. Optional/nullable: rows written before these columns existed have
+  // Lets a client tell "already downloading" from "never requested"; the dedupe itself now
+  // happens server-side (POST /torrents/download reuses a covering download). Optional/nullable: rows written before these columns existed have
   // them NULL, and sync_columns never backfills.
   tmdb_id?: number | null;
   media_type?: string | null;

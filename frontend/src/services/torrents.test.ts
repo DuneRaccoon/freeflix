@@ -137,6 +137,15 @@ describe('torrentsService.getSources sends the params verbatim', () => {
   });
 });
 
+describe('torrentsService.getForTitle', () => {
+  it('asks GET /torrents/for-title with the title identity as params', async () => {
+    const { torrentsService, last } = await harness();
+    await torrentsService.getForTitle({ tmdb_id: 1399, media_type: 'tv', season: 1, episode: 3 });
+    expect(last().url).toBe('/torrents/for-title');
+    expect(last().params).toEqual({ tmdb_id: 1399, media_type: 'tv', season: 1, episode: 3 });
+  });
+});
+
 describe('the other write paths are not quietly profiled either', () => {
   it('downloadMovie (the legacy YTS-shaped request) sends its body unchanged', async () => {
     const { torrentsService, last } = await harness();

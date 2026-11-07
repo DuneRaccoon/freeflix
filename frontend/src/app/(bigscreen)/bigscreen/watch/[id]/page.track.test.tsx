@@ -70,7 +70,7 @@ vi.mock('@/services/streaming', () => ({
   },
 }));
 vi.mock('@/services/torrents', () => ({
-  torrentsService: { getTorrentStatus: vi.fn(), listTorrents: vi.fn(), downloadCatalogMovie: vi.fn() },
+  torrentsService: { getTorrentStatus: vi.fn(), getForTitle: vi.fn(), downloadCatalogMovie: vi.fn() },
 }));
 
 /**

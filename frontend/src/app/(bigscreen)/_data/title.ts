@@ -363,11 +363,11 @@ function named(p: StreamingProgress | null): p is StreamingProgress & { torrent_
 }
 
 /**
- * Ask what already exists before anyone is offered Play. `POST /torrents/download` mints a
- * fresh uuid4 and `add_torrent` does no magnet or infohash dedupe, so every Play press
- * starts a new torrent, and the ARM build allows only two at once.
+ * Ask what already exists before anyone is offered Play. The question goes to
+ * `GET /torrents/for-title`, not the account-scoped list, so a download another account
+ * started on this box still answers ready or resume.
  *
- * Resolves, never rejects. A dead `listTorrents` degrades to `play`; a 423 from the
+ * Resolves, never rejects. A dead `getForTitle` degrades to `play`; a 423 from the
  * profile-scoped progress call is reported as `locked`, never as "nothing to resume".
  * `chosen_quality` is not read: `to_status()` omits it, so it is null on every poll.
  */
@@ -408,7 +408,12 @@ export async function titleStateFor(args: TitleRef & { userId: string | null }):
 
     let all: TorrentStatus[] = [];
     try {
-      const listed = await torrentsService.listTorrents();
+      const listed = await torrentsService.getForTitle({
+        tmdb_id: ref.tmdbId,
+        media_type: ref.mediaType,
+        season: ref.season,
+        episode: ref.episode,
+      });
       all = Array.isArray(listed) ? listed : [];
     } catch {
       return { locked: false, action: { kind: 'play' } };

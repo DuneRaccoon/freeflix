@@ -63,7 +63,7 @@ vi.mock('@/services/streaming', () => ({
 vi.mock('@/services/torrents', () => ({
   torrentsService: {
     getTorrentStatus: vi.fn(),
-    listTorrents: vi.fn(),
+    getForTitle: vi.fn(),
     downloadCatalogMovie: vi.fn(),
     performTorrentAction: vi.fn(),
   },
@@ -214,7 +214,7 @@ beforeEach(() => {
   torrents.getTorrentStatus.mockResolvedValue(statusRow());
   // Nothing else on the box, so `titleStateFor` answers `play` for the next episode and the
   // prefetch is actually allowed to start one. The pack case is its own row below.
-  torrents.listTorrents.mockResolvedValue([]);
+  torrents.getForTitle.mockResolvedValue([]);
   // `episode: 2` on the answer is what makes this a SINGLE-episode torrent: `requestTitle`
   // only looks a file up inside what the box returns when the row names no episode of its
   // own, which is the season-pack case and has its own row below.
@@ -412,7 +412,7 @@ describe('the prefetch at 80%', () => {
     // (`season: 2, episode: null`) for any episode of that season, so `titleStateFor` answers
     // `open` and there is nothing to fetch. `POST /download` mints a fresh uuid with no
     // dedupe, so getting this wrong is a second copy of a season already on the box.
-    torrents.listTorrents.mockResolvedValue([statusRow({ state: 'seeding' })]);
+    torrents.getForTitle.mockResolvedValue([statusRow({ state: 'seeding' })]);
     const handle = await playing();
     await playTo(handle, PAST_80);
     expect(asked()).toEqual([]);
@@ -505,7 +505,7 @@ describe('the Next-episode press', () => {
   });
 
   it('goes to the episode the pack already holds, with its file index', async () => {
-    torrents.listTorrents.mockResolvedValue([statusRow({ state: 'seeding' })]);
+    torrents.getForTitle.mockResolvedValue([statusRow({ state: 'seeding' })]);
     const handle = await playing();
     await act(async () => {
       fireEvent.click(nextCell()!);
@@ -563,7 +563,7 @@ describe('the Next-episode press', () => {
   it('refuses to guess which file an unreadable pack holds', async () => {
     // There is nowhere on a transport cell to print "this may be a different episode", so a
     // press that cannot be resolved says so instead of playing the pack's default file.
-    torrents.listTorrents.mockResolvedValue([statusRow({ state: 'seeding' })]);
+    torrents.getForTitle.mockResolvedValue([statusRow({ state: 'seeding' })]);
     svc.getFiles.mockResolvedValueOnce(FILES).mockResolvedValue([]);
     const handle = await playing();
     await act(async () => {
@@ -584,7 +584,7 @@ describe('the Next-episode press', () => {
     // not torn down between episodes). What that left uncovered was the playhead: it carried
     // over, so the new episode's `loadedmetadata` seeked to `Math.max(resume, position)` —
     // half an hour into the episode the viewer had just started, silently.
-    torrents.listTorrents.mockResolvedValue([statusRow({ state: 'seeding' })]);
+    torrents.getForTitle.mockResolvedValue([statusRow({ state: 'seeding' })]);
     const { seek, view } = await playing();
     await playTo({ seek }, 1800);
     await act(async () => {

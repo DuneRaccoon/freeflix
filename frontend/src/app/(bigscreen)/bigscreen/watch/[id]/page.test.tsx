@@ -71,7 +71,7 @@ vi.mock('@/services/torrents', () => ({
   // `downloadCatalogMovie` is here so the 4K-ask rows below can press the ask THROUGH
   // `requestTitle` — the code that writes the carrier — rather than seeding it. A
   // test-only seeder would pass with the write deleted.
-  torrentsService: { getTorrentStatus: vi.fn(), listTorrents: vi.fn(), downloadCatalogMovie: vi.fn() },
+  torrentsService: { getTorrentStatus: vi.fn(), getForTitle: vi.fn(), downloadCatalogMovie: vi.fn() },
 }));
 
 /**

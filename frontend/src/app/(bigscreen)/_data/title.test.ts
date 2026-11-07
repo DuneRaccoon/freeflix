@@ -7,7 +7,7 @@ vi.mock('@/services/streaming', () => ({
   streamingService: { getProgressByMovie: vi.fn(), getFiles: vi.fn() },
 }));
 vi.mock('@/services/torrents', () => ({
-  torrentsService: { listTorrents: vi.fn(), downloadCatalogMovie: vi.fn(), getTorrentStatus: vi.fn(), performTorrentAction: vi.fn() },
+  torrentsService: { getForTitle: vi.fn(), downloadCatalogMovie: vi.fn(), getTorrentStatus: vi.fn(), performTorrentAction: vi.fn() },
 }));
 
 import { streamingService } from '@/services/streaming';
@@ -16,7 +16,7 @@ import { requestTitle, resumeTitle, takeFourKAsk, titleStateFor } from './title'
 
 const getProgress = vi.mocked(streamingService.getProgressByMovie);
 const getFiles = vi.mocked(streamingService.getFiles);
-const list = vi.mocked(torrentsService.listTorrents);
+const list = vi.mocked(torrentsService.getForTitle);
 const download = vi.mocked(torrentsService.downloadCatalogMovie);
 const getStatus = vi.mocked(torrentsService.getTorrentStatus);
 const act = vi.mocked(torrentsService.performTorrentAction);
@@ -383,13 +383,20 @@ describe('resumeTitle', () => {
   });
 });
 
+describe('titleStateFor: scope of the question', () => {
+  it('asks the box for this title only', async () => {
+    await titleStateFor(ep(1, 3));
+    expect(list).toHaveBeenCalledWith({ tmdb_id: 1399, media_type: 'tv', season: 1, episode: 3 });
+  });
+});
+
 describe('titleStateFor: never rejects', () => {
-  it('listTorrents rejecting yields play', async () => {
+  it('getForTitle rejecting yields play', async () => {
     list.mockRejectedValue(new Error('down'));
     expect(await titleStateFor(movie)).toEqual({ locked: false, action: { kind: 'play' } });
   });
 
-  it('listTorrents resolving a non-array yields play', async () => {
+  it('getForTitle resolving a non-array yields play', async () => {
     list.mockResolvedValue({ oops: 1 } as never);
     expect((await titleStateFor(movie)).action).toEqual({ kind: 'play' });
   });

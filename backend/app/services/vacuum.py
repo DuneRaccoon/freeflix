@@ -7,6 +7,7 @@ handles, and is the one evaluator shared by ``run_vacuum`` (which deletes) and
 It never imports ``app.torrent.manager`` at module level, so it stays importable without
 starting libtorrent.
 """
+import asyncio
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Dict, List, Optional
 
@@ -20,6 +21,7 @@ from app.database.session import get_db
 from app.models import TorrentStatus, VacuumInfo
 from app.services import accounts as accounts_service
 from app.services.instance_settings import EffectiveSettings, effective_settings
+from app.services.torrent_touch import utcnow
 from app.services.watch_share import profile_percents
 from app.torrent.storage import human_size
 
@@ -201,3 +203,41 @@ def run_vacuum(now: datetime, *, manager=None, tz=None) -> List[str]:
                 f"freed {human_size(size) if size else 'unknown size'}"
             )
     return deleted
+
+
+async def _vacuum_loop(*, sleep=asyncio.sleep, run=None, clock=None, tz=None) -> None:
+    """Sleep to the next 04:00, vacuum, repeat. A failed run is logged and the loop goes on.
+
+    The run is synchronous on the event loop, as ``DELETE /torrents/{id}`` is, because
+    ``remove_torrent`` mutates ``active_torrents`` which the loop's other code reads.
+    """
+    while True:
+        now = clock() if clock else datetime.now(timezone.utc)
+        await sleep(seconds_until_next_run(now, tz))
+        try:
+            (run or run_vacuum)(utcnow())
+        except Exception:
+            logger.exception("Autovacuum run failed")
+
+
+_task: Optional[asyncio.Task] = None
+
+
+def start_vacuum_task() -> asyncio.Task:
+    global _task
+    if _task is not None and not _task.done():
+        return _task
+    _task = asyncio.create_task(_vacuum_loop())
+    return _task
+
+
+async def stop_vacuum_task() -> None:
+    global _task
+    if _task is None:
+        return
+    task, _task = _task, None
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass

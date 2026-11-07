@@ -226,7 +226,7 @@ mail-less self-hosted instance usable. A send failure never fails the request.
 - `resume-data`, `logs` — backend torrent resume data and logs. `logs` also
   holds `claim_code.txt` while the instance is unclaimed.
 - `assets` — cached TMDB stills used as tier-2 avatars.
-- `./downloads` (bind mount) — downloaded media on the host.
+- `./downloads` (bind mount) — downloaded media on the host. **Autovacuum** (owner setting in Settings → Storage & playback, off by default) deletes downloads untouched for N days once a day at 04:00 *container-local* time (UTC unless `TZ` is set): `services/vacuum.py`, its own asyncio task started from the `startup` event, independent of `CRON_ENABLED`.
 
 ## Known follow-ups
 

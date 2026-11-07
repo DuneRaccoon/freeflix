@@ -27,6 +27,7 @@ from app.database.session import init_db, close_thread_sessions, get_db
 from app.middleware import error_handling_middleware
 from app.services import accounts as accounts_service
 from app.services.torrent_touch import stamp_legacy_torrents, utcnow
+from app.services.vacuum import start_vacuum_task, stop_vacuum_task
 
 # Initialize directories and settings
 settings.initialize()
@@ -289,6 +290,13 @@ async def startup_event():
             logger.exception("Torrent manager startup error:")
             # Continue with other services - we might still be able to function
         
+        # Autovacuum: its own task, independent of cron_enabled.
+        try:
+            start_vacuum_task()
+            logger.info("Autovacuum task started (daily at 04:00 container time)")
+        except Exception as vacuum_error:
+            logger.critical(f"Failed to start autovacuum task: {vacuum_error}")
+
         # Start scheduler if enabled
         if settings.cron_enabled:
             try:
@@ -317,7 +325,17 @@ async def shutdown_event():
     # Create a list to track services that failed to shut down
     failed_services = []
     
-    # First shut down the scheduler (if enabled)
+    # Autovacuum first: it is the only thing here that can delete files.
+    try:
+        await asyncio.wait_for(stop_vacuum_task(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("Autovacuum shutdown timed out")
+        failed_services.append("autovacuum")
+    except Exception as e:
+        logger.error(f"Error shutting down autovacuum: {e}")
+        failed_services.append("autovacuum")
+
+    # Then shut down the scheduler (if enabled)
     if settings.cron_enabled:
         try:
             logger.info("Shutting down scheduler...")

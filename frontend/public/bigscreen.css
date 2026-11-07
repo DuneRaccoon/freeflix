@@ -987,17 +987,6 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
   overflow: hidden;
 }
 .bs-ep__mark { flex: 1 1 100%; font-size: 22px; color: var(--gold-lite); }
-/* The auto-next cell on the show screen's actions row. A fixed basis for the reason
-   .bs-title__action--ask has one — .bs-title__actions is `flex-wrap: wrap`, so a cell sized to
-   its content changes the row's width when its alert line appears and can push the row onto a
-   second VISUAL line that the focus model still calls row 0. 300px rather than the 4K cell's
-   360px rather than the 4K cell's 200px because this label is three words and has to stay on
-   ONE line — at 300px it wrapped, and a two-line pill beside a one-line pill reads as a
-   mistake at three metres (measured by rendering this file at 1920x1080). The row still fits:
-   the primary cell is capped at 640px (.bs-title__action), so 640 + 360 + the 24px gap is
-   1024px inside the 1100px .bs-title__body. It is always LAST in its row, so the reserve is
-   trailing space. */
-.bs-show__autonext { flex: 0 0 360px; align-items: flex-start; }
 
 /* --- search: the D-pad keyboard and the results grid --------------------------- */
 /* Rendered by bigscreen/search/page.tsx and _components/Keyboard. Every cell is a focus

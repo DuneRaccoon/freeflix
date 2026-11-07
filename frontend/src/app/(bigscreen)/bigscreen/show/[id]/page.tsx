@@ -14,8 +14,6 @@ import { TitleScreen } from '../../../_components/TitleScreen';
 import { titleStateFor, type TitleAction, type TitleState } from '../../../_data/title';
 import { watchHref } from '../../../_data/watchHref';
 import { episodeTraces, latestSeasonWatched, nextUnwatched, seasonFinished } from '../../../_data/showProgress';
-import { AutoNextToggle } from '../../../_components/AutoNextToggle';
-import { useAutoNext } from '../../../_data/autoNext';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { HEADER_CELLS } from '../../../_components/Header';
 import { useFocusGrid } from '../../../_focus/useFocusGrid';
@@ -183,12 +181,6 @@ function Loaded({
   const tmdbId = show.tmdb_id;
   const seasons = useMemo(() => regularSeasons(show), [show]);
 
-  // Per-profile, read once here. The player reads it again on its own: the two screens are
-  // different page loads as far as this surface is concerned (the TV navigates client-side,
-  // but nothing on it holds settings in a context), and one small GET is cheaper than a
-  // provider for one boolean.
-  const autoNext = useAutoNext(profileId);
-
   const cache = useRef(new Map<number, SeasonDetail>(opened.seasons));
   const inFlight = useRef(new Set<number>());
   const [failedSeasons, setFailedSeasons] = useState<ReadonlySet<number>>(
@@ -303,16 +295,8 @@ function Loaded({
   const SEASON_ROW = 2;
   const epBase = seasons.length > 0 ? SEASON_ROW + 1 : SEASON_ROW;
   const emptySeason = !!entry && episodes.length === 0;
-  /**
-   * ROW 0 IS TWO CELLS NOW: the subject's control, and the auto-next toggle beside it.
-   *
-   * A CONSTANT, not a condition. The toggle is rendered in BOTH arms of `actions` below —
-   * beside the episode control and beside "Back to home" — so the count never changes while
-   * this screen is up, which is what keeps it out of the insertion hazard the transport row's
-   * `RETRY_CELL` is careful about: the thing that swaps on this screen is WHICH control sits
-   * at column 0, and the effect below already puts DOM focus back when that happens.
-   */
-  const ACTION_CELLS = 2;
+  /** ROW 1 IS ONE CELL, the subject's control (or 'Back to home'), and stays one in both arms of `actions`. */
+  const ACTION_CELLS = 1;
   const rowCounts = [
     HEADER_CELLS,
     ACTION_CELLS,
@@ -409,7 +393,6 @@ function Loaded({
         focusProps={grid.focusProps(ACTION_ROW, 0)}
         onRecheck={recheck}
       />
-      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(ACTION_ROW, 1)} />
     </>
   ) : (
     <>
@@ -422,10 +405,6 @@ function Loaded({
       <button type="button" className="bs-btn bs-btn--ghost" {...grid.focusProps(ACTION_ROW, 0)} onClick={goHome}>
         Back to home
       </button>
-      {/* HERE TOO, and that is what makes `ACTION_CELLS` a constant: the two arms of this
-          ternary are the same focus row, so a toggle in only one of them would change the
-          row's count every time the subject resolved. */}
-      <AutoNextToggle state={autoNext} focusProps={grid.focusProps(ACTION_ROW, 1)} />
     </>
   );
 

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { SeasonDetail, ShowDetail, StreamingProgress, Episode } from '@/types';
 import { tvService } from '@/services/tv';
-import { usersService } from '@/services/users';
 import { streamingService } from '@/services/streaming';
 import { requestTitle, resumeTitle, titleStateFor, type TitleAction } from '../../../_data/title';
 import { useTvProfile } from '../../../_data/useTvProfile';
@@ -13,11 +12,6 @@ vi.mock('next/navigation', () => ({ useRouter: () => router, useParams: () => ({
 vi.mock('../../../_data/title', () => ({ titleStateFor: vi.fn(), requestTitle: vi.fn(), resumeTitle: vi.fn() }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
-vi.mock('@/services/users', () => ({
-  // The auto-next toggle reads (and writes) the profile's setting. Mocked because an
-  // unmocked service method here is a real XHR out of jsdom.
-  usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
-}));
 vi.mock('@/services/streaming', () => ({ streamingService: { getRecentProgress: vi.fn() } }));
 
 const getShow = vi.mocked(tvService.getShow);
@@ -98,22 +92,8 @@ const ringSettled = async () =>
 
 const seasonBtn = (n: number) => screen.getByRole('button', { name: new RegExp(`Season ${n}`) });
 
-const settingsRow = (autoNext: boolean) =>
-  ({
-    id: 's1',
-    user_id: 'p1',
-    maturity_restriction: 'none',
-    require_passcode: false,
-    has_passcode: false,
-    passcode_len: null,
-    theme: 'dark',
-    default_quality: '1080p',
-    auto_next_episode: autoNext,
-  }) as unknown as Awaited<ReturnType<typeof usersService.getUserSettings>>;
-
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(true));
   sessionStorage.clear();
   profileHook.mockReturnValue({ profile: { id: 'p1', display_name: 'Ben', avatar: null }, loading: false, select: vi.fn(), clear });
   getShow.mockResolvedValue(show());
@@ -628,64 +608,23 @@ describe('show detail screen', () => {
   });
 
   // =================================================================================
-  // The auto-next switch, and the trace the episode list draws
+  // The action row, and the trace the episode list draws
   // =================================================================================
 
-  const toggle = () => screen.getByRole('button', { name: /^Auto-download next:/ });
-
-  it('offers the auto-next switch beside the episode control, showing the profile’s answer', async () => {
-    vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(false));
+  it('the action row is the episode control alone: Right from it goes nowhere', async () => {
     await mount();
-    await waitFor(() => expect(toggle().textContent).toBe('Auto-download next: Off'));
-    expect.soft(toggle().getAttribute('aria-pressed')).toBe('false');
-    expect.soft(vi.mocked(usersService).getUserSettings).toHaveBeenCalledWith('p1');
-  });
-
-  it('writes the profile’s setting when it is pressed', async () => {
-    vi.mocked(usersService).updateUserSettings.mockResolvedValue(settingsRow(false));
-    await mount();
-    await waitFor(() => expect(toggle().textContent).toBe('Auto-download next: On'));
-    await act(async () => {
-      fireEvent.click(toggle());
-    });
-    expect.soft(vi.mocked(usersService).updateUserSettings).toHaveBeenCalledWith('p1', {
-      auto_next_episode: false,
-    });
-    await waitFor(() => expect(toggle().textContent).toBe('Auto-download next: Off'));
-  });
-
-  it('is the second cell of row 0, reachable from the episode control with one press', async () => {
-    // The row's count is a CONSTANT (`ACTION_CELLS`), which is what keeps this cell out of
-    // the insertion hazard: the thing that changes on this screen is which control sits at
-    // column 0, not how many there are.
-    await mount();
-    await ringPlaced();
-    const first = document.querySelector('[tabindex="0"]');
-    expect.soft(first, 'the ring starts on the episode control').toBe(
-      screen.getByRole('button', { name: 'Play' }),
-    );
+    await ringSettled();
+    const play = screen.getByRole('button', { name: 'Play' });
+    expect.soft(document.activeElement, 'the ring starts on the episode control').toBe(play);
     await act(async () => {
       (document.activeElement ?? document.body).dispatchEvent(
         new KeyboardEvent('keydown', { key: 'ArrowRight', keyCode: 39, bubbles: true, cancelable: true }),
       );
     });
-    await waitFor(() => expect(document.activeElement).toBe(toggle()));
-    expect.soft(document.querySelectorAll('[tabindex="0"]'), 'exactly one cell holds the ring').toHaveLength(1);
-  });
-
-  it('keeps the switch beside "Back to home" too, so the row never changes size', async () => {
-    // The arm with no subject: every episode of the open season is watched, so row 0 holds
-    // the home control instead of an episode's. A toggle in only one arm would change the
-    // row's count the moment the subject resolved.
-    recent.mockResolvedValue([
-      prog('tv:1399:s1:e1', { completed: true }),
-      prog('tv:1399:s1:e2', { completed: true }),
-      prog('tv:1399:s1:e3', { completed: true }),
-    ]);
-    getShow.mockResolvedValue(show({ seasons: [{ season_number: 1, name: 'Season 1', episode_count: 3, overview: null, poster_url: null, air_date: null }] }));
-    await mount();
-    expect.soft(screen.getByRole('button', { name: 'Back to home' })).toBeInTheDocument();
-    expect.soft(toggle()).toBeInTheDocument();
+    await ringSettled();
+    expect.soft(document.activeElement).toBe(play);
+    expect.soft(screen.queryByRole('button', { name: /^Auto-download next:/ })).toBeNull();
+    expect.soft(document.querySelector('.bs-show__autonext')).toBeNull();
   });
 
   it('badges the episode its own control would play, and nothing else', async () => {

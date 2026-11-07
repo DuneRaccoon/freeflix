@@ -302,13 +302,19 @@ def test_a_stale_hash_is_cleared_and_a_live_lock_is_kept(db_session):
         "passcode_len": 4})
     _legacy_profile(db_session, "Bare", settings_kwargs={
         "require_passcode": False, "passcode_len": 4})
+    # Locked with no code stored (predates the 422 guard): every select is a 403 and no
+    # reset link is ever minted for it, so the pass turns the lock off.
+    hashless = _legacy_profile(db_session, "Hashless", settings_kwargs={
+        "require_passcode": True, "passcode_len": 4})
 
-    assert accounts_service.clear_stale_passcodes(db_session) == 1
+    assert accounts_service.clear_stale_passcodes(db_session) == 2
 
     assert stale.settings.passcode_hash is None
     assert stale.settings.passcode_len is None
     assert live.settings.passcode_hash is not None
     assert live.settings.require_passcode is True
+    assert hashless.settings.require_passcode is False
+    assert hashless.settings.passcode_hash is None
     assert accounts_service.clear_stale_passcodes(db_session) == 0
 
 

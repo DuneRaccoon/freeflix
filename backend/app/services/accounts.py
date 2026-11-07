@@ -183,9 +183,15 @@ def clear_passcode(row: UserSettings) -> None:
 
 
 def clear_stale_passcodes(session: Session) -> int:
-    """Clear every stored hash whose lock is off (switching the lock off used to leave it).
+    """Keep "lock on exactly when a code is stored" (spec 2.4) in step, both ways.
 
-    Idempotent. Never turns a lock on. Startup-only, via ``bootstrap``.
+    Clears every stored hash whose lock is off (switching the lock off used to leave it),
+    and turns off every lock with no hash stored: such a row (it predates the 422 guard)
+    refuses every select and is never sent a reset link, so it could only be deleted.
+    Runs after the plaintext migration, so a legacy plaintext code is a hash by then.
+
+    Idempotent. Never turns a lock on. Startup-only, via ``bootstrap``. Returns how many
+    rows it changed.
     """
     rows = (
         session.query(UserSettings)
@@ -195,8 +201,16 @@ def clear_stale_passcodes(session: Session) -> int:
     )
     for row in rows:
         clear_passcode(row)
+    hashless = (
+        session.query(UserSettings)
+        .filter(UserSettings.passcode_hash.is_(None))
+        .filter(UserSettings.require_passcode.is_(True))
+        .all()
+    )
+    for row in hashless:
+        row.require_passcode = False
     session.flush()
-    return len(rows)
+    return len(rows) + len(hashless)
 
 
 def _ensure_instance_owner(session: Session, report: MigrationReport) -> None:

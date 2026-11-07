@@ -7,7 +7,9 @@ import pytest
 
 import app.torrent.manager as mgr
 from app.database.models import Torrent
-from app.services.torrent_touch import mark_finished, touch_torrent
+from fastapi.testclient import TestClient
+
+from app.services.torrent_touch import mark_finished, stamp_legacy_torrents, touch_torrent
 
 FROZEN = datetime(2026, 11, 6, 4, 0, 0)
 OLD = datetime(2020, 1, 1, 0, 0, 0)
@@ -158,3 +160,34 @@ def test_update_loop_persists_size_clears_eta_and_stamps_finish(
     assert r.size_bytes == size
     assert r.meta_data["eta"] == eta
     assert (r.finished_at == FROZEN) if finished else (r.finished_at is None)
+
+
+def test_stamp_legacy_torrents(db_session):
+    a, b, c = datetime(2021, 1, 1), datetime(2022, 2, 2), datetime(2023, 3, 3)
+    db_session.add_all([
+        _row("fin", state="seeding", added_at=None, last_touched_at=None, finished_at=None),
+        _row("dl", state="downloading", added_at=None, last_touched_at=None, finished_at=None),
+        _row("new", state="finished", added_at=a, last_touched_at=b, finished_at=c),
+    ])
+    db_session.commit()
+    n = stamp_legacy_torrents(db_session, FROZEN)
+    db_session.commit()
+    db_session.expire_all()
+    rows = {r.id: r for r in db_session.query(Torrent).all()}
+    assert (rows["fin"].added_at, rows["fin"].last_touched_at, rows["fin"].finished_at) == (FROZEN,) * 3
+    assert (rows["dl"].added_at, rows["dl"].last_touched_at) == (FROZEN, FROZEN)
+    assert rows["dl"].finished_at is None
+    assert (rows["new"].added_at, rows["new"].last_touched_at, rows["new"].finished_at) == (a, b, c)
+    assert n == 5
+    assert stamp_legacy_torrents(db_session, FROZEN + timedelta(days=1)) == 0
+
+
+def test_startup_runs_the_legacy_stamp(monkeypatch):
+    from app.main import app
+
+    calls = []
+    monkeypatch.setattr("app.main.stamp_legacy_torrents", lambda db, now: calls.append(now) or 0)
+    with TestClient(app):
+        pass
+    assert len(calls) == 1
+    assert isinstance(calls[0], datetime)

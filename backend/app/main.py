@@ -26,6 +26,7 @@ from app.cron.jobs import schedule_manager
 from app.database.session import init_db, close_thread_sessions, get_db
 from app.middleware import error_handling_middleware
 from app.services import accounts as accounts_service
+from app.services.torrent_touch import stamp_legacy_torrents, utcnow
 
 # Initialize directories and settings
 settings.initialize()
@@ -269,6 +270,16 @@ async def startup_event():
             logger.critical(f"Accounts bootstrap failed: {bootstrap_error}")
             logger.exception("Accounts bootstrap error:")
         
+        # Legacy torrent rows (pre-upgrade) get a full grace period. Startup only:
+        # never init_db(), which runs at import time.
+        try:
+            with get_db() as db:
+                stamped = stamp_legacy_torrents(db, utcnow())
+                db.commit()
+            logger.info(f"Legacy torrent stamp: {stamped} field(s) set")
+        except Exception as stamp_error:
+            logger.error(f"Legacy torrent stamp failed: {stamp_error}")
+
         # Start torrent manager update task
         try:
             await torrent_manager.start_update_task()

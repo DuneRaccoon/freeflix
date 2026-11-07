@@ -21,6 +21,7 @@ from app.torrent.manager import torrent_manager
 from app.providers.episodes import parse_episode
 from app.services.content_id import build_content_id, resolve_content_id
 from app.services.progress_upsert import upsert_progress
+from app.services.torrent_touch import touch_torrent, utcnow
 from app.models import VideoFile
 
 router = APIRouter()
@@ -548,6 +549,7 @@ async def create_streaming_progress(
             title=progress.title,
             content_id=progress.movie_id,
         )
+        touch_torrent(session, progress.torrent_id, utcnow())
         session.commit()
         session.refresh(row)
         return StreamingProgressResponse(**row.to_dict())
@@ -591,7 +593,9 @@ async def update_streaming_progress(
         progress_entry.percentage = progress_update.percentage
         progress_entry.completed = progress_update.completed
         progress_entry.last_watched_at = datetime.datetime.now()
-        
+        if progress_entry.torrent_id:
+            touch_torrent(session, progress_entry.torrent_id, utcnow())
+
         session.commit()
         session.refresh(progress_entry)
         return StreamingProgressResponse(**progress_entry.to_dict())

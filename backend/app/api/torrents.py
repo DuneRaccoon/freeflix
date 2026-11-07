@@ -32,14 +32,8 @@ from app.services.torrent_reuse import covers_title, find_reusable, pack_contain
 from app.services.torrent_touch import touch_torrent, utcnow
 from app.services.watch_share import watched_by_map
 from sqlalchemy import func
-
-
-def _human_size(num: int) -> str:
-    size = float(num or 0)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if size < 1024 or unit == "TB":
-            return f"{size:.1f} {unit}"
-        size /= 1024
+# By this name: cron/jobs.py imports _human_size from here.
+from app.torrent.storage import human_size as _human_size
 
 
 #: The profile ids a device may send. Spelled out rather than derived from

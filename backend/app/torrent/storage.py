@@ -2,9 +2,17 @@
 import base64
 import shutil
 from pathlib import Path
-from typing import Iterable, List, Union
+from typing import Iterable, List, Optional, Union
 
 from loguru import logger
+
+
+def human_size(num: Optional[int]) -> str:
+    size = float(num or 0)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.1f} {unit}"
+        size /= 1024
 
 
 def encode_resume_data(buf: bytes) -> str:

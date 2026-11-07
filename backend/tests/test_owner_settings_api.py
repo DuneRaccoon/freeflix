@@ -44,13 +44,22 @@ def world(db_session, override_get_db, auth_enabled, monkeypatch):
     app.dependency_overrides.clear()
 
 
+def _as(world, who):
+    """The client acting as ``who`` (falsy: no session). Cookies go on the client, not on
+    each request: httpx deprecates per-request ``cookies=``."""
+    client = world["client"]
+    client.cookies.clear()
+    if who:
+        client.cookies.update(world[f"{who}_cookie"])
+    return client
+
+
 def _get(world, path, who="owner"):
-    cookies = world[f"{who}_cookie"] if who else {}
-    return world["client"].get(path, cookies=cookies)
+    return _as(world, who).get(path)
 
 
 def _put(world, path, body, who="owner"):
-    return world["client"].put(path, json=body, cookies=world[f"{who}_cookie"])
+    return _as(world, who).put(path, json=body)
 
 
 def test_the_owner_reads_the_defaults(world):

@@ -75,13 +75,23 @@ def home(db_session, override_get_db, auth_enabled, monkeypatch, tmp_path):
     app.dependency_overrides.clear()
 
 
+def as_(h, who=None):
+    """The client acting as ``who`` (None: no session). The identity switches call by
+    call, so the jar is reset each time; cookies go on the client, not on the request,
+    because httpx deprecates per-request ``cookies=``."""
+    h.client.cookies.clear()
+    if who is not None:
+        h.client.cookies.update(getattr(h, who))
+    return h.client
+
+
 def select(h, pid, code=None, who="owner", path="select"):
     body = {} if code is None else {"passcode": code}
-    return h.client.post(f"/api/v1/users/{pid}/{path}", json=body, cookies=getattr(h, who))
+    return as_(h, who).post(f"/api/v1/users/{pid}/{path}", json=body)
 
 
 def opened(h, pid, who="owner"):
-    return h.client.get(f"/api/v1/users/{pid}", cookies=getattr(h, who)).status_code
+    return as_(h, who).get(f"/api/v1/users/{pid}").status_code
 
 
 # ---------------------------------------------------------------- select / unlock
@@ -127,14 +137,14 @@ def test_two_tabs_on_unlocked_profiles_never_relock_each_other(home):
 
     assert opened(home, home.plain) == 200
     assert opened(home, home.plain2) == 200
-    r = home.client.get(f"/api/v1/users/{home.plain}/settings", cookies=home.owner)
+    r = as_(home, "owner").get(f"/api/v1/users/{home.plain}/settings")
     assert r.status_code == 200
 
 
 def test_deselect_relocks(home):
     assert select(home, home.vault, "4821").status_code == 200
 
-    r = home.client.post("/api/v1/users/deselect", cookies=home.owner)
+    r = as_(home, "owner").post("/api/v1/users/deselect")
     assert r.status_code == 200
     assert r.json() == {"ok": True}
 
@@ -142,7 +152,7 @@ def test_deselect_relocks(home):
 
 
 def test_select_takes_no_body_for_an_unlocked_profile(home):
-    r = home.client.post(f"/api/v1/users/{home.plain}/select", cookies=home.owner)
+    r = as_(home, "owner").post(f"/api/v1/users/{home.plain}/select")
     assert r.status_code == 200
 
 
@@ -174,7 +184,7 @@ def test_select_checks_ownership_before_the_code(home):
 
 
 def put_code(h, pid, who="owner", **body):
-    return h.client.put(f"/api/v1/users/{pid}/passcode", json=body, cookies=getattr(h, who))
+    return as_(h, who).put(f"/api/v1/users/{pid}/passcode", json=body)
 
 
 def test_a_first_code_turns_the_lock_on_and_keeps_this_session_on_it(home):
@@ -207,7 +217,7 @@ def test_changing_a_code_needs_the_current_one(home):
     r = put_code(home, home.vault, current_passcode="4821", new_passcode="1111")
     assert r.status_code == 200
 
-    assert home.client.post("/api/v1/users/deselect", cookies=home.owner).status_code == 200
+    assert as_(home, "owner").post("/api/v1/users/deselect").status_code == 200
     assert select(home, home.vault, "4821").status_code == 403
     assert select(home, home.vault, "1111").status_code == 200
 
@@ -277,10 +287,9 @@ def test_a_malformed_new_code_spends_no_attempt(home):
 def test_settings_no_longer_change_the_lock(home):
     assert select(home, home.vault, "4821").status_code == 200
 
-    r = home.client.put(
+    r = as_(home, "owner").put(
         f"/api/v1/users/{home.vault}/settings",
         json={"require_passcode": False, "passcode": "", "maturity_restriction": "pg13"},
-        cookies=home.owner,
     )
     assert r.status_code == 200
     assert r.json()["require_passcode"] is True
@@ -288,10 +297,9 @@ def test_settings_no_longer_change_the_lock(home):
     assert r.json()["maturity_restriction"] == "pg13"
     assert opened(home, home.vault, who="owner2") == 423
 
-    r = home.client.put(
+    r = as_(home, "owner").put(
         f"/api/v1/users/{home.plain}/settings",
         json={"require_passcode": True, "passcode": "2468"},
-        cookies=home.owner,
     )
     assert r.status_code == 200
     assert r.json()["require_passcode"] is False
@@ -312,8 +320,7 @@ def test_the_passcode_response_carries_no_secret(home):
 
 
 def reset_pw(h, pid, password, who="owner"):
-    return h.client.post(f"/api/v1/users/{pid}/passcode/reset", json={"password": password},
-                         cookies=getattr(h, who))
+    return as_(h, who).post(f"/api/v1/users/{pid}/passcode/reset", json={"password": password})
 
 
 def test_the_owner_clears_a_forgotten_code_with_the_account_password(home):
@@ -330,7 +337,7 @@ def test_the_owner_clears_a_forgotten_code_with_the_account_password(home):
     assert opened(home, home.vault, who="owner2") == 200
 
     assert put_code(home, home.vault, new_passcode="2468").status_code == 200
-    home.client.post("/api/v1/users/deselect", cookies=home.owner)
+    as_(home, "owner").post("/api/v1/users/deselect")
     assert select(home, home.vault, "2468").status_code == 200
 
 
@@ -426,7 +433,7 @@ def outbox(monkeypatch):
 
 
 def link(h, pid, who="member"):
-    return h.client.post(f"/api/v1/users/{pid}/passcode/reset-link", cookies=getattr(h, who))
+    return as_(h, who).post(f"/api/v1/users/{pid}/passcode/reset-link")
 
 
 def token_of(props):
@@ -434,7 +441,7 @@ def token_of(props):
 
 
 def reset_code(h, token):
-    return h.client.post("/api/v1/auth/reset-passcode", json={"token": token})
+    return as_(h).post("/api/v1/auth/reset-passcode", json={"token": token})
 
 
 def mint(h, purpose, profile_id, account_id=None):
@@ -506,7 +513,7 @@ def test_the_reset_link_is_throttled_and_constant(home, outbox):
 def test_verify_refuses_a_passcode_reset_token(home):
     raw = mint(home, PURPOSE_PASSCODE_RESET, home.kid)
 
-    r = home.client.post("/api/v1/auth/verify", json={"token": raw})
+    r = as_(home).post("/api/v1/auth/verify", json={"token": raw})
     assert r.status_code == 410
     assert settings.cookie_name not in r.cookies
 

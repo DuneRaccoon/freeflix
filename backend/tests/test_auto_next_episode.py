@@ -43,10 +43,8 @@ def world(db_session, override_get_db, auth_enabled, monkeypatch):
     db_session.add(profile)
     db_session.flush()
     # The column is left alone, which is NULL: the state ``sync_columns()`` leaves every
-    # pre-existing row in, and the state the default-on rule is about. The ORM declares no
-    # Python-side default for exactly this reason — one with ``default=True`` would store
-    # True here and leave the migrated case untestable (measured, before it was removed:
-    # the row below came back True).
+    # pre-existing row in. The ORM declares no Python-side default, so a stale write that
+    # reached the column would show here as a change from NULL.
     row = UserSettings(user_id=profile.id)
     db_session.add(row)
     db_session.flush()
@@ -56,9 +54,10 @@ def world(db_session, override_get_db, auth_enabled, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
+        # On the client, not per request: httpx deprecates per-request ``cookies=``.
+        client.cookies = {settings.cookie_name: token}
         yield {
             "client": client,
-            "cookie": {settings.cookie_name: token},
             "profile": profile.id,
             "settings_row": row,
             "db": db_session,
@@ -67,19 +66,7 @@ def world(db_session, override_get_db, auth_enabled, monkeypatch):
 
 
 def _get(world):
-    r = world["client"].get(
-        f"/api/v1/users/{world['profile']}/settings", cookies=world["cookie"]
-    )
-    assert r.status_code == 200, r.text
-    return r.json()
-
-
-def _put(world, body):
-    r = world["client"].put(
-        f"/api/v1/users/{world['profile']}/settings",
-        json=body,
-        cookies=world["cookie"],
-    )
+    r = world["client"].get(f"/api/v1/users/{world['profile']}/settings")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -94,8 +81,8 @@ def test_the_column_is_nullable_so_sync_columns_can_add_it(world):
     column = UserSettings.__table__.columns["auto_next_episode"]
     assert column.nullable is True
     assert column.server_default is None
-    # And no Python-side default, so a fresh row is NULL too and "default on" has ONE
-    # implementation (the read rule) rather than two that can drift apart.
+    # And no Python-side default, so a fresh row is NULL too: the column is unread and
+    # unwritten, and nothing gives it a value.
     assert column.default is None
 
 
@@ -108,7 +95,6 @@ def test_a_stale_client_cannot_write_it(world):
     r = world["client"].put(
         f"/api/v1/users/{world['profile']}/settings",
         json={"auto_next_episode": False, "theme": "light"},
-        cookies=world["cookie"],
     )
     assert r.status_code == 200, r.text
     world["db"].expire_all()

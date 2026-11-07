@@ -19,7 +19,7 @@ Two mixin traps this module deliberately avoids:
 
 import datetime
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, Integer, JSON, String, Index
+    Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Index
 )
 from sqlalchemy.orm import relationship
 
@@ -71,6 +71,15 @@ class Instance(Model):
         String, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
     )
     instance_name = Column(String, nullable=True)
+
+    # Owner settings. NULL means "never chosen"; the default lives only in
+    # app.services.instance_settings.effective_settings. No default= on purpose.
+    autovacuum_enabled = Column(Boolean, nullable=True)
+    autovacuum_days = Column(Integer, nullable=True)
+    autovacuum_watched_gate = Column(Boolean, nullable=True)
+    autovacuum_watched_pct = Column(Integer, nullable=True)
+    auto_next_enabled = Column(Boolean, nullable=True)
+    auto_next_pct = Column(Integer, nullable=True)
 
     owner = relationship("Account", foreign_keys=[owner_account_id])
 

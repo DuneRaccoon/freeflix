@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
-from typing import Dict, List, NamedTuple, Optional, Any, Tuple
+from typing import Dict, List, NamedTuple, Optional, Any, Set, Tuple
 from torf import Magnet
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,14 @@ from app.database.session import get_db, init_db
 from app.database.models import Torrent as DbTorrent, TorrentLog
 from app.models import TorrentState, TorrentStatus, Movie, Torrent as TorrentModel
 from app.config import settings
-from app.torrent.storage import encode_resume_data, decode_resume_data, safe_rmtree
+from app.torrent.storage import (
+    encode_resume_data,
+    decode_resume_data,
+    safe_rmtree,
+    owned_content_paths,
+    delete_owned_content,
+    remove_dir_if_empty,
+)
 from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES, COMPLETE_STATES
 from app.services.torrent_touch import utcnow, mark_finished
 from app.providers.episodes import parse_episode
@@ -62,6 +69,29 @@ _ALLOCATED_AT_LEAST = 0.99
 # states.TERMINAL_STATES, which also holds 'error' (a download that stopped at an
 # arbitrary percentage) and 'blocked' (whose files the content guard deleted).
 ON_DISK_STATES = frozenset({"finished", "seeding"})
+
+
+def _v1_hex(magnet: str) -> Optional[str]:
+    """The magnet's v1 infohash as 40-char lower hex, or None when it has none.
+
+    libtorrent 2.0.11 raises `RuntimeError: invalid info-hash` for an unparseable
+    btih, and any failure here means "unknown", never a shared value: two unknown
+    hashes are not the same torrent.
+    """
+    try:
+        ih = lt.parse_magnet_uri(magnet).info_hashes
+        return str(ih.v1) if ih.has_v1() else None
+    except Exception:
+        return None
+
+
+class _ContentDelete(NamedTuple):
+    """What deleting one download's files may touch, decided while the row and its
+    live handle still exist (spec §4.5). With no `sibling_ids` the save_path is wholly
+    this download's; otherwise only `owned` may go."""
+    save_path: str
+    sibling_ids: List[str]
+    owned: List[Path]
 
 # ---------------------------------------------------------------- sidecar admission
 #
@@ -1057,12 +1087,99 @@ class TorrentManager:
         logger.info(f"Resumed torrent {torrent_id}")
         return True
     
+    def _content_claims(self, torrent_id: str, magnet: str, resume_blob: Optional[str]) -> Set[str]:
+        """The names directly under its save_path that this torrent's files live at:
+        its content name (the live handle's while it is loaded with metadata, else the
+        resume blob's, which even an info-dict-less blob carries) and libtorrent's
+        `.<v1hex>.parts` partfile for priority-0 pieces. Hybrid/v2 partfile spellings
+        are not modelled."""
+        claims: Set[str] = set()
+        name = None
+        entry = self.active_torrents.get(torrent_id)
+        if entry is not None:
+            try:
+                handle = entry[0]
+                if handle.has_metadata():
+                    name = handle.get_torrent_info().name()
+            except Exception:
+                name = None
+        if not name and resume_blob:
+            try:
+                atp = lt.read_resume_data(decode_resume_data(resume_blob))
+                name = atp.name or (atp.ti.name() if atp.ti is not None else None)
+            except Exception:
+                name = None
+        if name:
+            claims.add(name)
+        infohash = _v1_hex(magnet)
+        if infohash is not None:
+            claims.add(f".{infohash}.parts")
+        return claims
+
+    @staticmethod
+    def _siblings(db: Session, row: DbTorrent) -> List[DbTorrent]:
+        """Every other row on the same save_path. Compared RESOLVED: rows store
+        `downloads/X` relative while blobs store it absolute."""
+        mine = Path(row.save_path).resolve()
+        return [
+            other for other in db.query(DbTorrent).filter(DbTorrent.id != row.id).all()
+            if other.save_path and Path(other.save_path).resolve() == mine
+        ]
+
+    def _owned_paths(self, db: Session, row: DbTorrent) -> List[Path]:
+        """The paths under `row.save_path` that this download alone owns: what it
+        claims, less whatever a sibling on the same save_path also claims."""
+        mine = self._content_claims(row.id, row.magnet, row.resume_data)
+        my_hash = _v1_hex(row.magnet)
+        theirs: Set[str] = set()
+        for sib in self._siblings(db, row):
+            sib_claims = self._content_claims(sib.id, sib.magnet, sib.resume_data)
+            if my_hash is not None and _v1_hex(sib.magnet) == my_hash:
+                # The same torrent twice owns nothing exclusively.
+                sib_claims |= mine
+            for name in sorted(mine & sib_claims):
+                logger.info(f"delete {row.id}: keeping {name!r}, also claimed by {sib.id}")
+            theirs |= sib_claims
+        return owned_content_paths(row.save_path, mine, theirs, settings.default_download_path)
+
+    def _plan_content_delete(self, db: Session, row: DbTorrent) -> _ContentDelete:
+        """Decide what deleting `row`'s files may touch. Must run before its handle
+        leaves the session, because the live content name needs it."""
+        siblings = self._siblings(db, row)
+        owned = self._owned_paths(db, row) if siblings else []
+        return _ContentDelete(row.save_path, [s.id for s in siblings], owned)
+
+    def _delete_content(self, torrent_id: str, plan: _ContentDelete) -> None:
+        """Carry out a `_plan_content_delete` decision. The one place the shared and
+        unshared save_path cases part ways, for Remove, the vacuum and the content guard."""
+        root = settings.default_download_path
+        if not plan.sibling_ids:
+            # Nobody else's download lives here: the directory is wholly this one's,
+            # leftovers included, or no one could ever clean them up.
+            safe_rmtree(plan.save_path, root)
+            return
+        if not plan.owned:
+            logger.warning(
+                f"delete {torrent_id}: no content of its own found under {plan.save_path}, "
+                f"which it shares with {', '.join(plan.sibling_ids)}; leaving its files in place"
+            )
+        delete_owned_content(plan.owned)
+        remove_dir_if_empty(plan.save_path, root)
+
     def remove_torrent(self, torrent_id: str, delete_files: bool = False) -> bool:
         """Remove a torrent: unload from the session, hard-delete the DB row
         (watch history is detached via ON DELETE SET NULL), and optionally
-        delete the downloaded files."""
+        delete the downloaded files that are this torrent's own (spec §4.5)."""
         try:
             removed = False
+            plan: Optional[_ContentDelete] = None
+            if delete_files:
+                # Before the handle leaves the session: the live content name needs it.
+                with get_db() as db:
+                    torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
+                    if torrent and torrent.save_path:
+                        plan = self._plan_content_delete(db, torrent)
+
             if torrent_id in self.active_torrents:
                 handle, _ = self.active_torrents[torrent_id]
                 try:
@@ -1072,17 +1189,15 @@ class TorrentManager:
                 self.active_torrents.pop(torrent_id, None)
                 removed = True
 
-            save_path = None
             with get_db() as db:
                 torrent = db.query(DbTorrent).filter_by(id=torrent_id).first()
                 if torrent:
-                    save_path = torrent.save_path     # capture BEFORE delete
                     db.delete(torrent)                # hard delete; fires download_logs cascade + FK SET NULL on progress
                     db.commit()
                     removed = True
 
-            if delete_files and save_path:
-                safe_rmtree(save_path, settings.default_download_path)
+            if plan is not None:
+                self._delete_content(torrent_id, plan)
 
             logger.info(f"Removed torrent {torrent_id} (delete_files={delete_files})")
             return removed
@@ -2014,18 +2129,26 @@ class TorrentManager:
         """Enforce a content-guard block: remove from the session, delete partial
         files, and persist state='blocked' + block_reason."""
         logger.warning(f"Content guard BLOCKED torrent {torrent_id}: {reason}")
+        plan: Optional[_ContentDelete] = None
+        try:
+            # Before the handle leaves the session: the live content name needs it.
+            with get_db() as db:
+                torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
+                if torrent and torrent.save_path:
+                    plan = self._plan_content_delete(db, torrent)
+        except Exception as e:
+            logger.error(f"block: could not plan the file delete for {torrent_id}: {e}")
+
         try:
             self.session.remove_torrent(handle)
         except Exception as e:
             logger.warning(f"block: session.remove_torrent failed for {torrent_id}: {e}")
         self.active_torrents.pop(torrent_id, None)
 
-        save_path = None
         try:
             with get_db() as db:
                 torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                 if torrent:
-                    save_path = torrent.save_path
                     torrent.state = 'blocked'
                     torrent.block_reason = reason
                     db.add(TorrentLog(
@@ -2038,11 +2161,11 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"block: DB update failed for {torrent_id}: {e}")
 
-        if save_path:
+        if plan is not None:
             try:
-                safe_rmtree(save_path, settings.default_download_path)
+                self._delete_content(torrent_id, plan)
             except Exception as e:
-                logger.warning(f"block: safe_rmtree failed for {torrent_id}: {e}")
+                logger.warning(f"block: deleting files failed for {torrent_id}: {e}")
 
     def skip_non_video_files(self, torrent_id: str, handle) -> None:
         """Set non-video files to priority 0 (skip) and video files to 1, so a

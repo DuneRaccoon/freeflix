@@ -17,6 +17,8 @@ class _TI:
     def file_at(self, i):
         p, s = self._files[i]
         return types.SimpleNamespace(path=p, size=s)
+    def name(self):
+        return "Setup.exe"
 
 
 class _Handle:
@@ -52,44 +54,81 @@ def test_validate_no_metadata_returns_none():
     assert torrent_manager.validate_torrent_content(h) is None
 
 
-def test_block_torrent_removes_deletes_and_marks(tmp_path):
-    # Arrange a real save_path with a junk file + a DB row + a fake session.
-    save_path = tmp_path / "Fake.Movie"
-    save_path.mkdir()
-    (save_path / "Setup.exe").write_bytes(b"junk")
-
-    tid = "t-block-1"
+def _seed_rows(rows):
+    """(id, save_path) pairs; any leftover row from a prior run is replaced."""
     with get_db() as db:
-        # Clean up any leftover row from a prior run.
-        existing = db.query(DbTorrent).filter(DbTorrent.id == tid).first()
-        if existing:
-            db.delete(existing)
-            db.commit()
-        db.add(DbTorrent(
-            id=tid, movie_title="Fake Movie", quality="1080p",
-            magnet="magnet:?x", url="magnet:?x", save_path=str(save_path),
-            state="downloading", progress=1.0,
-        ))
+        for tid, save_path in rows:
+            existing = db.query(DbTorrent).filter(DbTorrent.id == tid).first()
+            if existing:
+                db.delete(existing)
+                db.commit()
+            db.add(DbTorrent(
+                id=tid, movie_title="Fake Movie", quality="1080p",
+                magnet="magnet:?x", url="magnet:?x", save_path=str(save_path),
+                state="downloading", progress=1.0,
+            ))
         db.commit()
 
-    h = _Handle([("Setup.exe", 4)])
+
+def _drop_rows(ids):
+    with get_db() as db:
+        db.query(DbTorrent).filter(DbTorrent.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+
+
+def _run_block(tid, h, root):
     fake_session = _Session()
     orig_session = torrent_manager.session
     torrent_manager.session = fake_session
     torrent_manager.active_torrents[tid] = (h, {})
-
-    # Make safe_rmtree permit our tmp dir (it guards against deleting outside the
-    # download root): point the download root at tmp_path for this call.
     import app.torrent.manager as mgr
     orig_root = mgr.settings.default_download_path
-    mgr.settings.default_download_path = tmp_path
+    mgr.settings.default_download_path = root
     try:
         torrent_manager._block_torrent(tid, h, "Contains an executable file (Setup.exe) — blocked for safety.")
     finally:
         mgr.settings.default_download_path = orig_root
         torrent_manager.session = orig_session
-        # Ensure the entry is cleaned up even if the test fails before _block_torrent pops it
         torrent_manager.active_torrents.pop(tid, None)
+    return fake_session
+
+
+def test_block_torrent_with_a_sibling_deletes_only_its_own_content(tmp_path):
+    # Two downloads of one title share its save_path; blocking one must not take the other.
+    save_path = tmp_path / "Fake.Movie"
+    (save_path / "Other.Release").mkdir(parents=True)
+    (save_path / "Other.Release" / "keep.mkv").write_bytes(b"film")
+    (save_path / "Setup.exe").write_bytes(b"junk")
+    tid, sib = "t-block-shared", "t-block-shared-sibling"
+    _seed_rows([(tid, save_path), (sib, save_path)])
+
+    h = _Handle([("Setup.exe", 4)])
+    try:
+        fake_session = _run_block(tid, h, tmp_path)
+    finally:
+        _drop_rows([tid, sib])
+
+    assert h in fake_session.removed
+    assert save_path.exists() and not (save_path / "Setup.exe").exists()
+    assert (save_path / "Other.Release" / "keep.mkv").exists()
+
+
+def test_block_torrent_removes_deletes_and_marks(tmp_path):
+    # Arrange a real save_path with a junk file + a DB row + a fake session. No other
+    # row shares the save_path, so the whole directory is this download's.
+    save_path = tmp_path / "Fake.Movie"
+    save_path.mkdir()
+    (save_path / "Setup.exe").write_bytes(b"junk")
+    (save_path / "Other.Release").mkdir()
+    (save_path / "Other.Release" / "keep.mkv").write_bytes(b"leftover")
+
+    tid = "t-block-1"
+    _seed_rows([(tid, save_path)])
+
+    h = _Handle([("Setup.exe", 4)])
+    # The delete refuses anything outside the download root: point the root at
+    # tmp_path for this call.
+    fake_session = _run_block(tid, h, tmp_path)
 
     # Assert: removed from session, dropped from active_torrents, files gone, DB marked.
     assert h in fake_session.removed

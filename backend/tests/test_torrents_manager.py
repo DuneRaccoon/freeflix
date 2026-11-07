@@ -153,17 +153,21 @@ def test_remove_hard_deletes_row_keep_files(mgr_db, monkeypatch, tmp_path):
     assert sub.exists()  # files kept
 
 
-def test_remove_delete_files_rmtrees(mgr_db, monkeypatch, tmp_path):
-    root = tmp_path / "downloads"; sub = root / "movie"; sub.mkdir(parents=True)
-    (sub / "f.mkv").write_bytes(b"x")
+def test_remove_delete_files_removes_own_content_and_empty_dir(mgr_db, monkeypatch, tmp_path):
+    root = tmp_path / "downloads"; sub = root / "movie"; (sub / "Rel").mkdir(parents=True)
+    (sub / "Rel" / "f.mkv").write_bytes(b"x")
+    atp = lt.add_torrent_params(); atp.name = "Rel"; atp.save_path = str(sub)
     tid = _seed(mgr_db, state="finished")
-    s = mgr_db(); s.get(DbTorrent, tid).save_path = str(sub); s.commit(); s.close()
+    s = mgr_db(); row = s.get(DbTorrent, tid)
+    row.save_path = str(sub); row.resume_data = encode_resume_data(lt.write_resume_data_buf(atp))
+    s.commit(); s.close()
     monkeypatch.setattr("app.torrent.manager.settings.default_download_path", root, raising=False)
     torrent_manager.active_torrents.pop(tid, None)
 
     assert torrent_manager.remove_torrent(tid, delete_files=True) is True
     s = mgr_db(); assert s.get(DbTorrent, tid) is None; s.close()
-    assert not sub.exists()  # files deleted
+    assert not sub.exists()  # its only content was its own
+    assert root.exists()
 
 
 def test_remove_unloads_active_handle(mgr_db, monkeypatch):

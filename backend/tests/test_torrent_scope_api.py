@@ -258,3 +258,63 @@ def test_for_title_is_not_scoped(tworld):
     r = c.get("/api/v1/torrents/for-title", params={"tmdb_id": 603, "media_type": "movie"},
               cookies=tworld["member"])
     assert _ids(r) == {"t-owner"}
+
+
+# --- who watched (owner only) and the disk totals ------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from app.database.models.streaming import UserStreamingProgress  # noqa: E402
+from app.database.models.users import User  # noqa: E402
+
+
+@pytest.fixture
+def wworld(tworld, db_session):
+    ann = User(username="ann", display_name="Ann", account_id=tworld["member_id"])
+    db_session.add(ann)
+    db_session.flush()
+    db_session.add(UserStreamingProgress(
+        user_id=ann.id, torrent_id="t-member", movie_id="movie:1", percentage=60.0,
+    ))
+    for tid, size in (("t-owner", 100), ("t-member", 50)):
+        db_session.query(DbTorrent).filter(DbTorrent.id == tid).update({"size_bytes": size})
+    ann_id = ann.id
+    db_session.commit()
+    tworld["ann_id"] = ann_id
+    return tworld
+
+
+def _by_id(resp):
+    assert resp.status_code == 200, resp.text
+    return {t["id"]: t for t in resp.json()}
+
+
+def test_owner_sees_who_watched(wworld):
+    rows = _by_id(wworld["client"].get("/api/v1/torrents/list", cookies=wworld["owner"]))
+    assert rows["t-member"]["watched_by"] == [
+        {"profile_id": wworld["ann_id"], "display_name": "Ann", "avatar": None, "percent": 60.0}
+    ]
+    assert rows["t-other"]["watched_by"] == []
+
+
+def test_member_never_sees_watched_by(wworld):
+    rows = _by_id(wworld["client"].get("/api/v1/torrents/list", cookies=wworld["member"]))
+    assert rows["t-member"]["watched_by"] is None
+
+
+def test_disk_totals_are_the_same_for_everyone(wworld, monkeypatch):
+    monkeypatch.setattr(torrents_api.shutil, "disk_usage",
+                        lambda p: SimpleNamespace(total=1000, used=400, free=600))
+    want = {"used_by_downloads_bytes": 150, "free_bytes": 600, "total_bytes": 1000}
+    for who in ("owner", "member"):
+        r = wworld["client"].get("/api/v1/torrents/disk", cookies=wworld[who])
+        assert r.status_code == 200, r.text
+        assert r.json() == want
+
+
+def test_disk_unavailable_is_503(wworld, monkeypatch):
+    def boom(p):
+        raise OSError("gone")
+    monkeypatch.setattr(torrents_api.shutil, "disk_usage", boom)
+    r = wworld["client"].get("/api/v1/torrents/disk", cookies=wworld["owner"])
+    assert r.status_code == 503

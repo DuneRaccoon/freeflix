@@ -5,12 +5,13 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 import asyncio
+import shutil
 import uuid as _uuid
 from dataclasses import dataclass
 from typing import Optional as _Optional, Tuple as _Tuple
 
 from app.models import (
-    TorrentRequest, TorrentStatus, TorrentAction,
+    DiskUsageResponse, TorrentRequest, TorrentStatus, TorrentAction,
     TorrentBatchAction, TorrentBatchResponse, TorrentBatchResult,
     TorrentCandidate,
 )
@@ -29,6 +30,8 @@ from app.services.torrent_scope import scope_query, visible_to
 # By name, not as a module: tests patch torrents_api.find_reusable and torrents_api.utcnow.
 from app.services.torrent_reuse import covers_title, find_reusable, pack_contains, pack_file_index
 from app.services.torrent_touch import touch_torrent, utcnow
+from app.services.watch_share import watched_by_map
+from sqlalchemy import func
 
 
 def _human_size(num: int) -> str:
@@ -387,11 +390,40 @@ async def list_torrents(
     if visible is not None:
         all_torrents = [t for t in all_torrents if t.id in visible]
 
+    if ctx.is_owner and all_torrents:
+        # Owner only: who watched what is viewing history. Members keep watched_by=None.
+        ids = [t.id for t in all_torrents]
+        with db as session:
+            rows = session.query(DbTorrent).filter(DbTorrent.id.in_(ids)).all()
+            wb = watched_by_map(session, rows)
+        for s in all_torrents:
+            s.watched_by = wb.get(s.id, [])
+
     if state:
         filtered_torrents = [t for t in all_torrents if t.state == state]
         return filtered_torrents
     
     return all_torrents
+
+
+@router.get("/disk", response_model=DiskUsageResponse, summary="Disk usage of the downloads volume")
+async def disk_usage(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Shown to everyone, deliberately not scoped: the disk is shared, so its totals are
+    not personal."""
+    with db as session:
+        used = session.query(func.coalesce(func.sum(DbTorrent.size_bytes), 0)).scalar()
+    try:
+        usage = shutil.disk_usage(settings.default_download_path)
+    except OSError:
+        raise HTTPException(status_code=503, detail="Disk usage unavailable")
+    return DiskUsageResponse(
+        used_by_downloads_bytes=int(used or 0),
+        free_bytes=usage.free,
+        total_bytes=usage.total,
+    )
 
 
 @router.post("/action/{torrent_id}", response_model=Dict[str, Any], summary="Perform action on torrent")

@@ -518,7 +518,11 @@ def test_reset_passcode_refuses_a_login_token(home):
     raw = mint(home, PURPOSE_LOGIN, home.kid)
 
     assert reset_code(home, raw).status_code == 410
-    assert select(home, home.kid, "1357", who="member").status_code == 200
+    # The code is still stored: a wrong one is refused and the hash is there. (Selecting
+    # with the right code would answer 200 whether or not the code had been cleared.)
+    assert select(home, home.kid, "0000", who="member").status_code == 403
+    cfg = _fresh(home.db).query(UserSettings).filter(UserSettings.user_id == home.kid).one()
+    assert cfg.passcode_hash is not None
 
 
 @pytest.mark.parametrize("case", ["foreign_profile", "revoked", "now_owner"])

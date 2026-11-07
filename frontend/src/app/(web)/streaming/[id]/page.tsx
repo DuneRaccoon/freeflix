@@ -619,9 +619,14 @@ export default function StreamingPage() {
                       router.replace(`/streaming/${torrentId}?file=${nextVideoFile.index}`);
                       return;
                     }
+                    // The card is gone and the start can take seconds (a provider search,
+                    // or a prefetch still running): say so. The error reuses the id.
+                    toast.loading('Starting the next episode…', { id: 'play-next' });
                     const href = await upNext.playNext();
-                    if (href !== null) router.replace(href);
-                    else toast.error('Could not start the next episode.', { id: 'play-next' });
+                    if (href !== null) {
+                      toast.dismiss('play-next');
+                      router.replace(href);
+                    } else toast.error('Could not start the next episode.', { id: 'play-next' });
                   }}
                   onDismiss={() => {
                     upNextClosedFor.current = upNextKey;

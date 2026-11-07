@@ -50,7 +50,7 @@ vi.mock('@/services/tv', () => ({ tvService: { getSeason: vi.fn(), getShow: vi.f
 vi.mock('@/services/instance', () => ({ instanceService: { getPlayback: vi.fn() } }));
 
 vi.mock('react-hot-toast', () => ({
-  toast: Object.assign(vi.fn(), { loading: vi.fn(), success: vi.fn(), error: vi.fn() }),
+  toast: Object.assign(vi.fn(), { loading: vi.fn(), success: vi.fn(), error: vi.fn(), dismiss: vi.fn() }),
 }));
 
 vi.mock('@/components/player/PatchedVideoPlayer', () => ({
@@ -233,6 +233,25 @@ describe('StreamingPage — the next episode', () => {
     await act(async () => fireEvent.click(screen.getByTestId('upnext-play')));
     for (let i = 0; i < 3; i++) await act(async () => {});
     expect.soft(nav.replace).toHaveBeenCalledWith('/streaming/next-1');
+  });
+
+  it('shows that it is starting the next episode while the box searches, then clears it', async () => {
+    instance.getPlayback.mockResolvedValue(playback(false));
+    let start!: (t: TorrentStatus) => void;
+    torrents.downloadCatalogMovie.mockReturnValue(new Promise<TorrentStatus>((res) => { start = res; }));
+    await open();
+    await tick(2390);
+    await act(async () => fireEvent.click(screen.getByTestId('upnext-play')));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    // The card is gone and the search can take seconds: without this, nothing is on screen.
+    expect.soft(vi.mocked(toast.loading)).toHaveBeenCalledWith('Starting the next episode…', { id: 'play-next' });
+    expect.soft(vi.mocked(toast.dismiss)).not.toHaveBeenCalled();
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+
+    await act(async () => start({ id: 'next-1', season: 2, episode: 3 } as TorrentStatus));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect.soft(nav.replace).toHaveBeenCalledWith('/streaming/next-1');
+    expect.soft(vi.mocked(toast.dismiss)).toHaveBeenCalledWith('play-next');
   });
 
   it('says so, and stays put, when the box will not start the next episode', async () => {

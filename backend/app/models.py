@@ -470,10 +470,10 @@ class TorrentStatus(BaseModel):
 
     # Media identity, straight off the indexed columns the torrent row already carries
     # (database/models/torrents.py). Exposed so a client can tell "already downloading"
-    # from "never requested" instead of minting a duplicate: POST /torrents/download
-    # mints a fresh uuid4 and add_torrent does no magnet or infohash dedupe, so every
-    # press of Play creates another torrent. All four are Optional because rows written
-    # before these columns existed have them NULL.
+    # from "never requested". POST /torrents/download now reuses a covering download of
+    # the same title at the same quality server-side (services/torrent_reuse.py), except
+    # for a request with an explicit `magnet`, which always adds a new torrent. All four
+    # are Optional because rows written before these columns existed have them NULL.
     tmdb_id: Optional[int] = None
     media_type: Optional[str] = None
     season: Optional[int] = None

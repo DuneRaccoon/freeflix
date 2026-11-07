@@ -32,8 +32,9 @@ from app.torrent.manager import torrent_manager
 ALL_IDS = {"t-owner", "t-member", "t-other", "t-legacy"}
 
 
-def _row(torrent_id, account_id):
+def _row(torrent_id, account_id, **kw):
     return DbTorrent(
+        **kw,
         id=torrent_id,
         movie_title=f"Title {torrent_id}",
         quality="1080p",
@@ -55,7 +56,7 @@ def tworld(db_session, override_get_db, auth_enabled, monkeypatch, session_facto
     db_session.add_all([owner, member, other])
     db_session.flush()
     db_session.add_all([
-        _row("t-owner", owner.id),
+        _row("t-owner", owner.id, tmdb_id=603, media_type="movie"),
         _row("t-member", member.id),
         _row("t-other", other.id),
         _row("t-legacy", None),
@@ -209,3 +210,51 @@ def test_download_records_the_starting_account(tworld, monkeypatch):
     r = c.post("/api/v1/torrents/download", json={"tmdb_id": 1}, cookies=tworld["member"])
     assert r.status_code == 200, r.text
     assert recorded == [tworld["member_id"]]
+
+
+def test_a_member_reusing_a_legacy_row_does_not_adopt_it(tworld, monkeypatch, session_factory):
+    c = tworld["client"]
+    s = session_factory()
+    try:
+        s.query(DbTorrent).filter(DbTorrent.id == "t-legacy").update({
+            DbTorrent.tmdb_id: 604, DbTorrent.media_type: "movie",
+            DbTorrent.quality: "1080p", DbTorrent.state: "finished",
+        }, synchronize_session=False)
+        s.commit()
+    finally:
+        s.close()
+
+    searched, added = [], []
+
+    async def fake_torrents(name):
+        searched.append(name)
+        title = "Movie.2020.1080p.WEB"
+        return [TorrentHit(title=title, seeds=30, peers=0, bytes=1000,
+                           magnet="magnet:?xt=urn:btih:00000000000000bb", hash="",
+                           quality=parse_quality(title))]
+
+    async def fake_add(m, t, save_path=None, account_id=None):
+        added.append(account_id)
+        return "t-new"
+
+    monkeypatch.setattr(torrents_api.catalog, "torrents", fake_torrents)
+    monkeypatch.setattr(torrents_api.torrent_manager, "add_torrent", fake_add)
+
+    r = c.post("/api/v1/torrents/download", json={"tmdb_id": 604}, cookies=tworld["member"])
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == "t-legacy"
+    assert added == [] and searched == []
+
+    s = session_factory()
+    try:
+        assert s.query(DbTorrent).filter(DbTorrent.id == "t-legacy").one().account_id is None
+    finally:
+        s.close()
+    assert "t-legacy" not in _ids(c.get("/api/v1/torrents/list", cookies=tworld["member"]))
+
+
+def test_for_title_is_not_scoped(tworld):
+    c = tworld["client"]
+    r = c.get("/api/v1/torrents/for-title", params={"tmdb_id": 603, "media_type": "movie"},
+              cookies=tworld["member"])
+    assert _ids(r) == {"t-owner"}

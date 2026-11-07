@@ -47,6 +47,10 @@ def client(monkeypatch):
     monkeypatch.setattr(torrents_api.catalog, "torrents", fake_torrents)
     monkeypatch.setattr(torrents_api.torrent_manager, "add_torrent", fake_add)
     monkeypatch.setattr(torrents_api.torrent_manager, "get_torrent_status", fake_status)
+    # get_db is not overridden here, so /download's reuse lookup would read whatever
+    # database the process points at: a leftover row there must not turn the add into
+    # a reuse.
+    monkeypatch.setattr(torrents_api, "find_reusable", lambda *a, **k: None)
     with TestClient(app) as c:
         c.state = state
         yield c

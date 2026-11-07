@@ -14,13 +14,13 @@
  *  - Meta: runtime · air_date · gold vote_average
  *  - Expandable overview (click to toggle)
  *  - Quality pill selector ['Auto', '720p', '1080p', '2160p']
- *  - Play button  → handleCatalogStreamingStart + router.push('/streaming/<id>')
+ *  - Play button  → handleCatalogStreamingStart + router.push(streamingHref(s))
  *  - Download btn → torrentsService.downloadCatalogMovie + toast
  *
  * Play flow (load-bearing — do not modify):
  *   resolved_quality = quality === 'Auto' ? '1080p' : quality
  *   s = await handleCatalogStreamingStart({ tmdb_id: showId, quality, media_type:'tv', season, episode })
- *   router.push('/streaming/' + s.id)
+ *   router.push(streamingHref(s))   // /streaming/<id>[?file=<file_index>]
  *
  * Download flow:
  *   await torrentsService.downloadCatalogMovie({ tmdb_id: showId, quality, media_type:'tv', season, episode })
@@ -29,6 +29,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { streamingHref } from '@/lib/streamingHref';
 import { toast } from 'react-hot-toast';
 
 import type { Episode } from '@/types';
@@ -170,7 +171,7 @@ function EpisodeRow({ showId, seasonNumber, episode }: EpisodeRowProps) {
         episode: episode.episode_number,
       });
       if (s?.id) {
-        router.push(`/streaming/${s.id}`);
+        router.push(streamingHref(s));
       }
     } catch {
       toast.error('Failed to start streaming. Please try again.');

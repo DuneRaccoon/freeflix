@@ -10,7 +10,7 @@
  * Play flow (load-bearing — do not modify):
  *   quality = '1080p' (default for shows)
  *   status  = await handleCatalogStreamingStart({ tmdb_id, quality:'1080p', media_type:'tv', season:1, episode:1 })
- *   router.push('/streaming/' + status.id)
+ *   router.push(streamingHref(status))   // /streaming/<id>[?file=<file_index>]
  *
  * Download Season flow:
  *   await torrentsService.downloadCatalogMovie({ tmdb_id, quality, media_type:'tv', season }) + toast
@@ -18,6 +18,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { streamingHref } from '@/lib/streamingHref';
 import { toast } from 'react-hot-toast';
 
 import { ShowDetail, SeasonDetail, CatalogItem, GENRE_OPTIONS } from '@/types';
@@ -233,7 +234,7 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
         episode: 1,
       });
       if (status?.id) {
-        router.push(`/streaming/${status.id}`);
+        router.push(streamingHref(status));
       }
     } catch {
       toast.error('Failed to start streaming. Please try again.');

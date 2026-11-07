@@ -278,6 +278,26 @@ describe('EpisodeList', () => {
       );
     });
 
+    it('opens the episode file the server picked inside a reused pack', async () => {
+      mockHandleCatalogStreamingStart.mockResolvedValue({
+        ...mockTorrentStatus,
+        file_index: 3,
+      });
+      render(
+        <EpisodeList
+          showId={SHOW_ID}
+          seasonNumber={SEASON}
+          episodes={[mockEpisodes[0]]}
+        />,
+      );
+
+      await userEvent.click(screen.getByTestId('episode-play-btn-1'));
+
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith('/streaming/stream-456?file=3'),
+      );
+    });
+
     it('uses the selected quality when Play is clicked with a non-Auto quality', async () => {
       render(
         <EpisodeList

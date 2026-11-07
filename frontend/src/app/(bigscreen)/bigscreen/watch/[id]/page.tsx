@@ -18,14 +18,16 @@ import { statusOf } from '../../../_data/httpStatus';
 import {
   episodeRefOf,
   episodeScaleSeconds,
-  episodeTag,
   findNextEpisode,
+  pastAutoNextPoint,
+  type NextEpisodeAnswer,
+} from '@/lib/nextEpisode';
+import {
+  episodeTag,
   nearTheEnd,
   nextCellView,
-  pastAutoNextPoint,
   prefetchEpisode,
   whereToWatchEpisode,
-  type NextEpisodeAnswer,
 } from '../../../_data/nextEpisode';
 import {
   cellLabel,
@@ -815,7 +817,7 @@ function WatchScreen() {
   // =================================================================================
   /**
    * WHAT IS AFTER THIS, read once per episode, and the two time-driven things that follow
-   * from it. `_data/nextEpisode.ts` owns every rule; this is the wiring.
+   * from it. `@/lib/nextEpisode` and `_data/nextEpisode.ts` own every rule; this is the wiring.
    *
    * `epRef` IS ALSO THE TEST FOR "IS THIS AN EPISODE AT ALL". It is read off the watch
    * identity key rather than from the torrent row and the file list, because
@@ -896,7 +898,7 @@ function WatchScreen() {
     if (!epRef || !contentId) return;
     if (nextAnswer?.verdict.k !== 'ready') return;
     if (!autoNext.settled || !autoNext.on) return;
-    if (!pastAutoNextPoint(position, scaleSeconds)) return;
+    if (!pastAutoNextPoint(position, scaleSeconds, 0.8)) return; // E2 replaces 0.8 with the owner's threshold
     if (prefetchedFor.current === contentId) return;
     prefetchedFor.current = contentId;
     const generation = nextGen.current;

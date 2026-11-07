@@ -30,7 +30,8 @@ import { torrentsService } from '@/services/torrents';
 import { tvService } from '@/services/tv';
 import { usersService } from '@/services/users';
 import { useTvProfile } from '../../../_data/useTvProfile';
-import { AUTO_NEXT_AT, END_PROMPT_S } from '../../../_data/nextEpisode';
+import { END_PROMPT_S } from '../../../_data/nextEpisode';
+const AT = 0.8; // E2: the getPlayback fixture's auto_next_pct / 100
 import { transportCellCount } from '../../../_player/TransportBar';
 import WatchPage from './page';
 
@@ -297,7 +298,7 @@ async function playTo(handle: { seek: (v: number) => void }, seconds: number) {
   for (let i = 0; i < 3; i++) await act(async () => {});
 }
 
-const PAST_80 = Math.ceil(DURATION * AUTO_NEXT_AT) + 1;
+const PAST_80 = Math.ceil(DURATION * AT) + 1;
 const NEAR_END = DURATION - END_PROMPT_S + 1;
 
 // =====================================================================================
@@ -358,7 +359,7 @@ describe('the prefetch at 80%', () => {
 
   it('starts the next episode downloading past the 80% point, and not before', async () => {
     const handle = await playing();
-    await playTo(handle, Math.floor(DURATION * AUTO_NEXT_AT) - 60);
+    await playTo(handle, Math.floor(DURATION * AT) - 60);
     expect.soft(asked(), 'nothing before the point').toEqual([]);
     await playTo(handle, PAST_80);
     expect.soft(asked()).toHaveLength(1);
@@ -424,9 +425,9 @@ describe('the prefetch at 80%', () => {
     // third scale the prefetch would simply never fire.
     const handle = await playing({ duration: Number.NaN });
     // The season fixture says 40 minutes, so 80% is 1920s.
-    await playTo(handle, 40 * 60 * AUTO_NEXT_AT - 60);
+    await playTo(handle, 40 * 60 * AT - 60);
     expect.soft(asked(), 'not yet, by TMDB’s clock').toEqual([]);
-    await playTo(handle, Math.ceil(40 * 60 * AUTO_NEXT_AT) + 1);
+    await playTo(handle, Math.ceil(40 * 60 * AT) + 1);
     expect.soft(asked()).toHaveLength(1);
   });
 

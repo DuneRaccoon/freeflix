@@ -207,7 +207,10 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
               current_time: durationRef.current,
               duration: durationRef.current,
               percentage: 100,
-              completed: true
+              completed: true,
+              // The row was found by content_id and may point at another download.
+              torrent_id: torrentId,
+              file_index: fileIndex ?? null,
             }
           );
           
@@ -277,7 +280,12 @@ const PatchedVideoPlayer: React.FC<PatchedVideoPlayerProps> = ({
             current_time: currentTime,
             duration: duration > 0 ? duration : null,
             percentage,
-            completed
+            completed,
+            // Name the download being streamed: the row was found by content_id and may
+            // still point at a removed download or another copy. The backend repoints it,
+            // so the vacuum's clock, recently-played and watched share read this one.
+            torrent_id: torrentId,
+            file_index: fileIndex ?? null,
           }
         );
 

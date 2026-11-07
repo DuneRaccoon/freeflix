@@ -936,6 +936,11 @@ class StreamingProgressUpdate(BaseModel):
     duration: Optional[float] = None
     percentage: float
     completed: bool = False
+    # The download and file being streamed. The web heartbeat PUTs to a row it found by
+    # content_id, which may still point at a removed download or another copy; naming the
+    # one playing repoints the row, as the POST upsert does. Omitted: the row stays put.
+    torrent_id: Optional[str] = None
+    file_index: Optional[int] = None
 
 class StreamingProgressResponse(BaseModel):
     model_config = ConfigDict(

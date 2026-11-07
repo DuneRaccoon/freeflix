@@ -593,6 +593,13 @@ async def update_streaming_progress(
         progress_entry.percentage = progress_update.percentage
         progress_entry.completed = progress_update.completed
         progress_entry.last_watched_at = datetime.datetime.now()
+        if progress_update.torrent_id and session.query(Torrent.id).filter(
+                Torrent.id == progress_update.torrent_id).first() is not None:
+            # Repoint to the download being streamed, as upsert_progress does, so the
+            # vacuum's touch, recently-played and watched attribution all read it. A
+            # torrent id that no longer exists leaves the row where it was.
+            progress_entry.torrent_id = progress_update.torrent_id
+            progress_entry.file_index = progress_update.file_index
         if progress_entry.torrent_id:
             touch_torrent(session, progress_entry.torrent_id, utcnow())
 

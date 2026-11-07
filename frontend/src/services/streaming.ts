@@ -155,7 +155,14 @@ export const streamingService = {
   },
 
   // Update existing progress
-  updateProgress: async (userId: string, progressId: string, progressUpdate: Pick<StreamingProgress, 'current_time' | 'duration' | 'percentage' | 'completed'>): Promise<StreamingProgress> => {
+  // `torrent_id` / `file_index` name the download being streamed; the backend repoints
+  // the row to it. Omitted, the row keeps pointing where it did.
+  updateProgress: async (
+    userId: string,
+    progressId: string,
+    progressUpdate: Pick<StreamingProgress, 'current_time' | 'duration' | 'percentage' | 'completed'>
+      & { torrent_id?: string; file_index?: number | null },
+  ): Promise<StreamingProgress> => {
     const response = await apiClient.put(`/streaming/progress/${userId}/${progressId}`, progressUpdate);
     return response.data;
   },

@@ -10,8 +10,8 @@
  *
  * THE FOUR WIRES, each of which is a seam no unit suite can see:
  *  1. the cell exists for an episode and not for a film (the route's `episodeRefOf`);
- *  2. the box is asked to start the next episode at 80% — and only then, only once, and only
- *     when the owner's global setting says so;
+ *  2. the box is asked to start the next episode at the owner's threshold (80% by default) —
+ *     and only then, only once, and only when the owner's global setting says so;
  *  3. the prompt appears near the end and holds the band up, which is what makes the cell
  *     reachable at the moment it is for;
  *  4. a press flushes the position and replaces the URL, rather than pushing a second one.

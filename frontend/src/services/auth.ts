@@ -137,6 +137,12 @@ export const authService = {
     return response.data;
   },
 
+  /** Removes a profile's passcode from an emailed link. The token travels in the body,
+   *  never the path, for the same log-file reason as verify(). */
+  resetPasscode: async (token: string): Promise<void> => {
+    await apiClient.post('/auth/reset-passcode', { token });
+  },
+
   /** The token travels in the body, never the path — request paths are written to a
    *  persisted log file, query strings and bodies are not. */
   verify: async (token: string): Promise<VerifyResult> => {

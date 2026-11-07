@@ -1,27 +1,13 @@
-"""The per-profile "start the next episode downloading" switch, as the wire sees it.
+"""The per-profile "start the next episode" switch is retired; the column is not.
 
-WHAT IS ACTUALLY AT RISK HERE, and it is not the happy path. The column is
-``nullable=True`` with no server default because this project has no migration framework:
-``init_db()`` runs ``create_all()`` and then ``sync_columns()``, an additive pass that can
-only emit a bare ``ALTER TABLE ... ADD COLUMN``. It cannot emit NOT NULL, a DEFAULT or a
-backfill. So on every database that already exists — which is every household's — this
-column arrives holding NULL on every row.
+Spec 2026-11-06 section 5.1 retired the per-profile switch. The global switch is
+``Instance.auto_next_enabled`` (Part D). The ``user_settings.auto_next_episode`` column
+stays because ``sync_columns()`` only adds columns and there is no migration framework to
+drop one, so it is nullable, unread and unwritten.
 
-The setting is specified to default ON. ``bool(None)`` is False. So the one line that
-decides whether this feature ships on or off for an existing install is
-``api/users.py``'s ``row.auto_next_episode is not False``, and the obvious tidy-up of it
-(``bool(row.auto_next_episode)``, or a plain ``row.auto_next_episode``) silently flips the
-default for everyone who is not a brand-new install. ``test_null_column_reads_as_on``
-is the row that refuses that edit; the rest of this file is the ordinary read/write
-contract around it.
-
-The write path's hazard is the other half: the handler loops
-``for key, value in data.items(): if value is not None: setattr(...)`` over
-``model_dump(exclude_unset=True)``. That shape makes "turn it off" and "do not touch it"
-indistinguishable unless False survives the ``is not None`` test — it does — and unless an
-omitted key really is absent from the dump — it is. Both are pinned below, because a
-future field added with a non-Optional type, or a dump without ``exclude_unset``, breaks
-one of them without touching this feature's own code.
+What is pinned here: the settings API no longer carries the key in either direction, a
+stale client (cached TV JS from before the change) that still PUTs it is processed rather
+than refused and the column is not written, and the ORM column was not dropped.
 """
 
 import os
@@ -36,7 +22,6 @@ from app.database.models import User, UserSettings
 from app.database.models.accounts import Account, ROLE_OWNER, STATUS_ACTIVE
 from app.database.session import get_db
 from app.main import app
-from app.models import UserSettingsUpdate
 from app.services import auth as auth_service
 
 
@@ -99,12 +84,6 @@ def _put(world, body):
     return r.json()
 
 
-def test_null_column_reads_as_on(world):
-    """THE ROW THIS FILE EXISTS FOR. NULL is "never chosen", and the feature is on."""
-    assert world["settings_row"].auto_next_episode is None
-    assert _get(world)["auto_next_episode"] is True
-
-
 def test_the_column_is_nullable_so_sync_columns_can_add_it(world):
     """Not a tautology: a NOT NULL column cannot reach an existing table at all.
 
@@ -120,37 +99,18 @@ def test_the_column_is_nullable_so_sync_columns_can_add_it(world):
     assert column.default is None
 
 
-def test_turning_it_off_is_an_explicit_false(world):
-    assert _put(world, {"auto_next_episode": False})["auto_next_episode"] is False
-    # Read back through a second request, so the answer is the stored column and not the
-    # handler's own echo of the body it was handed.
-    assert _get(world)["auto_next_episode"] is False
+def test_settings_no_longer_carry_it(world):
+    assert "auto_next_episode" not in _get(world)
 
 
-def test_turning_it_back_on_sticks(world):
-    _put(world, {"auto_next_episode": False})
-    assert _put(world, {"auto_next_episode": True})["auto_next_episode"] is True
-    assert _get(world)["auto_next_episode"] is True
-
-
-def test_an_unrelated_update_leaves_it_alone(world):
-    """The handler's loop skips a None, and an omitted key is not in the dump at all.
-
-    Without ``exclude_unset`` the dump carries ``auto_next_episode: None`` for a body that
-    never mentioned it; the loop would then skip it anyway — which is why this is asserted
-    through a body that changes something else and comes back with the switch intact,
-    rather than through the dump alone.
-    """
-    _put(world, {"auto_next_episode": False})
-    assert _put(world, {"default_quality": "720p"})["auto_next_episode"] is False
-    assert _get(world)["default_quality"] == "720p"
-
-
-def test_false_survives_the_handler_loop_and_omission_is_absent(world):
-    """The two properties of the request model the loop above depends on."""
-    assert UserSettingsUpdate(auto_next_episode=False).model_dump(exclude_unset=True) == {
-        "auto_next_episode": False
-    }
-    assert "auto_next_episode" not in UserSettingsUpdate(theme="dark").model_dump(
-        exclude_unset=True
+def test_a_stale_client_cannot_write_it(world):
+    """Cached TV JS from before this change may still PUT the old toggle."""
+    r = world["client"].put(
+        f"/api/v1/users/{world['profile']}/settings",
+        json={"auto_next_episode": False, "theme": "light"},
+        cookies=world["cookie"],
     )
+    assert r.status_code == 200, r.text
+    world["db"].expire_all()
+    assert world["settings_row"].auto_next_episode is None
+    assert world["settings_row"].theme == "light"  # the request was processed, not refused

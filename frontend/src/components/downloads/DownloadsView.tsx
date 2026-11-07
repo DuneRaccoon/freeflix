@@ -242,22 +242,22 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
             <span className="text-danger truncate">{torrent.error_message ?? 'Download failed'}</span>
           ) : (
             <>
-              <span data-testid="stat-down" className={cn(slot, 'w-[13ch]')}>
+              <span data-testid="stat-down" className={cn(slot, 'w-[15ch]')}>
                 {'↓ ' + formatSpeed(torrent.download_rate)}
               </span>
-              <span data-testid="stat-up" className={cn(slot, 'w-[13ch]')}>
+              <span data-testid="stat-up" className={cn(slot, 'w-[15ch]')}>
                 {'↑ ' + formatSpeed(torrent.upload_rate)}
               </span>
-              <span data-testid="stat-peers" className={cn(slot, 'w-[9ch]')}>
+              <span data-testid="stat-peers" className={cn(slot, 'w-[12ch]')}>
                 {`${torrent.num_peers} peers`}
               </span>
-              <span data-testid="stat-eta" className={cn(slot, 'w-[10ch]')}>
+              <span data-testid="stat-eta" className={cn(slot, 'w-[14ch]')}>
                 {'ETA ' + (torrent.state === TorrentState.DOWNLOADING ? formatETA(torrent.eta) : '—')}
               </span>
-              <span data-testid="stat-size" className={cn(slot, 'w-[9ch]')}>
+              <span data-testid="stat-size" className={cn(slot, 'w-[11ch]')}>
                 {formatBytes(torrent.size_bytes)}
               </span>
-              <span data-testid="stat-added" className={cn(slot, 'w-[18ch]')}>
+              <span data-testid="stat-added" className={cn(slot, 'w-[20ch]')}>
                 {formatAdded(torrent.added_at)}
               </span>
             </>

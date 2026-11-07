@@ -278,16 +278,18 @@ naive `.ass` spelling now answers **58** lines, of which **35** are real `\.ass\
 
 **Two file-priority selectors zero every non-video file, and this section used to cite neither.**
 The citation that stood here resolved into `get_completed_video_file_info`'s docstring and named
-no selector at all. The gated one is `skip_non_video_files` (`torrent/manager.py:2170-2185`,
-which builds the vector at `:2176-2179` and applies it at `:2181`), run once on
+no selector at all. The gated one is `skip_non_video_files` (`torrent/manager.py:2206-2221`,
+which builds the vector at `:2214-2217` and applies it at `:2219`), run once on
 `metadata_received` and only behind `settings.content_guard_enabled` (`:744-749`). The ungated one
-is `prioritize_video_files` (`torrent/manager.py:2187`, which appends a `0` for every non-video
+is `prioritize_video_files` (`torrent/manager.py:2223`, which appends a `0` for every non-video
 file at `:1695-1697` and applies the vector at `:1701`), which nothing gates and which
 `api/streaming.py:280` re-applies on every stream setup. So `.srt` sidecars are never downloaded
 by default — and **stage 9 changed neither selector**: it admits a sidecar's PIECES on demand and
 leaves the file priority at 0 (plan D1; `backend/tests/test_skip_non_video.py:31` survives that
 stage unmodified). Every line number in this paragraph was read on `feat/tv-stage9-subtitles` at
-`4ec439a`.
+`4ec439a`, except the two selector citations, re-resolved 2026-11-07 on
+`feat/profile-lock-downloads-autovacuum` after the final-review fixes moved them from
+`:2170-2185` and `:2187`.
 
 ### 4.5 The silent-401 contract is already broken
 
@@ -687,9 +689,9 @@ profile to allow 2160p. Rationale in decision 9.
 - **Sidecar priority — stage 9 deliberately did NOT do what this bullet asked, and the mechanism
   is the reason.** The bullet said to stop zeroing priority for `.srt`/`.ass`/`.ssa`/`.vtt`
   sidecars. Two selectors zero them and **neither changed**. The gated one is
-  `skip_non_video_files` (`torrent/manager.py:2170-2185`), which runs behind
+  `skip_non_video_files` (`torrent/manager.py:2206-2221`), which runs behind
   `settings.content_guard_enabled`. The ungated one is `prioritize_video_files`
-  (`torrent/manager.py:2187`), which `api/streaming.py:280` re-applies on every stream setup.
+  (`torrent/manager.py:2223`), which `api/streaming.py:280` re-applies on every stream setup.
   Measured: a **file**-level admission is undone the next time the ungated
   selector runs, and it takes `_prioritize_window`'s raised playhead window with it, while a
   **piece**-level one survives. So a sidecar is admitted at piece level on demand, and once its

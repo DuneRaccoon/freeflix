@@ -52,7 +52,13 @@ export default function ProfileLockSection({
     try {
       const result = await changePasscode(userId, body);
       if (result === 'ok') go('idle');
-      else if (result === 'wrong') go('current', MESSAGES.wrong);
+      else if (result === 'wrong') {
+        // A 'set' that is refused means a code exists that these settings did not know
+        // about (set from another tab or device): ask for it and carry on as a change,
+        // otherwise the entered code is discarded and set re-runs without one, forever.
+        if (intent === 'set') setIntent('change');
+        go('current', MESSAGES.wrong);
+      }
       else go('idle', result === 'throttled' ? MESSAGES.throttled : MESSAGES.error);
     } finally {
       setBusy(false);

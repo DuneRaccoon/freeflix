@@ -138,4 +138,23 @@ describe('ProfileLockSection', () => {
     expect(screen.getByRole('button', { name: 'Set a passcode' })).toBeInTheDocument();
     expect(h.change).not.toHaveBeenCalled();
   });
+
+  it('set refused as wrong (stale settings): asks for the current code and then changes with it', async () => {
+    h.change.mockResolvedValueOnce('wrong').mockResolvedValueOnce('ok');
+    render(<ProfileLockSection userId="user-1" settings={OFF} />);
+    await press('Set a passcode');
+    await digits('1234');
+    await ok();
+    await digits('1234');
+    await ok();
+    expect(await screen.findByRole('alert')).toHaveTextContent("That isn't the current passcode.");
+    expect(h.change).toHaveBeenNthCalledWith(1, 'user-1', { new_passcode: '1234' });
+    await digits('9876');
+    await digits('5678');
+    await ok();
+    await digits('5678');
+    await ok();
+    await waitFor(() => expect(h.change).toHaveBeenCalledTimes(2));
+    expect(h.change).toHaveBeenNthCalledWith(2, 'user-1', { current_passcode: '9876', new_passcode: '5678' });
+  });
 });

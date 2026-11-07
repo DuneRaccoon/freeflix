@@ -16,7 +16,6 @@ Two shapes in this file are deliberate and easy to "tidy" into a bug:
   connection open across an outbound HTTP call is how a 10-connection pool starves.
 """
 
-import secrets
 from typing import Annotated, Literal, Optional
 
 from fastapi import (
@@ -121,12 +120,6 @@ def _bad_credentials() -> HTTPException:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Email or password is incorrect.",
     )
-
-
-# A real pbkdf2 hash of an unguessable value, verified against when no account (or no
-# password) matches. Without it an unknown address returns before any KDF work and a known
-# one pays ~100ms, which times the existence of the owner's address precisely.
-_DUMMY_PASSWORD_HASH = auth_service.hash_password(secrets.token_urlsafe(32))
 
 
 def _set_session_cookie(response: Response, raw: str) -> None:
@@ -296,7 +289,7 @@ async def password_signin(
         # verify_password() returns False immediately for a NULL hash, so without the
         # fallback an unknown address answers in microseconds while the owner's costs
         # ~100ms — which times the owner's address precisely, defeating the constant body.
-        stored = (account.password_hash if account else None) or _DUMMY_PASSWORD_HASH
+        stored = (account.password_hash if account else None) or auth_service.DUMMY_PASSWORD_HASH
         ok = auth_service.verify_password(payload.password, stored)
         if (
             account is None

@@ -37,6 +37,7 @@ from app.dependencies.auth import AuthContext, require_profile, require_session
 from app.models import (
     OkResponse,
     PasscodeChangeRequest,
+    PasscodeResetWithPasswordRequest,
     ProfileSelectRequest,
     ProfileSelectResponse,
     UserCreate,
@@ -56,6 +57,9 @@ _QUALITIES = {"720p", "1080p", "2160p"}
 
 _UNLOCK_LIMIT = 5
 _UNLOCK_WINDOW = 5 * 60
+
+_PASSCODE_RESET_LIMIT = 5
+_PASSCODE_RESET_WINDOW = 15 * 60
 
 
 def ensure_settings(session: Session, profile: User) -> UserSettings:
@@ -484,3 +488,68 @@ async def change_passcode(
 
         session.flush()
         return profile_response(session, profile).settings
+
+
+def _bad_password() -> HTTPException:
+    """The one refusal for every way a passcode reset can fail after ownership is shown.
+
+    A factory, never a shared instance, for the reason ``_bad_credentials`` gives: a
+    re-raised module-level HTTPException accumulates traceback frames (and their DB
+    sessions) for the life of the process.
+    """
+    return HTTPException(status_code=403, detail="Incorrect password")
+
+
+@router.post("/{user_id}/passcode/reset", response_model=OkResponse)
+async def reset_passcode_with_password(
+    user_id: str,
+    payload: PasscodeResetWithPasswordRequest,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Forgot code, owner: the account password clears the profile's code.
+
+    Deliberately NOT behind ``require_profile``, which would 423 the very profile being
+    unlocked. Every failure after ownership is established is the same 403, throttled
+    ones included, and every attempt that gets past the length and throttle checks pays
+    for the KDF (against a dummy hash when there is no owner password to compare to), so
+    neither the body nor the latency says which condition failed.
+    """
+    with db as session:
+        profile = _owned_profile(session, user_id, ctx)
+
+        # Both checks come before any KDF: an unbounded input must not be hashed, and a
+        # throttled attempt must not cost the server a hash.
+        if len(payload.password) > auth_service.PASSWORD_MAX_LENGTH:
+            raise _bad_password()
+
+        key = f"passcode-reset:{ctx.account_id}"
+        if not auth_service.rate_limiter.check(
+            key, limit=_PASSCODE_RESET_LIMIT, window_seconds=_PASSCODE_RESET_WINDOW
+        ):
+            raise _bad_password()
+
+        account = session.query(Account).filter(Account.id == ctx.account_id).first()
+        ok = auth_service.verify_password(
+            payload.password,
+            (account.password_hash if account else None)
+            or auth_service.DUMMY_PASSWORD_HASH,
+        )
+        if (
+            account is None
+            or account.role != ROLE_OWNER
+            or not account.password_hash
+            or not ok
+        ):
+            raise _bad_password()
+
+        row = ensure_settings(session, profile)
+        accounts_service.clear_passcode(row)
+        auth_row = _session_row(session, ctx)
+        if auth_row is not None:
+            auth_service.set_active_profile(session, auth_row, user_id)
+        session.flush()
+
+        auth_service.rate_limiter.reset(key)
+        auth_service.rate_limiter.reset(f"unlock:{user_id}")
+        return OkResponse(ok=True)

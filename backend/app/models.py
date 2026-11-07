@@ -703,6 +703,11 @@ class PasscodeChangeRequest(BaseModel):
     new_passcode: Optional[str] = None
 
 
+class PasscodeResetWithPasswordRequest(BaseModel):
+    """Body of ``POST /users/{id}/passcode/reset``: the owner's account password."""
+    password: str
+
+
 # ─── Instance claim / auth models ────────────────────────────────────────────
 
 class InstanceStatusResponse(BaseModel):

@@ -149,6 +149,12 @@ def verify_password(password: str, stored: Optional[str]) -> bool:
     return _verify_secret(password, stored)
 
 
+# A real pbkdf2 hash of an unguessable value, verified against when no account (or no
+# password) matches. Without it an unknown address returns before any KDF work and a known
+# one pays ~100ms, which times the existence of the owner's address precisely.
+DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
+
+
 # Long enough to be worth having, with no composition rules — those push people toward
 # predictable substitutions. The upper bound is a DoS guard: PBKDF2 cost scales with
 # input length and this endpoint is unauthenticated.

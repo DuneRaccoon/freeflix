@@ -299,6 +299,95 @@ def test_the_passcode_response_carries_no_secret(home):
     assert not keys & {"passcode", "passcode_hash", "new_passcode", "current_passcode"}
 
 
+# ---------------------------------------------------------------- POST /passcode/reset
+
+
+def reset_pw(h, pid, password, who="owner"):
+    return h.client.post(f"/api/v1/users/{pid}/passcode/reset", json={"password": password},
+                         cookies=getattr(h, who))
+
+
+def test_the_owner_clears_a_forgotten_code_with_the_account_password(home):
+    for _ in range(5):
+        select(home, home.vault, "0000")
+    assert select(home, home.legacy, "48213579").status_code == 200
+
+    r = reset_pw(home, home.vault, OWNER_PASSWORD)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+    assert opened(home, home.vault) == 200
+    assert opened(home, home.legacy) == 423
+    assert opened(home, home.vault, who="owner2") == 200
+
+    assert put_code(home, home.vault, new_passcode="2468").status_code == 200
+    home.client.post("/api/v1/users/deselect", cookies=home.owner)
+    assert select(home, home.vault, "2468").status_code == 200
+
+
+def test_every_reset_failure_is_one_403(home):
+    rs = [
+        reset_pw(home, home.vault, "wrong-password-x"),
+        reset_pw(home, home.kid, "anything-at-all", who="member"),
+        reset_pw(home, home.vault, "x" * 129),
+    ]
+    owner = _fresh(home.db).query(Account).filter(Account.id == home.owner_id).one()
+    saved = owner.password_hash
+    owner.password_hash = None
+    home.db.commit()
+    rs.append(reset_pw(home, home.vault, OWNER_PASSWORD))
+
+    assert [r.status_code for r in rs] == [403] * 4
+    assert len({r.content for r in rs}) == 1
+    assert rs[0].json() == {"detail": "Incorrect password"}
+
+    owner = _fresh(home.db).query(Account).filter(Account.id == home.owner_id).one()
+    owner.password_hash = saved
+    home.db.commit()
+    assert select(home, home.vault, "4821").status_code == 200
+
+
+def test_the_reset_always_pays_for_the_kdf(home, monkeypatch):
+    calls = []
+    real = auth_service.verify_password
+
+    def spy(password, stored):
+        calls.append(stored)
+        return real(password, stored)
+
+    monkeypatch.setattr("app.services.auth.verify_password", spy)
+
+    reset_pw(home, home.kid, "anything-at-all", who="member")
+    assert calls == [auth_service.DUMMY_PASSWORD_HASH]
+
+    calls.clear()
+    owner = _fresh(home.db).query(Account).filter(Account.id == home.owner_id).one()
+    owner.password_hash = None
+    home.db.commit()
+    reset_pw(home, home.vault, OWNER_PASSWORD)
+    assert calls == [auth_service.DUMMY_PASSWORD_HASH]
+
+    calls.clear()
+    reset_pw(home, home.vault, "x" * 129)
+    assert calls == []
+
+
+def test_the_reset_is_throttled_into_the_same_403(home):
+    for _ in range(5):
+        assert reset_pw(home, home.vault, "wrong-password-x").status_code == 403
+    r = reset_pw(home, home.vault, OWNER_PASSWORD)
+    assert r.status_code == 403
+    assert r.json() == {"detail": "Incorrect password"}
+    assert opened(home, home.vault, who="owner2") == 423
+
+
+def test_the_reset_is_refused_for_another_accounts_profile(home):
+    r = reset_pw(home, home.kid, OWNER_PASSWORD)
+    assert r.status_code == 403
+    assert r.json() == {"detail": "Not your profile"}
+    assert select(home, home.kid, "1357", who="member").status_code == 200
+
+
 def test_the_startup_event_runs_the_pass(db_session, override_get_db, monkeypatch, tmp_path):
     """The seam: the pass must be reached from the startup event, on the app's own
     ``get_db`` (not ``init_db()``, which runs at import time on the real engine)."""

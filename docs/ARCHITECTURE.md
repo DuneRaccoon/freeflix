@@ -171,6 +171,21 @@ account password at `POST /users/{id}/passcode/reset`. A member asks
 page POSTs the token to `POST /auth/reset-passcode`, which clears that one
 profile's code. Only the newest link per account works.
 
+Clients pick a profile only through `POST /users/{id}/select`: the web
+`ProfileGate` and the TV picker. A profile whose list row has `require_passcode`
+opens the numpad on every pick, with no codeless call first; an open one is
+selected without a code, and a 403/423 to that means the list is stale, so the
+client re-reads it. Web boot and `useTvProfile.restore` never select. A 423 at
+web boot opens the picker with that profile's numpad, and a web tab whose
+profile is relocked mid-session (a pick elsewhere on the same session) drops to
+the picker the same way, keeping its stored profile; on the TV, `LockedRedirect`
+sends the viewer to the picker. Switch profile calls `POST /users/deselect`: web
+`UserContext.logout`, and the TV picker on mount. "Forgot code?": the owner
+re-enters the account password on the web; a member gets the emailed
+`/auth/reset-passcode?token=…` link, which clears the code only on a button
+press. The TV only tells the owner to use the web. Codes are set, changed and
+removed only in web Settings → Profile lock.
+
 ### Mail
 
 ```

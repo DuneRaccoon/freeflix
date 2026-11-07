@@ -4,7 +4,7 @@ import type { User } from '@/services/users';
 import { useTvProfile } from './useTvProfile';
 
 vi.mock('@/services/users', () => ({
-  usersService: { getUsers: vi.fn() },
+  usersService: { getUsers: vi.fn(), selectProfile: vi.fn() },
 }));
 import { usersService } from '@/services/users';
 
@@ -63,6 +63,14 @@ describe('useTvProfile', () => {
     // Exactly three fields: the row's username, account id and settings do not belong in
     // state that every screen reads.
     expect(result.current.profile).toEqual({ id: 'b', display_name: 'Bea', avatar: null });
+  });
+
+  it('restore never selects: a refresh does not ask again', async () => {
+    localStorage.setItem(KEY, 'b');
+    getUsers.mockResolvedValue([user('b')]);
+    const { result } = renderHook(() => useTvProfile());
+    await waitFor(() => expect(result.current.profile?.id).toBe('b')); // positive control: restore ran
+    expect(usersService.selectProfile).not.toHaveBeenCalled();
   });
 
   it('is loading until getUsers() settles', async () => {

@@ -153,14 +153,4 @@ export const usersService = {
   requestPasscodeResetLink: async (userId: string): Promise<void> => {
     await apiClient.post(`/users/${userId}/passcode/reset-link`);
   },
-
-  /**
-   * Records the unlock against the session row, so the lock the UI advertises is
-   * actually enforced on every subsequent profile-scoped call. 423/403 means the code
-   * was wrong.
-   */
-  unlockProfile: async (userId: string, passcode: string): Promise<{ ok: boolean }> => {
-    const response = await apiClient.post(`/users/${userId}/unlock`, { passcode });
-    return response.data;
-  },
 };

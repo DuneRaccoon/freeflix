@@ -9,13 +9,21 @@ const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router }));
 
 vi.mock('@/services/users', () => ({
-  usersService: { getUsers: vi.fn(), getUserSettings: vi.fn(), unlockProfile: vi.fn() },
+  usersService: {
+    getUsers: vi.fn(),
+    selectProfile: vi.fn(),
+    deselectProfile: vi.fn(),
+    requestPasscodeResetLink: vi.fn(),
+  },
 }));
 import { usersService } from '@/services/users';
+vi.mock('@/services/auth', () => ({ authService: { me: vi.fn() } }));
+import { authService } from '@/services/auth';
 
 const getUsers = usersService.getUsers as ReturnType<typeof vi.fn>;
-const getUserSettings = usersService.getUserSettings as ReturnType<typeof vi.fn>;
-const unlockProfile = usersService.unlockProfile as ReturnType<typeof vi.fn>;
+const selectProfile = usersService.selectProfile as ReturnType<typeof vi.fn>;
+const deselectProfile = usersService.deselectProfile as ReturnType<typeof vi.fn>;
+const requestPasscodeResetLink = usersService.requestPasscodeResetLink as ReturnType<typeof vi.fn>;
 
 /** What axios rejects with for a non-2xx answer. */
 const httpError = (status: number) => Object.assign(new Error(`HTTP ${status}`), { response: { status } });
@@ -43,10 +51,11 @@ const profile = (id: string, name: string, over: Partial<User> = {}, s: Partial<
   ...over,
 });
 
-const OPEN = settings();
 const LOCKED = { require_passcode: true, has_passcode: true, passcode_len: 4 };
 
 const ben = () => profile('p1', 'Ben');
+/** Open, like Ben: a second profile a pick can go straight into. */
+const ava = () => profile('p3', 'Ava');
 const mum = (len: number | null = 4) =>
   profile('p2', 'Mum', {}, { ...LOCKED, passcode_len: len });
 
@@ -90,10 +99,10 @@ const ringPlaced = () =>
   waitFor(() => expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1));
 const arrow = (k: string) => fireEvent.keyDown(window, { key: k });
 
-/** Render, wait for the grid, and open a profile whose settings call is `settleWith`. */
-async function openProfile(name: string, users: User[], probe: () => Promise<unknown>) {
+/** Render, wait for the grid, and open a profile; `probe`, when given, answers its codeless select. */
+async function openProfile(name: string, users: User[], probe?: () => Promise<unknown>) {
   getUsers.mockResolvedValue(users);
-  getUserSettings.mockImplementation(probe);
+  if (probe) selectProfile.mockImplementation(probe);
   const view = render(<ProfilesPage />);
   const button = await screen.findByRole('button', { name });
   // A press on a remote or a pointer lands on the profile first, which is what moves the
@@ -102,9 +111,9 @@ async function openProfile(name: string, users: User[], probe: () => Promise<unk
   return view;
 }
 
-/** Open Mum's profile, whose settings probe answers 423, and wait for the keypad. */
+/** Open Mum's profile, which the list marks locked, and wait for the keypad. */
 async function openKeypad(len: number | null = 4) {
-  const view = await openProfile('Mum', [ben(), mum(len)], () => Promise.reject(httpError(423)));
+  const view = await openProfile('Mum', [ben(), mum(len)]);
   await screen.findByRole('button', { name: '1' });
   await settle();
   return view;
@@ -117,8 +126,10 @@ describe('/bigscreen/profiles', () => {
     sessionStorage.clear();
     // jsdom does not implement scrollIntoView.
     Element.prototype.scrollIntoView = vi.fn();
-    getUserSettings.mockResolvedValue(OPEN);
-    unlockProfile.mockResolvedValue({ ok: true });
+    selectProfile.mockResolvedValue(undefined);
+    deselectProfile.mockResolvedValue(undefined);
+    requestPasscodeResetLink.mockResolvedValue(undefined);
+    vi.mocked(authService.me).mockReset();
   });
 
   afterEach(() => {
@@ -454,9 +465,9 @@ describe('/bigscreen/profiles', () => {
 
   describe('choosing a profile', () => {
     it('an open profile is selected at once, and the viewer goes home', async () => {
-      await openProfile('Ben', [ben(), mum()], () => Promise.resolve(OPEN));
+      await openProfile('Ben', [ben(), mum()]);
       await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/bigscreen'));
-      expect(getUserSettings).toHaveBeenCalledWith('p1');
+      expect(selectProfile).toHaveBeenCalledWith('p1');
       // select() persists the choice where home will look for it.
       expect(localStorage.getItem('bs-profile')).toBe('p1');
       expect(document.querySelector('.bs-keypad')).toBeNull();
@@ -464,17 +475,15 @@ describe('/bigscreen/profiles', () => {
       expect(router.push).not.toHaveBeenCalled();
     });
 
-    it('opens the profile when the server says its passcode was already entered this session', async () => {
-      // A locked profile that this session already unlocked answers its scoped calls 200.
-      // Asking for the code again would be stricter than the web, and pointless.
-      const locked = mum();
-      await openProfile('Mum', [ben(), locked], () => Promise.resolve(settings(LOCKED)));
-      await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/bigscreen'));
-      expect(localStorage.getItem('bs-profile')).toBe('p2');
-      expect(document.querySelector('.bs-keypad')).toBeNull();
+    it('asks a locked profile for its code on every pick, even the one in use', async () => {
+      localStorage.setItem('bs-profile', 'p2');
+      await openProfile('Mum', [ben(), mum()]);
+      expect(await screen.findByRole('button', { name: '1' })).toBeInTheDocument();
+      expect(selectProfile).not.toHaveBeenCalled(); // default mock resolves: a codeless select would enter
+      expect(router.replace).not.toHaveBeenCalled();
     });
 
-    it('a locked profile (423) shows the keypad and not the grid', async () => {
+    it('a profile the list marks locked shows the keypad and not the grid', async () => {
       const { container } = await openKeypad(4);
       expect(container.querySelector('.bs-keypad')).toBeInTheDocument();
       expect(container.querySelector('.bs-profile')).toBeNull();
@@ -499,9 +508,9 @@ describe('/bigscreen/profiles', () => {
     // in the first row never sees it; and mounting it only when it has text would shove the
     // whole grid down under their focus ring.
     it('keeps one status line above every row, mounted and empty until it has something to say', async () => {
-      const pending = deferred<UserSettings>();
+      const pending = deferred<void>();
       getUsers.mockResolvedValue(Array.from({ length: 13 }, (_, i) => profile(`p${i}`, `Person ${i}`)));
-      getUserSettings.mockReturnValue(pending.promise);
+      selectProfile.mockReturnValue(pending.promise);
       const { container } = render(<ProfilesPage />);
       await screen.findByRole('button', { name: 'Person 0' });
       await settle();
@@ -538,29 +547,59 @@ describe('/bigscreen/profiles', () => {
     });
 
     it('does not treat a 403 (not your profile) as a locked profile', async () => {
-      // 423 is "locked"; every other failure is a failure. Offering a keypad for a
-      // profile the server will never unlock would be a dead end.
+      // A 403 from a codeless select only means the list may be stale. The re-read still
+      // shows Ben open, so this is a failure: a keypad for a profile the server will never
+      // unlock would be a dead end.
       await openProfile('Ben', [ben()], () => Promise.reject(httpError(403)));
       expect(await screen.findByRole('alert')).toBeInTheDocument();
       expect(document.querySelector('.bs-keypad')).toBeNull();
     });
 
     it('only the profile chosen last is acted on when two opens overlap', async () => {
-      const first = deferred<UserSettings>();
-      const second = deferred<UserSettings>();
-      getUsers.mockResolvedValue([ben(), mum()]);
-      getUserSettings.mockImplementation((id: string) => (id === 'p1' ? first.promise : second.promise));
+      const first = deferred<void>();
+      const second = deferred<void>();
+      getUsers.mockResolvedValue([ben(), ava()]);
+      selectProfile.mockImplementation((id: string) => (id === 'p1' ? first.promise : second.promise));
       render(<ProfilesPage />);
       await screen.findByRole('button', { name: 'Ben' });
 
       fireEvent.click(profileButton('Ben'));
-      fireEvent.click(profileButton('Mum'));
-      await act(async () => { second.resolve(OPEN); });
+      fireEvent.click(profileButton('Ava'));
+      await act(async () => { second.resolve(undefined); });
       await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
       // Ben's answer arrives late and must not select him over the top.
-      await act(async () => { first.resolve(OPEN); });
+      await act(async () => { first.resolve(undefined); });
       expect(router.replace).toHaveBeenCalledTimes(1);
-      expect(localStorage.getItem('bs-profile')).toBe('p2');
+      expect(localStorage.getItem('bs-profile')).toBe('p3');
+    });
+
+    it('a profile the list shows open but locked since then gets the keypad at the fresh length', async () => {
+      getUsers.mockResolvedValueOnce([ben(), ava()]).mockResolvedValue([ben(), profile('p3', 'Ava', {}, { ...LOCKED, passcode_len: 6 })]);
+      selectProfile.mockRejectedValueOnce(httpError(403));
+      const { container } = render(<ProfilesPage />);
+      const b = await screen.findByRole('button', { name: 'Ava' });
+      await act(async () => { b.focus(); fireEvent.click(b); });
+      await screen.findByRole('button', { name: '1' });
+      expect(dots(container)).toHaveLength(6);
+      expect(selectProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it('relocks whatever was open when the picker mounts', async () => {
+      getUsers.mockResolvedValue([ben()]);
+      render(<ProfilesPage />);
+      await screen.findByRole('button', { name: 'Ben' });
+      expect(deselectProfile).toHaveBeenCalledTimes(1);
+      expect(deselectProfile).toHaveBeenCalledWith();
+    });
+
+    it.each([
+      ['hangs', () => new Promise<void>(() => {})],
+      ['fails', () => Promise.reject(new Error('x'))],
+    ])('a deselect that %s does not hold up a pick', async (_, impl) => {
+      deselectProfile.mockImplementation(impl);
+      await openProfile('Ben', [ben(), mum()]);
+      await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/bigscreen'));
+      expect(selectProfile).toHaveBeenCalledWith('p1');
     });
   });
 
@@ -596,24 +635,24 @@ describe('/bigscreen/profiles', () => {
       expect(filledDots(container)).toHaveLength(1);
       await pressKeys('Delete', 'Delete'); // one more than there is: harmless
       expect(filledDots(container)).toHaveLength(0);
-      expect(unlockProfile).not.toHaveBeenCalled();
+      expect(selectProfile).not.toHaveBeenCalled();
     });
 
     it('submits by itself on the last digit, with the digits in the order pressed', async () => {
       await openKeypad(4);
       await pressKeys('4', '2', '0');
-      expect(unlockProfile).not.toHaveBeenCalled();
+      expect(selectProfile).not.toHaveBeenCalled();
       await pressKeys('9');
-      await waitFor(() => expect(unlockProfile).toHaveBeenCalledTimes(1));
-      expect(unlockProfile).toHaveBeenCalledWith('p2', '4209');
+      await waitFor(() => expect(selectProfile).toHaveBeenCalledTimes(1));
+      expect(selectProfile).toHaveBeenCalledWith('p2', '4209');
     });
 
     it('waits for all six when the passcode is six digits', async () => {
       await openKeypad(6);
       await pressKeys('1', '2', '3', '4', '5');
-      expect(unlockProfile).not.toHaveBeenCalled();
+      expect(selectProfile).not.toHaveBeenCalled();
       await pressKeys('6');
-      await waitFor(() => expect(unlockProfile).toHaveBeenCalledWith('p2', '123456'));
+      await waitFor(() => expect(selectProfile).toHaveBeenCalledWith('p2', '123456'));
     });
 
     it('a correct code selects the profile and goes home', async () => {
@@ -624,26 +663,26 @@ describe('/bigscreen/profiles', () => {
     });
 
     it('ignores every key while a code is being checked, and does not disable any', async () => {
-      const pending = deferred<{ ok: boolean }>();
-      unlockProfile.mockReturnValue(pending.promise);
+      const pending = deferred<void>();
+      selectProfile.mockReturnValue(pending.promise);
       const { container } = await openKeypad(4);
       await pressKeys('1', '2', '3', '4');
-      await waitFor(() => expect(unlockProfile).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(selectProfile).toHaveBeenCalledTimes(1));
 
       await pressKeys('5', 'Delete');
-      expect(unlockProfile).toHaveBeenCalledTimes(1);
+      expect(selectProfile).toHaveBeenCalledTimes(1);
       expect(filledDots(container)).toHaveLength(4);
       // A disabled button drops DOM focus, and a remote has no pointer to take it back.
       container.querySelectorAll('.bs-key').forEach((k) => expect(k).not.toBeDisabled());
       expect(document.activeElement).toBe(key('1'));
 
-      await act(async () => { pending.resolve({ ok: true }); });
+      await act(async () => { pending.resolve(undefined); });
       await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
     });
 
     describe.each([423, 403])('a wrong code (%i)', (status) => {
       it('clears the dots, says so in the danger colour, and does not navigate', async () => {
-        unlockProfile.mockRejectedValue(httpError(status));
+        selectProfile.mockRejectedValue(httpError(status));
         const { container } = await openKeypad(4);
         await pressKeys('9', '9', '9', '9');
 
@@ -659,7 +698,7 @@ describe('/bigscreen/profiles', () => {
       });
 
       it('keeps the keypad up, with focus still on a key, ready to retype', async () => {
-        unlockProfile.mockRejectedValue(httpError(status));
+        selectProfile.mockRejectedValue(httpError(status));
         await openKeypad(4);
         arrow('ArrowDown');
         const before = document.activeElement;
@@ -674,18 +713,18 @@ describe('/bigscreen/profiles', () => {
       });
 
       it('accepts a second attempt', async () => {
-        unlockProfile.mockRejectedValueOnce(httpError(status)).mockResolvedValueOnce({ ok: true });
+        selectProfile.mockRejectedValueOnce(httpError(status)).mockResolvedValueOnce(undefined);
         await openKeypad(4);
         await pressKeys('9', '9', '9', '9');
         await screen.findByRole('alert');
         await pressKeys('1', '2', '3', '4');
         await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/bigscreen'));
-        expect(unlockProfile).toHaveBeenLastCalledWith('p2', '1234');
+        expect(selectProfile).toHaveBeenLastCalledWith('p2', '1234');
       });
     });
 
     it('clears the message as soon as the viewer starts again', async () => {
-      unlockProfile.mockRejectedValue(httpError(423));
+      selectProfile.mockRejectedValue(httpError(423));
       await openKeypad(4);
       await pressKeys('9', '9', '9', '9');
       await screen.findByText('That code was not right');
@@ -696,7 +735,7 @@ describe('/bigscreen/profiles', () => {
     it('does not call a throttled attempt a wrong code', async () => {
       // After five misses the sixth is refused before the hash is checked. "That code was
       // not right" would tell someone their correct code is wrong.
-      unlockProfile.mockRejectedValue(httpError(429));
+      selectProfile.mockRejectedValue(httpError(429));
       await openKeypad(4);
       await pressKeys('1', '2', '3', '4');
       const alert = await screen.findByRole('alert');
@@ -706,7 +745,7 @@ describe('/bigscreen/profiles', () => {
     });
 
     it('does not call an unreachable server a wrong code either', async () => {
-      unlockProfile.mockRejectedValue(new Error('Network Error'));
+      selectProfile.mockRejectedValue(new Error('Network Error'));
       const { container } = await openKeypad(4);
       await pressKeys('1', '2', '3', '4');
       const alert = await screen.findByRole('alert');
@@ -723,20 +762,20 @@ describe('/bigscreen/profiles', () => {
       expect(document.querySelector('.bs-keypad')).toBeNull();
       expect(profileButton('Ben')).toBeInTheDocument();
       expect(document.activeElement).toBe(profileButton('Mum'));
-      expect(unlockProfile).not.toHaveBeenCalled();
+      expect(selectProfile).not.toHaveBeenCalled();
       // A different profile can now be chosen, and starts from an empty entry.
       expect(screen.getByRole('heading', { name: /who.s watching/i })).toBeInTheDocument();
     });
 
     it('a result that arrives after Back is ignored', async () => {
-      const pending = deferred<{ ok: boolean }>();
-      unlockProfile.mockReturnValue(pending.promise);
+      const pending = deferred<void>();
+      selectProfile.mockReturnValue(pending.promise);
       await openKeypad(4);
       await pressKeys('1', '2', '3', '4');
-      await waitFor(() => expect(unlockProfile).toHaveBeenCalled());
+      await waitFor(() => expect(selectProfile).toHaveBeenCalled());
       // A request with no timeout can hang; Back must still get the viewer out.
       await pressKeys('Back to profiles');
-      await act(async () => { pending.resolve({ ok: true }); });
+      await act(async () => { pending.resolve(undefined); });
       expect(router.replace).not.toHaveBeenCalled();
       expect(localStorage.getItem('bs-profile')).toBeNull();
     });
@@ -763,8 +802,7 @@ describe('/bigscreen/profiles', () => {
         }
         const last = lists[lists.length - 1];
         getUsers.mockImplementation(() => (last instanceof Error ? Promise.reject(last) : Promise.resolve(last)));
-        getUserSettings.mockRejectedValue(httpError(423));
-        unlockProfile.mockRejectedValue(httpError(403));
+        selectProfile.mockRejectedValue(httpError(403));
         const view = render(<ProfilesPage />);
         const button = await screen.findByRole('button', { name: 'Mum' });
         await act(async () => { button.focus(); fireEvent.click(button); });
@@ -781,14 +819,14 @@ describe('/bigscreen/profiles', () => {
         await pressKeys('1', '2', '3', '4');
         await waitFor(() => expect(dots(container)).toHaveLength(6));
         expect(screen.getByRole('alert')).toHaveTextContent('That code was not right');
-        expect(unlockProfile).toHaveBeenCalledTimes(1);
+        expect(selectProfile).toHaveBeenCalledTimes(1);
 
         // Five digits do not submit now; the sixth does, with all six.
         await pressKeys('1', '2', '3', '4', '5');
-        expect(unlockProfile).toHaveBeenCalledTimes(1);
+        expect(selectProfile).toHaveBeenCalledTimes(1);
         await pressKeys('6');
-        await waitFor(() => expect(unlockProfile).toHaveBeenCalledTimes(2));
-        expect(unlockProfile).toHaveBeenLastCalledWith('p2', '123456');
+        await waitFor(() => expect(selectProfile).toHaveBeenCalledTimes(2));
+        expect(selectProfile).toHaveBeenLastCalledWith('p2', '123456');
       });
 
       it('replaces the four-dot fallback when the first list did not carry a length', async () => {
@@ -836,7 +874,7 @@ describe('/bigscreen/profiles', () => {
 
       it('does not re-read the list for a throttled attempt, which says nothing about the length', async () => {
         const { container } = await openKeypadFromLists([[ben(), mum(4)], [ben(), mum(6)]]);
-        unlockProfile.mockRejectedValue(httpError(429));
+        selectProfile.mockRejectedValue(httpError(429));
         await pressKeys('1', '2', '3', '4');
         await screen.findByRole('alert');
         await settle();
@@ -859,6 +897,72 @@ describe('/bigscreen/profiles', () => {
     });
   });
 
+  describe('Forgot code?', () => {
+    const forgot = () => screen.getByRole('button', { name: 'Forgot code?' });
+
+    it('sits below the keypad, outside it, one Down from the bottom row', async () => {
+      const { container } = await openKeypad();
+      expect(container.querySelectorAll('.bs-keypad > .bs-key')).toHaveLength(12);
+      expect(container.querySelector('.bs-keypad')!.contains(forgot())).toBe(false);
+      await ringPlaced(); // the ring lands from a passive effect; settle() is not a barrier
+      ['ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown'].forEach(arrow);
+      expect(document.activeElement).toBe(forgot());
+    });
+
+    it('member: one press sends the reset email and says to check it', async () => {
+      vi.mocked(authService.me).mockResolvedValue({ account: { role: 'member' }, profiles: [] } as never);
+      await openKeypad();
+      await act(async () => { fireEvent.click(forgot()); });
+      const line = await screen.findByText('Check your email');
+      expect(line).toHaveAttribute('role', 'alert');
+      expect(line).toHaveClass('bs-note', 'bs-msg');
+      expect(line).not.toHaveClass('bs-no');
+      expect(requestPasscodeResetLink).toHaveBeenCalledTimes(1);
+      expect(requestPasscodeResetLink).toHaveBeenCalledWith('p2');
+      expect(router.replace).not.toHaveBeenCalled();
+    });
+
+    it('owner: says to reset from the web, and sends nothing', async () => {
+      vi.mocked(authService.me).mockResolvedValue({ account: { role: 'owner' }, profiles: [] } as never);
+      await openKeypad();
+      await act(async () => { fireEvent.click(forgot()); });
+      expect(await screen.findByRole('alert')).toHaveTextContent(/^Reset it from Settings → Profile lock on your phone or computer$/);
+      expect(requestPasscodeResetLink).not.toHaveBeenCalled();
+    });
+
+    it('a second press while the first is still out sends one email, not two', async () => {
+      const role = deferred<unknown>();
+      vi.mocked(authService.me).mockReturnValue(role.promise as never);
+      await openKeypad();
+      await act(async () => { fireEvent.click(forgot()); fireEvent.click(forgot()); });
+      await act(async () => { role.resolve({ account: { role: 'member' }, profiles: [] }); });
+      await screen.findByText('Check your email');
+      expect(authService.me).toHaveBeenCalledTimes(1);
+      expect(requestPasscodeResetLink).toHaveBeenCalledTimes(1);
+      // Ignored, never disabled: a disabled button drops DOM focus.
+      expect(forgot()).not.toBeDisabled();
+    });
+
+    it('is ignored while a code is being checked', async () => {
+      selectProfile.mockReturnValue(deferred<void>().promise);
+      await openKeypad(4);
+      await pressKeys('1', '2', '3', '4');
+      await waitFor(() => expect(selectProfile).toHaveBeenCalledTimes(1));
+      await act(async () => { fireEvent.click(forgot()); });
+      expect(authService.me).not.toHaveBeenCalled();
+    });
+
+    it('an unreachable server is an error, not an email', async () => {
+      vi.mocked(authService.me).mockRejectedValue(new Error('net'));
+      await openKeypad();
+      await act(async () => { fireEvent.click(forgot()); });
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('Could not reach the server. Try again.');
+      expect(alert).toHaveClass('bs-no');
+      expect(requestPasscodeResetLink).not.toHaveBeenCalled();
+    });
+  });
+
   describe('the remote’s Back key', () => {
     // Fired the way a remote sends it: the key often has no usable name, only a code.
     const back = (init: KeyboardEventInit = { key: 'Unidentified', keyCode: 461 }) =>
@@ -869,24 +973,30 @@ describe('/bigscreen/profiles', () => {
     };
 
     it('a profile still being opened when Back is pressed is never selected', async () => {
-      const settingsCall = deferred<UserSettings>();
-      await openProfile('Ben', [ben(), mum()], () => settingsCall.promise);
+      const selectCall = deferred<void>();
+      await openProfile('Ben', [ben(), mum()], () => selectCall.promise);
       // router.replace is a transition: the page stays mounted while it resolves.
       await back();
       expect(router.replace).toHaveBeenCalledTimes(1);
       expect(router.replace).toHaveBeenCalledWith('/bigscreen');
 
-      await act(async () => { settingsCall.resolve(OPEN); });
+      await act(async () => { selectCall.resolve(undefined); });
       // The cancelled choice is not persisted, and nothing navigates a second time.
       expect(localStorage.getItem('bs-profile')).toBeNull();
       expect(router.replace).toHaveBeenCalledTimes(1);
     });
 
     it('a profile whose passcode check is still pending when Back is pressed does not raise a keypad', async () => {
-      const settingsCall = deferred<UserSettings>();
-      await openProfile('Mum', [ben(), mum()], () => settingsCall.promise);
+      const reread = deferred<User[]>();
+      // Queued before the click: the rejected select and the re-read both run inside the click's act().
+      getUsers.mockResolvedValueOnce([ben(), ava()]).mockReturnValueOnce(reread.promise);
+      selectProfile.mockRejectedValue(httpError(403));
+      render(<ProfilesPage />);
+      const b = await screen.findByRole('button', { name: 'Ava' });
+      await act(async () => { b.focus(); fireEvent.click(b); });
+      expect(getUsers).toHaveBeenCalledTimes(2); // the re-read is out
       await back();
-      await act(async () => { settingsCall.reject(httpError(423)); });
+      await act(async () => { reread.resolve([ben(), profile('p3', 'Ava', {}, LOCKED)]); });
       expect(document.querySelector('.bs-keypad')).toBeNull();
     });
 
@@ -897,7 +1007,7 @@ describe('/bigscreen/profiles', () => {
       expect(document.querySelector('.bs-keypad')).toBeNull();
       expect(profileButton('Ben')).toBeInTheDocument();
       expect(document.activeElement).toBe(profileButton('Mum'));
-      expect(unlockProfile).not.toHaveBeenCalled();
+      expect(selectProfile).not.toHaveBeenCalled();
       gone();
     });
 
@@ -924,14 +1034,14 @@ describe('/bigscreen/profiles', () => {
     });
 
     it('does what the keypad’s own Back key does: a result arriving after it is ignored', async () => {
-      const pending = deferred<{ ok: boolean }>();
-      unlockProfile.mockReturnValue(pending.promise);
+      const pending = deferred<void>();
+      selectProfile.mockReturnValue(pending.promise);
       await openKeypad(4);
       await pressKeys('1', '2', '3', '4');
-      await waitFor(() => expect(unlockProfile).toHaveBeenCalled());
+      await waitFor(() => expect(selectProfile).toHaveBeenCalled());
       await back({ key: 'Escape' });
       expect(document.querySelector('.bs-keypad')).toBeNull();
-      await act(async () => { pending.resolve({ ok: true }); });
+      await act(async () => { pending.resolve(undefined); });
       gone();
       expect(localStorage.getItem('bs-profile')).toBeNull();
     });
@@ -995,6 +1105,8 @@ describe('/bigscreen/profiles: every state keeps a focus target', () => {
     // The 10s fall-through bounds how long this lasts, but a screen with no ring reads as
     // a frozen television, and this was the one state on the surface without a control.
     getUsers.mockReturnValue(new Promise(() => {}));
+    // Outside the main describe, so its beforeEach has not given the mount's deselect an answer.
+    deselectProfile.mockResolvedValue(undefined);
     render(<ProfilesPage />);
     await act(async () => {});
     expect(screen.getByText('Loading profiles…')).toBeInTheDocument();

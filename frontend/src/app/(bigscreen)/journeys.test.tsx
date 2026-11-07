@@ -53,6 +53,8 @@ import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { watchlistService } from '@/services/watchlist';
 import { usersService } from '@/services/users';
+import type { User } from '@/services/users';
+import { authService } from '@/services/auth';
 import { devicesService } from '@/services/devices';
 import { HEADER_TARGETS } from './_components/Header';
 import { TV_RAILS, toRail } from './_data/rails';
@@ -147,9 +149,16 @@ vi.mock('@/services/users', () => ({
     deleteUser: vi.fn(),
     getUserSettings: vi.fn(),
     updateUserSettings: vi.fn(),
-    unlockProfile: vi.fn(),
+    selectProfile: vi.fn(),
+    deselectProfile: vi.fn(),
+    changePasscode: vi.fn(),
+    resetPasscodeWithPassword: vi.fn(),
+    requestPasscodeResetLink: vi.fn(),
   },
 }));
+// The picker asks for the account's role when "Forgot code?" is pressed. Unmocked, the module
+// would load the real `apiClient`.
+vi.mock('@/services/auth', () => ({ authService: { me: vi.fn() } }));
 vi.mock('@/services/devices', () => ({
   devicesService: { start: vi.fn(), poll: vi.fn(), approve: vi.fn(), list: vi.fn(), revoke: vi.fn() },
 }));
@@ -444,6 +453,7 @@ const SERVICES = [
   watchlistService,
   usersService,
   devicesService,
+  authService,
 ] as const;
 
 beforeEach(() => {
@@ -576,8 +586,9 @@ const SCREENS: readonly ScreenCase[] = [
     params: {},
     Page: ProfilesPage,
     back: 'navigates-home',
-    // This IS the picker. A 423 here is answered by the passcode keypad, not by a redirect to
-    // itself, so it is the one `useTvProfile` reader with nothing to assert below.
+    // This IS the picker, and it never probes for a 423: it asks a locked profile for its code
+    // on every pick, from the list alone. So it is the one `useTvProfile` reader with nothing
+    // to assert below.
     lock: null,
   },
   {
@@ -1040,6 +1051,22 @@ describe('a 423 anywhere sends the viewer to the picker', () => {
       if (/movie|show|list/.test(s.file)) expect(document.body.textContent).toMatch(/locked/i);
     },
   );
+});
+
+describe('Switch profile relocks the profile in use', () => {
+  it('the header target is the picker, which relocks on arrival and asks the profile in use for its code', async () => {
+    const target = HEADER_TARGETS.find((t) => t.label === 'Switch profile')!;
+    expect(routeFor(pathOf(target.href))?.file).toBe('bigscreen/profiles/page.tsx');
+    vi.mocked(usersService.getUsers).mockResolvedValue([{ id: BEN.id, username: 'ben', display_name: 'Ben', avatar: null,
+      account_id: 'acct-1', created_at: '', settings: { require_passcode: true, has_passcode: true, passcode_len: 4 } } as User]);
+    mountScreen(screenFor('bigscreen/profiles/page.tsx')); // useTvProfile reports BEN as the profile in use
+    const ben = await screen.findByRole('button', { name: 'Ben' });
+    expect(usersService.deselectProfile).toHaveBeenCalledTimes(1);
+    await act(async () => { ben.focus(); fireEvent.click(ben); });
+    expect(await screen.findByRole('button', { name: '1' })).toBeInTheDocument();
+    expect(usersService.selectProfile).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+  });
 });
 
 // ===================================================================================

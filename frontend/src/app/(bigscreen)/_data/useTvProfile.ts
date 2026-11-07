@@ -11,11 +11,13 @@ import { usersService } from '@/services/users';
  * choice. Home needs it because Continue Watching and My List call `{user_id}`-scoped
  * endpoints, which answer 403/404/423 until a profile exists.
  *
- * It does NOT verify a passcode. Unlocking is recorded server-side against the session
- * row, so the only honest check is whether a profile-scoped call succeeds. The profiles
- * screen performs the unlock and then calls `select`; a restored profile is trusted the
- * same way, and a screen whose first scoped call comes back 423 should `clear()` and send
- * the viewer back to /bigscreen/profiles.
+ * It does NOT verify a passcode, and it never calls the server's select. The profiles screen
+ * runs `POST /users/{id}/select` (with the code, for a locked profile) and only then calls
+ * `select` here, which just remembers the choice. A restore never selects: a refresh or a
+ * relaunch must not ask for the code again, and the session already holds the profile it
+ * last selected. So a restored profile is trusted, and a screen whose first scoped call
+ * comes back 423 (relocked meanwhile) should `clear()` and send the viewer back to
+ * /bigscreen/profiles.
  */
 
 export interface TvProfile {

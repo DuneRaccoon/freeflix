@@ -344,6 +344,13 @@ def test_every_reset_failure_is_one_403(home):
     owner = _fresh(home.db).query(Account).filter(Account.id == home.owner_id).one()
     owner.password_hash = saved
     home.db.commit()
+    # The code survived every failure: a wrong code is still refused (a cleared lock
+    # would answer 200), and the real one still opens it.
+    wrong = select(home, home.vault, "0000")
+    assert wrong.status_code == 403
+    assert wrong.json() == {"detail": "Incorrect passcode"}
+    cfg = _fresh(home.db).query(UserSettings).filter(UserSettings.user_id == home.vault).one()
+    assert cfg.require_passcode is True and cfg.passcode_hash is not None
     assert select(home, home.vault, "4821").status_code == 200
 
 
@@ -385,6 +392,12 @@ def test_the_reset_is_refused_for_another_accounts_profile(home):
     r = reset_pw(home, home.kid, OWNER_PASSWORD)
     assert r.status_code == 403
     assert r.json() == {"detail": "Not your profile"}
+    # The refused reset left the kid's lock in place: a wrong code is still a 403.
+    wrong = select(home, home.kid, "0000", who="member")
+    assert wrong.status_code == 403
+    assert wrong.json() == {"detail": "Incorrect passcode"}
+    cfg = _fresh(home.db).query(UserSettings).filter(UserSettings.user_id == home.kid).one()
+    assert cfg.require_passcode is True and cfg.passcode_hash is not None
     assert select(home, home.kid, "1357", who="member").status_code == 200
 
 

@@ -1,16 +1,17 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '@/context/UserContext';
-import { usersService, UserSettings, UserSettingsUpdate } from '@/services/users';
+import { usersService, UserSettings } from '@/services/users';
 import { baseService } from '@/services/api-client';
 import { avatarsService, LibraryStill } from '@/services/avatars';
-import { Badge, Button, Field, Input, Select, Toggle } from '@/components/ui/fre';
+import { Badge, Button, Field, Input, Select } from '@/components/ui/fre';
 import Avatar from '@/components/users/Avatar';
 import AvatarPicker from '@/components/users/AvatarPicker';
 import { getInitials } from '@/lib/avatars/resolve';
 import { cn } from '@/lib/cn';
 import { toast } from 'react-hot-toast';
 import { useInstall } from '@/lib/pwa/install';
+import ProfileLockSection from './ProfileLockSection';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -408,46 +409,19 @@ const RestrictionsSection: React.FC<{
   const [maturity, setMaturity] = useState<UserSettings['maturity_restriction']>(
     settings?.maturity_restriction ?? 'none',
   );
-  const [requirePasscode, setRequirePasscode] = useState(
-    settings?.require_passcode ?? false,
-  );
-  const [passcode, setPasscode] = useState('');
-  const [confirmPasscode, setConfirmPasscode] = useState('');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (settings) {
       setMaturity(settings.maturity_restriction);
-      setRequirePasscode(settings.require_passcode);
     }
   }, [settings?.id]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    if (requirePasscode && passcode && passcode !== confirmPasscode) {
-      setError('Passcodes do not match');
-      return;
-    }
-    // The code itself never comes back from the API — `has_passcode` is how we know
-    // one is already stored and this save does not have to set a new one.
-    if (requirePasscode && !settings?.has_passcode && !passcode.trim()) {
-      setError('A passcode is required when restriction is enabled');
-      return;
-    }
     setSaving(true);
     try {
-      const patch: UserSettingsUpdate = {
-        maturity_restriction: maturity,
-        require_passcode: requirePasscode,
-      };
-      if (requirePasscode && passcode.trim()) {
-        patch.passcode = passcode.trim();
-      }
-      await updateUserSettings(userId, patch);
-      setPasscode('');
-      setConfirmPasscode('');
+      await updateUserSettings(userId, { maturity_restriction: maturity });
     } finally {
       setSaving(false);
     }
@@ -457,12 +431,6 @@ const RestrictionsSection: React.FC<{
     <Card>
       <SectionHeading>Restrictions</SectionHeading>
       <form onSubmit={handleSave} className="space-y-5">
-        {error && (
-          <p role="alert" className="font-ui text-sm text-danger">
-            {error}
-          </p>
-        )}
-
         <Field label="Maturity level" htmlFor="maturity-select">
           <Select
             id="maturity-select"
@@ -474,50 +442,6 @@ const RestrictionsSection: React.FC<{
             disabled={!canEdit}
           />
         </Field>
-
-        <Toggle
-          checked={requirePasscode}
-          onChange={setRequirePasscode}
-          label="Require passcode for restricted content"
-          disabled={!canEdit}
-        />
-
-        {requirePasscode && (
-          <div
-            data-testid="passcode-fields"
-            className="grid grid-cols-1 sm:grid-cols-2 gap-4"
-          >
-            <Field label="Passcode" htmlFor="passcode">
-              <Input
-                id="passcode"
-                type="password"
-                // Digits only, 4-8: the unlock screen is a numeric keypad, so anything
-                // it cannot reproduce would lock the profile for good. The backend
-                // enforces the same rule; this just stops it being typeable.
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={8}
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value.replace(/\D/g, ''))}
-                placeholder="••••"
-                disabled={!canEdit}
-              />
-            </Field>
-            <Field label="Confirm passcode" htmlFor="confirm-passcode">
-              <Input
-                id="confirm-passcode"
-                type="password"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={8}
-                value={confirmPasscode}
-                onChange={(e) => setConfirmPasscode(e.target.value.replace(/\D/g, ''))}
-                placeholder="••••"
-                disabled={!canEdit}
-              />
-            </Field>
-          </div>
-        )}
 
         {canEdit && (
           <div className="flex justify-end">
@@ -575,6 +499,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ userId }) => {
             settings={canEdit ? userSettings : null}
             canEdit={canEdit}
           />
+          {canEdit && <ProfileLockSection userId={effectiveId} settings={userSettings} />}
         </>
       )}
 

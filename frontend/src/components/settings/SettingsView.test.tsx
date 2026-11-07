@@ -35,6 +35,7 @@ vi.mock('@/context/UserContext', () => ({
     isLoading: false,
     updateUser: (...args: unknown[]) => mockUpdateUser(...args),
     updateUserSettings: (...args: unknown[]) => mockUpdateUserSettings(...args),
+    changePasscode: vi.fn(),
   }),
 }));
 
@@ -105,7 +106,7 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe('SettingsView', () => {
-  it('renders the three sections (Profile, Preferences, Restrictions)', async () => {
+  it('renders the four sections (Profile, Preferences, Restrictions, Profile lock)', async () => {
     render(<SettingsView userId="user-1" />);
 
     // Section headings — wait for the async system card to settle
@@ -113,6 +114,7 @@ describe('SettingsView', () => {
       expect(screen.getByText('Profile')).toBeInTheDocument();
       expect(screen.getByText('Preferences')).toBeInTheDocument();
       expect(screen.getByText('Restrictions')).toBeInTheDocument();
+      expect(screen.getByText('Profile lock')).toBeInTheDocument();
     });
   });
 
@@ -152,21 +154,20 @@ describe('SettingsView', () => {
     });
   });
 
-  it('toggling require-passcode reveals the passcode inputs', async () => {
+  it('Restrictions saves the maturity level and nothing about a passcode', async () => {
     render(<SettingsView userId="user-1" />);
-
-    // Wait for system card to settle first
-    await waitFor(() => expect(screen.getByTestId('system-info')).toBeInTheDocument());
-
-    // Passcode fields should not be visible initially (require_passcode=false)
+    await userEvent.click(await screen.findByRole('button', { name: 'Save restrictions' }));
+    await waitFor(() =>
+      expect(mockUpdateUserSettings).toHaveBeenCalledWith('user-1', { maturity_restriction: 'none' }),
+    );
+    expect(screen.queryByText(/require passcode/i)).toBeNull();
     expect(screen.queryByTestId('passcode-fields')).toBeNull();
+  });
 
-    // Toggle it on
-    const toggle = screen.getByRole('switch');
-    await userEvent.click(toggle);
-
-    // Now the passcode section should be visible
-    expect(await screen.findByTestId('passcode-fields')).toBeInTheDocument();
+  it('does not offer a profile lock for a profile that is not the current one', async () => {
+    render(<SettingsView userId="someone-else" />);
+    await waitFor(() => expect(screen.getByTestId('system-info')).toBeInTheDocument());
+    expect(screen.queryByText('Profile lock')).toBeNull();
   });
 
   it('the system card shows health info from baseService', async () => {

@@ -35,12 +35,9 @@ export interface UserSettings {
   auto_next_episode?: boolean;
 }
 
-/** Write shape for PUT /users/{id}/settings. `passcode` is write-only. */
+/** Write shape for PUT /users/{id}/settings. The passcode has its own endpoint (`changePasscode`). */
 export interface UserSettingsUpdate {
   maturity_restriction?: 'none' | 'pg' | 'pg13' | 'r';
-  require_passcode?: boolean;
-  /** Hashed on arrival; send '' to clear. */
-  passcode?: string;
   theme?: 'dark' | 'light';
   default_quality?: '720p' | '1080p' | '2160p';
   download_path?: string;

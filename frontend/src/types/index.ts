@@ -143,8 +143,10 @@ export interface WatchedBy {
   percent: number;
 }
 
+export type VacuumStatus = 'off' | 'scheduled' | 'kept_watching' | 'active';
+
 export interface VacuumInfo {
-  status: 'off' | 'scheduled' | 'kept_watching' | 'active';
+  status: VacuumStatus;
   deletes_at?: string | null;
 }
 

@@ -7,6 +7,7 @@ import { torrentsService } from '@/services/torrents';
 import { activityService } from '@/services/activity';
 import { Badge, Button, Modal, Pill, Progress, RadioGroup } from '@/components/ui/fre';
 import { cn } from '@/lib/cn';
+import { vacuumLine } from './vacuumLine';
 import { parseUtc } from '@/lib/parseUtc';
 
 // ---------------------------------------------------------------------------
@@ -202,6 +203,7 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
   const title = displayTitle(torrent);
   const isError = torrent.state === TorrentState.ERROR;
   const slot = 'inline-block tabular-nums whitespace-nowrap';
+  const line = vacuumLine(torrent.vacuum, Date.now());
   const watchedBy = Array.isArray(torrent.watched_by) ? torrent.watched_by : null;
 
   return (
@@ -263,6 +265,11 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
             </>
           )}
         </div>
+
+        {/* Autovacuum: when this goes, or why it stays */}
+        {line !== null && (
+          <p data-testid="vacuum-line" className="font-ui text-xs text-muted tabular-nums whitespace-nowrap">{line}</p>
+        )}
 
         {/* Who watched (owner only) */}
         {watchedBy && (

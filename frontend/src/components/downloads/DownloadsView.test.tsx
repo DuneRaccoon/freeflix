@@ -349,6 +349,37 @@ describe('DownloadsView', () => {
     expect(within(n).queryByTestId('watched-by')).toBeNull();
   });
 
+  it('the row shows its own countdown', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({
+        id: 'a', movie_title: 'Alpha', added_at: '2026-11-03T00:00:00',
+        vacuum: { status: 'scheduled', deletes_at: new Date(Date.now() + 12 * 86_400_000 - 3_600_000).toISOString() },
+      }),
+      makeTorrent({
+        id: 'b', movie_title: 'Beta', added_at: '2026-11-02T00:00:00',
+        vacuum: { status: 'kept_watching', deletes_at: null },
+      }),
+    ]);
+    render(<DownloadsView />);
+    const rows = await screen.findAllByTestId('torrent-row');
+    const alphaRow = rows.find((r) => within(r).queryByText('Alpha'))!;
+    const betaRow = rows.find((r) => within(r).queryByText('Beta'))!;
+    expect(within(alphaRow).getByTestId('vacuum-line')).toHaveTextContent('Deletes in 12 days');
+    expect(within(betaRow).getByTestId('vacuum-line')).toHaveTextContent('Kept: not everyone has finished it');
+    expect(screen.getAllByTestId('vacuum-line')).toHaveLength(2);
+  });
+
+  it('shows no vacuum line when autovacuum is off', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({ id: 'o', movie_title: 'Off', added_at: '2026-11-03T00:00:00', vacuum: { status: 'off', deletes_at: null } }),
+      makeTorrent({ id: 'u', movie_title: 'Und', added_at: '2026-11-02T00:00:00' }),
+    ]);
+    render(<DownloadsView />);
+    await screen.findByText('Off');
+    expect(screen.getAllByTestId('torrent-row')).toHaveLength(2);
+    expect(screen.queryByTestId('vacuum-line')).toBeNull();
+  });
+
   it('shows disk used and free', async () => {
     mockListTorrents.mockResolvedValue([makeTorrent()]);
     render(<DownloadsView />);

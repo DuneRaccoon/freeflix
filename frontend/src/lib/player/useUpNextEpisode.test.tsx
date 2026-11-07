@@ -10,7 +10,7 @@ import { tvService } from '@/services/tv';
 import { torrentsService } from '@/services/torrents';
 import { streamingService } from '@/services/streaming';
 import { instanceService, type PlaybackSettings } from '@/services/instance';
-import type { SeasonDetail, TorrentStatus, VideoFile } from '@/types';
+import type { SeasonDetail, ShowDetail, TorrentStatus, VideoFile } from '@/types';
 import { useUpNextEpisode } from './useUpNextEpisode';
 
 const tv = vi.mocked(tvService);
@@ -73,6 +73,22 @@ async function mount(over: Partial<Props> = {}) {
 }
 
 const asked = () => torrents.downloadCatalogMovie.mock.calls.map(([b]) => b);
+
+/**
+ * A SEASON FINALE: S02E03 is the last of season 2, and the catalog's next is S03E01. Every other
+ * row stays inside season 2, where the current season and the next one are the same number, so
+ * only this fixture tells `next.season` from `ref.season`.
+ */
+const FINALE = 'tv:1399:s2:e3';
+function seasonBoundary() {
+  tv.getSeason.mockImplementation(async (_id: number, n: number) => (n === 2 ? season([1, 2, 3]) : season([1, 2])));
+  tv.getShow.mockResolvedValue({
+    seasons: [
+      { season_number: 2, episode_count: 3 },
+      { season_number: 3, episode_count: 2 },
+    ],
+  } as unknown as ShowDetail);
+}
 
 describe('useUpNextEpisode — the lookup', () => {
   it('names the next episode from the catalog, and asks once', async () => {
@@ -194,6 +210,14 @@ describe('useUpNextEpisode — the prefetch', () => {
     await tick(2000);
     expect(asked().map((b) => b.episode)).toEqual([3, 4]);
   });
+
+  it('at a season finale, starts the first episode of the NEXT season', async () => {
+    seasonBoundary();
+    const { result, tick } = await mount({ contentId: FINALE });
+    expect.soft(result.current.next).toEqual({ season: 3, episode: 1, name: 'Episode 1' });
+    await tick(2000);
+    expect.soft(asked()).toEqual([{ ...BODY, season: 3, episode: 1 }]);
+  });
 });
 
 describe('useUpNextEpisode — Play next', () => {
@@ -245,6 +269,18 @@ describe('useUpNextEpisode — Play next', () => {
     const href = await act(() => result.current.playNext());
     expect.soft(href).toBe('/streaming/pack-9?file=0');
     expect.soft(streaming.getFiles).toHaveBeenCalledWith('pack-9');
+  });
+
+  it('Play next across a season finale into a pack opens the next season’s file, not this season’s', async () => {
+    seasonBoundary();
+    instance.getPlayback.mockResolvedValue(playback(false));
+    torrents.downloadCatalogMovie.mockResolvedValue(row({ id: 'pack-9', season: 3, episode: null }));
+    // Same episode number in both seasons: only the season comparison picks file 2.
+    streaming.getFiles.mockResolvedValue([file(7, 2, 1), file(2, 3, 1)]);
+    const { result } = await mount({ contentId: FINALE });
+    const href = await act(() => result.current.playNext());
+    expect.soft(href).toBe('/streaming/pack-9?file=2');
+    expect.soft(asked()).toEqual([{ ...BODY, season: 3, episode: 1 }]);
   });
 
   it('Play next into a season pack without that episode’s file opens the pack', async () => {

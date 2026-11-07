@@ -1,13 +1,17 @@
 'use client';
 /**
- * UpNextCard — FRÈ "Up Next" card for multi-file season packs.
+ * UpNextCard — FRÈ "Up Next" card for the next episode — the next file of a season pack,
+ * or the next episode's own download.
  *
- * Shown near the end of an episode when there is a next file. Displays:
+ * Shown near the end of an episode when there is a next one. Displays:
  *   - "UP NEXT" eyebrow label
  *   - Next episode label (e.g. "S1·E4")
  *   - Optional thumbnail
  *   - Countdown ring (FRÈ Ring) + remaining seconds number
  *   - Play-next button + Dismiss (×) button
+ *
+ * With `countdownSeconds`, the card auto-advances: when the countdown reaches 0 it
+ * calls `onPlayNext` by itself. Dismiss cancels it.
  *
  * Props are purely presentational; wiring (what to do on play/dismiss) is the
  * caller's responsibility. This component never touches playback or progress.

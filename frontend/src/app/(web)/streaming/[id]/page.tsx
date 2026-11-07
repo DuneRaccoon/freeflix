@@ -22,6 +22,7 @@ import StreamPhasePanel from '@/components/streaming/StreamPhasePanel';
 import { toast } from 'react-hot-toast';
 import { cn } from '@/lib/cn';
 import { toDownloadQuality } from '@/lib/downloadQuality';
+import { useUpNextEpisode } from '@/lib/player/useUpNextEpisode';
 
 export default function StreamingPage() {
   const { id } = useParams();
@@ -52,7 +53,7 @@ export default function StreamingPage() {
   // source-switch affordance (W6 calls onRecoveryExhausted → setShowSources).
   const [showSources, setShowSources] = useState(false);
 
-  // Up-Next card — shown when near the end of a multi-file episode
+  // Up-Next card — shown near the end of an episode that has a next one
   const [showUpNext, setShowUpNext] = useState(false);
 
   // Single derived stream-health snapshot (§5.2). The page is the ONLY poller;
@@ -228,15 +229,48 @@ export default function StreamingPage() {
     return () => clearInterval(interval);
   }, [torrentId, isStreamReady, forceStreaming, retryCount, effectiveFileIndex]);
 
-  // Progress callback for Up-Next card trigger.
-  // Shows the card when there is a next file and the episode is near the end
-  // (last 30 seconds or last 5% of duration, whichever comes later).
-  // Does NOT autoplay — user always confirms by clicking Play Next.
+  // Helpers to label a file entry / an episode (S02E03)
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const epLabel = (s: number, e: number) => `S${pad(s)}E${pad(e)}`;
+  const fileLabel = (f: VideoFile): string => {
+    if (f.season !== null && f.episode !== null) {
+      return epLabel(f.season, f.episode);
+    }
+    return f.name;
+  };
+
+  // Next-file data for the Up-Next card (only relevant for multi-file season packs)
+  const currentFileIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex);
+  const nextVideoFile: VideoFile | null =
+    isMultiFile && currentFileIdx >= 0 && currentFileIdx + 1 < videoFiles.length
+      ? videoFiles[currentFileIdx + 1]
+      : null;
+
+  // The next episode outside this torrent: the catalog lookup, the owner's threshold
+  // prefetch and where Play next goes. Above the early returns (rules of hooks).
+  const upNext = useUpNextEpisode({
+    contentId: streamingInfo?.content_id,
+    quality: torrentStatus?.quality,
+    nextFileInTorrent: nextVideoFile !== null,
+  });
+
+  // What the Up-Next card offers: the pack's next file, else the catalog's next episode.
+  const upNextLabel = nextVideoFile
+    ? fileLabel(nextVideoFile)
+    : upNext.next
+    ? epLabel(upNext.next.season, upNext.next.episode)
+    : null;
+
+  // Progress callback for the next-episode prefetch and the Up-Next card trigger.
+  // Every tick reaches the prefetch first: it has its own scale (TMDB's runtime) for a
+  // player that reports no duration. Then the card shows when there is a next episode and
+  // this one is near the end (last 30 seconds or last 5% of duration, whichever comes later).
+  // The card counts down 15 s and then plays next by itself (`UpNextCard`'s countdown);
+  // Dismiss cancels it. Inside a season pack the next file is next; otherwise the next
+  // episode's own download is (reused or started via `useUpNextEpisode`).
   const handleVideoProgress = ({ currentTime, duration }: { currentTime: number; duration: number }) => {
-    if (!isMultiFile) return; // single-file movies never show Up Next
-    const nextIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex) + 1;
-    if (nextIdx <= 0 || nextIdx >= videoFiles.length) return; // no next file
-    if (duration <= 0) return;
+    upNext.onProgress(currentTime, duration);
+    if (upNextLabel === null || duration <= 0) return;
     const remaining = duration - currentTime;
     const pct = (currentTime / duration) * 100;
     // Show when within 30 s OR within last 5 % — whichever is earlier
@@ -395,21 +429,6 @@ export default function StreamingPage() {
   const streamingUrl = streamingInfo
     ? streamingService.getStreamingUrl(torrentId, torrentStatus?.quality, effectiveFileIndex) ?? ''
     : '';
-
-  // Helper to label a file entry
-  const fileLabel = (f: VideoFile): string => {
-    if (f.season !== null && f.episode !== null) {
-      return `S${String(f.season).padStart(2, '0')}E${String(f.episode).padStart(2, '0')}`;
-    }
-    return f.name;
-  };
-
-  // Next-file data for the Up-Next card (only relevant for multi-file season packs)
-  const currentFileIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex);
-  const nextVideoFile: VideoFile | null =
-    isMultiFile && currentFileIdx >= 0 && currentFileIdx + 1 < videoFiles.length
-      ? videoFiles[currentFileIdx + 1]
-      : null;
 
   // Loading state — FRÈ gold-on-ink spinner
   if (isLoading) {
@@ -577,13 +596,19 @@ export default function StreamingPage() {
             />
 
             {/* Up-Next card — floats above player, bottom-right, above controls */}
-            {showUpNext && nextVideoFile && (
+            {showUpNext && upNextLabel && (
               <div className="absolute bottom-28 right-7 z-50 pointer-events-auto">
                 <UpNextCard
-                  nextLabel={fileLabel(nextVideoFile)}
-                  onPlayNext={() => {
+                  nextLabel={upNextLabel}
+                  onPlayNext={async () => {
                     setShowUpNext(false);
-                    router.replace(`/streaming/${torrentId}?file=${nextVideoFile.index}`);
+                    if (nextVideoFile) {
+                      router.replace(`/streaming/${torrentId}?file=${nextVideoFile.index}`);
+                      return;
+                    }
+                    const href = await upNext.playNext();
+                    if (href !== null) router.replace(href);
+                    else toast.error('Could not start the next episode.', { id: 'play-next' });
                   }}
                   onDismiss={() => setShowUpNext(false)}
                   countdownSeconds={15}

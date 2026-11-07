@@ -62,3 +62,43 @@ def test_disabled_is_reported_as_off_not_absent(world):
     world.db.commit()
     assert world.get("/api/v1/torrents/list").json()[0]["vacuum"] == {
         "status": "off", "deletes_at": None}
+
+
+def _vacuum_breaks(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("vacuum evaluator failed")
+    # Inside fill_vacuum, so the endpoints' own call is what must survive it.
+    monkeypatch.setattr("app.services.vacuum._evaluate", boom)
+
+
+def test_a_failing_vacuum_evaluation_never_fails_a_status_poll(world, monkeypatch):
+    # /status is the play path's health signal: the vacuum line is decoration.
+    _vacuum_breaks(monkeypatch)
+    r = world.get("/api/v1/torrents/status/expired")
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == "expired"
+    assert r.json()["vacuum"] is None
+
+
+def test_a_failing_vacuum_evaluation_never_fails_the_list(world, monkeypatch):
+    _vacuum_breaks(monkeypatch)
+    r = world.get("/api/v1/torrents/list")
+    assert r.status_code == 200, r.text
+    assert [(t["id"], t["vacuum"]) for t in r.json()] == [("expired", None)]
+
+
+def test_status_reads_only_the_handle_it_was_asked_about(world):
+    # A poll reads its own handle, not every loaded one.
+    read = []
+
+    def handle(tid):
+        def status():
+            read.append(tid)
+            return types.SimpleNamespace(download_rate=0, download_payload_rate=0,
+                                         is_seeding=False, is_finished=True)
+        return (types.SimpleNamespace(status=status), {})
+
+    torrents_api.torrent_manager.active_torrents.update(
+        {"expired": handle("expired"), "other": handle("other")})
+    assert world.get("/api/v1/torrents/status/expired").status_code == 200
+    assert read == ["expired"]

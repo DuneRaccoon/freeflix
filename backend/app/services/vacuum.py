@@ -91,7 +91,7 @@ def _manager_or_default(manager):
     return manager
 
 
-def _live_rates(manager) -> Dict[str, float]:
+def _live_rates(manager, ids: Optional[List[str]] = None) -> Dict[str, float]:
     """``{torrent_id: live payload rate}`` off each loaded handle, never off ``meta_data``.
 
     "Actively progressing" (spec 4.4) is content arriving: ``download_payload_rate``, not
@@ -99,9 +99,15 @@ def _live_rates(manager) -> Dict[str, float]:
     stalled torrent whenever a peer talks to it. A complete (seeding or finished) handle
     is not progressing whatever it reports. An entry whose handle cannot be read counts as
     live (1.0): deleting on an unreadable handle is the unsafe direction.
+
+    ``ids`` limits the read to those handles, so a one-row status poll reads one handle.
     """
     rates: Dict[str, float] = {}
-    for tid, entry in list(getattr(manager, "active_torrents", {}).items()):
+    entries = list(getattr(manager, "active_torrents", {}).items())
+    if ids is not None:
+        wanted = set(ids)
+        entries = [(tid, entry) for tid, entry in entries if tid in wanted]
+    for tid, entry in entries:
         try:
             handle, _ = entry
             st = handle.status()
@@ -144,8 +150,9 @@ def _evaluate(
     manager,
     tz: Optional[tzinfo],
 ) -> Dict[str, VacuumInfo]:
-    rates = _live_rates(manager)
-    last_played = _last_played(session, [row.id for row in rows])
+    ids = [row.id for row in rows]
+    rates = _live_rates(manager, ids)
+    last_played = _last_played(session, ids)
     result: Dict[str, VacuumInfo] = {}
     for row in rows:
         latest = last_played.get(row.id)

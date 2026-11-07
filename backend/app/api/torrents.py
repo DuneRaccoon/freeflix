@@ -370,8 +370,19 @@ async def get_torrent_status(torrent_id: str = Path(..., description="ID of the 
     if not status:
         raise HTTPException(status_code=404, detail="Torrent not found")
 
-    fill_vacuum([status], utcnow(), manager=torrent_manager)
+    _fill_vacuum_guarded([status])
     return status
+
+
+def _fill_vacuum_guarded(statuses: List[TorrentStatus]) -> None:
+    """``fill_vacuum``, but a failure leaves ``vacuum=None`` instead of failing the
+    request: ``/status`` is the play path's health signal, and the line is decoration."""
+    try:
+        fill_vacuum(statuses, utcnow(), manager=torrent_manager)
+    except Exception:
+        logger.exception("Vacuum evaluation failed; returning the statuses without it")
+        for status in statuses:
+            status.vacuum = None
 
 
 @router.get("/list", response_model=List[TorrentStatus], summary="List all torrents")
@@ -402,7 +413,7 @@ async def list_torrents(
         all_torrents = [t for t in all_torrents if t.state == state]
 
     # Outside the `with db` block: fill_vacuum opens its own get_db().
-    fill_vacuum(all_torrents, utcnow(), manager=torrent_manager)
+    _fill_vacuum_guarded(all_torrents)
     return all_torrents
 
 

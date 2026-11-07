@@ -288,13 +288,17 @@ def test_revoked_account_stops_authenticating_immediately(db_session, world):
 # --------------------------------------------- passcode lockout guards (review fixes)
 
 
-@pytest.mark.parametrize("bad", ["hunter2", "12 34", "12a4", "abcd", "12", "123456789"])
+@pytest.mark.parametrize(
+    "bad",
+    # 7 and 8 digits were valid before the 4-6 rule; only stored codes keep them.
+    ["hunter2", "12 34", "12a4", "abcd", "12", "123456789", "1234567", "12345678"],
+)
 def test_non_numeric_or_out_of_range_passcode_is_refused(world, bad):
     """The unlock screen is a numeric keypad, so a passcode it cannot reproduce would
     lock the profile for good — and with the lock on, settings are behind the same 423."""
     r = world["client"].put(
-        f"/api/v1/users/{world['owner_profile']}/settings",
-        json={"require_passcode": True, "passcode": bad},
+        f"/api/v1/users/{world['owner_profile']}/passcode",
+        json={"new_passcode": bad},
         cookies=world["owner_cookie"],
     )
     assert r.status_code == 422
@@ -307,8 +311,8 @@ def test_setting_a_passcode_does_not_lock_out_the_session_that_set_it(world):
     client, cookie, me = world["client"], world["owner_cookie"], world["owner_profile"]
 
     assert client.put(
-        f"/api/v1/users/{me}/settings",
-        json={"require_passcode": True, "passcode": "4821"},
+        f"/api/v1/users/{me}/passcode",
+        json={"new_passcode": "4821"},
         cookies=cookie,
     ).status_code == 200
 
@@ -331,6 +335,14 @@ def test_turning_the_lock_off_still_requires_the_passcode(world):
     r = world["client"].put(
         f"/api/v1/users/{world['vault']}/settings",
         json={"require_passcode": False},
+        cookies=world["owner_cookie"],
+    )
+    assert r.status_code == 423
+
+    # Nor can the lock be removed at its own endpoint without opening the profile first.
+    r = world["client"].put(
+        f"/api/v1/users/{world['vault']}/passcode",
+        json={"current_passcode": "4821"},
         cookies=world["owner_cookie"],
     )
     assert r.status_code == 423

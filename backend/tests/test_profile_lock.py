@@ -159,3 +159,141 @@ def test_select_checks_ownership_before_the_code(home):
 
     # With the owner's cookie: without a session require_session would answer 401.
     assert select(home, "no-such-id").status_code == 404
+
+
+# ---------------------------------------------------------------- PUT /passcode
+
+
+def put_code(h, pid, who="owner", **body):
+    return h.client.put(f"/api/v1/users/{pid}/passcode", json=body, cookies=getattr(h, who))
+
+
+def test_a_first_code_turns_the_lock_on_and_keeps_this_session_on_it(home):
+    r = put_code(home, home.plain, new_passcode="2468")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["require_passcode"] is True
+    assert body["has_passcode"] is True
+    assert body["passcode_len"] == 4
+
+    assert opened(home, home.plain) == 200
+    assert opened(home, home.plain, who="owner2") == 423
+
+
+def test_setting_a_code_relocks_whatever_else_was_open(home):
+    assert select(home, home.vault, "4821").status_code == 200
+    assert put_code(home, home.plain, new_passcode="2468").status_code == 200
+
+    assert opened(home, home.vault) == 423
+
+
+def test_changing_a_code_needs_the_current_one(home):
+    assert select(home, home.vault, "4821").status_code == 200
+
+    r = put_code(home, home.vault, new_passcode="1111")
+    assert r.status_code == 403
+    assert r.json() == {"detail": "Incorrect passcode"}
+    r = put_code(home, home.vault, current_passcode="0000", new_passcode="1111")
+    assert r.status_code == 403
+    r = put_code(home, home.vault, current_passcode="4821", new_passcode="1111")
+    assert r.status_code == 200
+
+    assert home.client.post("/api/v1/users/deselect", cookies=home.owner).status_code == 200
+    assert select(home, home.vault, "4821").status_code == 403
+    assert select(home, home.vault, "1111").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"current_passcode": "4821"}, {"current_passcode": "4821", "new_passcode": ""}],
+)
+def test_removing_a_code_needs_the_current_one_and_turns_the_lock_off(home, body):
+    assert select(home, home.vault, "4821").status_code == 200
+
+    assert put_code(home, home.vault, new_passcode="").status_code == 403
+
+    r = put_code(home, home.vault, **body)
+    assert r.status_code == 200
+    assert r.json()["require_passcode"] is False
+    assert r.json()["has_passcode"] is False
+    assert r.json()["passcode_len"] is None
+
+    assert opened(home, home.vault, who="owner2") == 200
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [("123", 422), ("1234567", 422), ("12345678", 422), ("12a4", 422), ("12 34", 422),
+     ("abcd", 422), ("١٢٣٤", 422),   # Arabic-Indic digits: isdigit() says yes
+     ("1234", 200), ("123456", 200)],
+)
+def test_new_codes_are_4_to_6_digits(home, code, expected):
+    r = put_code(home, home.plain, new_passcode=code)
+    assert r.status_code == expected
+    if expected == 422:
+        assert r.json() == {"detail": "Passcode must be 4 to 6 digits"}
+
+
+def test_a_legacy_code_can_still_be_changed_and_removed(home):
+    assert select(home, home.legacy, "48213579").status_code == 200
+
+    r = put_code(home, home.legacy, current_passcode="48213579", new_passcode="2468")
+    assert r.status_code == 200
+    assert r.json()["passcode_len"] == 4
+
+    r = put_code(home, home.legacy, current_passcode="2468")
+    assert r.status_code == 200
+    assert r.json()["has_passcode"] is False
+
+
+def test_a_wrong_current_code_spends_the_select_budget(home):
+    assert select(home, home.vault, "4821").status_code == 200
+
+    for _ in range(5):
+        r = put_code(home, home.vault, current_passcode="0000", new_passcode="1111")
+        assert r.status_code == 403
+    assert select(home, home.vault, "4821").status_code == 429
+
+
+def test_a_malformed_new_code_spends_no_attempt(home):
+    """The new code is validated before the current one is checked."""
+    assert select(home, home.vault, "4821").status_code == 200
+
+    for _ in range(5):
+        r = put_code(home, home.vault, current_passcode="0000", new_passcode="12a4")
+        assert r.status_code == 422
+    assert select(home, home.vault, "4821").status_code == 200
+
+
+def test_settings_no_longer_change_the_lock(home):
+    assert select(home, home.vault, "4821").status_code == 200
+
+    r = home.client.put(
+        f"/api/v1/users/{home.vault}/settings",
+        json={"require_passcode": False, "passcode": "", "maturity_restriction": "pg13"},
+        cookies=home.owner,
+    )
+    assert r.status_code == 200
+    assert r.json()["require_passcode"] is True
+    assert r.json()["has_passcode"] is True
+    assert r.json()["maturity_restriction"] == "pg13"
+    assert opened(home, home.vault, who="owner2") == 423
+
+    r = home.client.put(
+        f"/api/v1/users/{home.plain}/settings",
+        json={"require_passcode": True, "passcode": "2468"},
+        cookies=home.owner,
+    )
+    assert r.status_code == 200
+    assert r.json()["require_passcode"] is False
+    assert r.json()["has_passcode"] is False
+    assert opened(home, home.plain, who="owner2") == 200
+
+
+def test_the_passcode_response_carries_no_secret(home):
+    """A pin: ``response_model=UserSettingsResponse`` strips unknown keys, so this catches
+    dropping it and returning ``row.to_dict()``, which carries ``passcode_hash``."""
+    r = put_code(home, home.plain, new_passcode="2468")
+    assert r.status_code == 200
+    keys = set(r.json())
+    assert not keys & {"passcode", "passcode_hash", "new_passcode", "current_passcode"}

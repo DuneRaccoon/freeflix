@@ -628,12 +628,12 @@ class UserUpdate(BaseModel):
 class UserSettingsUpdate(BaseModel):
     """Request body for PUT /users/{id}/settings.
 
-    `passcode` is WRITE-ONLY: it is hashed on arrival and never appears in any
-    response. Send an empty string to clear it.
+    The profile lock is not here: it lives at PUT /users/{id}/passcode, which asks for the
+    current code before changing or removing one. A `passcode` or `require_passcode` key
+    sent here is ignored (pydantic's default `extra='ignore'`), not refused, so an older
+    client that still sends them keeps saving its other settings.
     """
     maturity_restriction: Optional[str] = None
-    require_passcode: Optional[bool] = None
-    passcode: Optional[str] = None
     theme: Optional[str] = None
     default_quality: Optional[Literal['720p', '1080p', '2160p']] = None
     download_path: Optional[str] = None
@@ -690,6 +690,17 @@ class ProfileSelectRequest(BaseModel):
 
 class ProfileSelectResponse(BaseModel):
     ok: bool
+
+class PasscodeChangeRequest(BaseModel):
+    """Body of ``PUT /users/{id}/passcode``.
+
+    ``current_passcode`` is required whenever the profile already has a code.
+    ``new_passcode`` sets or changes it (4 to 6 digits); absent or empty removes it.
+    Both are WRITE-ONLY. ``current_passcode`` has no length check, so a stored 7-8 digit
+    code from before the 4-6 rule can still be changed or removed.
+    """
+    current_passcode: Optional[str] = None
+    new_passcode: Optional[str] = None
 
 
 # ─── Instance claim / auth models ────────────────────────────────────────────

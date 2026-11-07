@@ -127,6 +127,12 @@ def _verify_secret(secret: str, stored: Optional[str]) -> bool:
 # models — a 4-digit household PIN versus the key to the whole instance — so they keep
 # separate names even though the KDF is shared.
 
+# A NEW code is 4 to 6 digits. Only new codes are bounded: a 7-8 digit code stored before
+# this rule still verifies, changes and is removed.
+PASSCODE_MIN_LEN = 4
+PASSCODE_MAX_LEN = 6
+
+
 def hash_passcode(passcode: str) -> str:
     return _hash_secret(passcode)
 

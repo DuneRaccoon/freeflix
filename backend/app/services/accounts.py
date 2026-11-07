@@ -160,6 +160,26 @@ def _migrate_plaintext_passcode(row: UserSettings) -> bool:
     return True
 
 
+def set_passcode(row: UserSettings, code: str) -> None:
+    """Lock the profile with ``code``.
+
+    With :func:`clear_passcode`, the only request-path writer of the lock, so the lock is
+    on exactly when a hash is stored: ``require_passcode`` moves with ``passcode_hash``.
+    """
+    row.passcode_hash = auth_service.hash_passcode(code)
+    row.passcode_len = len(code)
+    row.require_passcode = True
+    row.passcode = None
+
+
+def clear_passcode(row: UserSettings) -> None:
+    """Remove the profile's code and turn the lock off."""
+    row.passcode_hash = None
+    row.passcode_len = None
+    row.passcode = None
+    row.require_passcode = False
+
+
 def _ensure_instance_owner(session: Session, report: MigrationReport) -> None:
     instance = get_instance(session)
     if instance.owner_account_id is None:

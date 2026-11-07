@@ -16,11 +16,13 @@ Three things this module exists to get right:
   whole profile picker — which is the only way into the app. :func:`profile_response`
   creates the row on read instead.
 * **The passcode never leaves the server.** It used to be returned in plaintext to every
-  caller through ``UserResponse.settings``. It is now write-only: hashed on arrival,
-  advertised only as ``has_passcode`` + ``passcode_len``, and verified by
+  caller through ``UserResponse.settings``. It is now write-only: set, changed and removed
+  only by ``PUT /{user_id}/passcode`` (which asks for the current code first), hashed on
+  arrival, advertised only as ``has_passcode`` + ``passcode_len``, and verified by
   ``POST /{user_id}/select``.
 """
 
+import re
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -34,6 +36,7 @@ from app.database.session import get_db
 from app.dependencies.auth import AuthContext, require_profile, require_session
 from app.models import (
     OkResponse,
+    PasscodeChangeRequest,
     ProfileSelectRequest,
     ProfileSelectResponse,
     UserCreate,
@@ -316,65 +319,25 @@ async def update_user_settings(
     db: Annotated[Session, Depends(get_db)],
     ctx: AuthContext = Depends(require_session),
 ):
-    """Update settings. ``passcode`` is write-only — hashed here, never returned."""
+    """Update settings. The lock is not one of them: see ``PUT /{user_id}/passcode``.
+
+    ``passcode`` and ``require_passcode`` are no longer fields of ``UserSettingsUpdate``,
+    so a body carrying them is saved without them rather than refused. Otherwise anyone
+    holding a device on an open profile could switch its lock off without the code.
+    """
     with db as session:
         profile = _owned_profile(session, user_id, ctx)
         row = ensure_settings(session, profile)
 
         data = payload.model_dump(exclude_unset=True)
-        passcode: Optional[str] = data.pop("passcode", None)
-
         for key, value in data.items():
             if value is not None:
                 setattr(row, key, value)
-
-        # Applied last so that clearing the code also wins over a require_passcode=true
-        # sent in the same body.
-        if passcode is not None:
-            cleaned = passcode.strip()
-            if cleaned:
-                # DIGITS ONLY, and bounded. The unlock UI is a numeric keypad that can
-                # emit nothing else, so a passcode containing a letter or a space can
-                # never be re-entered — and with the lock on, settings and delete are
-                # both behind the same 423, so the profile would be unrecoverable.
-                if not cleaned.isdigit() or not (4 <= len(cleaned) <= 8):
-                    raise HTTPException(
-                        status_code=422,
-                        detail="Passcode must be 4 to 8 digits",
-                    )
-                row.passcode_hash = auth_service.hash_passcode(cleaned)
-                row.passcode_len = len(cleaned)
-            else:
-                row.passcode_hash = None
-                row.passcode_len = None
-                row.require_passcode = False
 
         # The legacy plaintext column is never trusted again. Writing None on every
         # update means a row touched after the upgrade cannot carry a readable code,
         # even if some older path wrote one.
         row.passcode = None
-
-        if row.require_passcode and not row.passcode_hash:
-            # Otherwise require_profile would 423 forever and /select could never
-            # succeed (verify_passcode against a NULL hash is always False) — a
-            # permanent lockout from a single checkbox.
-            raise HTTPException(
-                status_code=422,
-                detail="Set a passcode before turning the profile lock on",
-            )
-
-        if row.require_passcode and ctx.session_id:
-            # The caller just chose this code, so leaving their own session locked out
-            # would 423 every profile-scoped call for the rest of it — My List and
-            # Continue Watching would silently empty with no prompt, reading as data
-            # loss. Unlock the session that performed the change.
-            auth_row = (
-                session.query(AuthSession)
-                .filter(AuthSession.id == ctx.session_id)
-                .first()
-            )
-            if auth_row is not None:
-                auth_service.set_active_profile(session, auth_row, user_id)
 
         session.flush()
         return profile_response(session, profile).settings
@@ -387,6 +350,35 @@ def _session_row(session: Session, ctx: AuthContext) -> Optional[AuthSession]:
     return session.query(AuthSession).filter(AuthSession.id == ctx.session_id).first()
 
 
+def _check_code(row: UserSettings, user_id: str, code: Optional[str]) -> None:
+    """Verify ``code`` against the profile's stored hash, or raise. 429 throttled · 403 wrong.
+
+    The one code check: picking a locked profile and changing or removing its code share
+    it, and so share one budget on ``unlock:{user_id}``. A separate key would double the
+    guesses available against a four-digit code.
+
+    No length check: a 7-8 digit code stored before the 4-6 rule must still verify.
+    """
+    key = f"unlock:{user_id}"
+    # Throttled per profile because the code is four digits: 10,000 possibilities is
+    # minutes of guessing without a limit.
+    if not auth_service.rate_limiter.check(
+        key, limit=_UNLOCK_LIMIT, window_seconds=_UNLOCK_WINDOW
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Try again in a few minutes.",
+        )
+
+    # A missing code is a wrong code, and spends an attempt like one.
+    if not auth_service.verify_passcode(code or "", row.passcode_hash):
+        raise HTTPException(status_code=403, detail="Incorrect passcode")
+
+    # A correct code clears the budget, so a household member who fat-fingers four times
+    # and then gets it right is not locked out of their own profile.
+    auth_service.rate_limiter.reset(key)
+
+
 def _select(
     session: Session, user_id: str, passcode: Optional[str], ctx: AuthContext
 ) -> None:
@@ -397,8 +389,6 @@ def _select(
     an unlocked profile empties the list rather than naming it: ``resolve_profile``
     never 423s an unlocked profile, so two tabs on two unlocked profiles never relock
     each other.
-
-    No length check: a 7-8 digit code stored before the 4-6 rule must still verify.
     """
     profile = _owned_profile(session, user_id, ctx)
     row = ensure_settings(session, profile)
@@ -406,23 +396,7 @@ def _select(
 
     # The same predicate as resolve_profile's 423.
     if row.require_passcode:
-        # Throttled per profile because the code is four digits: 10,000 possibilities
-        # is minutes of guessing without a limit.
-        if not auth_service.rate_limiter.check(
-            f"unlock:{user_id}", limit=_UNLOCK_LIMIT, window_seconds=_UNLOCK_WINDOW
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many attempts. Try again in a few minutes.",
-            )
-
-        # A missing code is a wrong code, and spends an attempt like one.
-        if not auth_service.verify_passcode(passcode or "", row.passcode_hash):
-            raise HTTPException(status_code=403, detail="Incorrect passcode")
-
-        # A correct code clears the budget, so a household member who fat-fingers four
-        # times and then gets it right is not locked out of their own profile.
-        auth_service.rate_limiter.reset(f"unlock:{user_id}")
+        _check_code(row, user_id, passcode)
         if auth_row is not None:
             auth_service.set_active_profile(session, auth_row, user_id)
     elif auth_row is not None:
@@ -458,3 +432,55 @@ async def unlock_profile(
     with db as session:
         _select(session, user_id, payload.passcode if payload else None, ctx)
         return ProfileSelectResponse(ok=True)
+
+
+# Digits matched as [0-9], never str.isdigit(): that also accepts "١٢٣٤" (Arabic-Indic),
+# a code the numeric keypad can never type, which would lock the profile for good.
+_NEW_CODE = re.compile(
+    r"[0-9]{%d,%d}" % (auth_service.PASSCODE_MIN_LEN, auth_service.PASSCODE_MAX_LEN)
+)
+
+
+@router.put(
+    "/{user_id}/passcode",
+    response_model=UserSettingsResponse,
+    dependencies=[Depends(require_profile)],
+)
+async def change_passcode(
+    user_id: str,
+    payload: PasscodeChangeRequest,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Set, change or remove the profile's code. A non-empty ``new_passcode`` sets it; an
+    absent or empty one removes it and turns the lock off.
+
+    Changing or removing an existing code needs ``current_passcode``, checked against the
+    same throttle as ``/select``: being on an open profile is not knowing its code.
+
+    The new code is validated FIRST, so a malformed one never spends an attempt.
+    """
+    new = (payload.new_passcode or "").strip()
+    if new and not _NEW_CODE.fullmatch(new):
+        raise HTTPException(status_code=422, detail="Passcode must be 4 to 6 digits")
+
+    with db as session:
+        profile = _owned_profile(session, user_id, ctx)
+        row = ensure_settings(session, profile)
+
+        if row.passcode_hash:
+            _check_code(row, user_id, payload.current_passcode)
+
+        if new:
+            accounts_service.set_passcode(row, new)
+            # The caller just chose this code, so leaving this session locked out would
+            # 423 every profile-scoped call for the rest of it. This also relocks
+            # whatever other locked profile the session had open.
+            auth_row = _session_row(session, ctx)
+            if auth_row is not None:
+                auth_service.set_active_profile(session, auth_row, user_id)
+        else:
+            accounts_service.clear_passcode(row)
+
+        session.flush()
+        return profile_response(session, profile).settings

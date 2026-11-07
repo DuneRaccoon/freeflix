@@ -21,6 +21,7 @@ import { deriveStreamHealth } from '@/utils/streamHealth';
 import StreamPhasePanel from '@/components/streaming/StreamPhasePanel';
 import { toast } from 'react-hot-toast';
 import { cn } from '@/lib/cn';
+import { toDownloadQuality } from '@/lib/downloadQuality';
 
 export default function StreamingPage() {
   const { id } = useParams();
@@ -345,9 +346,6 @@ export default function StreamingPage() {
       ? Number(_cidParts[3].replace(/^e/, ''))
       : undefined;
 
-  const normalizeSwitchQuality = (q: string): '720p' | '1080p' | '2160p' =>
-    q === '720p' || q === '1080p' || q === '2160p' ? q : '1080p';
-
   // Switch the active source from the in-player switcher (W6 renders the UI; the
   // page owns the swap). A season-pack alternative on the SAME torrent is handled
   // as a file_index swap via router.replace(?file=N); any other candidate starts a
@@ -367,7 +365,7 @@ export default function StreamingPage() {
       toast.loading('Switching source…', { id: 'switch-source' });
       const status = await torrentsService.downloadCatalogMovie({
         tmdb_id: streamingTmdbId ?? 0,
-        quality: normalizeSwitchQuality(c.quality),
+        quality: toDownloadQuality(c.quality),
         media_type: streamingMediaType,
         season: streamingSeason,
         episode: streamingEpisode,

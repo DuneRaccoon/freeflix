@@ -63,9 +63,25 @@ transfer — so the owner never gets one.
 One account owns one or more profiles (`users.account_id`). The split matters
 because watch progress, watchlist and per-profile locking hang off the *profile*
 (`user_settings`, `user_streaming_progress`, `user_watchlist` all FK `users.id`),
-while membership and email hang off the *account*. `torrents.user_id` and
-`schedules.user_id` are account-shaped and remain NULL — a download is an
-instance-wide commitment, not a personal one.
+while membership and email hang off the *account*.
+
+Downloads record the account that started them in `torrents.account_id`
+(`torrents.user_id` is a profile FK and stays NULL, as does `schedules.user_id`).
+A member sees and manages only their own account's downloads; the owner sees all
+of them; and a NULL `account_id` (rows from before the column existed, and
+schedule-cron downloads) counts as the owner's. The rule lives in
+`services/torrent_scope.py` and covers `GET /torrents/list`, `POST /torrents/batch`,
+`DELETE /torrents/{id}`, pause/stop on `POST /torrents/action/{id}` and
+`GET /activity/count`; a download the caller cannot see answers the same 404 as one
+that does not exist. Play, status, resume and every streaming route are
+deliberately unscoped, so a member pressing Play on a film the owner already holds
+still plays it. Deleting a download with its files removes its whole `save_path`
+(leftovers included) when no other row shares that directory; when another row
+does share it, only the torrent's own `save_path/<content name>` and its
+`.<v1hex>.parts` file go (never a name a sibling also claims), and `save_path`
+itself is removed only if that leaves it empty. If its own content cannot be
+identified, nothing is deleted and a WARNING is logged
+(`TorrentManager._plan_content_delete` / `_owned_paths` / `_delete_content`).
 
 The `users` table keeps its name: five FK constraints point at `users.id` and
 there is no migration tool to rename it. Only the API and UI call it a profile.

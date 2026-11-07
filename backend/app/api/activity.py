@@ -15,6 +15,8 @@ from app.database.session import get_db
 from app.database.models import Torrent as DbTorrent
 from app.models import ActivityCountResponse
 from app.config import settings
+from app.dependencies.auth import AuthContext, require_session
+from app.services.torrent_scope import scope_query
 from app.torrent.states import ACTIVE_DOWNLOAD_STATES
 
 router = APIRouter()
@@ -28,14 +30,15 @@ ACTIVE_STATES = ACTIVE_DOWNLOAD_STATES
 @router.get("/count", response_model=ActivityCountResponse)
 async def get_activity_count(
     db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
 ):
-    """Return the number of active downloads and their mean progress."""
+    """Return the number of the caller's active downloads (every account's, for the
+    owner) and their mean progress."""
     with db as session:
-        rows = (
-            session.query(DbTorrent.progress)
-            .filter(DbTorrent.state.in_(ACTIVE_STATES))
-            .all()
-        )
+        rows = scope_query(
+            session.query(DbTorrent.progress).filter(DbTorrent.state.in_(ACTIVE_STATES)),
+            ctx,
+        ).all()
 
     count = len(rows)
     if count == 0:

@@ -132,7 +132,7 @@ def client(monkeypatch):
         state.calls.append(("season_candidates", quality))
         return _ranked(state.pack_hits, quality)
 
-    async def fake_add(dl_movie, dl_torrent, save_path=None):
+    async def fake_add(dl_movie, dl_torrent, save_path=None, account_id=None):
         state.added.append(dl_torrent)
         return "tid-1"
 

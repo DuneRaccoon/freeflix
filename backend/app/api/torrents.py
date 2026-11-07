@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Body, Path, BackgroundTasks, Depends
-from typing import List, Literal, Optional, Dict, Any
+from typing import Annotated, List, Literal, Optional, Dict, Any, Set
 from pathlib import Path as PathLib
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,9 @@ from app.providers import catalog
 from app.torrent.manager import torrent_manager
 from app.config import settings
 from app.database.session import get_db
+from app.database.models import Torrent as DbTorrent
+from app.dependencies.auth import AuthContext, require_session
+from app.services.torrent_scope import scope_query, visible_to
 
 
 def _human_size(num: int) -> str:
@@ -87,8 +90,36 @@ class _DlTorrent:
 router = APIRouter()
 
 
+def _visible_ids(db, ctx: AuthContext) -> Set[str]:
+    """The ids of the downloads ``ctx`` may manage. Call only for a member: the owner
+    sees everything and must not pay for (or depend on) this read."""
+    with db as session:
+        return {r.id for r in scope_query(session.query(DbTorrent.id), ctx)}
+
+
+def _require_visible(db, torrent_id: str, ctx: AuthContext, detail: str) -> None:
+    """404 with the route's own not-found ``detail`` unless ``ctx`` may manage the row,
+    so "not yours" and "does not exist" answer byte-identically. The owner returns at
+    once, without a read."""
+    if ctx.is_owner:
+        return
+    with db as session:
+        row = (
+            session.query(DbTorrent.id, DbTorrent.account_id)
+            .filter(DbTorrent.id == torrent_id)
+            .first()
+        )
+    # Raised outside the block: get_db() logs anything escaping it at ERROR level.
+    if row is None or not visible_to(row, ctx):
+        raise HTTPException(status_code=404, detail=detail)
+
+
 @router.post("/download", response_model=TorrentStatus, summary="Download a movie")
-async def download_movie(request: TorrentRequest, background_tasks: BackgroundTasks):
+async def download_movie(
+    request: TorrentRequest,
+    background_tasks: BackgroundTasks,
+    ctx: AuthContext = Depends(require_session),
+):
     """Start downloading a movie by TMDB id at the requested quality bucket."""
     try:
         if request.media_type == "tv":
@@ -175,7 +206,11 @@ async def download_movie(request: TorrentRequest, background_tasks: BackgroundTa
             sizes=(_human_size(chosen_bytes), ""),
         )
         save_path = PathLib(request.save_path) if request.save_path else None
-        torrent_id = await torrent_manager.add_torrent(dl_movie, dl_torrent, save_path)
+        # Not scoped: anyone may start a download; the row records who did. With auth
+        # off this is "dev-owner", which no member can match -- it reads as the owner's.
+        torrent_id = await torrent_manager.add_torrent(
+            dl_movie, dl_torrent, save_path, account_id=ctx.account_id
+        )
 
         status = torrent_manager.get_torrent_status(torrent_id)
         if not status:
@@ -238,13 +273,19 @@ async def get_torrent_status(torrent_id: str = Path(..., description="ID of the 
 
 @router.get("/list", response_model=List[TorrentStatus], summary="List all torrents")
 async def list_torrents(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
     state: Optional[str] = Query(None, description="Filter by state (e.g., downloading, paused)")
 ):
     """
-    List all torrent downloads with optional filtering by state.
+    List the caller's torrent downloads (every download, for the owner), optionally
+    filtered by state.
     """
+    visible = None if ctx.is_owner else _visible_ids(db, ctx)
     all_torrents = torrent_manager.get_all_torrents()
-    
+    if visible is not None:
+        all_torrents = [t for t in all_torrents if t.id in visible]
+
     if state:
         filtered_torrents = [t for t in all_torrents if t.state == state]
         return filtered_torrents
@@ -255,10 +296,17 @@ async def list_torrents(
 @router.post("/action/{torrent_id}", response_model=Dict[str, Any], summary="Perform action on torrent")
 async def torrent_action(
     action: TorrentAction,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
     torrent_id: str = Path(..., description="ID of the torrent")
 ):
-    """Pause or resume a torrent. ('stop' is a legacy alias of pause; use DELETE to remove.)"""
+    """Pause or resume a torrent. ('stop' is a legacy alias of pause; use DELETE to remove.)
+
+    Pause/stop are scoped to the caller's downloads. Resume is deliberately NOT: the TV
+    resumes a paused download when Play is pressed, and Play must work for everyone.
+    """
     if action.action in ("pause", "stop"):
+        _require_visible(db, torrent_id, ctx, "Torrent not found or action failed")
         success = torrent_manager.pause_torrent(torrent_id)
     elif action.action == "resume":
         success = torrent_manager.resume_torrent(torrent_id)
@@ -293,9 +341,17 @@ async def prioritize_for_streaming(
 
 
 @router.post("/batch", response_model=TorrentBatchResponse, summary="Batch torrent action")
-async def batch_action(payload: TorrentBatchAction):
-    """Apply an action to every torrent matching the action's target set."""
+async def batch_action(
+    payload: TorrentBatchAction,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Apply an action to every torrent of the caller's (every torrent, for the owner)
+    matching the action's target set."""
+    visible = None if ctx.is_owner else _visible_ids(db, ctx)
     all_t = torrent_manager.get_all_torrents()
+    if visible is not None:
+        all_t = [t for t in all_t if t.id in visible]
     results: List[TorrentBatchResult] = []
 
     def _run(ids, fn):
@@ -324,12 +380,15 @@ async def batch_action(payload: TorrentBatchAction):
 
 @router.delete("/{torrent_id}", response_model=Dict[str, Any], summary="Delete a torrent")
 async def delete_torrent(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
     torrent_id: str = Path(..., description="ID of the torrent"),
     delete_files: bool = Query(False, description="Whether to delete downloaded files")
 ):
     """
-    Delete a torrent and optionally delete downloaded files.
+    Delete one of the caller's torrents (any, for the owner) and optionally its files.
     """
+    _require_visible(db, torrent_id, ctx, "Torrent not found or deletion failed")
     success = torrent_manager.remove_torrent(torrent_id, delete_files)
     
     if not success:

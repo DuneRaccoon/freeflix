@@ -28,7 +28,7 @@ def client(monkeypatch):
         # No 1080p; a healthy 720p exists (downgrade target) + a dead 1080p
         return [_hit("Movie.2020.720p.WEB", 30), _hit("Movie.2020.1080p.Dead", 0)]
 
-    async def fake_add(dl_movie, dl_torrent, save_path=None):
+    async def fake_add(dl_movie, dl_torrent, save_path=None, account_id=None):
         state.added.append(dl_torrent)
         return "tid-1"
 

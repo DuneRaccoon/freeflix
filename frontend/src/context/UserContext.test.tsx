@@ -10,6 +10,16 @@ vi.mock('@/context/SessionContext', () => ({
   useSession: () => ({ account: { id: 'acct-1' }, isLoading: false }),
 }));
 
+const apiClientMock = vi.hoisted(() => ({
+  lockedListener: null as ((url: string) => void) | null,
+}));
+vi.mock('@/services/api-client', () => ({
+  onProfileLocked: (l: (url: string) => void) => {
+    apiClientMock.lockedListener = l;
+    return () => { apiClientMock.lockedListener = null; };
+  },
+}));
+
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock('@/services/users', () => ({
@@ -208,4 +218,39 @@ describe('UserContext profile lock', () => {
       expect(ctx.userSettings?.passcode_len).toBe(SETTINGS.passcode_len);
       consoleError.mockRestore();
     });
+});
+
+describe('UserContext mid-session relock (423)', () => {
+  it('a 423 mid-session drops to the picker with that profile pending its code', async () => {
+    localStorage.setItem('currentUserId', 'p1');
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('p1'));
+
+    act(() => { apiClientMock.lockedListener!('/users/p1/progress'); });
+
+    expect(screen.getByTestId('current')).toHaveTextContent('none');
+    expect(ctx.userSettings).toBeNull();
+    expect(screen.getByTestId('locked')).toHaveTextContent('p1');
+    expect(localStorage.getItem('currentUserId')).toBe('p1');
+    expect(usersService.deselectProfile).not.toHaveBeenCalled();
+  });
+
+  it.each(['/users/p1/select', '/users/p1/unlock'])(
+    'a 423 from %s does not trigger the mid-session drop', async (url) => {
+      localStorage.setItem('currentUserId', 'p1');
+      renderProvider();
+      await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('p1'));
+
+      act(() => { apiClientMock.lockedListener!(url); });
+
+      expect(screen.getByTestId('current')).toHaveTextContent('p1');
+      expect(screen.getByTestId('locked')).toHaveTextContent('none');
+    });
+
+  it('a 423 with no current profile leaves lockedProfileId alone', async () => {
+    renderProvider();
+    await booted();
+    act(() => { apiClientMock.lockedListener!('/users/p2/settings'); });
+    expect(screen.getByTestId('locked')).toHaveTextContent('none');
+  });
 });

@@ -78,6 +78,19 @@ function handleUnauthorized(error: AxiosError): void {
   window.location.replace(`/signin?next=${encodeURIComponent(`${pathname}${search}`)}`);
 }
 
+const profileLockedListeners = new Set<(url: string) => void>();
+
+/**
+ * Hears every 423 the API answers: the session is live but its active profile has been
+ * relocked (another tab picked a different one). Returns the unsubscribe.
+ */
+export function onProfileLocked(listener: (url: string) => void): () => void {
+  profileLockedListeners.add(listener);
+  return () => {
+    profileLockedListeners.delete(listener);
+  };
+}
+
 // root client exists to get system config and run healthchecks on the API.
 // The backend's "/" and "/health" live outside /api/v1, so on the client they go
 // through the dedicated /_backend proxy rewrite.
@@ -134,6 +147,10 @@ apiClient.interceptors.response.use(
       // 401 is a dead session; 423 is a live session whose profile is passcode-locked
       // and must reach the caller so the lock prompt can open.
       if (error.response.status === 401) handleUnauthorized(error);
+      if (error.response.status === 423) {
+        const url = error.config?.url ?? '';
+        profileLockedListeners.forEach((listener) => listener(url));
+      }
     } else if (error.request) {
       // The request was made but no response was received
       console.error('API No Response:', error.request);

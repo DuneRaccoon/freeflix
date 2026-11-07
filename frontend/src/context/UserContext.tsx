@@ -11,6 +11,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { useSession } from '@/context/SessionContext';
+import { onProfileLocked } from '@/services/api-client';
 
 /** What `selectUser` resolves to. `locked` means the profile exists and belongs to
  *  this account, but the server wants its passcode before handing anything over. */
@@ -85,6 +86,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
   const [lockedProfileId, setLockedProfileId] = useState<string | null>(null);
   const router = useRouter();
+  // The 423 listener subscribes once, so it reads the profile through a ref.
+  const currentUserRef = useRef<User | null>(null);
+  currentUserRef.current = currentUser;
 
   // The profile list is account-scoped server-side, so there is nothing to fetch
   // until the session resolves — and a fetch before it would only collect a 401.
@@ -200,6 +204,23 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       cancelled = true;
     };
   }, [accountId, sessionLoading, loadUsers, openProfile]);
+
+  // Another tab picked a different profile, which relocked this tab's. Back to the
+  // picker with the numpad open for it. Not logout(): the stored id stays and no
+  // deselect is sent, which would relock the profile the other tab just opened.
+  useEffect(
+    () =>
+      onProfileLocked((url) => {
+        // select/unlock are the lock prompt's own requests; their 423 is a refusal, not a relock.
+        if (/\/(select|unlock)$/.test(url.split('?')[0])) return;
+        const current = currentUserRef.current;
+        if (!current) return;
+        setLockedProfileId(current.id);
+        setCurrentUser(null);
+        setUserSettings(null);
+      }),
+    [],
+  );
 
   /**
    * "Switch profile" — relocks the profile on the server and clears it here. The

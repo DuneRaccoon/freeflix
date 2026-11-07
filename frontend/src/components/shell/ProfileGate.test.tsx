@@ -108,6 +108,30 @@ describe('ProfileGate', () => {
     expect(screen.getByRole('dialog', { name: 'Enter passcode for Ben' })).toBeInTheDocument();
   });
 
+  it('a mid-session drop re-reads the list, so the numpad takes the current code length', async () => {
+    // Ava had no lock when this tab loaded the list; a 6-digit lock was set from another
+    // device, and this tab's next scoped call answered 423. The stale row says 4 digits,
+    // and a 4-digit numpad auto-submits a 6-digit code at digit four, every time.
+    const original = h.users;
+    try {
+      h.lockedProfileId = '2';
+      h.loadUsers.mockImplementation(async () => {
+        h.users = original.map((u) => (u.id === '2'
+          ? { ...u, settings: { require_passcode: true, passcode_len: 6 } } : u));
+      });
+      const { rerender } = render(<ProfileGate />);
+      await waitFor(() => expect(h.loadUsers).toHaveBeenCalled());
+      rerender(<ProfileGate />); // the context re-renders with the refreshed list
+
+      for (const d of '123456') await userEvent.click(screen.getByRole('button', { name: d }));
+      await waitFor(() => expect(h.selectUser).toHaveBeenCalledWith('2', '123456'));
+      expect(h.selectUser).toHaveBeenCalledTimes(1);
+    } finally {
+      h.users = original;
+      h.loadUsers.mockResolvedValue(undefined);
+    }
+  });
+
   it('an owner reset refreshes the list, then reopens the profile with no code', async () => {
     h.role = 'owner';
     h.reset.mockResolvedValue(undefined);

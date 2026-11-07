@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useUser } from '@/context/UserContext';
 import { useSession } from '@/context/SessionContext';
 import { usersService, type User } from '@/services/users';
@@ -26,6 +26,15 @@ const ProfileGate: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [entryError, setEntryError] = useState<string | null>(null);
+
+  // Mounted for a profile found locked (boot restore, or the mid-session 423 drop): the
+  // list may predate that lock, and its passcode_len sizes the numpad. A fixed-length
+  // numpad auto-submits, so a stale 4 can never take a 6-digit code. The refresh
+  // remounts the prompt at the right length through its `${id}:${length}` key.
+  useEffect(() => {
+    if (lockedProfileId) void loadUsers();
+    // Mount only: the gate is freshly mounted for each drop.
+  }, []);
 
   const closeCreate = () => {
     if (submitting) return;

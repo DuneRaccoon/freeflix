@@ -1,5 +1,5 @@
 import apiClient from './api-client';
-import { TorrentStatus, TorrentRequest, TorrentAction, TorrentBatchActionType, TorrentBatchResponse, CatalogTorrentRequest, ClientProfileId, TorrentCandidate } from '@/types';
+import { TorrentStatus, TorrentRequest, TorrentAction, TorrentBatchActionType, TorrentBatchResponse, CatalogTorrentRequest, ClientProfileId, TorrentCandidate, DiskUsage } from '@/types';
 
 export interface SourcesParams {
   tmdb_id: number;
@@ -56,6 +56,12 @@ export const torrentsService = {
     episode?: number;
   }): Promise<TorrentStatus[]> => {
     const response = await apiClient.get(`/torrents/for-title`, { params });
+    return response.data;
+  },
+
+  // Disk used by downloads and free space on the volume (shown to everyone)
+  getDisk: async (): Promise<DiskUsage> => {
+    const response = await apiClient.get(`/torrents/disk`);
     return response.data;
   },
 

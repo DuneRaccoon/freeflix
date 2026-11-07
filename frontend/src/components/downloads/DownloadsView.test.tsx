@@ -12,6 +12,7 @@ const mockPerformTorrentAction = vi.fn();
 const mockDeleteTorrent = vi.fn();
 const mockPrioritizeForStreaming = vi.fn();
 const mockBatchAction = vi.fn();
+const mockGetDisk = vi.fn();
 
 vi.mock('@/services/torrents', () => ({
   torrentsService: {
@@ -20,6 +21,7 @@ vi.mock('@/services/torrents', () => ({
     deleteTorrent: (...args: unknown[]) => mockDeleteTorrent(...args),
     prioritizeForStreaming: (...args: unknown[]) => mockPrioritizeForStreaming(...args),
     batchAction: (...args: unknown[]) => mockBatchAction(...args),
+    getDisk: (...args: unknown[]) => mockGetDisk(...args),
   },
 }));
 
@@ -78,6 +80,11 @@ beforeEach(async () => {
   mockDeleteTorrent.mockResolvedValue({});
   mockPrioritizeForStreaming.mockResolvedValue(true);
   mockBatchAction.mockResolvedValue({ action: 'pause', succeeded: 0, failed: 0, results: [] });
+  mockGetDisk.mockResolvedValue({
+    used_by_downloads_bytes: 12884901888,
+    free_bytes: 85899345920,
+    total_bytes: 536870912000,
+  });
   mockGetCount.mockResolvedValue({ active_downloads: 0, aggregate_progress: 0, max_active_downloads: 2 });
   // Import component fresh each test suite (cached after first load)
   if (!DownloadsView) {
@@ -125,7 +132,7 @@ describe('DownloadsView', () => {
     expect(mockPerformTorrentAction).toHaveBeenCalledWith('tor-42', 'pause');
   });
 
-  it('remove (confirmed) calls deleteTorrent(id, false)', async () => {
+  it('remove (confirmed) calls deleteTorrent(id, true) by default', async () => {
     mockListTorrents.mockResolvedValue([
       makeTorrent({ id: 'tor-99', movie_title: 'Delete Me' }),
     ]);
@@ -144,7 +151,7 @@ describe('DownloadsView', () => {
     const confirmBtn = within(dialog).getByRole('button', { name: 'Confirm remove' });
     await userEvent.click(confirmBtn);
 
-    expect(mockDeleteTorrent).toHaveBeenCalledWith('tor-99', false);
+    expect(mockDeleteTorrent).toHaveBeenCalledWith('tor-99', true);
   });
 
   it('shows "Active N / 2" header reflecting active-state torrent count', async () => {
@@ -203,14 +210,14 @@ describe('DownloadsView', () => {
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
   });
 
-  it('remove with "Delete everything" calls deleteTorrent(id, true)', async () => {
+  it('choosing "Remove from list" keeps the files', async () => {
     mockListTorrents.mockResolvedValue([makeTorrent({ id: 'r9', movie_title: 'Bye' })]);
     render(<DownloadsView />);
     await userEvent.click(await screen.findByRole('button', { name: 'Remove' }));
     const dialog = await screen.findByRole('dialog', { name: 'Confirm removal' });
-    await userEvent.click(within(dialog).getByRole('radio', { name: /Delete everything/i }));
+    await userEvent.click(within(dialog).getByRole('radio', { name: /Remove from list/i }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm remove' }));
-    expect(mockDeleteTorrent).toHaveBeenCalledWith('r9', true);
+    expect(mockDeleteTorrent).toHaveBeenCalledWith('r9', false);
   });
 
   it('Pause all calls batchAction("pause")', async () => {
@@ -226,5 +233,154 @@ describe('DownloadsView', () => {
     render(<DownloadsView />);
     await userEvent.click(await screen.findByRole('button', { name: 'Pause' }));
     await waitFor(() => expect(mockToastError).toHaveBeenCalled());
+  });
+  const titlesInOrder = () =>
+    screen.getAllByTestId('torrent-row').map((r) => within(r).getByTestId('row-title').textContent);
+
+  it('orders rows newest-added first with id as tiebreak, whatever the server order', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({ id: 'b', movie_title: 'B', added_at: '2026-11-01T00:00:00' }),
+      makeTorrent({ id: '0', movie_title: 'Legacy', added_at: null }),
+      makeTorrent({ id: 'c', movie_title: 'C', added_at: '2026-11-05T00:00:00' }),
+      makeTorrent({ id: 'a', movie_title: 'A', added_at: '2026-11-01T00:00:00' }),
+    ]);
+    render(<DownloadsView />);
+    await screen.findByText('Legacy');
+    expect(titlesInOrder()).toEqual(['C', 'A', 'B', 'Legacy']);
+  });
+
+  it('keeps every stat slot, showing — when a value is unknown', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({ id: 'f', movie_title: 'Done', state: TorrentState.FINISHED, eta: 300, size_bytes: null }),
+      makeTorrent({ id: 'd', movie_title: 'Going', state: TorrentState.DOWNLOADING, eta: 300, size_bytes: 1610612736 }),
+    ]);
+    render(<DownloadsView />);
+    await screen.findByText('Done');
+    const rows = screen.getAllByTestId('torrent-row');
+    const done = rows.find((r) => within(r).queryByText('Done'))!;
+    const going = rows.find((r) => within(r).queryByText('Going'))!;
+    expect(within(done).getByTestId('stat-eta')).toHaveTextContent('ETA —');
+    expect(within(done).getByTestId('stat-size')).toHaveTextContent(/^—$/);
+    expect(within(going).getByTestId('stat-eta')).toHaveTextContent('ETA 5m');
+    expect(within(going).getByTestId('stat-size')).toHaveTextContent('1.5 GB');
+  });
+
+  it('every stat slot is fixed-width tabular and non-wrapping', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent()]);
+    const { container } = render(<DownloadsView />);
+    await screen.findByTestId('row-stats');
+    const slots = container.querySelectorAll('[data-testid^="stat-"]');
+    expect(slots).toHaveLength(6);
+    slots.forEach((el) => {
+      expect(el.className).toContain('tabular-nums');
+      expect(el.className).toContain('whitespace-nowrap');
+      expect(el.className).toMatch(/w-\[\d+ch\]/);
+    });
+  });
+
+  it("shows the added date in the viewer's local day", async () => {
+    const expected: Record<string, string> = {
+      UTC: 'Added 5 Nov 2026',
+      'Asia/Tokyo': 'Added 6 Nov 2026',
+      'America/Los_Angeles': 'Added 5 Nov 2026',
+    };
+    const original = process.env.TZ;
+    try {
+      for (const [tz, text] of Object.entries(expected)) {
+        process.env.TZ = tz;
+        mockListTorrents.mockResolvedValue([makeTorrent({ added_at: '2026-11-05T23:30:00' })]);
+        const { unmount } = render(<DownloadsView />);
+        expect(await screen.findByTestId('stat-added')).toHaveTextContent(text);
+        unmount();
+      }
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+
+  it('always renders Watch, one Pause/Resume toggle and Remove, disabling what does not apply', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({ id: 'f', movie_title: 'Done', state: TorrentState.FINISHED, added_at: '2026-11-03T00:00:00' }),
+      makeTorrent({ id: 'p', movie_title: 'Held', state: TorrentState.PAUSED, added_at: '2026-11-02T00:00:00' }),
+      makeTorrent({ id: 'd', movie_title: 'Going', state: TorrentState.DOWNLOADING, added_at: '2026-11-01T00:00:00' }),
+    ]);
+    render(<DownloadsView />);
+    await screen.findByText('Done');
+    const [done, held, going] = screen.getAllByTestId('torrent-row');
+    const labels = (r: HTMLElement) =>
+      within(r).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    expect(labels(done)).toEqual(['Watch', 'Pause', 'Remove']);
+    expect(within(done).getByRole('button', { name: 'Pause' })).toBeDisabled();
+    expect(within(done).getByRole('button', { name: 'Watch' })).toBeEnabled();
+    expect(labels(held)).toEqual(['Watch', 'Resume', 'Remove']);
+    expect(within(held).getByRole('button', { name: 'Watch' })).toBeDisabled();
+    expect(within(held).getByRole('button', { name: 'Resume' })).toBeEnabled();
+    expect(within(going).getByRole('button', { name: 'Pause' })).toBeEnabled();
+  });
+
+  it('an error replaces the stats line instead of adding one', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({ state: TorrentState.ERROR, error_message: 'tracker said no' }),
+    ]);
+    render(<DownloadsView />);
+    const row = await screen.findByTestId('torrent-row');
+    expect(within(row).getByTestId('row-stats')).toHaveTextContent('tracker said no');
+    expect(within(row).queryByTestId('stat-eta')).toBeNull();
+  });
+
+  it('shows who watched only when the owner gets watched_by', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({
+        id: 'w', movie_title: 'W', added_at: '2026-11-03T00:00:00',
+        watched_by: [
+          { profile_id: 'a', display_name: 'Alice', avatar: null, percent: 80.4 },
+          { profile_id: 'b', display_name: 'Bob', avatar: null, percent: 30 },
+        ],
+      }),
+      makeTorrent({ id: 'e', movie_title: 'E', added_at: '2026-11-02T00:00:00', watched_by: [] }),
+      makeTorrent({ id: 'n', movie_title: 'N', added_at: '2026-11-01T00:00:00' }),
+    ]);
+    render(<DownloadsView />);
+    await screen.findByText('W');
+    const [w, e, n] = screen.getAllByTestId('torrent-row');
+    expect(within(w).getByTestId('watched-by')).toHaveTextContent('Watched by Alice 80% · Bob 30%');
+    expect(within(e).getByTestId('watched-by')).toHaveTextContent('Watched by —');
+    expect(within(n).queryByTestId('watched-by')).toBeNull();
+  });
+
+  it('shows disk used and free', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent()]);
+    render(<DownloadsView />);
+    expect(await screen.findByTestId('disk-usage')).toHaveTextContent(
+      '12.0 GB in downloads · 80.0 GB free of 500.0 GB',
+    );
+  });
+
+  it('a failing disk read hides the line but never blanks the list', async () => {
+    mockGetDisk.mockRejectedValue(new Error('nope'));
+    mockListTorrents.mockResolvedValue([makeTorrent({ movie_title: 'Still Here' })]);
+    render(<DownloadsView />);
+    await screen.findByText('Still Here');
+    await waitFor(() => expect(mockGetDisk).toHaveBeenCalled());
+    expect(screen.queryByTestId('disk-usage')).toBeNull();
+  });
+
+  it('Remove defaults to deleting everything', async () => {
+    mockListTorrents.mockResolvedValue([makeTorrent({ id: 'tor-99' })]);
+    render(<DownloadsView />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm removal' });
+    expect(within(dialog).getByRole('radio', { name: /Delete everything/i })).toBeChecked();
+  });
+
+  it('titles a season pack "Season N"', async () => {
+    mockListTorrents.mockResolvedValue([
+      makeTorrent({ id: 'p', movie_title: 'The Boys S01', media_type: 'tv', season: 1, episode: null, added_at: '2026-11-02T00:00:00' }),
+      makeTorrent({ id: 'e', movie_title: 'The Boys S01E05', media_type: 'tv', season: 1, episode: 5, added_at: '2026-11-01T00:00:00' }),
+    ]);
+    render(<DownloadsView />);
+    await screen.findByText('The Boys · Season 1');
+    expect(screen.getByText('The Boys S01E05')).toBeInTheDocument();
   });
 });

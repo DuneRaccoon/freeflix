@@ -146,6 +146,14 @@ describe('torrentsService.getForTitle', () => {
   });
 });
 
+describe('torrentsService.getDisk', () => {
+  it('asks GET /torrents/disk', async () => {
+    const { torrentsService, last } = await harness();
+    await torrentsService.getDisk();
+    expect(last().url).toBe('/torrents/disk');
+  });
+});
+
 describe('the other write paths are not quietly profiled either', () => {
   it('downloadMovie (the legacy YTS-shaped request) sends its body unchanged', async () => {
     const { torrentsService, last } = await harness();

@@ -2,11 +2,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
-import { TorrentState, TorrentStatus, TorrentBatchActionType } from '@/types';
+import { TorrentState, TorrentStatus, TorrentBatchActionType, DiskUsage } from '@/types';
 import { torrentsService } from '@/services/torrents';
 import { activityService } from '@/services/activity';
 import { Badge, Button, Modal, Pill, Progress, RadioGroup } from '@/components/ui/fre';
 import { cn } from '@/lib/cn';
+import { parseUtc } from '@/lib/parseUtc';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,6 +61,48 @@ function formatETA(secs?: number): string {
   return `${secs}s`;
 }
 
+/** 1024-based, one decimal, like backend `_human_size`. '—' when unknown. */
+function formatBytes(n?: number | null): string {
+  if (n == null || !(n > 0)) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+
+/** The viewer's own local day (the timestamp is naive UTC). */
+function formatAdded(iso?: string | null): string {
+  const d = parseUtc(iso);
+  if (!d) return 'Added —';
+  return 'Added ' + new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  }).format(d);
+}
+
+/** Episode labels already read "Show SxxEyy"; a pack's label gets "· Season N" instead. */
+function displayTitle(t: TorrentStatus): string {
+  if (t.media_type === 'tv' && t.season != null && t.episode == null) {
+    return `${t.movie_title.replace(/ S\d{2}$/, '')} · Season ${t.season}`;
+  }
+  return t.movie_title;
+}
+
+/** Newest added first, NULL last, id as the tiebreak. Never the server's order. */
+function sortDownloads(list: TorrentStatus[]): TorrentStatus[] {
+  const ms = (t: TorrentStatus) => parseUtc(t.added_at)?.getTime() ?? null;
+  return [...list].sort((a, b) => {
+    const x = ms(a);
+    const y = ms(b);
+    if (x !== y) {
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return y - x;
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
 /** Map TorrentState to a Badge tone */
 function stateTone(state: TorrentState): 'default' | 'gold' | 'success' | 'danger' {
   switch (state) {
@@ -98,7 +141,7 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleteMode, setDeleteMode] = useState<'keep' | 'all'>('keep');
+  const [deleteMode, setDeleteMode] = useState<'keep' | 'all'>('all');
 
   const act = async (action: 'pause' | 'resume') => {
     setBusy(true);
@@ -156,6 +199,11 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
     torrent.state === TorrentState.PAUSED ||
     torrent.state === TorrentState.STOPPED;
 
+  const title = displayTitle(torrent);
+  const isError = torrent.state === TorrentState.ERROR;
+  const slot = 'inline-block tabular-nums whitespace-nowrap';
+  const watchedBy = Array.isArray(torrent.watched_by) ? torrent.watched_by : null;
+
   return (
     <>
       <div
@@ -167,8 +215,11 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
       >
         {/* Title + badges */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-display text-sm font-semibold text-text flex-1 min-w-0 truncate">
-            {torrent.movie_title}
+          <span
+            data-testid="row-title"
+            className="font-display text-sm font-semibold text-text flex-1 min-w-0 truncate"
+          >
+            {title}
           </span>
           <Badge tone={stateTone(torrent.state)}>{stateLabel(torrent.state)}</Badge>
           {torrent.quality && (
@@ -179,76 +230,74 @@ const TorrentRow: React.FC<TorrentRowProps> = ({ torrent, onRefresh }) => {
         {/* Progress bar */}
         <Progress
           value={torrent.progress}
-          label={`${torrent.movie_title} progress`}
+          label={`${title} progress`}
         />
 
-        {/* Stats row */}
-        <div className="flex flex-wrap gap-x-5 gap-y-1 font-ui text-xs text-muted">
-          <span>
-            <span className="text-text/60">↓ </span>
-            {formatSpeed(torrent.download_rate)}
-          </span>
-          <span>
-            <span className="text-text/60">↑ </span>
-            {formatSpeed(torrent.upload_rate)}
-          </span>
-          <span>
-            <span className="text-text/60">Peers: </span>
-            {torrent.num_peers}
-          </span>
-          {torrent.state === TorrentState.DOWNLOADING && torrent.eta != null && (
-            <span>
-              <span className="text-text/60">ETA: </span>
-              {formatETA(torrent.eta)}
-            </span>
+        {/* Stats: six fixed slots, or the error text in their place */}
+        <div
+          data-testid="row-stats"
+          className="flex flex-wrap gap-x-4 gap-y-1 font-ui text-xs text-muted"
+        >
+          {isError ? (
+            <span className="text-danger truncate">{torrent.error_message ?? 'Download failed'}</span>
+          ) : (
+            <>
+              <span data-testid="stat-down" className={cn(slot, 'w-[13ch]')}>
+                {'↓ ' + formatSpeed(torrent.download_rate)}
+              </span>
+              <span data-testid="stat-up" className={cn(slot, 'w-[13ch]')}>
+                {'↑ ' + formatSpeed(torrent.upload_rate)}
+              </span>
+              <span data-testid="stat-peers" className={cn(slot, 'w-[9ch]')}>
+                {`${torrent.num_peers} peers`}
+              </span>
+              <span data-testid="stat-eta" className={cn(slot, 'w-[10ch]')}>
+                {'ETA ' + (torrent.state === TorrentState.DOWNLOADING ? formatETA(torrent.eta) : '—')}
+              </span>
+              <span data-testid="stat-size" className={cn(slot, 'w-[9ch]')}>
+                {formatBytes(torrent.size_bytes)}
+              </span>
+              <span data-testid="stat-added" className={cn(slot, 'w-[18ch]')}>
+                {formatAdded(torrent.added_at)}
+              </span>
+            </>
           )}
         </div>
 
-        {/* Error message */}
-        {torrent.state === TorrentState.ERROR && torrent.error_message && (
-          <p className="font-ui text-xs text-danger">{torrent.error_message}</p>
+        {/* Who watched (owner only) */}
+        {watchedBy && (
+          <p data-testid="watched-by" className="font-ui text-xs text-muted">
+            {'Watched by ' + (watchedBy.length
+              ? watchedBy.map((w) => `${w.display_name} ${Math.round(w.percent)}%`).join(' · ')
+              : '—')}
+          </p>
         )}
 
-        {/* Actions */}
+        {/* Actions: always the same three, in the same places */}
         <div className="flex flex-wrap gap-2">
-          {canWatch && (
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={busy}
-              onClick={watch}
-              aria-label="Watch"
-            >
-              Watch
-            </Button>
-          )}
-          {canPause && (
-            <Button
-              size="sm"
-              variant="glass"
-              disabled={busy}
-              onClick={() => act('pause')}
-              aria-label="Pause"
-            >
-              Pause
-            </Button>
-          )}
-          {canResume && (
-            <Button
-              size="sm"
-              variant="glass"
-              disabled={busy}
-              onClick={() => act('resume')}
-              aria-label="Resume"
-            >
-              Resume
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={busy || !canWatch}
+            onClick={watch}
+            aria-label="Watch"
+          >
+            Watch
+          </Button>
+          <Button
+            size="sm"
+            variant="glass"
+            disabled={busy || !(canPause || canResume)}
+            onClick={() => act(canResume ? 'resume' : 'pause')}
+            aria-label={canResume ? 'Resume' : 'Pause'}
+          >
+            {canResume ? 'Resume' : 'Pause'}
+          </Button>
           <Button
             size="sm"
             variant="danger"
             disabled={busy}
-            onClick={() => { setDeleteMode('keep'); setConfirmDelete(true); }}
+            onClick={() => { setDeleteMode('all'); setConfirmDelete(true); }}
             aria-label="Remove"
           >
             Remove
@@ -300,13 +349,16 @@ const DownloadsView: React.FC = () => {
   const [polling, setPolling] = useState(true);
   const [loading, setLoading] = useState(true);
   const [maxActive, setMaxActive] = useState(2);
+  const [disk, setDisk] = useState<DiskUsage | null>(null);
   const pollingRef = useRef(polling);
   pollingRef.current = polling;
 
   const fetch = useCallback(async () => {
+    // Independent of the list: a failing disk read never blanks the downloads.
+    torrentsService.getDisk().then(setDisk).catch(() => {});
     try {
       const data = await torrentsService.listTorrents();
-      setTorrents(data);
+      setTorrents(sortDownloads(data));
     } catch {
       // silently ignore transient errors in the poll loop
     } finally {
@@ -368,6 +420,11 @@ const DownloadsView: React.FC = () => {
             >
               Active {activeCount} / {maxActive}
             </p>
+            {disk && (
+              <p data-testid="disk-usage" className="mt-0.5 font-ui text-xs text-muted">
+                {`${formatBytes(disk.used_by_downloads_bytes)} in downloads · ${formatBytes(disk.free_bytes)} free of ${formatBytes(disk.total_bytes)}`}
+              </p>
+            )}
           </div>
 
           {/* Polling toggle */}

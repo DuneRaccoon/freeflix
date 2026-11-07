@@ -11,7 +11,8 @@
  *   - Play-next button + Dismiss (×) button
  *
  * With `countdownSeconds`, the card auto-advances: when the countdown reaches 0 it
- * calls `onPlayNext` by itself. Dismiss cancels it.
+ * calls `onPlayNext` by itself. Dismiss cancels it; keeping the card closed afterwards (the
+ * player keeps reporting progress) is the caller's job.
  *
  * Props are purely presentational; wiring (what to do on play/dismiss) is the
  * caller's responsibility. This component never touches playback or progress.

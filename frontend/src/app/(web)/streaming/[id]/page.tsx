@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { torrentsService } from '@/services/torrents';
 import { streamingService } from '@/services/streaming';
@@ -55,6 +55,11 @@ export default function StreamingPage() {
 
   // Up-Next card — shown near the end of an episode that has a next one
   const [showUpNext, setShowUpNext] = useState(false);
+  // The episode whose card was closed (Dismiss, or Play next pressed by the viewer or the
+  // countdown). The player ticks ~4 Hz, so without this every tick in the last 30 s would reopen
+  // the card with a fresh countdown that plays next by itself. Keyed per episode, so the next one
+  // offers its own card.
+  const upNextClosedFor = useRef<string | null>(null);
 
   // Single derived stream-health snapshot (§5.2). The page is the ONLY poller;
   // this is passed to the player so it never runs its own status poll.
@@ -254,6 +259,10 @@ export default function StreamingPage() {
     nextFileInTorrent: nextVideoFile !== null,
   });
 
+  // Which episode is playing, for the closed-card latch. The content id, or the file when the
+  // stream has none yet.
+  const upNextKey = streamingInfo?.content_id ?? `${torrentId}?file=${effectiveFileIndex ?? ''}`;
+
   // What the Up-Next card offers: the pack's next file, else the catalog's next episode.
   const upNextLabel = nextVideoFile
     ? fileLabel(nextVideoFile)
@@ -266,11 +275,13 @@ export default function StreamingPage() {
   // player that reports no duration. Then the card shows when there is a next episode and
   // this one is near the end (last 30 seconds or last 5% of duration, whichever comes later).
   // The card counts down 15 s and then plays next by itself (`UpNextCard`'s countdown);
-  // Dismiss cancels it. Inside a season pack the next file is next; otherwise the next
-  // episode's own download is (reused or started via `useUpNextEpisode`).
+  // Dismiss cancels it, for the rest of this episode (`upNextClosedFor`). Inside a season pack
+  // the next file is next; otherwise the next episode's own download is (reused or started via
+  // `useUpNextEpisode`).
   const handleVideoProgress = ({ currentTime, duration }: { currentTime: number; duration: number }) => {
     upNext.onProgress(currentTime, duration);
     if (upNextLabel === null || duration <= 0) return;
+    if (upNextClosedFor.current === upNextKey) return;
     const remaining = duration - currentTime;
     const pct = (currentTime / duration) * 100;
     // Show when within 30 s OR within last 5 % — whichever is earlier
@@ -601,6 +612,8 @@ export default function StreamingPage() {
                 <UpNextCard
                   nextLabel={upNextLabel}
                   onPlayNext={async () => {
+                    // Latched first: a slow or failed start must not reopen the card and retry.
+                    upNextClosedFor.current = upNextKey;
                     setShowUpNext(false);
                     if (nextVideoFile) {
                       router.replace(`/streaming/${torrentId}?file=${nextVideoFile.index}`);
@@ -610,7 +623,10 @@ export default function StreamingPage() {
                     if (href !== null) router.replace(href);
                     else toast.error('Could not start the next episode.', { id: 'play-next' });
                   }}
-                  onDismiss={() => setShowUpNext(false)}
+                  onDismiss={() => {
+                    upNextClosedFor.current = upNextKey;
+                    setShowUpNext(false);
+                  }}
                   countdownSeconds={15}
                 />
               </div>

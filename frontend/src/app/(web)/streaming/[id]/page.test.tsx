@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 
 /**
@@ -159,10 +159,15 @@ beforeEach(() => {
   instance.getPlayback.mockResolvedValue(playback(true));
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 async function open() {
-  render(<StreamingPage />);
+  const view = render(<StreamingPage />);
   await screen.findByTestId('player');
   for (let i = 0; i < 3; i++) await act(async () => {});
+  return view;
 }
 
 async function tick(t: number, d = 2400) {
@@ -240,6 +245,59 @@ describe('StreamingPage — the next episode', () => {
     expect.soft(asked()).toEqual([{ tmdb_id: 1399, quality: '1080p', media_type: 'tv', season: 2, episode: 3 }]);
     expect.soft(vi.mocked(toast.error)).toHaveBeenCalledWith('Could not start the next episode.', { id: 'play-next' });
     expect.soft(nav.replace).not.toHaveBeenCalled();
+  });
+
+  // The player ticks about 4 times a second, and every tick in the last 30 s used to reopen the
+  // card with a fresh 15 s countdown that then played next by itself. These rows tick after the
+  // card is closed: a card that came back would be on screen, and its countdown would start
+  // the very download the viewer turned down.
+  it('Dismiss sticks: the card stays closed for the rest of this episode, and nothing starts the next one', async () => {
+    instance.getPlayback.mockResolvedValue(playback(false));
+    await open();
+    await tick(2390);
+    expect(screen.getByTestId('upnext-card')).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByTestId('upnext-dismiss')));
+    // Fake timers from here, so a card that came back would run its whole 15 s countdown.
+    vi.useFakeTimers();
+    await tick(2391);
+    await tick(2395);
+    await tick(2399);
+    expect.soft(screen.queryByTestId('upnext-card')).toBeNull();
+    // A second at a time: the card's countdown is a state updater, so it only reaches 0 (and
+    // schedules its Play next) when React renders between the interval's ticks.
+    for (let s = 0; s < 17; s++) await act(async () => vi.advanceTimersByTime(1000));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect.soft(torrents.downloadCatalogMovie).not.toHaveBeenCalled();
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('a failed Play next does not come back to try again', async () => {
+    instance.getPlayback.mockResolvedValue(playback(false));
+    torrents.downloadCatalogMovie.mockRejectedValue(new Error('503'));
+    await open();
+    await tick(2390);
+    await act(async () => fireEvent.click(screen.getByTestId('upnext-play')));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    await tick(2392);
+    await tick(2399);
+    expect.soft(screen.queryByTestId('upnext-card')).toBeNull();
+    expect.soft(asked()).toEqual([{ tmdb_id: 1399, quality: '1080p', media_type: 'tv', season: 2, episode: 3 }]);
+  });
+
+  it('a dismissal is for that episode only: the next file of the pack offers its own next', async () => {
+    asPack('tv:1399:s2:e1');
+    const view = await open();
+    await tick(2399);
+    await act(async () => fireEvent.click(screen.getByTestId('upnext-dismiss')));
+    await tick(2399);
+    expect.soft(screen.queryByTestId('upnext-card'), 'dismissed on S02E01').toBeNull();
+    // The viewer picks S02E02 (index 0): the page re-reads the stream for it.
+    nav.search = new URLSearchParams('file=0');
+    streaming.getStreamingInfo.mockResolvedValue(info({ torrent_id: 'pk', content_id: 'tv:1399:s2:e2' }));
+    view.rerender(<StreamingPage />);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    await tick(2399);
+    expect.soft(screen.queryByTestId('upnext-label')?.textContent).toBe('S02E03');
   });
 
   it('a film has no Up Next and asks the catalog nothing', async () => {

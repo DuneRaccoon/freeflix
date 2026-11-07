@@ -1,7 +1,6 @@
 // frontend/src/services/instance.ts
 //
-// Owner-only instance administration. Every call here 403s for a member, so the
-// callers are mounted behind `account.role === 'owner'`.
+// Owner-only instance administration (every call 403s for a member) — except getPlayback, which any signed-in session reads.
 import apiClient from './api-client';
 import type { Account, InstanceStatus, MailOutcome } from './auth';
 
@@ -28,6 +27,13 @@ export interface MembersPayload {
 }
 
 export type InviteSendResult = { invite: Invite } & MailOutcome;
+
+export interface OwnerSettings {
+  autovacuum_enabled: boolean; autovacuum_days: number; autovacuum_watched_gate: boolean;
+  autovacuum_watched_pct: number; auto_next_enabled: boolean; auto_next_pct: number;
+}
+
+export interface PlaybackSettings { auto_next_enabled: boolean; auto_next_pct: number }
 
 export const instanceService = {
   members: async (): Promise<MembersPayload> => {
@@ -76,6 +82,22 @@ export const instanceService = {
 
   updateSettings: async (patch: { instance_name?: string }): Promise<InstanceStatus> => {
     const response = await apiClient.put<InstanceStatus>('/instance/settings', patch);
+    return response.data;
+  },
+
+  getOwnerSettings: async (): Promise<OwnerSettings> => {
+    const response = await apiClient.get<OwnerSettings>('/instance/owner-settings');
+    return response.data;
+  },
+
+  updateOwnerSettings: async (patch: Partial<OwnerSettings>): Promise<OwnerSettings> => {
+    const response = await apiClient.put<OwnerSettings>('/instance/owner-settings', patch);
+    return response.data;
+  },
+
+  /** Readable by any signed-in session (the player's next-episode threshold). */
+  getPlayback: async (): Promise<PlaybackSettings> => {
+    const response = await apiClient.get<PlaybackSettings>('/instance/playback');
     return response.data;
   },
 };

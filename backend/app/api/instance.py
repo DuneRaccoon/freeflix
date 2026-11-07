@@ -9,7 +9,10 @@ Three audiences share this module:
 * ``POST /claim`` is **public** and mounted at ``/api/v1/claim`` (not under
   ``/instance``) because that is the path the spec's flow and the ``/claim`` page use.
   It lives here so all claim logic sits in one file.
-* Everything else is **owner-only** via ``Depends(require_owner)``.
+* ``GET /playback`` needs only a signed-in session (both players read it). Everything else
+  is **owner-only** via ``Depends(require_owner)``. The owner settings have their own
+  response model; ``PUT /settings`` still returns the public ``InstanceStatusResponse``,
+  so nothing private may be added to it.
 
 The lifecycle actions deliberately do not use ``CRUDMixin.delete()``: its default is a
 soft delete that merely stamps ``deleted_at``, and nothing in this codebase filters on
@@ -17,6 +20,7 @@ that column — a "removed" member would keep authenticating. Revocation is a st
 change the session lookup checks; removal is a real DELETE that cascades.
 """
 
+from dataclasses import asdict
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -32,7 +36,7 @@ from app.database.models.accounts import (
     ROLE_MEMBER,
 )
 from app.database.session import get_db
-from app.dependencies.auth import AuthContext, require_owner
+from app.dependencies.auth import AuthContext, require_owner, require_session
 from app.models import (
     AccountResponse,
     ClaimRequest,
@@ -45,11 +49,15 @@ from app.models import (
     MemberResponse,
     MembersResponse,
     OkResponse,
+    OwnerSettingsResponse,
+    OwnerSettingsUpdate,
+    PlaybackSettingsResponse,
     TransferOwnershipRequest,
 )
 from app.services import accounts as accounts_service
 from app.services import auth as auth_service
 from app.services import mailer
+from app.services.instance_settings import SETTING_FIELDS, effective_settings
 
 router = APIRouter()
 
@@ -546,3 +554,42 @@ async def update_instance_settings(
             instance.instance_name = payload.instance_name.strip() or None
         session.flush()
         return _instance_status(session)
+
+
+@router.get("/owner-settings", response_model=OwnerSettingsResponse)
+async def get_owner_settings(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_owner),
+):
+    with db as session:
+        instance = accounts_service.get_instance(session, create=False)
+        return OwnerSettingsResponse(**asdict(effective_settings(instance)))
+
+
+@router.put("/owner-settings", response_model=OwnerSettingsResponse)
+async def update_owner_settings(
+    payload: OwnerSettingsUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_owner),
+):
+    with db as session:
+        instance = accounts_service.get_instance(session)
+        patch = payload.model_dump()
+        for name in SETTING_FIELDS:
+            # `is not None`, never truthiness: False is a real choice.
+            if patch.get(name) is not None:
+                setattr(instance, name, patch[name])
+        session.flush()
+        return OwnerSettingsResponse(**asdict(effective_settings(instance)))
+
+
+@router.get("/playback", response_model=PlaybackSettingsResponse)
+async def get_playback_settings(
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    with db as session:
+        eff = effective_settings(accounts_service.get_instance(session, create=False))
+        return PlaybackSettingsResponse(
+            auto_next_enabled=eff.auto_next_enabled, auto_next_pct=eff.auto_next_pct
+        )

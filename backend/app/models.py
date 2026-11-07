@@ -904,6 +904,29 @@ class TransferOwnershipRequest(BaseModel):
 class InstanceSettingsUpdate(BaseModel):
     instance_name: Optional[str] = None
 
+class OwnerSettingsResponse(BaseModel):
+    autovacuum_enabled: bool
+    autovacuum_days: int
+    autovacuum_watched_gate: bool
+    autovacuum_watched_pct: int
+    auto_next_enabled: bool
+    auto_next_pct: int
+
+class OwnerSettingsUpdate(BaseModel):
+    """Partial update: omitted (None) fields are left as they are. Unknown keys are 422."""
+    model_config = ConfigDict(extra='forbid')
+
+    autovacuum_enabled: Optional[bool] = None
+    autovacuum_days: Optional[int] = Field(None, ge=1, le=365)
+    autovacuum_watched_gate: Optional[bool] = None
+    autovacuum_watched_pct: Optional[int] = Field(None, ge=10, le=100)
+    auto_next_enabled: Optional[bool] = None
+    auto_next_pct: Optional[int] = Field(None, ge=50, le=95, multiple_of=5)
+
+class PlaybackSettingsResponse(BaseModel):
+    auto_next_enabled: bool
+    auto_next_pct: int
+
 class OkResponse(BaseModel):
     ok: bool = True
 

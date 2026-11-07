@@ -180,7 +180,7 @@ app.include_router(
     prefix=f"{settings.api_v1_str}/auth",
     tags=["Auth"],
 )
-# Mixed: GET /status is public, everything else declares Depends(require_owner).
+# Mixed: GET /status is public, GET /playback declares require_session, everything else declares Depends(require_owner).
 app.include_router(
     instance.router,
     prefix=f"{settings.api_v1_str}/instance",

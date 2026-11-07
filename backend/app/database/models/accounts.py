@@ -49,6 +49,9 @@ PURPOSE_INVITE = "invite"
 # Sets a NEW password. Never grants a session on its own — only
 # POST /auth/reset-password consumes it, and only together with a new password.
 PURPOSE_PASSWORD_RESET = "password_reset"
+# Clears ONE profile's code (the token's ``profile_id``). Never grants a session — only
+# POST /auth/reset-passcode consumes it, and it sets no cookie.
+PURPOSE_PASSCODE_RESET = "passcode_reset"
 
 INSTANCE_SINGLETON_ID = "singleton"
 
@@ -168,6 +171,10 @@ class AuthToken(Model):
         String, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True, index=True
     )
     purpose = Column(String, nullable=False)
+    # The profile a passcode_reset token clears. A plain column, NO FK: sync_columns adds
+    # only a bare column on an upgraded database, so an FK would exist on fresh installs
+    # alone. A deleted profile makes the token 410 instead.
+    profile_id = Column(String, nullable=True)
     expires_at = Column(DateTime, nullable=False, default=_utcnow)
     consumed_at = Column(DateTime, nullable=True)
 

@@ -38,6 +38,7 @@ TEMPLATE_CLAIM_VERIFY = "claim-verify"
 TEMPLATE_WELCOME = "welcome"
 TEMPLATE_ACCESS_REVOKED = "access-revoked"
 TEMPLATE_PASSWORD_RESET = "password-reset"
+TEMPLATE_PASSCODE_RESET = "passcode-reset"
 
 
 @dataclass
@@ -72,6 +73,10 @@ def invite_url(token: str) -> str:
 
 def password_reset_url(token: str) -> str:
     return _public_url("/auth/reset-password", token=token)
+
+
+def passcode_reset_url(token: str) -> str:
+    return _public_url("/auth/reset-passcode", token=token)
 
 
 async def _post(template: str, to: str, props: dict[str, Any]) -> MailResult:
@@ -182,6 +187,21 @@ async def send_password_reset(
             "actionUrl": password_reset_url(token),
             "expiresInMinutes": expires_in_minutes,
             "isFirstTime": is_first_time,
+        },
+    )
+
+
+async def send_passcode_reset(
+    *, to: str, token: str, profile_name: Optional[str], expires_in_minutes: int
+) -> MailResult:
+    """Forgot-code link for a member: it clears one profile's code and signs nobody in."""
+    return await _post(
+        TEMPLATE_PASSCODE_RESET,
+        to,
+        {
+            "actionUrl": passcode_reset_url(token),
+            "profileName": profile_name,
+            "expiresInMinutes": expires_in_minutes,
         },
     )
 

@@ -265,6 +265,7 @@ def issue_auth_token(
     purpose: str,
     account_id: Optional[str] = None,
     ttl_minutes: Optional[int] = None,
+    profile_id: Optional[str] = None,
 ) -> tuple[str, AuthToken]:
     """Mint a single-use magic-link token. Returns ``(raw_token, row)``.
 
@@ -278,6 +279,7 @@ def issue_auth_token(
         email=normalize_email(email),
         account_id=account_id,
         purpose=purpose,
+        profile_id=profile_id,
         expires_at=utcnow() + datetime.timedelta(minutes=ttl),
     )
     session.add(row)

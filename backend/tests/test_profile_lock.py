@@ -10,16 +10,25 @@ import os
 os.environ.setdefault("DB_PATH", "/tmp/test_profile_lock.db")
 
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.database.models import User, UserSettings
-from app.database.models.accounts import Account, ROLE_MEMBER, ROLE_OWNER, STATUS_ACTIVE
+from app.database.models.accounts import (
+    Account,
+    PURPOSE_LOGIN,
+    PURPOSE_PASSCODE_RESET,
+    ROLE_MEMBER,
+    ROLE_OWNER,
+    STATUS_ACTIVE,
+)
 from app.database.session import get_db
 from app.main import app
 from app.services import auth as auth_service
+from app.services.mailer import MailResult
 
 
 OWNER_PASSWORD = "correct-horse-battery"
@@ -399,6 +408,137 @@ def test_the_reset_is_refused_for_another_accounts_profile(home):
     cfg = _fresh(home.db).query(UserSettings).filter(UserSettings.user_id == home.kid).one()
     assert cfg.require_passcode is True and cfg.passcode_hash is not None
     assert select(home, home.kid, "1357", who="member").status_code == 200
+
+
+# ---------------------------------------------------------------- reset link (member)
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    sent = []
+
+    async def fake(template, to, props):
+        sent.append((template, to, props))
+        return MailResult(sent=True, delivered=False)
+
+    monkeypatch.setattr("app.services.mailer._post", fake)
+    yield sent
+
+
+def link(h, pid, who="member"):
+    return h.client.post(f"/api/v1/users/{pid}/passcode/reset-link", cookies=getattr(h, who))
+
+
+def token_of(props):
+    return parse_qs(urlparse(props["actionUrl"]).query)["token"][0]
+
+
+def reset_code(h, token):
+    return h.client.post("/api/v1/auth/reset-passcode", json={"token": token})
+
+
+def mint(h, purpose, profile_id, account_id=None):
+    raw, _ = auth_service.issue_auth_token(
+        h.db, email="member@example.com", purpose=purpose,
+        account_id=account_id or h.member_id, profile_id=profile_id,
+    )
+    h.db.commit()
+    return raw
+
+
+def test_a_member_clears_a_forgotten_code_by_emailed_link(home, outbox):
+    r = link(home, home.kid)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+    assert len(outbox) == 1
+    template, to, props = outbox[0]
+    assert template == "passcode-reset"
+    assert to == "member@example.com"
+    assert props["actionUrl"].startswith(
+        settings.app_public_url.rstrip("/") + "/auth/reset-passcode?token="
+    )
+    assert props["profileName"] == "kid"
+    assert props["expiresInMinutes"] == settings.magic_link_ttl_minutes
+
+    home.client.cookies.clear()
+    r = reset_code(home, token_of(props))
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    assert settings.cookie_name not in r.cookies
+
+    assert opened(home, home.kid, who="member") == 200
+    # Only the bound profile: the member's other locked profile keeps its code.
+    assert opened(home, home.kid2, who="member") == 423
+
+    assert reset_code(home, token_of(props)).status_code == 410
+
+
+def test_the_reset_link_is_for_members_only(home, outbox):
+    r = link(home, home.vault, who="owner")
+    assert r.status_code == 400
+    assert r.json() == {"detail": "Use your account password"}
+    assert outbox == []
+
+
+def test_the_reset_link_refuses_another_accounts_profile(home, outbox):
+    r = link(home, home.vault, who="member")
+    assert r.status_code == 403
+    assert outbox == []
+
+
+def test_only_the_newest_link_works(home, outbox):
+    assert link(home, home.kid).status_code == 200
+    assert link(home, home.kid).status_code == 200
+    first, second = (token_of(props) for _, _, props in outbox)
+
+    assert reset_code(home, first).status_code == 410
+    assert reset_code(home, second).status_code == 200
+
+
+def test_the_reset_link_is_throttled_and_constant(home, outbox):
+    rs = [link(home, home.kid) for _ in range(4)]
+    assert [r.status_code for r in rs] == [200] * 4
+    assert len({r.content for r in rs}) == 1
+    assert len(outbox) == 3
+
+
+def test_verify_refuses_a_passcode_reset_token(home):
+    raw = mint(home, PURPOSE_PASSCODE_RESET, home.kid)
+
+    r = home.client.post("/api/v1/auth/verify", json={"token": raw})
+    assert r.status_code == 410
+    assert settings.cookie_name not in r.cookies
+
+    # The refusal did not burn it.
+    assert reset_code(home, raw).status_code == 200
+
+
+def test_reset_passcode_refuses_a_login_token(home):
+    raw = mint(home, PURPOSE_LOGIN, home.kid)
+
+    assert reset_code(home, raw).status_code == 410
+    assert select(home, home.kid, "1357", who="member").status_code == 200
+
+
+@pytest.mark.parametrize("case", ["foreign_profile", "revoked", "now_owner"])
+def test_reset_passcode_refuses_a_token_that_does_not_match_its_profile(home, case):
+    raw = mint(home, PURPOSE_PASSCODE_RESET, home.vault if case == "foreign_profile" else home.kid)
+    if case != "foreign_profile":
+        member = _fresh(home.db).query(Account).filter(Account.id == home.member_id).one()
+        if case == "revoked":
+            member.status = "revoked"
+        else:
+            member.role = ROLE_OWNER
+        home.db.commit()
+
+    assert reset_code(home, raw).status_code == 410
+
+    if case == "foreign_profile":
+        assert opened(home, home.vault, who="owner2") == 423
+    else:
+        cfg = _fresh(home.db).query(UserSettings).filter(UserSettings.user_id == home.kid).one()
+        assert cfg.passcode_hash is not None
 
 
 def test_the_startup_event_runs_the_pass(db_session, override_get_db, monkeypatch, tmp_path):

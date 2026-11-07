@@ -25,13 +25,19 @@ Three things this module exists to get right:
 import re
 from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database.models import User, UserSettings
-from app.database.models.accounts import Account, AuthSession, ROLE_OWNER, STATUS_PENDING_EMAIL
+from app.database.models.accounts import (
+    Account,
+    AuthSession,
+    PURPOSE_PASSCODE_RESET,
+    ROLE_OWNER,
+    STATUS_PENDING_EMAIL,
+)
 from app.database.session import get_db
 from app.dependencies.auth import AuthContext, require_profile, require_session
 from app.models import (
@@ -48,6 +54,7 @@ from app.models import (
 )
 from app.services import auth as auth_service
 from app.services import accounts as accounts_service
+from app.services import mailer
 
 router = APIRouter()
 
@@ -60,6 +67,9 @@ _UNLOCK_WINDOW = 5 * 60
 
 _PASSCODE_RESET_LIMIT = 5
 _PASSCODE_RESET_WINDOW = 15 * 60
+
+_RESET_LINK_LIMIT = 3
+_RESET_LINK_WINDOW = 15 * 60
 
 
 def ensure_settings(session: Session, profile: User) -> UserSettings:
@@ -274,12 +284,12 @@ async def delete_user(
     signed in and unable to do anything — and the picker offers no way back.
 
     Deliberately NOT behind ``require_profile``: ``_owned_profile`` below enforces
-    ownership, but the passcode gate is skipped on purpose so a forgotten code is never
-    a dead end. With the lock on, reading the profile and editing its settings both 423,
-    so without this exemption the only way back would be a database edit. Deleting is a
-    destructive, confirmed action that discards the profile's data anyway, which is why
-    it — and not "turn the lock off" — is the recovery path: exempting PUT /settings
-    would let anyone holding the device simply switch the lock off and defeat it.
+    ownership, but the passcode gate is skipped on purpose. Deleting is a destructive,
+    confirmed action that discards the profile's data anyway, so it stays exempt from the
+    gate. It is no longer the recovery path for a forgotten code, though: the forgot-code
+    resets are (``/passcode/reset`` for the owner, ``/passcode/reset-link`` for a
+    member). Exempting PUT /settings instead would let anyone holding the device simply
+    switch the lock off and defeat it.
     """
     with db as session:
         profile = _owned_profile(session, user_id, ctx)
@@ -553,3 +563,58 @@ async def reset_passcode_with_password(
         auth_service.rate_limiter.reset(key)
         auth_service.rate_limiter.reset(f"unlock:{user_id}")
         return OkResponse(ok=True)
+
+
+@router.post("/{user_id}/passcode/reset-link", response_model=OkResponse)
+async def request_passcode_reset_link(
+    user_id: str,
+    background: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: AuthContext = Depends(require_session),
+):
+    """Forgot code, member: email the account a link that clears this profile's code.
+
+    Deliberately NOT behind ``require_profile``, which would 423 the very profile being
+    unlocked. Members only: the owner has no mailbox path around their password and
+    uses ``/passcode/reset``. Past the ownership and role checks the answer is always
+    ``{ok: true}``, throttled or not, locked or not.
+
+    Only one link per account is live: minting burns the account's earlier one, even if
+    it was sent for a different profile. The mail goes out after the ``with`` block, so
+    the token row is committed before the link reaches an inbox.
+    """
+    mail: Optional[dict] = None
+    with db as session:
+        profile = _owned_profile(session, user_id, ctx)
+        if ctx.is_owner:
+            raise HTTPException(status_code=400, detail="Use your account password")
+
+        if not auth_service.rate_limiter.check(
+            f"passcode-reset-link:{ctx.account_id}",
+            limit=_RESET_LINK_LIMIT,
+            window_seconds=_RESET_LINK_WINDOW,
+        ):
+            return OkResponse()
+
+        account = session.query(Account).filter(Account.id == ctx.account_id).first()
+        row = ensure_settings(session, profile)
+        if account is not None and account.email and row.passcode_hash:
+            auth_service.invalidate_tokens_for(
+                session, purpose=PURPOSE_PASSCODE_RESET, account_id=account.id
+            )
+            token, _ = auth_service.issue_auth_token(
+                session,
+                email=account.email,
+                purpose=PURPOSE_PASSCODE_RESET,
+                account_id=account.id,
+                profile_id=user_id,
+            )
+            mail = dict(to=account.email, token=token, profile_name=profile.display_name)
+
+    if mail is not None:
+        background.add_task(
+            mailer.send_passcode_reset,
+            **mail,
+            expires_in_minutes=settings.magic_link_ttl_minutes,
+        )
+    return OkResponse()

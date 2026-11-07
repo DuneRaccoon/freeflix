@@ -25,6 +25,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.database.models import User
 from app.database.models.accounts import (
     Account,
     AuthSession,
@@ -33,6 +34,7 @@ from app.database.models.accounts import (
     PAIRING_PENDING,
     PURPOSE_CLAIM_VERIFY,
     PURPOSE_LOGIN,
+    PURPOSE_PASSCODE_RESET,
     PURPOSE_PASSWORD_RESET,
     ROLE_MEMBER,
     ROLE_OWNER,
@@ -433,6 +435,54 @@ async def reset_password(
     return VerifyTokenResponse(ok=True, redirect="/")
 
 
+@router.post("/reset-passcode", response_model=OkResponse)
+async def reset_passcode(
+    payload: VerifyTokenRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Consume a member's forgot-code token and clear the one profile it names.
+
+    This is the ONLY consumer of a ``passcode_reset`` token, and it mints no session and
+    sets no cookie: whoever opens the link still needs the member's own session to use
+    the profile. It touches no session's open profile either.
+
+    The token must still match its profile: the profile belongs to the token's account,
+    which is an ACTIVE MEMBER. The role check mirrors ``/auth/verify``'s owner refusal: a
+    link minted before an ownership transfer must not become a mailbox path around the
+    owner's password (the owner's path is ``/users/{id}/passcode/reset``).
+    """
+    with db as session:
+        row = auth_service.consume_auth_token(
+            session, payload.token, purpose=PURPOSE_PASSCODE_RESET
+        )
+        profile = (
+            session.query(User).filter(User.id == row.profile_id).first()
+            if row is not None and row.profile_id
+            else None
+        )
+        account = (
+            session.query(Account).filter(Account.id == row.account_id).first()
+            if row is not None and row.account_id
+            else None
+        )
+        if (
+            profile is None
+            or account is None
+            or profile.account_id != account.id
+            or account.status != STATUS_ACTIVE
+            or account.role != ROLE_MEMBER
+        ):
+            raise HTTPException(
+                status_code=410, detail="This link is no longer valid."
+            )
+
+        if profile.settings is not None:
+            accounts_service.clear_passcode(profile.settings)
+            auth_service.rate_limiter.reset(f"unlock:{profile.id}")
+
+    return OkResponse()
+
+
 @router.post("/verify", response_model=VerifyTokenResponse)
 async def verify_token(
     payload: VerifyTokenRequest,
@@ -449,8 +499,9 @@ async def verify_token(
     """
     with db as session:
         # The purposes are passed in, not filtered afterwards: consuming first would
-        # burn a password_reset token posted here by mistake, and it would survive only
-        # because the 410 happens to roll the transaction back.
+        # burn a password_reset or passcode_reset token posted here by mistake, and it
+        # would survive only because the 410 happens to roll the transaction back. Both
+        # are refused: neither may ever become a session.
         row = auth_service.consume_auth_token(
             session, payload.token, purpose=(PURPOSE_LOGIN, PURPOSE_CLAIM_VERIFY)
         )

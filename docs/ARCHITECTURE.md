@@ -114,7 +114,10 @@ token belonging to an owner — enforced at both mint and consumption, because a
 minted before an ownership transfer is what a single check misses. A `password_reset`
 token is **not** a session on its own: `/auth/verify` rejects that purpose outright and
 `/auth/reset-password` is its only consumer, so the emailed link is worthless unless a new
-password is chosen with it. A reset also revokes every other session of that account.
+password is chosen with it. A reset also revokes every other session of that account. A
+`passcode_reset` token is not a session either: `/auth/verify` refuses it too, and
+`POST /auth/reset-passcode` is its only consumer. It clears the one profile code it names
+and sets no cookie.
 
 Every way a password sign-in can fail — unknown address, a member's address, an owner with
 no password yet, a wrong password, a throttled attempt — returns **one identical 401**,
@@ -160,6 +163,13 @@ profile, `[]` for an unlocked one, and a code is required on every pick.
 `POST /users/deselect` clears it when the UI returns to "Who's watching?".
 `resolve_profile` returns 423 for any locked profile that is not in the list.
 `/unlock` survives one release as an alias.
+
+A forgotten code has two ways back, one per entrance. The owner re-enters the
+account password at `POST /users/{id}/passcode/reset`. A member asks
+`POST /users/{id}/passcode/reset-link` (members only, always `{ok: true}`, 3 per
+15 min per account) to email a `/auth/reset-passcode?token=…` link; that frontend
+page POSTs the token to `POST /auth/reset-passcode`, which clears that one
+profile's code. Only the newest link per account works.
 
 ### Mail
 

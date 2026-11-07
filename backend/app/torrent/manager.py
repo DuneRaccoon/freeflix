@@ -18,7 +18,8 @@ from app.database.models import Torrent as DbTorrent, TorrentLog
 from app.models import TorrentState, TorrentStatus, Movie, Torrent as TorrentModel
 from app.config import settings
 from app.torrent.storage import encode_resume_data, decode_resume_data, safe_rmtree
-from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES
+from app.torrent.states import ACTIVE_DOWNLOAD_STATES, RESUMABLE_STATES, COMPLETE_STATES
+from app.services.torrent_touch import utcnow, mark_finished
 from app.providers.episodes import parse_episode
 from app.subtitles import sidecars
 
@@ -489,10 +490,15 @@ class TorrentManager:
 
                             # Update basic state and progress
                             torrent.state = state_str
+                            if state_str in COMPLETE_STATES:
+                                mark_finished(torrent, utcnow())
+                            if status.total_wanted > 0:
+                                torrent.size_bytes = int(status.total_wanted)
                             torrent.progress = status.progress * 100
                             
                             # Update metadata
-                            updated_metadata = torrent.meta_data or {}
+                            # Copy: mutating the loaded JSON in place is not detected by SQLAlchemy.
+                            updated_metadata = dict(torrent.meta_data or {})
                             updated_metadata.update({
                                 'download_rate': status.download_rate / 1000,  # B/s to kB/s
                                 'upload_rate': status.upload_rate / 1000,  # B/s to kB/s
@@ -505,6 +511,8 @@ class TorrentManager:
                                 downloaded = status.total_wanted_done
                                 remaining = total_size - downloaded
                                 updated_metadata['eta'] = int(remaining / status.download_rate)
+                            else:
+                                updated_metadata['eta'] = None
                             
                             # Update the torrent object and commit within this session
                             torrent.meta_data = updated_metadata
@@ -661,6 +669,7 @@ class TorrentManager:
                             torrent: DbTorrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                             if torrent:
                                 torrent.state = 'finished'
+                                mark_finished(torrent, utcnow())
                                 # Log completion
                                 log = TorrentLog(
                                     torrent_id=torrent_id,
@@ -781,6 +790,8 @@ class TorrentManager:
                                 torrent = db.query(DbTorrent).filter(DbTorrent.id == torrent_id).first()
                                 if torrent and torrent.state != new_state:
                                     torrent.state = new_state
+                                    if new_state in COMPLETE_STATES:
+                                        mark_finished(torrent, utcnow())
                                     # Only log significant state changes to avoid database bloat
                                     if new_state in ['checking', 'downloading', 'finished', 'seeding']:
                                         log = TorrentLog(
@@ -871,7 +882,8 @@ class TorrentManager:
             logger.exception("Alert handling exception details:")
     
     # Improved add_torrent method
-    async def add_torrent(self, movie: Movie, torrent: TorrentModel, save_path: Optional[Path] = None) -> str:
+    async def add_torrent(self, movie: Movie, torrent: TorrentModel, save_path: Optional[Path] = None,
+                          account_id: Optional[str] = None) -> str:
         """
         Add a new torrent download
         
@@ -879,6 +891,8 @@ class TorrentManager:
             movie: Movie information
             torrent: Torrent information
             save_path: Custom save path (defaults to settings.default_download_path/movie.title)
+            account_id: The account that started it; None for the schedule cron, which the
+                downloads scope reads as the owner's
             
         Returns:
             torrent_id: Unique identifier for the torrent
@@ -902,6 +916,8 @@ class TorrentManager:
             'sizes': torrent.sizes,
         }
         
+        now = utcnow()
+
         # Store torrent in database with a dedicated session
         try:
             with get_db() as db:
@@ -920,6 +936,9 @@ class TorrentManager:
                     media_type=getattr(movie, "media_type", "movie"),
                     season=getattr(movie, "season", None),
                     episode=getattr(movie, "episode", None),
+                    account_id=account_id,
+                    added_at=now,
+                    last_touched_at=now,
                 )
                 
                 db.add(new_torrent)

@@ -292,8 +292,8 @@ stage unmodified). Every line number in this paragraph was read on `feat/tv-stag
 ### 4.5 The silent-401 contract is already broken
 
 `require_session_silent` answers an expired session on the stream with a bare empty 401
-(the `bare_401` handler, `main.py:206-209` — re-resolved 2026-10-20 on
-`feat/tv-stage9-subtitles`; the `:188-191` that stood here was stale, and at the stage-8 merge
+(the `bare_401` handler, `main.py:207-210` — re-resolved 2026-11-07 on
+`feat/profile-lock-downloads-autovacuum` after the vacuum startup hook moved it from `:206-209`; earlier `:188-191` was stale, and at the stage-8 merge
 the handler was at `:193-196`) on the stated grounds that "the player's error handler checks the status
 explicitly". **It does not.** `VideoPlayer.tsx:1032-1059` reads only `video.error?.code`; grep for
 `401` under the player and streaming directories returns nothing. An empty 401 surfaces as

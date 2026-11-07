@@ -21,9 +21,16 @@ NOW = datetime(2026, 11, 7, 10, 0)  # naive UTC
 DELETED = {"expired", "finished-watched", "stale-rate", "errored"}
 
 
-def _live(rate):
-    """The real ``active_torrents`` entry shape: ``(handle, metadata)``."""
-    return (SimpleNamespace(status=lambda: SimpleNamespace(download_rate=rate)), {})
+def _live(rate, *, payload=None, seeding=False, finished=False):
+    """The real ``active_torrents`` entry shape: ``(handle, metadata)``.
+
+    ``rate`` is libtorrent's ``download_rate``, protocol chatter included;
+    ``payload`` (default: the same) is ``download_payload_rate``, the bytes of content.
+    """
+    st = SimpleNamespace(download_rate=rate,
+                         download_payload_rate=rate if payload is None else payload,
+                         is_seeding=seeding, is_finished=finished)
+    return (SimpleNamespace(status=lambda: st), {})
 
 
 @pytest.fixture
@@ -200,6 +207,26 @@ def test_a_loaded_handle_at_zero_rate_is_still_deleted(world):
     world.db.commit()
     world.fake.active_torrents["idle"] = _live(0)
     assert "idle" in run_vacuum(NOW, manager=world.fake)
+
+
+def test_a_seeding_row_receiving_only_chatter_is_still_deleted(world):
+    # A finished download keeps seeding; a leecher's REQUEST/HAVE traffic puts
+    # download_rate above 0 while no content arrives. That is not "actively progressing".
+    world.torrent("seeding", 31, state="seeding")
+    world.torrent("chatter", 31, state="downloading")
+    world.torrent("complete", 31, state="finished")
+    world.db.commit()
+    world.fake.active_torrents["seeding"] = _live(4000, payload=0, seeding=True)
+    # Stalled: peers connected, nothing to give it.
+    world.fake.active_torrents["chatter"] = _live(4000, payload=0)
+    # Even a payload figure on a complete handle is not progress.
+    world.fake.active_torrents["complete"] = _live(4000, payload=10, finished=True)
+
+    got = run_vacuum(NOW, manager=world.fake)
+
+    assert {"seeding", "chatter", "complete"} <= set(got)
+    # Content still arriving keeps it.
+    assert "downloading" not in got
 
 
 def test_an_unreadable_handle_counts_as_live(world):

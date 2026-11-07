@@ -92,16 +92,20 @@ def _manager_or_default(manager):
 
 
 def _live_rates(manager) -> Dict[str, float]:
-    """``{torrent_id: live download rate}`` off each loaded handle, never off ``meta_data``.
+    """``{torrent_id: live payload rate}`` off each loaded handle, never off ``meta_data``.
 
-    An entry whose handle cannot be read counts as live (1.0): deleting on an unreadable
-    handle is the unsafe direction.
+    "Actively progressing" (spec 4.4) is content arriving: ``download_payload_rate``, not
+    ``download_rate``, which counts protocol chatter and so stays above 0 for a seeding or
+    stalled torrent whenever a peer talks to it. A complete (seeding or finished) handle
+    is not progressing whatever it reports. An entry whose handle cannot be read counts as
+    live (1.0): deleting on an unreadable handle is the unsafe direction.
     """
     rates: Dict[str, float] = {}
     for tid, entry in list(getattr(manager, "active_torrents", {}).items()):
         try:
             handle, _ = entry
-            rates[tid] = float(handle.status().download_rate)
+            st = handle.status()
+            rates[tid] = 0.0 if (st.is_seeding or st.is_finished) else float(st.download_payload_rate)
         except Exception:
             rates[tid] = 1.0
     return rates

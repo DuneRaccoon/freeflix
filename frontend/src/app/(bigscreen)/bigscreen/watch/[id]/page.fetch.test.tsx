@@ -48,7 +48,7 @@ import type {
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { tvService } from '@/services/tv';
-import { usersService } from '@/services/users';
+import { instanceService } from '@/services/instance';
 import { SUBTITLE_POLL_ATTEMPTS, SUBTITLE_POLL_MS, cellLabel } from '../../../_data/subtitles';
 import { REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
 import { transportCellCount, transportCells } from '../../../_player/TransportBar';
@@ -94,13 +94,10 @@ vi.mock('@/services/torrents', () => ({
  * product's: the background prefetch starts a DOWNLOAD, so leaving it on here would have
  * every row in a file about subtitles, arrival and Back also exercising `titleStateFor` and
  * `downloadCatalogMovie` on a timer. The rows that are about the prefetch turn it on
- * explicitly. (The product default is ON — `autoNextFrom` and the backend's NULL column are
- * where that is pinned.)
+ * explicitly. (The product default is ON — `backend/app/services/instance_settings.py` `DEFAULTS` is where that is pinned.)
  */
 vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
-vi.mock('@/services/users', () => ({
-  usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
-}));
+vi.mock('@/services/instance', () => ({ instanceService: { getPlayback: vi.fn() } }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 
 const svc = vi.mocked(streamingService);
@@ -317,19 +314,6 @@ const SHOW = {
   seasons: [{ season_number: 2, name: 'Season 2', episode_count: 3, overview: null, poster_url: null, air_date: null }],
 };
 
-const settingsRow = (autoNext: boolean) =>
-  ({
-    id: 's1',
-    user_id: 'p1',
-    maturity_restriction: 'none',
-    require_passcode: false,
-    has_passcode: false,
-    passcode_len: null,
-    theme: 'dark',
-    default_quality: '1080p',
-    auto_next_episode: autoNext,
-  }) as unknown as Awaited<ReturnType<typeof usersService.getUserSettings>>;
-
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
@@ -340,7 +324,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   vi.mocked(tvService).getSeason.mockResolvedValue(SEASON as never);
   vi.mocked(tvService).getShow.mockResolvedValue(SHOW as never);
-  vi.mocked(usersService).getUserSettings.mockResolvedValue(settingsRow(false));
+  vi.mocked(instanceService).getPlayback.mockResolvedValue({ auto_next_enabled: false, auto_next_pct: 80 });
   profileHook.mockReturnValue({
     profile: { id: 'p1', display_name: 'Ben', avatar: null },
     loading: false,

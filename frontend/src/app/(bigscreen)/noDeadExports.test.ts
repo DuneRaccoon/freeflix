@@ -356,8 +356,6 @@ const DECLARED_TEST_ONLY: Record<string, string> = {
     + 'mocked once, called nowhere.',
   'instanceService.updateSettings':
     'Pre-existing, outside this branch. `MembersView` mocks it; no caller renames an instance.',
-  'instanceService.getPlayback':
-    'Added in Part D; Part E usePlaybackSettings is the caller and deletes this line in its task.',
 };
 
 const key = (d: DeadSymbol) => d.name;

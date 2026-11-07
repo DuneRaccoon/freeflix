@@ -7,13 +7,13 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import type { StreamingInfo, SubtitleList, SubtitleTrack, TorrentStatus, VideoFile } from '@/types';
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
+import { usePlaybackSettings } from '@/lib/usePlaybackSettings';
 import { streamAdvice } from '@/lib/player/streamRecovery';
 import { deriveStreamHealth } from '@/utils/streamHealth';
 
 import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
-import { useAutoNext } from '../../../_data/autoNext';
 import { statusOf } from '../../../_data/httpStatus';
 import {
   episodeRefOf,
@@ -834,7 +834,7 @@ function WatchScreen() {
   const [goingNext, setGoingNext] = useState(false);
   /** Why the last Next-episode press went nowhere. Cleared like the resume note; see below. */
   const [nextFailure, setNextFailure] = useState('');
-  const autoNext = useAutoNext(userId);
+  const playback = usePlaybackSettings();
   /**
    * THE GENERATION, exactly as the sidecar read's is and for the same reason: two async
    * writers (the lookup and the prefetch) feed state that is only meaningful for ONE episode,
@@ -877,16 +877,17 @@ function WatchScreen() {
   });
 
   /**
-   * THE PREFETCH: past 80%, start the next episode downloading.
+   * THE PREFETCH: past the owner's threshold (`GET /instance/playback`), start the next
+   * episode downloading.
    *
    * ONCE PER EPISODE, latched on the content id. The effect itself re-runs about once a
    * second (the playhead is a dependency, because that is the thing being watched), so the
    * latch — not the dependency list — is what makes this one request.
    *
-   * GATED ON `settled`, NOT JUST ON `on`. An unreadable settings call leaves `on` at the
-   * default for the TOGGLE's benefit, and the toggle has to render something; a multi-gigabyte
-   * download on a Raspberry Pi is the wrong thing to do on a default. `useAutoNext`'s header
-   * has the long version.
+   * GATED ON A READ THAT ANSWERED: `usePlaybackSettings` reports `enabled: false` while the
+   * read is in flight and after a failure. A multi-gigabyte download on a Raspberry Pi is the
+   * wrong thing to start on a guess. The setting arriving after the playhead has passed the
+   * point re-runs this effect (`enabled` and `threshold` are dependencies), so it still fires.
    *
    * NO CLEANUP, deliberately, and this is the one place that would be wrong to add one: the
    * effect re-runs on every tick of the playhead, so a cleanup that cancelled the request
@@ -897,8 +898,9 @@ function WatchScreen() {
   useEffect(() => {
     if (!epRef || !contentId) return;
     if (nextAnswer?.verdict.k !== 'ready') return;
-    if (!autoNext.settled || !autoNext.on) return;
-    if (!pastAutoNextPoint(position, scaleSeconds, 0.8)) return; // E2 replaces 0.8 with the owner's threshold
+    if (!userId) return; // unchanged behaviour: no profile, no download
+    if (!playback.enabled || playback.threshold === null) return;
+    if (!pastAutoNextPoint(position, scaleSeconds, playback.threshold)) return;
     if (prefetchedFor.current === contentId) return;
     prefetchedFor.current = contentId;
     const generation = nextGen.current;
@@ -912,8 +914,10 @@ function WatchScreen() {
       if (nextGen.current !== generation) return;
       setNextStartable(ok);
     });
+    // Dropping only `threshold` from the deps is not caught by any test: it changes in the same
+    // commit as `enabled`. Dropping both is (the "arrives AFTER" row).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentId, nextAnswer, autoNext.settled, autoNext.on, position, scaleSeconds, userId]);
+  }, [contentId, nextAnswer, playback.enabled, playback.threshold, position, scaleSeconds, userId]);
 
   /**
    * THE END-OF-EPISODE PROMPT, AND IT IS NOT CREDITS DETECTION. Nothing here knows where the

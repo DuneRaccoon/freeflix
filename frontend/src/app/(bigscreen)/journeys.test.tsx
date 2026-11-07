@@ -160,6 +160,10 @@ vi.mock('@/services/users', () => ({
 // The picker asks for the account's role when "Forgot code?" is pressed. Unmocked, the module
 // would load the real `apiClient`.
 vi.mock('@/services/auth', () => ({ authService: { me: vi.fn() } }));
+// The watch page's next-episode prefetch reads the owner's global setting. OFF here, so the
+// journeys never start a download; without a mock it would make a real XHR out of jsdom.
+// Deliberately NOT in `SERVICES`: that loop makes every member hang.
+vi.mock('@/services/instance', () => ({ instanceService: { getPlayback: vi.fn().mockResolvedValue({ auto_next_enabled: false, auto_next_pct: 80 }) } }));
 vi.mock('@/services/devices', () => ({
   devicesService: { start: vi.fn(), poll: vi.fn(), approve: vi.fn(), list: vi.fn(), revoke: vi.fn() },
 }));

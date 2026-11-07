@@ -28,7 +28,7 @@ import type { SeasonDetail, ShowDetail, StreamingInfo, TorrentStatus, VideoFile 
 import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { tvService } from '@/services/tv';
-import { usersService } from '@/services/users';
+import { instanceService, type PlaybackSettings } from '@/services/instance';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { END_PROMPT_S } from '../../../_data/nextEpisode';
 const AT = 0.8; // E2: the getPlayback fixture's auto_next_pct / 100
@@ -70,9 +70,7 @@ vi.mock('@/services/torrents', () => ({
   },
 }));
 vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
-vi.mock('@/services/users', () => ({
-  usersService: { getUserSettings: vi.fn(), updateUserSettings: vi.fn() },
-}));
+vi.mock('@/services/instance', () => ({ instanceService: { getPlayback: vi.fn() } }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 
 /**
@@ -85,7 +83,8 @@ vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 const svc = vi.mocked(streamingService);
 const torrents = vi.mocked(torrentsService);
 const tv = vi.mocked(tvService);
-const users = vi.mocked(usersService);
+const instance = vi.mocked(instanceService);
+const playback = (enabled: boolean, pct = 80): PlaybackSettings => ({ auto_next_enabled: enabled, auto_next_pct: pct });
 const profileHook = vi.mocked(useTvProfile);
 
 // --- fixtures ----------------------------------------------------------------------
@@ -179,19 +178,6 @@ const show = (): ShowDetail =>
     ],
   }) as ShowDetail;
 
-const settingsRow = (autoNext: boolean) =>
-  ({
-    id: 's1',
-    user_id: 'p1',
-    maturity_restriction: 'none',
-    require_passcode: false,
-    has_passcode: false,
-    passcode_len: null,
-    theme: 'dark',
-    default_quality: '1080p',
-    auto_next_episode: autoNext,
-  }) as unknown as Awaited<ReturnType<typeof usersService.getUserSettings>>;
-
 beforeAll(() => {
   window.HTMLMediaElement.prototype.load = vi.fn();
   window.HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
@@ -227,7 +213,7 @@ beforeEach(() => {
   svc.getSubtitles.mockResolvedValue({ coverage: 'none', subtitles: [] } as never);
   tv.getSeason.mockResolvedValue(season([1, 2, 3]));
   tv.getShow.mockResolvedValue(show());
-  users.getUserSettings.mockResolvedValue(settingsRow(true));
+  instance.getPlayback.mockResolvedValue(playback(true));
 });
 
 afterEach(async () => {
@@ -353,7 +339,7 @@ describe('the Next-episode cell', () => {
   });
 });
 
-describe('the prefetch at 80%', () => {
+describe('the prefetch at the owner’s threshold', () => {
   /** Did the box get asked to start a download, and for what? */
   const asked = () => torrents.downloadCatalogMovie.mock.calls.map(([body]) => body);
 
@@ -382,20 +368,39 @@ describe('the prefetch at 80%', () => {
   });
 
   it('starts NOTHING when the profile has the setting off', async () => {
-    users.getUserSettings.mockResolvedValue(settingsRow(false));
+    instance.getPlayback.mockResolvedValue(playback(false));
     const handle = await playing();
     await playTo(handle, PAST_80);
     expect(asked()).toEqual([]);
   });
 
   it('starts NOTHING when the setting could not be read', async () => {
-    // An unreadable settings call leaves the toggle showing the default, because a control
-    // has to render something — but a multi-gigabyte download on a Raspberry Pi is not a
-    // thing to do on a default. `useAutoNext` reports the two separately for this.
-    users.getUserSettings.mockRejectedValue(new Error('offline'));
+    // A failed read is not a default: a multi-gigabyte download on a Raspberry Pi is not a
+    // thing to start on a guess, so nothing starts.
+    instance.getPlayback.mockRejectedValue(new Error('offline'));
     const handle = await playing();
     await playTo(handle, PAST_80);
     expect(asked()).toEqual([]);
+  });
+
+  it('starts at the threshold the OWNER chose, not at 80%', async () => {
+    instance.getPlayback.mockResolvedValue(playback(true, 60));
+    const handle = await playing();
+    await playTo(handle, Math.floor(DURATION * 0.6) - 60);
+    expect.soft(asked(), 'nothing before 60%').toEqual([]);
+    await playTo(handle, Math.ceil(DURATION * 0.6) + 1); // 1441 s — well before PAST_80 (1921)
+    expect.soft(asked()).toHaveLength(1);
+  });
+
+  it('fires when the setting arrives AFTER the playhead passed the point, with no further tick', async () => {
+    let settle: (v: PlaybackSettings) => void = () => {};
+    instance.getPlayback.mockReturnValue(new Promise((r) => { settle = r; }));
+    const handle = await playing();
+    await playTo(handle, PAST_80);
+    expect.soft(asked(), 'not on a read that has not answered').toEqual([]);
+    await act(async () => settle(playback(true)));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect.soft(asked()).toHaveLength(1);
   });
 
   it('starts NOTHING when the catalog could not say what is next', async () => {

@@ -27,8 +27,12 @@ describe('vacuumLine', () => {
     expect(vacuumLine(s('scheduled', 24 + 1 / 60), NOW)).toBe('Deletes in 2 days');
     expect(vacuumLine(s('scheduled', 288), NOW)).toBe('Deletes in 12 days');
   });
-  it('renders active like scheduled', () => {
-    expect(vacuumLine(s('active', 306), NOW)).toBe('Deletes in 13 days');
+  it('says nothing on an active row, however close its deletes_at', () => {
+    // Downloading: the row already shows its progress. Being streamed: the next touch
+    // resets the clock. "Deletes tonight" on either would be alarming and false.
+    expect(vacuumLine(s('active', 18), NOW)).toBeNull();
+    expect(vacuumLine(s('active', -2), NOW)).toBeNull();
+    expect(vacuumLine(s('active', 306), NOW)).toBeNull();
   });
   it('is null without a deletes_at', () => {
     expect(vacuumLine(s('scheduled', null), NOW)).toBeNull();

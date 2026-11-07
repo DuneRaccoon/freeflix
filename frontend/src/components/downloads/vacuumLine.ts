@@ -8,9 +8,12 @@ const DAY_MS = 86_400_000;
  * The autovacuum line under a download row, or null for nothing to say.
  * `n` counts the nightly 04:00 runs left; the next run is never more than 24 h
  * away, so "1 day" cannot occur and 1 reads as tonight.
+ *
+ * An 'active' row says nothing: a downloading row already shows its progress, and a
+ * just-played row's countdown resets on the next touch.
  */
 export function vacuumLine(info: VacuumInfo | null | undefined, nowMs: number): string | null {
-  if (!info || info.status === 'off') return null;
+  if (!info || info.status === 'off' || info.status === 'active') return null;
   if (info.status === 'kept_watching') return KEPT_LINE;
   if (info.deletes_at == null) return null;
   const n = Math.ceil((Date.parse(info.deletes_at) - nowMs) / DAY_MS);

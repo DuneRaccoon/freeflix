@@ -297,3 +297,24 @@ def test_the_passcode_response_carries_no_secret(home):
     assert r.status_code == 200
     keys = set(r.json())
     assert not keys & {"passcode", "passcode_hash", "new_passcode", "current_passcode"}
+
+
+def test_the_startup_event_runs_the_pass(db_session, override_get_db, monkeypatch, tmp_path):
+    """The seam: the pass must be reached from the startup event, on the app's own
+    ``get_db`` (not ``init_db()``, which runs at import time on the real engine)."""
+    monkeypatch.setattr(settings, "log_path", tmp_path)
+    monkeypatch.setattr("app.main.get_db", override_get_db)
+    owner = Account(email="owner@example.com", role=ROLE_OWNER, status=STATUS_ACTIVE)
+    db_session.add(owner); db_session.flush()
+    profile = User(username="ben", display_name="Ben", account_id=owner.id)
+    db_session.add(profile); db_session.flush()
+    db_session.add(UserSettings(user_id=profile.id, require_passcode=False,
+                                passcode_hash=auth_service.hash_passcode("4821"), passcode_len=4))
+    db_session.commit()
+    pid = profile.id
+
+    with TestClient(app):
+        pass
+
+    row = _fresh(db_session).query(UserSettings).filter_by(user_id=pid).one()
+    assert row.passcode_hash is None

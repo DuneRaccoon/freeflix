@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from loguru import logger
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -68,6 +69,7 @@ class MigrationReport:
     accounts_created: int = 0
     settings_created: int = 0
     passcodes_hashed: int = 0
+    stale_passcodes_cleared: int = 0
     owner_account_id: Optional[str] = None
     owner_profile_name: Optional[str] = None
     already_migrated: bool = False
@@ -178,6 +180,23 @@ def clear_passcode(row: UserSettings) -> None:
     row.passcode_len = None
     row.passcode = None
     row.require_passcode = False
+
+
+def clear_stale_passcodes(session: Session) -> int:
+    """Clear every stored hash whose lock is off (switching the lock off used to leave it).
+
+    Idempotent. Never turns a lock on. Startup-only, via ``bootstrap``.
+    """
+    rows = (
+        session.query(UserSettings)
+        .filter(UserSettings.passcode_hash.isnot(None))
+        .filter(or_(UserSettings.require_passcode.is_(False), UserSettings.require_passcode.is_(None)))
+        .all()
+    )
+    for row in rows:
+        clear_passcode(row)
+    session.flush()
+    return len(rows)
 
 
 def _ensure_instance_owner(session: Session, report: MigrationReport) -> None:
@@ -612,6 +631,7 @@ def bootstrap(session: Session) -> MigrationReport:
     has created the log directory the claim code file lives in.
     """
     report = migrate_users_to_accounts(session)
+    report.stale_passcodes_cleared = clear_stale_passcodes(session)
     report.problems = verify_migration(session)
 
     instance = get_instance(session)

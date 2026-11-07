@@ -288,3 +288,38 @@ def test_claiming_a_brand_new_instance_creates_the_owner(db_session):
 def test_email_is_normalised_on_claim(db_session):
     account = accounts_service.attach_owner_email(db_session, "  Ben@EXAMPLE.com ")
     assert account.email == "ben@example.com"
+
+
+# ------------------------------------------------------------ stale passcode hashes
+
+
+def test_a_stale_hash_is_cleared_and_a_live_lock_is_kept(db_session):
+    stale = _legacy_profile(db_session, "Stale", settings_kwargs={
+        "require_passcode": False, "passcode_hash": auth_service.hash_passcode("4821"),
+        "passcode_len": 4})
+    live = _legacy_profile(db_session, "Live", settings_kwargs={
+        "require_passcode": True, "passcode_hash": auth_service.hash_passcode("1357"),
+        "passcode_len": 4})
+    _legacy_profile(db_session, "Bare", settings_kwargs={
+        "require_passcode": False, "passcode_len": 4})
+
+    assert accounts_service.clear_stale_passcodes(db_session) == 1
+
+    assert stale.settings.passcode_hash is None
+    assert stale.settings.passcode_len is None
+    assert live.settings.passcode_hash is not None
+    assert live.settings.require_passcode is True
+    assert accounts_service.clear_stale_passcodes(db_session) == 0
+
+
+def test_bootstrap_clears_a_legacy_plaintext_code_whose_lock_was_off(db_session, monkeypatch, tmp_path):
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "log_path", tmp_path)
+    ben = _legacy_profile(db_session, "Ben", settings_kwargs={
+        "require_passcode": False, "passcode": "4821"})
+
+    report = accounts_service.bootstrap(db_session)
+
+    assert report.stale_passcodes_cleared == 1
+    assert ben.settings.passcode_hash is None

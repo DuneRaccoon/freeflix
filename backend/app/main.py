@@ -258,6 +258,7 @@ async def startup_event():
                 f"{report.accounts_created} account(s) created, "
                 f"{report.settings_created} settings row(s) healed, "
                 f"{report.passcodes_hashed} passcode(s) hashed, "
+                f"{report.stale_passcodes_cleared} stale passcode(s) cleared, "
                 f"owner={report.owner_profile_name or report.owner_account_id or 'unset'}"
             )
             for problem in report.problems:

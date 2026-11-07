@@ -13,7 +13,7 @@ export interface UserSettings {
   /**
    * The passcode itself never reaches the browser. `GET /users` used to return every
    * profile's plaintext code; the keypad only ever needed to know that one exists and
-   * how many dots to draw — verification happens server-side via unlockProfile().
+   * how many dots to draw — verification happens server-side via selectProfile().
    */
   has_passcode: boolean;
   passcode_len: number | null;
@@ -46,6 +46,16 @@ export interface UserSettingsUpdate {
   download_path?: string;
   /** Send `false` to turn it off; omit to leave it alone. See the read shape above. */
   auto_next_episode?: boolean;
+}
+
+/**
+ * Write shape for PUT /users/{id}/passcode. `current_passcode` is required whenever a
+ * code is already set. `new_passcode: null` removes the code: it is sent explicitly
+ * rather than left out, so a request built wrong cannot remove the lock silently.
+ */
+export interface PasscodeChangeRequest {
+  current_passcode?: string;
+  new_passcode?: string | null;
 }
 
 export interface User {
@@ -107,6 +117,27 @@ export const usersService = {
     settings: UserSettingsUpdate,
   ): Promise<UserSettings> => {
     const response = await apiClient.put(`/users/${userId}/settings`, settings);
+    return response.data;
+  },
+
+  /**
+   * Makes this the session's active profile. Called on EVERY pick, code or not: the
+   * server keeps only the active profile unlocked, so picking another one relocks the
+   * last. A profile the list shows as open is picked without a code; a 403/423 then
+   * means the list is stale, and a 429 means the attempts are spent.
+   */
+  selectProfile: async (userId: string, passcode?: string): Promise<void> => {
+    await apiClient.post(`/users/${userId}/select`, passcode === undefined ? {} : { passcode });
+  },
+
+  /** "Switch profile": the session keeps no profile unlocked until the next pick. */
+  deselectProfile: async (): Promise<void> => {
+    await apiClient.post('/users/deselect');
+  },
+
+  /** Sets, changes or removes (`new_passcode: null`) the code; 403 means the current code was wrong. */
+  changePasscode: async (userId: string, body: PasscodeChangeRequest): Promise<UserSettings> => {
+    const response = await apiClient.put(`/users/${userId}/passcode`, body);
     return response.data;
   },
 

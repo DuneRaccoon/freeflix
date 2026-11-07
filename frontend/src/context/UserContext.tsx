@@ -1,7 +1,13 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { User, UserSettings, UserSettingsUpdate, usersService } from '@/services/users';
+import {
+  PasscodeChangeRequest,
+  User,
+  UserSettings,
+  UserSettingsUpdate,
+  usersService,
+} from '@/services/users';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { useSession } from '@/context/SessionContext';
@@ -9,6 +15,9 @@ import { useSession } from '@/context/SessionContext';
 /** What `selectUser` resolves to. `locked` means the profile exists and belongs to
  *  this account, but the server wants its passcode before handing anything over. */
 export type SelectUserResult = 'ok' | 'locked' | 'throttled' | 'error';
+
+/** What `changePasscode` resolves to. `wrong` is a 403: the current code did not match. */
+export type PasscodeChangeResult = 'ok' | 'wrong' | 'throttled' | 'error';
 
 type UserContextType = {
   currentUser: User | null;
@@ -19,10 +28,13 @@ type UserContextType = {
    *  one-time boot; surfaces a busy state without unmounting the caller. */
   isSelecting: boolean;
   error: string | null;
+  /** The stored profile that boot restore found locked (423): the picker should ask
+   *  for its code. `null` otherwise, and cleared by any successful pick. */
+  lockedProfileId: string | null;
   loadUsers: () => Promise<void>;
   selectUser: (userId: string, passcode?: string) => Promise<SelectUserResult>;
   logout: () => void;
-  isPasscodeRequired: (contentRating?: string | null) => boolean;
+  changePasscode: (userId: string, body: PasscodeChangeRequest) => Promise<PasscodeChangeResult>;
   isContentAllowed: (contentRating?: string | null) => boolean;
   updateUser: (userId: string, data: { display_name?: string; avatar?: string }) => Promise<void>;
   updateUserSettings: (userId: string, settings: UserSettingsUpdate) => Promise<void>;
@@ -71,6 +83,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // profile never tears down the screen the user is opening it from.
   const [isSelecting, setSelecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lockedProfileId, setLockedProfileId] = useState<string | null>(null);
   const router = useRouter();
 
   // The profile list is account-scoped server-side, so there is nothing to fetch
@@ -90,6 +103,39 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  /** The one failure path for opening a profile, whichever request failed. */
+  const openFailed = useCallback((userId: string, err: unknown): 'error' => {
+    console.error('Error selecting profile:', err);
+    setError('Failed to open that profile. Please try again.');
+    // The stored id outlives the profile it points at — a leftover from before
+    // this account owned the browser, or a profile another member removed. Drop
+    // it, or every reload replays the same failure.
+    if (readStoredProfileId() === userId) writeStoredProfileId(null);
+    return 'error';
+  }, []);
+
+  /**
+   * Fetches a profile the session may already read and makes it this tab's. No select:
+   * boot restore calls this alone, so a refresh never asks for the code again.
+   */
+  const openProfile = useCallback(async (userId: string): Promise<'ok' | 'locked' | 'error'> => {
+    try {
+      const [user, settings] = await Promise.all([
+        usersService.getUser(userId),
+        usersService.getUserSettings(userId),
+      ]);
+
+      setCurrentUser(user);
+      setUserSettings(settings);
+      setLockedProfileId(null);
+      writeStoredProfileId(user.id);
+      return 'ok';
+    } catch (err) {
+      if (statusOf(err) === 423) return 'locked';
+      return openFailed(userId, err);
+    }
+  }, [openFailed]);
+
   const selectUser = useCallback(
     async (userId: string, passcode?: string): Promise<SelectUserResult> => {
       // Deliberately does NOT flip `isLoading`. AuthenticatedLayout renders a spinner
@@ -99,43 +145,23 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSelecting(true);
       setError(null);
       try {
-        if (passcode !== undefined) {
-          // Verified server-side and recorded on the session row, so the lock the UI
-          // advertises survives a page reload and cannot be skipped by calling the
-          // profile-scoped endpoints directly.
-          try {
-            await usersService.unlockProfile(userId, passcode);
-          } catch (err) {
-            const status = statusOf(err) ?? 0;
-            if (status === UNLOCK_THROTTLED) return 'throttled';
-            if (UNLOCK_REJECTED.includes(status)) return 'locked';
-            throw err;
-          }
+        // Select runs on EVERY pick, code or not, and before anything is fetched: the
+        // server keeps only the session's active profile unlocked, so this pick is what
+        // relocks the last one. An open profile is picked without a code.
+        try {
+          await usersService.selectProfile(userId, passcode);
+        } catch (err) {
+          const status = statusOf(err) ?? 0;
+          if (status === UNLOCK_THROTTLED) return 'throttled';
+          if (UNLOCK_REJECTED.includes(status)) return 'locked';
+          return openFailed(userId, err);
         }
-
-        const [user, settings] = await Promise.all([
-          usersService.getUser(userId),
-          usersService.getUserSettings(userId),
-        ]);
-
-        setCurrentUser(user);
-        setUserSettings(settings);
-        writeStoredProfileId(user.id);
-        return 'ok';
-      } catch (err) {
-        if (statusOf(err) === 423) return 'locked';
-        console.error('Error selecting profile:', err);
-        setError('Failed to open that profile. Please try again.');
-        // The stored id outlives the profile it points at — a leftover from before
-        // this account owned the browser, or a profile another member removed. Drop
-        // it, or every reload replays the same failure.
-        if (readStoredProfileId() === userId) writeStoredProfileId(null);
-        return 'error';
+        return await openProfile(userId);
       } finally {
         setSelecting(false);
       }
     },
-    [],
+    [openProfile, openFailed],
   );
 
   useEffect(() => {
@@ -146,6 +172,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUsers([]);
       setCurrentUser(null);
       setUserSettings(null);
+      setLockedProfileId(null);
       setIsLoading(false);
       return;
     }
@@ -160,22 +187,31 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await loadUsers();
       if (cancelled) return;
       const storedUserId = readStoredProfileId();
-      if (storedUserId) await selectUser(storedUserId);
+      // Restore, never select: the session still holds this profile unlocked from the
+      // pick that stored it. A 423 means it was relocked since (another tab picked a
+      // different profile); keep the stored id and let the picker ask for its code.
+      if (storedUserId && (await openProfile(storedUserId)) === 'locked') {
+        setLockedProfileId(storedUserId);
+      }
       setIsLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [accountId, sessionLoading, loadUsers, selectUser]);
+  }, [accountId, sessionLoading, loadUsers, openProfile]);
 
   /**
-   * "Switch profile" — clears the active profile only. The session cookie is
-   * untouched; real sign-out lives on SessionContext.
+   * "Switch profile" — relocks the profile on the server and clears it here. The
+   * session cookie is untouched; real sign-out lives on SessionContext.
    */
   const logout = () => {
+    // Not awaited: apiClient sets no timeout, so a hung request would otherwise trap
+    // the user on this profile. A failed relock leaves it open until the next pick.
+    usersService.deselectProfile().catch((e) => console.error('Error relocking profile:', e));
     setCurrentUser(null);
     setUserSettings(null);
+    setLockedProfileId(null);
     writeStoredProfileId(null);
     router.push('/');
   };
@@ -208,31 +244,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return contentLevel <= settingsLevel;
   };
 
-  // Check if passcode is required
-  const isPasscodeRequired = (contentRating?: string | null): boolean => {
-    // If no settings or passcode not required, no passcode needed
-    if (!userSettings || !userSettings.require_passcode) {
-      return false;
-    }
-
-    // If no content rating, don't require passcode
-    if (!contentRating) {
-      return false;
-    }
-
-    // Get numerical values for comparison
-    const contentLevel = maturityLevels.indexOf(contentRating.toLowerCase());
-    const settingsLevel = maturityLevels.indexOf(userSettings.maturity_restriction);
-
-    // Unknown rating doesn't require passcode
-    if (contentLevel === -1) {
-      return false;
-    }
-
-    // Require passcode if content rating is greater than settings restriction
-    return contentLevel > settingsLevel;
-  };
-
   // Update user info
   const updateUser = async (userId: string, data: { display_name?: string; avatar?: string }) => {
     try {
@@ -253,6 +264,30 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.error('Failed to update profile');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * Sets, changes or removes a profile's code. Never flips `isLoading` and shows no
+   * toast: AuthenticatedLayout swaps the page for a spinner while `isLoading` is set,
+   * which would unmount the caller's form mid-flow. The caller renders the result.
+   */
+  const changePasscode = async (
+    userId: string,
+    body: PasscodeChangeRequest,
+  ): Promise<PasscodeChangeResult> => {
+    try {
+      const updatedSettings = await usersService.changePasscode(userId, body);
+      if (userId === currentUser?.id) setUserSettings(updatedSettings);
+      // The picker's lock badges read the list.
+      void loadUsers();
+      return 'ok';
+    } catch (err) {
+      const status = statusOf(err);
+      if (status === 403) return 'wrong';
+      if (status === UNLOCK_THROTTLED) return 'throttled';
+      console.error('Error changing passcode:', err);
+      return 'error';
     }
   };
 
@@ -283,10 +318,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading: isLoading || sessionLoading,
     isSelecting,
     error,
+    lockedProfileId,
     loadUsers,
     selectUser,
     logout,
-    isPasscodeRequired,
+    changePasscode,
     isContentAllowed,
     updateUser,
     updateUserSettings,

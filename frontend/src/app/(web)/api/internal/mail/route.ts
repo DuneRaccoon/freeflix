@@ -7,6 +7,7 @@ import AccessRevokedEmail, { subject as accessRevokedSubject } from '@/emails/Ac
 import ClaimVerifyEmail, { subject as claimVerifySubject } from '@/emails/ClaimVerifyEmail';
 import InviteEmail, { subject as inviteSubject } from '@/emails/InviteEmail';
 import MagicLinkEmail, { subject as magicLinkSubject } from '@/emails/MagicLinkEmail';
+import PasscodeResetEmail, { subject as passcodeResetSubject } from '@/emails/PasscodeResetEmail';
 import PasswordResetEmail, {
   subjectFor as passwordResetSubjectFor,
 } from '@/emails/PasswordResetEmail';
@@ -34,6 +35,7 @@ const TEMPLATES: Record<
   'claim-verify': { component: ClaimVerifyEmail, subject: claimVerifySubject },
   welcome: { component: WelcomeEmail, subject: welcomeSubject },
   'password-reset': { component: PasswordResetEmail, subject: passwordResetSubjectFor },
+  'passcode-reset': { component: PasscodeResetEmail, subject: passcodeResetSubject },
   'access-revoked': { component: AccessRevokedEmail, subject: accessRevokedSubject },
 };
 

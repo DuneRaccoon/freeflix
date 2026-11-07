@@ -28,6 +28,10 @@ import PasswordResetEmail, {
   subjectFor as passwordResetSubjectFor,
   type PasswordResetEmailProps,
 } from '../PasswordResetEmail';
+import PasscodeResetEmail, {
+  PreviewProps as passcodeResetProps,
+  subject as passcodeResetSubject,
+} from '../PasscodeResetEmail';
 import WelcomeEmail, {
   PreviewProps as welcomeProps,
   subject as welcomeSubject,
@@ -94,6 +98,13 @@ const cases: TemplateCase[] = [
     expectedSubject: 'Set your FRÈ password',
     actionUrl: passwordResetFirstTimeProps.actionUrl,
     node: createElement(PasswordResetEmail, passwordResetFirstTimeProps),
+  },
+  {
+    id: 'passcode-reset',
+    subject: passcodeResetSubject,
+    expectedSubject: 'Reset your FRÈ profile code',
+    actionUrl: passcodeResetProps.actionUrl,
+    node: createElement(PasscodeResetEmail, passcodeResetProps),
   },
   {
     id: 'access-revoked',
@@ -223,6 +234,34 @@ describe('password-reset email variants', () => {
       // The link is a door to one screen, not a session — the actual security property.
       expect(html).toMatch(/doesn\u2019t sign you in/);
     }
+  });
+});
+
+describe('passcode-reset email', () => {
+  it('names the profile', async () => {
+    const html = await render(createElement(PasscodeResetEmail, passcodeResetProps));
+    expect(html).toContain('Kids');
+  });
+
+  it('falls back when the profile has no name', async () => {
+    // A bare "contains your profile" would stay green with the fallback deleted if static
+    // copy said it anywhere, and a null name renders as nothing, so /null|undefined/ alone
+    // cannot see that deletion. Counting the fallback against the name does.
+    const named = await render(createElement(PasscodeResetEmail, passcodeResetProps));
+    const anon = await render(
+      createElement(PasscodeResetEmail, { ...passcodeResetProps, profileName: null }),
+    );
+    const namedCount = occurrences(copyOnly(named), 'Kids');
+    expect(namedCount).toBeGreaterThanOrEqual(1);
+    expect(occurrences(copyOnly(anon), 'your profile')).toBe(namedCount);
+    expect(occurrences(copyOnly(named), 'your profile')).toBe(0);
+    expect(copyOnly(anon)).not.toMatch(/null|undefined/);
+  });
+
+  it('says the link is not a sign-in', async () => {
+    const html = await render(createElement(PasscodeResetEmail, passcodeResetProps));
+    expect(html).toMatch(/doesn\u2019t sign you in/);
+    expect(html).toContain('20 minutes');
   });
 });
 

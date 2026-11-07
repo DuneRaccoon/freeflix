@@ -75,6 +75,18 @@ function writeStoredProfileId(id: string | null): void {
   }
 }
 
+/**
+ * The profile a request URL names, or null when it names none. Every backend route
+ * that can answer 423 takes its profile in one of these places: `/users/{id}/…`,
+ * `/watchlist/{id}/…`, `/streaming/progress/{id}/…`, or `?user_id=` (rails).
+ */
+function profileNamedBy(url: string): string | null {
+  const [path, query = ''] = url.split('?');
+  const inPath = path.match(/\/(?:users|watchlist|streaming\/progress)\/([^/]+)/);
+  if (inPath) return decodeURIComponent(inPath[1]);
+  return new URLSearchParams(query).get('user_id') || null;
+}
+
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
@@ -215,6 +227,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (/\/(select|unlock)$/.test(url.split('?')[0])) return;
         const current = currentUserRef.current;
         if (!current) return;
+        // A stale request for the previous profile, landing after a switch, is about
+        // that profile: only a 423 naming this one (or naming none) drops it.
+        const named = profileNamedBy(url);
+        if (named !== null && named !== current.id) return;
         setLockedProfileId(current.id);
         setCurrentUser(null);
         setUserSettings(null);

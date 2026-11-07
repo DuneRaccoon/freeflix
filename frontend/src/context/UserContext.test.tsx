@@ -247,6 +247,37 @@ describe('UserContext mid-session relock (423)', () => {
       expect(screen.getByTestId('locked')).toHaveTextContent('none');
     });
 
+  it.each([
+    '/users/p1/progress',
+    '/users/p1/settings?x=1',
+    '/streaming/progress/p1/prog-9',
+    '/watchlist/p1/add',
+    '/rails?user_id=p1',
+  ])('a stale %s 423 for the previous profile leaves the open profile alone', async (url) => {
+    // Switch profile -> pick unlocked p2 while a p1 request is in flight: its 423
+    // lands after the switch and is about p1, not the profile now open.
+    localStorage.setItem('currentUserId', 'p2');
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('p2'));
+
+    act(() => { apiClientMock.lockedListener!(url); });
+
+    expect(screen.getByTestId('current')).toHaveTextContent('p2');
+    expect(screen.getByTestId('locked')).toHaveTextContent('none');
+  });
+
+  it.each(['/streaming/progress/p2/prog-9', '/watchlist/p2', '/rails'])(
+    'a 423 from %s, naming the open profile or none, still drops it', async (url) => {
+      localStorage.setItem('currentUserId', 'p2');
+      renderProvider();
+      await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('p2'));
+
+      act(() => { apiClientMock.lockedListener!(url); });
+
+      expect(screen.getByTestId('current')).toHaveTextContent('none');
+      expect(screen.getByTestId('locked')).toHaveTextContent('p2');
+    });
+
   it('a 423 with no current profile leaves lockedProfileId alone', async () => {
     renderProvider();
     await booted();

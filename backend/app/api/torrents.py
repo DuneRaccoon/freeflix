@@ -30,6 +30,7 @@ from app.services.torrent_scope import scope_query, visible_to
 # By name, not as a module: tests patch torrents_api.find_reusable and torrents_api.utcnow.
 from app.services.torrent_reuse import covers_title, find_reusable, pack_contains, pack_file_index
 from app.services.torrent_touch import touch_torrent, utcnow
+from app.services.vacuum import fill_vacuum
 from app.services.watch_share import watched_by_map
 from sqlalchemy import func
 # By this name: cron/jobs.py imports _human_size from here.
@@ -365,7 +366,8 @@ async def get_torrent_status(torrent_id: str = Path(..., description="ID of the 
     status = torrent_manager.get_torrent_status(torrent_id)
     if not status:
         raise HTTPException(status_code=404, detail="Torrent not found")
-    
+
+    fill_vacuum([status], utcnow(), manager=torrent_manager)
     return status
 
 
@@ -394,9 +396,10 @@ async def list_torrents(
             s.watched_by = wb.get(s.id, [])
 
     if state:
-        filtered_torrents = [t for t in all_torrents if t.state == state]
-        return filtered_torrents
-    
+        all_torrents = [t for t in all_torrents if t.state == state]
+
+    # Outside the `with db` block: fill_vacuum opens its own get_db().
+    fill_vacuum(all_torrents, utcnow(), manager=torrent_manager)
     return all_torrents
 
 

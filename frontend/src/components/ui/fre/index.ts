@@ -12,3 +12,5 @@ export { Input, Select, Toggle, Field } from './Field';
 export type { InputProps, SelectProps, SelectOption, ToggleProps, FieldProps } from './Field';
 export { RadioGroup } from './RadioGroup';
 export type { RadioGroupProps, RadioOption } from './RadioGroup';
+export { default as Numpad } from './Numpad';
+export type { NumpadProps } from './Numpad';

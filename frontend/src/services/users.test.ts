@@ -39,4 +39,16 @@ describe('usersService profile lock', () => {
     expect(put).toHaveBeenCalledWith('/users/p1/passcode', { current_passcode: '1111', new_passcode: '2222' });
     expect(r).toEqual({ id: 's', has_passcode: true });
   });
+
+  it('resets with the password in the body', async () => {
+    post.mockResolvedValue({ data: { ok: true } });
+    await usersService.resetPasscodeWithPassword('p1', 'hunter22');
+    expect(post).toHaveBeenCalledWith('/users/p1/passcode/reset', { password: 'hunter22' });
+  });
+
+  it('asks for a reset link with no body', async () => {
+    post.mockResolvedValue({ data: { ok: true } });
+    await usersService.requestPasscodeResetLink('p1');
+    expect(post.mock.calls[0]).toEqual(['/users/p1/passcode/reset-link']);
+  });
 });

@@ -1,7 +1,8 @@
 'use client';
 import React, { useState } from 'react';
 import { useUser } from '@/context/UserContext';
-import { usersService } from '@/services/users';
+import { useSession } from '@/context/SessionContext';
+import { usersService, type User } from '@/services/users';
 import { Wordmark } from '@/components/ui/Wordmark';
 import CinematicAtmosphere from '@/components/fx/CinematicAtmosphere';
 import PasscodePrompt from './PasscodePrompt';
@@ -13,8 +14,12 @@ import { LockClosedIcon } from '@heroicons/react/24/solid';
 import { Modal, Field, Input, Button } from '@/components/ui/fre';
 
 const ProfileGate: React.FC = () => {
-  const { users, selectUser, loadUsers } = useUser();
-  const [prompt, setPrompt] = useState<{ id: string; name: string; length: number } | null>(null);
+  const { users, selectUser, loadUsers, lockedProfileId } = useUser();
+  const { account } = useSession();
+  const accountRole = account?.role ?? null;
+  // The gate mounts only after boot finishes (or after a mid-session relock), so an
+  // initialiser is enough to open the numpad for the profile that was found locked.
+  const [prompt, setPrompt] = useState<{ id: string } | null>(() => (lockedProfileId ? { id: lockedProfileId } : null));
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newAvatar, setNewAvatar] = useState<string | null>(null);
@@ -62,15 +67,43 @@ const ProfileGate: React.FC = () => {
     }
   };
 
-  // The server decides whether a profile is locked; `require_passcode` only drives the badge.
-  const enter = async (id: string, name: string, length: number) => {
+  // Every pick of a locked profile asks for its code. A codeless select is sent only for
+  // a profile the list shows as open: on a locked one the server counts it as a wrong code.
+  const enter = async (u: User) => {
     setEntryError(null);
-    const result = await selectUser(id);
-    if (result === 'locked') setPrompt({ id, name, length });
+    if (u.settings?.require_passcode) { setPrompt({ id: u.id }); return; }
+    const result = await selectUser(u.id);
+    if (result === 'locked') {
+      // The list was stale: the lock was set elsewhere after it loaded. The refresh
+      // corrects the badge and the code length.
+      setPrompt({ id: u.id });
+      void loadUsers();
+    }
     // Without this the gate is the only thing on screen and a failed click looks like
     // a dead button.
-    else if (result === 'error') setEntryError('Could not open that profile. Please try again.');
+    else if (result === 'error' || result === 'throttled') setEntryError('Could not open that profile. Please try again.');
   };
+
+  const closePrompt = () => {
+    setPrompt(null);
+    // The code may have been removed elsewhere while the prompt was up (a member's
+    // emailed link opened on a phone); without a fresh list the next pick reopens the
+    // numpad for a lock that no longer exists.
+    void loadUsers();
+  };
+
+  const afterReset = async (id: string) => {
+    setPrompt(null);
+    await loadUsers();
+    // selectUser directly, not enter(): enter would read the stale require_passcode
+    // and reopen the prompt.
+    const result = await selectUser(id);
+    if (result !== 'ok') setEntryError('Could not open that profile. Please try again.');
+  };
+
+  // A stored id for a deleted profile matches no row, and then there is no prompt.
+  const promptUser = prompt ? users.find(u => u.id === prompt.id) : undefined;
+  const promptLength = promptUser?.settings?.passcode_len || 4;
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center gap-12 bg-ink px-6 py-16 text-text">
@@ -88,7 +121,7 @@ const ProfileGate: React.FC = () => {
               <button
                 key={u.id}
                 type="button"
-                onClick={() => { void enter(u.id, u.display_name, u.settings?.passcode_len ?? 4); }}
+                onClick={() => { void enter(u); }}
                 className="group flex flex-col items-center gap-3 focus:outline-none"
               >
                 {/* aria-hidden: the visible name label below already supplies this button's
@@ -159,14 +192,19 @@ const ProfileGate: React.FC = () => {
         </form>
       </Modal>
 
-      {prompt && (
+      {promptUser && (
         <PasscodePrompt
+          // A length that changes after a list refresh remounts the numpad.
+          key={`${promptUser.id}:${promptLength}`}
           open
-          profileName={prompt.name}
-          length={prompt.length}
-          onClose={() => setPrompt(null)}
+          profileId={promptUser.id}
+          profileName={promptUser.display_name}
+          length={promptLength}
+          accountRole={accountRole}
+          onClose={closePrompt}
+          onReset={() => { void afterReset(promptUser.id); }}
           onSubmit={async (code) => {
-            const result = await selectUser(prompt.id, code);
+            const result = await selectUser(promptUser.id, code);
             if (result === 'ok') { setPrompt(null); return true; }
             // A throttled attempt is not a wrong code — saying so would convince
             // someone they had forgotten their own passcode.

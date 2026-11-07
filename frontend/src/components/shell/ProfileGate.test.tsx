@@ -7,6 +7,10 @@ const h = vi.hoisted(() => ({
   loadUsers: vi.fn().mockResolvedValue(undefined),
   createUser: vi.fn(),
   getUserSettings: vi.fn(),
+  reset: vi.fn(),
+  link: vi.fn(),
+  role: 'member' as 'owner' | 'member',
+  lockedProfileId: null as string | null,
   // `settings` now rides along on GET /users, so the gate never fetches per-profile
   // settings — the old prefetch existed only to read the plaintext passcode.
   users: [
@@ -30,16 +34,27 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@/context/UserContext', () => ({
-  useUser: () => ({ users: h.users, selectUser: h.selectUser, loadUsers: h.loadUsers }),
+  useUser: () => ({
+    users: h.users, selectUser: h.selectUser, loadUsers: h.loadUsers, lockedProfileId: h.lockedProfileId,
+  }),
 }));
+vi.mock('@/context/SessionContext', () => ({ useSession: () => ({ account: { role: h.role } }) }));
 vi.mock('@/services/users', () => ({
-  usersService: { createUser: h.createUser, getUserSettings: h.getUserSettings },
+  usersService: {
+    createUser: h.createUser,
+    getUserSettings: h.getUserSettings,
+    resetPasscodeWithPassword: h.reset,
+    requestPasscodeResetLink: h.link,
+  },
 }));
 
 import ProfileGate from './ProfileGate';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Plain fields: clearAllMocks leaves them, and a leaked lockedProfileId opens a prompt in every later test.
+  h.role = 'member';
+  h.lockedProfileId = null;
   h.selectUser.mockResolvedValue('ok');
   h.createUser.mockResolvedValue({ id: '3', display_name: 'Zed' });
 });
@@ -66,26 +81,58 @@ describe('ProfileGate', () => {
     expect(screen.getByRole('button', { name: /ava/i }).querySelector('svg')).toBeNull();
   });
 
-  it('prompts for the passcode only when the server says the profile is locked', async () => {
-    h.selectUser.mockResolvedValueOnce('locked');
+  it('a locked profile asks for its code on every pick, without a codeless select first', async () => {
     render(<ProfileGate />);
     await userEvent.click(screen.getByRole('button', { name: /^ben$/i }));
-
-    // The first call carries no code — the server, not the browser, decides.
-    await waitFor(() => expect(h.selectUser).toHaveBeenCalledWith('1'));
     expect(await screen.findByText(/enter your passcode/i)).toBeInTheDocument();
+    expect(h.selectUser).not.toHaveBeenCalled(); // the default mock is 'ok': a codeless select would enter
 
     // Keypad length comes from the profile's passcode_len.
-    h.selectUser.mockResolvedValueOnce('ok');
-    for (const d of '123456') {
-      await userEvent.click(screen.getByRole('button', { name: d }));
-    }
-    await waitFor(() => expect(h.selectUser).toHaveBeenLastCalledWith('1', '123456'));
+    for (const d of '123456') await userEvent.click(screen.getByRole('button', { name: d }));
+    await waitFor(() => expect(h.selectUser).toHaveBeenCalledWith('1', '123456'));
+    expect(h.selectUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('a profile the list shows open but the server refuses opens the prompt and refreshes the list', async () => {
+    h.selectUser.mockResolvedValueOnce('locked');
+    render(<ProfileGate />);
+    await userEvent.click(screen.getByRole('button', { name: /ava/i }));
+    expect(await screen.findByText(/enter your passcode/i)).toBeInTheDocument();
+    expect(h.selectUser).toHaveBeenCalledWith('2');
+    expect(h.loadUsers).toHaveBeenCalled();
+  });
+
+  it('opens the numpad straight away for the profile boot restore found locked', () => {
+    h.lockedProfileId = '1';
+    render(<ProfileGate />);
+    expect(screen.getByRole('dialog', { name: 'Enter passcode for Ben' })).toBeInTheDocument();
+  });
+
+  it('an owner reset refreshes the list, then reopens the profile with no code', async () => {
+    h.role = 'owner';
+    h.reset.mockResolvedValue(undefined);
+    render(<ProfileGate />);
+    await userEvent.click(screen.getByRole('button', { name: /^ben$/i }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Forgot code?' }));
+    await userEvent.type(screen.getByLabelText('Account password'), 'pw');
+    await userEvent.click(screen.getByRole('button', { name: 'Reset passcode' }));
+
+    await waitFor(() => expect(h.selectUser).toHaveBeenCalledWith('1'));
+    expect(h.loadUsers.mock.invocationCallOrder[0]).toBeLessThan(h.selectUser.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('closing the prompt refreshes the list', async () => {
+    render(<ProfileGate />);
+    await userEvent.click(screen.getByRole('button', { name: /^ben$/i }));
+    await screen.findByText(/enter your passcode/i);
+    expect(h.loadUsers).not.toHaveBeenCalled();
+    await userEvent.keyboard('{Escape}'); // Modal's document Escape handler calls onClose
     await waitFor(() => expect(screen.queryByText(/enter your passcode/i)).toBeNull());
+    expect(h.loadUsers).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the prompt open when the passcode is rejected', async () => {
-    h.selectUser.mockResolvedValueOnce('locked');
     render(<ProfileGate />);
     await userEvent.click(screen.getByRole('button', { name: /^ben$/i }));
     await screen.findByText(/enter your passcode/i);

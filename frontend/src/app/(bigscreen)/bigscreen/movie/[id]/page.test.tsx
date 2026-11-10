@@ -583,6 +583,15 @@ describe('movie detail screen', () => {
       expect(document.activeElement).toBe(primary());
     });
 
+    it('a resumable film lands the ring on Resume', async () => {
+      // A Continue Watching card opens this screen rather than the player, so arriving here
+      // mid-film must leave one OK press from carrying on. Named explicitly: `primary()`'s
+      // pattern does not match "Resume from".
+      await mount({ kind: 'resume', href: '/bigscreen/watch/t1', atSeconds: 90 });
+      await ringSettled();
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Resume from 1:30' }));
+    });
+
     it('has a focus target while loading', async () => {
       getDetail.mockReturnValue(deferred<MovieDetail>().promise);
       render(<MoviePage />);

@@ -8,7 +8,13 @@ import { useTvProfile } from '../../../_data/useTvProfile';
 import ShowPage from './page';
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => router, useParams: () => ({ id: '1399' }) }));
+/** The query the screen reads (`?s=&e=`, an asked episode). Reset to empty before each case. */
+const search = vi.hoisted(() => ({ current: new URLSearchParams() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => router,
+  useParams: () => ({ id: '1399' }),
+  useSearchParams: () => search.current,
+}));
 vi.mock('../../../_data/title', () => ({ titleStateFor: vi.fn(), requestTitle: vi.fn(), resumeTitle: vi.fn() }));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
@@ -95,6 +101,7 @@ const seasonBtn = (n: number) => screen.getByRole('button', { name: new RegExp(`
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  search.current = new URLSearchParams();
   profileHook.mockReturnValue({ profile: { id: 'p1', display_name: 'Ben', avatar: null }, loading: false, select: vi.fn(), clear });
   getShow.mockResolvedValue(show());
   getSeason.mockImplementation(async (_id, n) => season(n, n === 1 ? 3 : 2));
@@ -668,4 +675,110 @@ describe('show detail screen', () => {
     );
   });
 
+  // =================================================================================
+  // An asked episode: Continue Watching's resume card opens this screen with ?s=&e=
+  // =================================================================================
+
+  describe('an asked episode (?s=&e=)', () => {
+    const ask = (query: string) => {
+      search.current = new URLSearchParams(query);
+    };
+    /** Resume at 1:30 for S2 · E2 only, so a control that says so proves which episode was asked. */
+    const resumesS2E2 = () =>
+      stateFor.mockImplementation(async ({ season: s, episode: e }) =>
+        s === 2 && e === 2
+          ? stateOf({ kind: 'resume', href: '/bigscreen/watch/pk?file=4', atSeconds: 90 })
+          : stateOf({ kind: 'play' }),
+      );
+    const watched = (s: number, ...eps: number[]) =>
+      eps.map((n) => prog(`tv:1399:s${s}:e${n}`, { completed: true, percentage: 100 }));
+
+    it('opens the asked season over the latest-watched one', async () => {
+      recent.mockResolvedValue([prog('tv:1399:s1:e1', { percentage: 30 })]);
+      ask('s=2&e=2');
+      await mount();
+      await screen.findByText(/S2 · E2/);
+      expect(seasonBtn(2)).toHaveAttribute('aria-pressed', 'true');
+      expect(getSeason).not.toHaveBeenCalledWith(1399, 1);
+      expect(stateFor).toHaveBeenCalledWith(expect.objectContaining({ season: 2, episode: 2 }));
+      // Not even briefly: the default lookup for the season's first episode never went out.
+      expect(stateFor).not.toHaveBeenCalledWith(expect.objectContaining({ season: 2, episode: 1 }));
+    });
+
+    it('the ring lands on the asked episode’s control', async () => {
+      resumesS2E2();
+      ask('s=2&e=2');
+      await mount();
+      const resumeBtn = await screen.findByRole('button', { name: 'Resume from 1:30' });
+      await ringSettled();
+      expect(document.activeElement).toBe(resumeBtn);
+    });
+
+    it('the badge follows the asked episode', async () => {
+      resumesS2E2();
+      ask('s=2&e=2');
+      await mount();
+      await screen.findByRole('button', { name: 'Resume from 1:30' });
+      await waitFor(() => expect(epButtons()).toHaveLength(2));
+      const badges = [...document.querySelectorAll('.bs-ep__badge')];
+      expect(badges).toHaveLength(1);
+      expect(badges[0].closest('button')).toBe(screen.getByRole('button', { name: /^2 Ep 2 Next up/ }));
+    });
+
+    it('a finished asked season is not skipped', async () => {
+      // Opened by hand from a card, the season the card named is what the viewer asked for;
+      // the finished-season auto-advance is for the screen's OWN pick.
+      recent.mockResolvedValue(watched(1, 3, 2, 1));
+      ask('s=1&e=9');
+      await mount();
+      await screen.findByText('You’ve finished Season 1. Pick another season below.');
+      expect(seasonBtn(1)).toHaveAttribute('aria-pressed', 'true');
+      expect(getSeason).not.toHaveBeenCalledWith(1399, 2);
+    });
+
+    it('an unknown season falls back to today’s pick', async () => {
+      recent.mockResolvedValue([prog('tv:1399:s2:e1', { percentage: 30 })]);
+      ask('s=9&e=1');
+      await mount();
+      await waitFor(() => expect(seasonBtn(2)).toHaveAttribute('aria-pressed', 'true'));
+      await screen.findByText(/S2 · E1/);
+      expect(getSeason).not.toHaveBeenCalledWith(1399, 9);
+    });
+
+    it('an unlisted episode falls back to the first unwatched', async () => {
+      recent.mockResolvedValue(watched(1, 1));
+      ask('s=1&e=9');
+      await mount();
+      await screen.findByText(/S1 · E2/);
+      expect(stateFor).not.toHaveBeenCalledWith(expect.objectContaining({ episode: 9 }));
+    });
+
+    it('a watched asked episode falls back to the first unwatched', async () => {
+      recent.mockResolvedValue(watched(1, 1));
+      ask('s=1&e=1');
+      await mount();
+      await screen.findByText(/S1 · E2/);
+      expect(stateFor).not.toHaveBeenCalledWith(expect.objectContaining({ season: 1, episode: 1 }));
+    });
+
+    it('junk values change nothing', async () => {
+      // The same history as no query at all: the latest-watched season, its first unwatched.
+      recent.mockResolvedValue(watched(2, 1));
+      ask('s=abc&e=-1');
+      await mount();
+      await waitFor(() => expect(seasonBtn(2)).toHaveAttribute('aria-pressed', 'true'));
+      await screen.findByText(/S2 · E2/);
+      expect(getSeason).not.toHaveBeenCalledWith(1399, 1);
+    });
+
+    it('the ask survives a trip to another season and back', async () => {
+      ask('s=2&e=2');
+      await mount();
+      await screen.findByText(/S2 · E2/);
+      fireEvent.click(seasonBtn(1));
+      await screen.findByText(/S1 · E1/);
+      fireEvent.click(seasonBtn(2));
+      await screen.findByText(/S2 · E2/);
+    });
+  });
 });

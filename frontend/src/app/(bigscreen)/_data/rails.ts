@@ -3,6 +3,7 @@ import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
 import type { CardItem } from '../_components/Card';
 import type { RailModel } from '../_components/Rail';
+import { movieHref, showHref } from './titleHref';
 
 export interface TvRailSpec {
   key: string;
@@ -197,12 +198,8 @@ export function catalogItemToCard(item: CatalogItem, shape: 'poster' | 'wide'): 
   return {
     // media_type is in the id because a movie and a show can share a tmdb id.
     id: `${item.media_type}:${item.tmdb_id}`,
-    // These routes arrive in stage 6; a card that navigates to a not-yet-existing
-    // route is correct now and complete then.
-    href:
-      item.media_type === 'tv'
-        ? `/bigscreen/show/${item.tmdb_id}`
-        : `/bigscreen/movie/${item.tmdb_id}`,
+    // The bare show screen: a catalog row names no episode, so the screen makes its own pick.
+    href: item.media_type === 'tv' ? showHref(item.tmdb_id) : movieHref(item.tmdb_id),
     // CatalogItem always has `title`, even for shows (it is ShowDetail that uses `name`).
     title: item.title,
     subtitle: item.year ? String(item.year) : null,

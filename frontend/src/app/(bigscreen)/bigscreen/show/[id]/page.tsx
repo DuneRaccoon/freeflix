@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import type { Episode, SeasonDetail, SeasonSummary, ShowDetail, StreamingProgress } from '@/types';
 import { tvService } from '@/services/tv';
 import { streamingService } from '@/services/streaming';
@@ -12,6 +12,7 @@ import { LoadStatus } from '../../../_components/LoadStatus';
 import { LockedRedirect } from '../../../_components/LockedRedirect';
 import { TitleScreen } from '../../../_components/TitleScreen';
 import { titleStateFor, type TitleAction, type TitleState } from '../../../_data/title';
+import { showAskFrom } from '../../../_data/titleHref';
 import { watchHref } from '../../../_data/watchHref';
 import { episodeTraces, latestSeasonWatched, nextUnwatched, seasonFinished } from '../../../_data/showProgress';
 import { useTvProfile } from '../../../_data/useTvProfile';
@@ -47,8 +48,21 @@ import { useBackKey } from '../../../_focus/useBackKey';
  *     is the only thing here that starts a download.
  *
  * NOTHING LEFT TO WATCH. The "Up next" card on home cannot know whether a next episode
- * exists; this screen does. If the open season's episodes are all watched it says so (and
- * moves on to the next season when it opens the screen), and it offers no Play for it.
+ * exists; this screen does. If the open season's episodes are all watched it says so (and,
+ * unless that season was asked for, moves on to the next season when it opens the screen),
+ * and it offers no Play for it.
+ *
+ * AN ASKED EPISODE (`?s=&e=`, written by `showHref` and read by `showAskFrom`, both in
+ * `_data/titleHref`). Continue Watching's resume card opens this screen on the episode its
+ * row is about instead of opening the player, so the viewer sees what they are resuming
+ * first. The asked season opens when the show lists it as a regular season, and the
+ * finished-season advance never skips it: the viewer asked for that season. The subject is
+ * the asked episode unless that episode is not listed or is already watched, and then it is
+ * the first unwatched, as with no ask. The "Next up" badge is handed the same answer.
+ * `titleStateFor` then resumes the row's own torrent and file (its saved `file_index`
+ * first), which is why the card carries no `?file=`. An absent, junk or unknown value is no
+ * ask at all, and the screen makes its own pick as it always has. The ask belongs to its
+ * season, so opening another season and coming back finds it again.
  *
  * Whatever navigates or mutates after an `await` checks the mounted latch first.
  */
@@ -58,8 +72,9 @@ const PROFILES = '/bigscreen/profiles';
 /**
  * How much watch history to read for the markers. The backend returns newest first. 500 is
  * far larger than the 24 rows Continue Watching reads, which is what makes it correct rather
- * than arbitrary: an "Up next" card can only point here for a show whose latest row is among
- * the newest 24, so this screen can always see that history.
+ * than arbitrary: an "Up next" card or a resume card can only point here for a show whose
+ * latest row is among the newest 24, so this screen can always see the history the card was
+ * built from.
  */
 const HISTORY_LIMIT = 500;
 
@@ -70,6 +85,17 @@ interface Opened {
   open: number | null;
   /** The season to open could not be fetched. */
   openFailed: boolean;
+  /**
+   * The asked episode, kept only when its season is a listed regular season (which is then
+   * the one opened). The episode is checked later, against the fetched list and the traces.
+   */
+  ask: { season: number; episode: number | null } | null;
+}
+
+/** The query's ask, as primitives; either may be null (see `showAskFrom`). */
+interface Asked {
+  season: number | null;
+  episode: number | null;
 }
 
 type Load = { phase: 'loading' } | { phase: 'failed' } | ({ phase: 'ready' } & Opened);
@@ -89,7 +115,7 @@ function eyebrowOf(show: ShowDetail, seasonCount: number): string | null {
   return parts.length ? parts.join(' · ') : null;
 }
 
-async function loadShow(id: number, profileId: string | null): Promise<Opened> {
+async function loadShow(id: number, profileId: string | null, asked: Asked): Promise<Opened> {
   const [show, history] = await Promise.all([
     tvService.getShow(id),
     profileId
@@ -97,9 +123,14 @@ async function loadShow(id: number, profileId: string | null): Promise<Opened> {
       : Promise.resolve([] as StreamingProgress[]),
   ]);
   const regular = regularSeasons(show);
+  // Only a season the show lists counts as asked; anything else falls through to today's pick.
+  const askedSeason = regular.find((s) => s.season_number === asked.season)?.season_number ?? null;
   const latest = latestSeasonWatched(history, id);
   let open: number | null =
-    regular.find((s) => s.season_number === latest)?.season_number ?? regular[0]?.season_number ?? null;
+    askedSeason ??
+    regular.find((s) => s.season_number === latest)?.season_number ??
+    regular[0]?.season_number ??
+    null;
   const seasons = new Map<number, SeasonDetail>();
   let openFailed = false;
   if (open !== null) {
@@ -110,7 +141,8 @@ async function loadShow(id: number, profileId: string | null): Promise<Opened> {
     }
     const here = seasons.get(open);
     // The viewer finished that season: land on the next one rather than on a finished list.
-    if (here && seasonFinished(episodesOf(here), episodeTraces(history, id, open))) {
+    // Never for an asked season, which is the one the viewer chose to look at.
+    if (askedSeason === null && here && seasonFinished(episodesOf(here), episodeTraces(history, id, open))) {
       const next = regular.find((s) => s.season_number > (open as number));
       if (next) {
         try {
@@ -122,7 +154,14 @@ async function loadShow(id: number, profileId: string | null): Promise<Opened> {
       }
     }
   }
-  return { show, history, seasons, open, openFailed };
+  return {
+    show,
+    history,
+    seasons,
+    open,
+    openFailed,
+    ask: askedSeason === null ? null : { season: askedSeason, episode: asked.episode },
+  };
 }
 
 /** The episode row 0 is about. */
@@ -243,9 +282,21 @@ function Loaded({
     [history, tmdbId, open],
   );
   const finished = !!entry && open !== null && seasonFinished(episodes, traces);
+  /**
+   * THE ONE PLACE that decides whether the ask is honoured: only on its own season, only for
+   * an episode that season lists, and never for one already watched. Memoised on the opened
+   * load's own `ask` object, never on a literal, so the default lookup below does not re-run
+   * on every render.
+   */
+  const askedEp = useMemo(() => {
+    const ask = opened.ask;
+    if (!ask || !entry || open !== ask.season) return null;
+    const ep = episodesOf(entry).find((e) => e.episode_number === ask.episode);
+    return ep && traces.get(ep.episode_number)?.mark !== 'watched' ? ep : null;
+  }, [opened.ask, open, entry, traces]);
   // The same answer row 0's control is built from, handed to the list so the badge and the
   // control cannot appear to disagree about which episode is next.
-  const upNext = entry ? nextUnwatched(episodes, traces) : null;
+  const upNext = entry ? (askedEp ?? nextUnwatched(episodes, traces)) : null;
   const laterSeason = open !== null && seasons.some((s) => s.season_number > open);
   // "Nothing left" is the absolute claim Continue Watching's "Up next" defers to, so it is made
   // only on complete data: EVERY regular season fetched, none with an unwatched episode
@@ -257,14 +308,15 @@ function Loaded({
     return !!d && !seasonFinished(episodesOf(d), episodeTraces(history, tmdbId, s.season_number)) && episodesOf(d).length > 0;
   });
 
-  // Row 0's default subject: the first episode of the open season that is not finished.
+  // Row 0's default subject: the asked episode when it is honoured, otherwise the first
+  // episode of the open season that is not finished.
   useEffect(() => {
     if (open === null || !entry) {
       setSubject(null);
       setPending(false);
       return;
     }
-    const target = nextUnwatched(episodesOf(entry), traces);
+    const target = askedEp ?? nextUnwatched(episodesOf(entry), traces);
     if (!target) {
       setSubject(null);
       setPending(false);
@@ -285,7 +337,7 @@ function Loaded({
     return () => {
       cancelled = true;
     };
-  }, [open, entry, traces, tmdbId, profileId, onLocked]);
+  }, [open, entry, traces, askedEp, tmdbId, profileId, onLocked]);
 
   /**
    * Row 0 is the top bar (`TitleScreen` renders it), row 1 the actions, row 2 the season
@@ -487,10 +539,12 @@ function Loaded({
   );
 }
 
-export default function ShowDetailPage() {
+function ShowScreen() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = Number(params?.id);
+  // Primitives, so the load below re-runs when the ask changes and not on every render.
+  const { season: askSeason, episode: askEpisode } = showAskFrom(useSearchParams());
   const { profile, loading: profileLoading, clear } = useTvProfile();
   const profileId = profile?.id ?? null;
   const [load, setLoad] = useState<Load>({ phase: 'loading' });
@@ -517,7 +571,7 @@ export default function ShowDetailPage() {
       return;
     }
     let cancelled = false;
-    loadShow(id, profileId)
+    loadShow(id, profileId, { season: askSeason, episode: askEpisode })
       .then((opened) => {
         if (!cancelled) setLoad({ phase: 'ready', ...opened });
       })
@@ -527,7 +581,7 @@ export default function ShowDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, profileId, profileLoading, redirecting, attempt]);
+  }, [id, profileId, profileLoading, redirecting, attempt, askSeason, askEpisode]);
 
   const retry = () => {
     setLoad({ phase: 'loading' });
@@ -540,4 +594,15 @@ export default function ShowDetailPage() {
     return <Loaded opened={load} profileId={profileId} onLocked={sentToPicker} />;
   }
   return <LoadStatus noun="show" failed={load.phase === 'failed'} onRetry={retry} />;
+}
+
+export default function ShowDetailPage() {
+  // The same boundary as the watch route's, for the same reasons (see `watch/[id]/page.tsx`):
+  // `useSearchParams` needs one the day this page is ever prerendered, and the fallback is a
+  // real screen with a focus stop, which is what the shell paints until the query is readable.
+  return (
+    <Suspense fallback={<LoadStatus noun="show" failed={false} onRetry={() => window.location.reload()} />}>
+      <ShowScreen />
+    </Suspense>
+  );
 }

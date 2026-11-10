@@ -3,12 +3,13 @@ import { streamingService } from '@/services/streaming';
 import { watchlistService } from '@/services/watchlist';
 import { moviesService } from '@/services/movies';
 import { tvService } from '@/services/tv';
-import { parseContentId, showNameFromTitle, tmdbIdFromContentId } from '@/lib/contentId';
+import { parseContentId, showNameFromTitle, titleOfContentId, tmdbIdFromContentId } from '@/lib/contentId';
 import { parseUtc } from '@/lib/parseUtc';
 import type { CardItem } from '../_components/Card';
 import type { RailModel } from '../_components/Rail';
 import { statusOf } from './httpStatus';
 import { RAIL_CAP, catalogItemToCard } from './rails';
+import { showHref, titleHref } from './titleHref';
 import { watchHref } from './watchHref';
 import { watchlistCards } from './watchlistRow';
 
@@ -127,6 +128,16 @@ function backdropFor(art: NonNullable<Candidate['art']>): Promise<string | null>
 }
 
 /**
+ * Where a resume card goes: its title's screen, which re-asks `titleStateFor` and so resumes
+ * this row's own torrent and file. Only a title that cannot be identified (a legacy
+ * title-string id, a tmdb id that is not a real one) still goes straight to the file.
+ */
+function resumeHref(row: StreamingProgress, torrentId: string): string {
+  const t = titleOfContentId(row.movie_id);
+  return t ? titleHref(t) : watchHref(torrentId, row.file_index);
+}
+
+/**
  * The card for one progress row, or null when the row offers nothing. Claims the show in
  * `seenShows` only when it returns that show's card.
  */
@@ -152,7 +163,7 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
         card: {
           // Distinct from the resume card's id, so the two can never be confused.
           id: `tv:${showId}:up-next`,
-          href: `/bigscreen/show/${showId}`,
+          href: showHref(showId),
           title,
           subtitle: null,
           badge: UP_NEXT,
@@ -169,7 +180,7 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
       art: { kind: 'tv', tmdbId: showId },
       card: {
         id: `tv:${showId}`,
-        href: watchHref(row.torrent_id, row.file_index),
+        href: resumeHref(row, row.torrent_id),
         title,
         subtitle: `S${pad2(season)} · E${pad2(episode)}`,
         progressPct: Math.round(row.percentage),
@@ -184,7 +195,7 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
     art: tmdbId === undefined ? null : { kind: 'movie', tmdbId },
     card: {
       id: row.movie_id,
-      href: watchHref(row.torrent_id, row.file_index),
+      href: resumeHref(row, row.torrent_id),
       // `||`, not `??`: an empty title would draw a blank label.
       title: row.title || 'Untitled',
       subtitle: null,
@@ -206,15 +217,23 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
  *   in history but can never resume, so it is not offered as a resume card.
  * - A show is one card, represented by its most recently watched row.
  * - A completed movie is not "where you left off".
+ * - A RESUME CARD OPENS ITS TITLE'S SCREEN, NOT THE PLAYER: the film's screen, or the show's
+ *   screen asked to open on the row's own episode (`?s=&e=`). That screen re-asks `titleStateFor`,
+ *   which resumes the row's own torrent and file (its saved `file_index` first), so the card
+ *   no longer carries either — and the viewer sees what they are resuming, and can pick
+ *   something else, before anything plays. Only a title that cannot be identified (a
+ *   legacy title-string id, a tmdb id that is not a positive integer) still goes straight
+ *   to the player, because there is no screen to send it to. Season 0 is never asked for:
+ *   `tv:{id}:s0:e{n}` opens the bare show screen (see `titleOfContentId`).
  *
- * A COMPLETED EPISODE BECOMES AN "UP NEXT" CARD FOR ITS SHOW. It links to the show's
- * detail route, which is where a viewer picks the next episode, and it carries no
- * progress bar because there is nothing to resume. The web does this differently and
- * wrongly: it badges a card "Up next" for episode + 1 without checking that the episode
- * exists, then leaves the link on the file just finished. Nothing in a progress row
- * says whether episode + 1 exists or where its file is, so this card claims neither. It
- * needs no torrent either, so a finished episode whose torrent was later removed still
- * gets one. The show id comes straight out of the content id; nothing new is fetched.
+ * A COMPLETED EPISODE BECOMES AN "UP NEXT" CARD FOR ITS SHOW. It links to the bare show
+ * screen, which is where a viewer picks the next episode, and it carries no progress bar
+ * because there is nothing to resume. The web's card still labels `episode + 1` without
+ * checking it exists, but links to the show page, which works out what comes next.
+ * Nothing in a progress row says whether episode + 1 exists or where its file is, so this
+ * card claims neither. It needs no torrent either, so a finished episode whose torrent was
+ * later removed still gets one. The show id comes straight out of the content id; nothing
+ * new is fetched.
  */
 export async function fetchContinueWatching({ userId }: ContinueWatchingDeps): Promise<ProfileRail> {
   if (!userId) return empty(CONTINUE_WATCHING);

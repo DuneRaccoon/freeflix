@@ -6,10 +6,18 @@
  *
  * Formats:
  *   movie:{tmdb_id}              → { kind: 'movie' }
+ *   tv:{tmdb_id}                 → { kind: 'tv' } (show level)
  *   tv:{tmdb_id}:s{n}:e{m}       → { kind: 'tv', showId, season, episode }
  *
  * These helpers are extracted from ContinueWatchingSection.tsx so they can be
  * shared across the browse system without duplication.
+ *
+ * IMPORT-FREE ON PURPOSE. Both surfaces import this module — the television included — and
+ * the TV's import guard (`legacy-target.test.ts`) follows a `@/lib` import one hop, so the
+ * first import added here becomes a TV dependency too. `titleOfContentId` and
+ * `titleOfStream` say WHICH TITLE something belongs to and stop there: the route that title
+ * lives at is per surface (`@/lib/titlePageHref` for the web,
+ * `(bigscreen)/_data/titleHref.ts` for the TV), so neither builds a URL.
  */
 
 export interface ParsedContentId {
@@ -97,4 +105,94 @@ export function showNameFromTitle(
   }
   if (showId !== undefined) return `Show ${showId}`;
   return 'Unknown Show';
+}
+
+/** A TMDB id a title page can be built on: a positive safe integer, so 0, NaN and 1e20 are not. */
+function isTmdbId(n: number | null | undefined): n is number {
+  return typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
+}
+
+/**
+ * A season or episode number a title may name: an integer ≥ 1. SEASON 0 NEVER QUALIFIES.
+ * It is TMDB's Specials, and it is also the backend's last resort (`resolve_content_id` in
+ * `services/content_id.py` mints `tv:{tmdb}:s0:e{file_index}` for a file it could not
+ * identify) — the two cannot be told apart, and a page asked for the second would open on a
+ * Specials episode that was never playing.
+ */
+function isEpisodeNumber(n: number | null | undefined): n is number {
+  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
+}
+
+/**
+ * The title, with its episode only when BOTH coordinates qualify. A film never carries one,
+ * and a show with half an episode is the show: a lone season is not kept, so both helpers
+ * answer only the shapes `buildContentId` can key a progress row under. Keys are omitted,
+ * never set to undefined.
+ */
+function titleOf(
+  kind: ContentIdInput['kind'],
+  tmdbId: number,
+  season: number | null | undefined,
+  episode: number | null | undefined,
+): ContentIdInput {
+  if (kind === 'tv' && isEpisodeNumber(season) && isEpisodeNumber(episode)) {
+    return { kind, tmdbId, season, episode };
+  }
+  return { kind, tmdbId };
+}
+
+/**
+ * Which title a progress row's content id belongs to: the film, the show, or the show at
+ * one episode.
+ *
+ * NULL MEANS "CANNOT BE IDENTIFIED", and the caller must keep doing what it did before there
+ * was a title page to send anyone to (Continue Watching keeps opening the player). That is a
+ * legacy title-string id (`Interstellar`, from before content ids), a non-numeric id segment,
+ * and a tmdb id that is not a positive safe integer.
+ *
+ * The tmdb id comes from `tmdbIdFromContentId` and the kind and S/E from `parseContentId`, so
+ * a show-level `tv:{id}` — which `parseContentId` classifies without an id — still names its
+ * show. `tv:{id}:s0:e{n}` names the show alone; see `isEpisodeNumber`.
+ */
+export function titleOfContentId(contentId: string | null | undefined): ContentIdInput | null {
+  if (!contentId) return null;
+  const tmdbId = tmdbIdFromContentId(contentId);
+  if (!isTmdbId(tmdbId)) return null;
+  const { kind, season, episode } = parseContentId(contentId);
+  return titleOf(kind, tmdbId, season, episode);
+}
+
+/**
+ * Which title a download belongs to, from its torrent row and — for a season pack — a hint
+ * naming the file being played (the `/info` answer or the `/files` entry).
+ *
+ * THE SAME PRECEDENCE AS `(bigscreen)/_data/useWatchProgress.watchIdentity`, so the two
+ * cannot name different episodes for one file:
+ * - `media_type` decides the kind, not the season fields. Anything but `'tv'` is a film,
+ *   because `manager.py` stores a TV torrent as "movie" when the caller omits the type.
+ * - The torrent row first, then the hint. A single-episode download names its own episode;
+ *   a season pack carries `episode: null` ("this season is covered"), so only the hint can
+ *   say which one.
+ *
+ * NEVER `/info`'s `content_id`. Its last resort is the `s0` fallback (see `isEpisodeNumber`),
+ * which parses cleanly and names an episode nobody chose; the hint's bare season and episode
+ * are read instead, and season 0 among them is dropped. Null, as for `titleOfContentId`,
+ * when the download carries no usable tmdb id.
+ */
+export function titleOfStream(
+  status:
+    | {
+        tmdb_id?: number | null;
+        media_type?: string | null;
+        season?: number | null;
+        episode?: number | null;
+      }
+    | null
+    | undefined,
+  hint?: { season?: number | null; episode?: number | null } | null,
+): ContentIdInput | null {
+  const tmdbId = status?.tmdb_id;
+  if (!status || !isTmdbId(tmdbId)) return null;
+  if (status.media_type !== 'tv') return { kind: 'movie', tmdbId };
+  return titleOf('tv', tmdbId, status.season ?? hint?.season, status.episode ?? hint?.episode);
 }

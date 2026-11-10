@@ -5,6 +5,8 @@ import {
   resumeUrlFor,
   showNameFromTitle,
   tmdbIdFromContentId,
+  titleOfContentId,
+  titleOfStream,
 } from './contentId';
 
 // ---------------------------------------------------------------------------
@@ -156,5 +158,140 @@ describe('tmdbIdFromContentId', () => {
 
   it('returns undefined when the id segment is non-numeric', () => {
     expect(tmdbIdFromContentId('tv:abc')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// titleOfContentId — which title page a progress row belongs to
+//
+// toStrictEqual, not toEqual: toEqual reads `{ season: undefined }` as equal to a missing
+// key, so a show-level answer that still carried the dropped S/E as undefined would pass.
+// ---------------------------------------------------------------------------
+describe('titleOfContentId', () => {
+  it('names the film for a movie id', () => {
+    expect(titleOfContentId('movie:603')).toStrictEqual({ kind: 'movie', tmdbId: 603 });
+  });
+
+  it('names the show and the episode for an episode id', () => {
+    expect(titleOfContentId('tv:1399:s2:e5')).toStrictEqual({
+      kind: 'tv',
+      tmdbId: 1399,
+      season: 2,
+      episode: 5,
+    });
+  });
+
+  it('names the show alone for a show-level id', () => {
+    expect(titleOfContentId('tv:1399')).toStrictEqual({ kind: 'tv', tmdbId: 1399 });
+  });
+
+  it('drops season 0, which is never an ask (Specials, and the backend s0 fallback)', () => {
+    expect(titleOfContentId('tv:1399:s0:e4')).toStrictEqual({ kind: 'tv', tmdbId: 1399 });
+  });
+
+  it('answers null for a legacy title-string id', () => {
+    expect(titleOfContentId('Interstellar')).toStrictEqual(null);
+  });
+
+  it('answers null for a non-numeric id segment', () => {
+    expect(titleOfContentId('movie:abc')).toStrictEqual(null);
+  });
+
+  it('answers null for a tmdb id of 0', () => {
+    expect(titleOfContentId('movie:0')).toStrictEqual(null);
+  });
+
+  it('answers null for a tmdb id past the safe-integer range', () => {
+    // parseInt reads it as 1e20; a page built on it would name a title nobody has.
+    expect(titleOfContentId('movie:99999999999999999999')).toStrictEqual(null);
+  });
+
+  it('answers null for null', () => {
+    expect(titleOfContentId(null)).toStrictEqual(null);
+  });
+
+  it('answers null for undefined', () => {
+    expect(titleOfContentId(undefined)).toStrictEqual(null);
+  });
+
+  it('answers null for the empty string', () => {
+    expect(titleOfContentId('')).toStrictEqual(null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// titleOfStream — which title page a download belongs to
+// ---------------------------------------------------------------------------
+describe('titleOfStream', () => {
+  const seasonPack = { tmdb_id: 1399, media_type: 'tv', season: 2, episode: null };
+
+  it('names the episode a single-episode download carries on its own row', () => {
+    expect(
+      titleOfStream({ tmdb_id: 1399, media_type: 'tv', season: 2, episode: 3 }),
+    ).toStrictEqual({ kind: 'tv', tmdbId: 1399, season: 2, episode: 3 });
+  });
+
+  it('takes the episode of a season pack from the hint', () => {
+    expect(titleOfStream(seasonPack, { season: 2, episode: 5 })).toStrictEqual({
+      kind: 'tv',
+      tmdbId: 1399,
+      season: 2,
+      episode: 5,
+    });
+  });
+
+  it('answers show-level for a season pack with no hint', () => {
+    expect(titleOfStream(seasonPack)).toStrictEqual({ kind: 'tv', tmdbId: 1399 });
+  });
+
+  it('answers show-level when the hint names season 0', () => {
+    // A pack whose row names no season, so the hint's season is the only one there is.
+    expect(
+      titleOfStream(
+        { tmdb_id: 1399, media_type: 'tv', season: null, episode: null },
+        { season: 0, episode: 4 },
+      ),
+    ).toStrictEqual({ kind: 'tv', tmdbId: 1399 });
+  });
+
+  it("lets the torrent row's own episode win over the hint", () => {
+    expect(
+      titleOfStream(
+        { tmdb_id: 1399, media_type: 'tv', season: 2, episode: 3 },
+        { season: 2, episode: 5 },
+      ),
+    ).toStrictEqual({ kind: 'tv', tmdbId: 1399, season: 2, episode: 3 });
+  });
+
+  it('names the film for a movie download', () => {
+    expect(titleOfStream({ tmdb_id: 603, media_type: 'movie' })).toStrictEqual({
+      kind: 'movie',
+      tmdbId: 603,
+    });
+  });
+
+  it('reads a download with no media_type as a film', () => {
+    expect(titleOfStream({ tmdb_id: 603, media_type: null })).toStrictEqual({
+      kind: 'movie',
+      tmdbId: 603,
+    });
+  });
+
+  it('lets media_type decide the kind, not the season fields', () => {
+    expect(
+      titleOfStream({ tmdb_id: 603, media_type: null, season: 2, episode: 3 }, { season: 2, episode: 3 }),
+    ).toStrictEqual({ kind: 'movie', tmdbId: 603 });
+  });
+
+  it('answers null when the download carries no tmdb id', () => {
+    expect(titleOfStream({ tmdb_id: null, media_type: 'tv' })).toStrictEqual(null);
+  });
+
+  it('answers null for a tmdb id of 0', () => {
+    expect(titleOfStream({ tmdb_id: 0 })).toStrictEqual(null);
+  });
+
+  it('answers null for no status at all', () => {
+    expect(titleOfStream(null)).toStrictEqual(null);
   });
 });

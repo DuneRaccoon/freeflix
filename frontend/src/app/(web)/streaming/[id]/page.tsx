@@ -256,24 +256,35 @@ export default function StreamingPage() {
 
   // Where the way back goes: the title page of what is playing, and `/downloads` only for a
   // download that cannot say which title it is (a row from before the media columns, or a
-  // film with no name). The header arrow, the blocked state's "Choose another source" (the
-  // title page is where the source picker lives) and the error state's button all leave
-  // through `backHref`.
+  // film with no name). The header arrow, the blocked state's button and the error state's
+  // button all leave through `backHref`.
   //
   // DERIVED ON EVERY RENDER, NEVER LATCHED AT MOUNT. A file switch inside a pack and a same-
   // torrent Up Next both replace the URL without remounting, so a latched target would send
   // the viewer to the episode they started on. Above the early returns, because the blocked
-  // and error states need it, and while buffering `streamingInfo` is still null: the hint is
-  // then the current `/files` entry. `titleOfStream` reads the torrent row first and the hint
-  // second, and never `/info`'s `content_id`, whose `s0` fallback names an episode nobody
-  // chose.
+  // and error states need it.
+  //
+  // THE HINT IS THE FILE ON SCREEN. `/info` when its `file_index` is this file, else the
+  // current `/files` entry: while buffering there is no `/info` yet, and after a file switch
+  // the last one stays in state until a new one lands — if the new one never does, it still
+  // describes the file just left. `api/streaming.py` always sends `file_index`, and an `/info`
+  // without one is not taken for this file. A single-file download plays with no file index,
+  // so no `/files` entry is current and its `/info` is the only hint there is. `titleOfStream`
+  // reads the torrent row's own episode first and a pack's from the hint, and never `/info`'s
+  // `content_id`, whose `s0` fallback names an episode nobody chose.
   //
   // THE LABEL AND THE TARGET ARE ONE DECISION. Both hang on `backName`, so the arrow can
   // never say "downloads" and go to a show, or name a show and go to downloads. A show's name
   // is `showNameFromTitle`'s: it strips the release's ` S02E02`, and given a blank title it
   // answers `Show {id}` (hence the trim, since it hands whitespace back as it found it). A
   // film's name is its title, and a blank one sends the viewer to downloads, labelled so.
-  const backTitle = titleOfStream(torrentStatus, streamingInfo ?? currentVideoFile);
+  const infoIsForThisFile =
+    streamingInfo !== null &&
+    (effectiveFileIndex === undefined || streamingInfo.file_index === effectiveFileIndex);
+  const backTitle = titleOfStream(
+    torrentStatus,
+    infoIsForThisFile ? streamingInfo : currentVideoFile,
+  );
   const playingTitle = torrentStatus?.movie_title?.trim() ?? '';
   const backName: string | null = !backTitle
     ? null
@@ -488,8 +499,11 @@ export default function StreamingPage() {
     );
   }
 
-  // Blocked-for-safety state — the content guard rejected this torrent. "Choose another
-  // source" goes to the title page, where the source picker lives (`backHref`).
+  // Blocked-for-safety state — the content guard rejected this torrent. The button goes to
+  // `backHref` and is labelled for what is there. A film's page carries the source picker, so
+  // it says "Choose another source"; a show's page has none (only its quality pills), so it
+  // says `backLabel`. A download that names no title keeps "Choose another source" and goes to
+  // `/downloads`.
   if (torrentStatus?.state === TorrentState.BLOCKED) {
     return (
       <div className="h-dvh flex flex-col items-center justify-center bg-ink p-8">
@@ -504,7 +518,7 @@ export default function StreamingPage() {
         <div className="flex gap-3 flex-wrap justify-center">
           <Button variant="primary" size="sm" onClick={handleBackClick}>
             <ArrowLeftIcon className="w-4 h-4" />
-            Choose another source
+            {backTitle?.kind === 'tv' ? backLabel : 'Choose another source'}
           </Button>
         </div>
       </div>

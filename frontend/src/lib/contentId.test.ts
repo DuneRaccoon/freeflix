@@ -240,27 +240,53 @@ describe('titleOfStream', () => {
     });
   });
 
+  it('takes the season of a season pack from the hint too, not the season it was asked under', () => {
+    // A multi-season "Complete" pack stored under season 1, playing its S02E01: `/info` keys
+    // the web's progress under s2, so the title page must ask for season 2.
+    expect(
+      titleOfStream(
+        { tmdb_id: 1399, media_type: 'tv', season: 1, episode: null },
+        { season: 2, episode: 1 },
+      ),
+    ).toStrictEqual({ kind: 'tv', tmdbId: 1399, season: 2, episode: 1 });
+  });
+
+  it("answers show-level when a pack's hint names no season, rather than borrow the row's", () => {
+    expect(titleOfStream(seasonPack, { season: null, episode: 4 })).toStrictEqual({
+      kind: 'tv',
+      tmdbId: 1399,
+    });
+  });
+
   it('answers show-level for a season pack with no hint', () => {
     expect(titleOfStream(seasonPack)).toStrictEqual({ kind: 'tv', tmdbId: 1399 });
   });
 
   it('answers show-level when the hint names season 0', () => {
-    // A pack whose row names no season, so the hint's season is the only one there is.
-    expect(
-      titleOfStream(
-        { tmdb_id: 1399, media_type: 'tv', season: null, episode: null },
-        { season: 0, episode: 4 },
-      ),
-    ).toStrictEqual({ kind: 'tv', tmdbId: 1399 });
+    // The row names season 2, and it is still not a fallback: a pack's season is the hint's.
+    expect(titleOfStream(seasonPack, { season: 0, episode: 4 })).toStrictEqual({
+      kind: 'tv',
+      tmdbId: 1399,
+    });
   });
 
-  it("lets the torrent row's own episode win over the hint", () => {
+  it("lets the torrent row's own episode win over the hint, its season with it", () => {
     expect(
       titleOfStream(
         { tmdb_id: 1399, media_type: 'tv', season: 2, episode: 3 },
-        { season: 2, episode: 5 },
+        { season: 3, episode: 5 },
       ),
     ).toStrictEqual({ kind: 'tv', tmdbId: 1399, season: 2, episode: 3 });
+  });
+
+  it("answers show-level when the row names an episode but no season, rather than borrow the hint's", () => {
+    // The backend never stores this shape; the row's episode still makes both numbers the row's.
+    expect(
+      titleOfStream(
+        { tmdb_id: 1399, media_type: 'tv', season: null, episode: 3 },
+        { season: 2, episode: 5 },
+      ),
+    ).toStrictEqual({ kind: 'tv', tmdbId: 1399 });
   });
 
   it('names the film for a movie download', () => {

@@ -13,8 +13,9 @@ import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
  *
  * AND WHERE THE BACK ARROW GOES: the title the page is playing, by `@/lib/titlePageHref`.
  * Which title is `titleOfStream`'s and pinned in `contentId.test.ts`; these rows pin what the
- * page hands it (the torrent row, then `/info` or the current `/files` entry) in every state
- * that draws a way back — playing, buffering, blocked and failed.
+ * page hands it (the torrent row, then `/info` when it answered for the file on screen, else
+ * the current `/files` entry) in every state that draws a way back — playing, buffering,
+ * blocked and failed — and what the blocked state's button is called for each kind.
  */
 
 const nav = vi.hoisted(() => ({
@@ -343,16 +344,21 @@ describe('StreamingPage — the next episode', () => {
  *
  * Every row presses the control by its accessible name and reads `nav.push`'s WHOLE call list,
  * so a press that went somewhere else first, or twice, is red; and asserts `nav.replace` was
- * never called, so the way back stays a push. A pack row sets `/info`'s `season` and
- * `episode` itself: `info()` sets neither, and they are what names a pack's episode.
+ * never called, so the way back stays a push. A pack row builds its `/info` with `packInfo`,
+ * which sets the `season`, `episode` and `file_index` that `info()` leaves out: the first two
+ * name a pack's episode, and only once the third says it is the file on screen. The one row
+ * that leaves `file_index` out says why.
  *
  * The buffering, blocked and failed rows never mount the player (`streamingInfo` is null, or
  * the page drew something else), so they cannot use `open()`. They wait for the control.
  */
 describe('the back arrow returns to the title', () => {
-  /** The pack's `/info` for one of its files, with the season and episode `/info` carries. */
-  const packInfo = (s: number | null, e: number | null, contentId: string) =>
-    info({ torrent_id: 'pk', content_id: contentId, season: s, episode: e });
+  /**
+   * The pack's `/info` for one of its files: the season and episode it carries, and the file it
+   * answered for, which `api/streaming.py` always sends. `PACK_FILES` puts S02E01 at index 4.
+   */
+  const packInfo = (s: number | null, e: number | null, contentId: string, fileIndex: number) =>
+    info({ torrent_id: 'pk', content_id: contentId, season: s, episode: e, file_index: fileIndex });
 
   const press = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
 
@@ -368,7 +374,7 @@ describe('the back arrow returns to the title', () => {
 
   it('a season pack goes to the episode it is playing', async () => {
     asPack('tv:1399:s2:e1');
-    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 1, 'tv:1399:s2:e1'));
+    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 1, 'tv:1399:s2:e1', 4));
     await open();
     press('Back to Show');
     expect.soft(nav.push.mock.calls).toEqual([['/tv/1399?season=2&episode=1']]);
@@ -377,11 +383,11 @@ describe('the back arrow returns to the title', () => {
 
   it('a file switch inside the pack moves it, though the page does not remount', async () => {
     asPack('tv:1399:s2:e1');
-    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 1, 'tv:1399:s2:e1'));
+    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 1, 'tv:1399:s2:e1', 4));
     const view = await open();
     // The viewer picks S02E02 (index 0): a search-only change, so the page re-reads the stream.
     nav.search = new URLSearchParams('file=0');
-    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 2, 'tv:1399:s2:e2'));
+    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 2, 'tv:1399:s2:e2', 0));
     view.rerender(<StreamingPage />);
     // The rerender put the loading screen up; the player comes back with the new `/info`.
     await waitFor(() => expect(streaming.getStreamingInfo).toHaveBeenLastCalledWith('pk', 0));
@@ -391,14 +397,57 @@ describe('the back arrow returns to the title', () => {
     expect.soft(nav.replace).not.toHaveBeenCalled();
   });
 
+  it('a file switch whose `/info` fails names the file picked, not the one left', async () => {
+    asPack('tv:1399:s2:e1');
+    nav.search = new URLSearchParams('file=4');
+    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 1, 'tv:1399:s2:e1', 4));
+    const view = await open();
+    // The viewer picks S02E02 (index 0) and the box cannot answer for it, so the last `/info`
+    // the page holds is still S02E01's. The retries run out and the error state draws the way back.
+    nav.search = new URLSearchParams('file=0');
+    streaming.getStreamingInfo.mockRejectedValue(new Error('503'));
+    view.rerender(<StreamingPage />);
+    await screen.findByText('Unable to Stream');
+    expect.soft(streaming.getStreamingInfo).toHaveBeenLastCalledWith('pk', 0);
+    press('Back to Show');
+    expect.soft(nav.push.mock.calls).toEqual([['/tv/1399?season=2&episode=2']]);
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('a pack of one file has no file index to compare, so `/info` alone names its episode', async () => {
+    // A season search whose best hit was one episode: the row is a pack, the torrent one file.
+    nav.id = 'pk';
+    torrents.getTorrentStatus.mockResolvedValue(status({ id: 'pk', episode: null, movie_title: 'Show S02' }));
+    streaming.getFiles.mockResolvedValue([file(0, 4)]);
+    streaming.getStreamingInfo.mockResolvedValue(packInfo(2, 4, 'tv:1399:s2:e4', 0));
+    await open();
+    press('Back to Show');
+    expect.soft(nav.push.mock.calls).toEqual([['/tv/1399?season=2&episode=4']]);
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+  });
+
   it('a pack file the box could not identify goes to the show, never to season 0', async () => {
-    // The backend's `s0` last resort: `/info` names no season or episode. The file list still
-    // calls index 4 S02E01, so this row also pins that `/info`, when there is one, is the hint.
+    // The backend's `s0` last resort: `/info` names no season or episode. It answered for
+    // index 4, the file on screen, which the file list calls S02E01; so this row also pins that
+    // an `/info` about the file on screen is the hint, over the `/files` entry for it.
     asPack('tv:1399:s0:e4');
-    streaming.getStreamingInfo.mockResolvedValue(packInfo(null, null, 'tv:1399:s0:e4'));
+    streaming.getStreamingInfo.mockResolvedValue(packInfo(null, null, 'tv:1399:s0:e4', 4));
     await open();
     press('Back to Show');
     expect.soft(nav.push.mock.calls).toEqual([['/tv/1399']]);
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('an `/info` that does not say which file it answered for gives way to the file list', async () => {
+    // The box always says; one that did not could not be shown to be about the file on screen,
+    // and after a file switch it may not be. Index 4 is S02E01 by the file list.
+    asPack('tv:1399:s2:e5');
+    streaming.getStreamingInfo.mockResolvedValue(
+      info({ torrent_id: 'pk', content_id: 'tv:1399:s2:e5', season: 2, episode: 5 }),
+    );
+    await open();
+    press('Back to Show');
+    expect.soft(nav.push.mock.calls).toEqual([['/tv/1399?season=2&episode=1']]);
     expect.soft(nav.replace).not.toHaveBeenCalled();
   });
 
@@ -436,6 +485,20 @@ describe('the back arrow returns to the title', () => {
     expect.soft(streaming.getStreamingInfo).not.toHaveBeenCalled();
   });
 
+  it('a pack buffering at a file other than its first takes THAT file from the list', async () => {
+    asPack('tv:1399:s2:e3');
+    nav.search = new URLSearchParams('file=7');
+    vi.mocked(isStreamingReady).mockResolvedValue(false);
+    render(<StreamingPage />);
+    await wayBack();
+    await screen.findByRole('button', { name: 'S02E03' });
+    // Index 7 is the list's last entry, S02E03; its first, index 4, is S02E01.
+    press('Back to Show');
+    expect.soft(nav.push.mock.calls).toEqual([['/tv/1399?season=2&episode=3']]);
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+    expect.soft(streaming.getStreamingInfo).not.toHaveBeenCalled();
+  });
+
   it('a download from before the media columns goes to downloads, and says so', async () => {
     // `info()` still answers `tv:1399:s2:e2`: the way back never reads `/info`'s content id,
     // whose last resort is the backend's `s0` fallback, so the row alone decides.
@@ -465,13 +528,48 @@ describe('the back arrow returns to the title', () => {
     expect.soft(nav.replace).not.toHaveBeenCalled();
   });
 
-  it('blocked: Choose another source goes to the title page, where the sources are', async () => {
+  it('blocked: a show is labelled for its show page, which offers no source picker', async () => {
     torrents.getTorrentStatus.mockResolvedValue(status({ state: TorrentState.BLOCKED }));
     vi.mocked(isStreamingReady).mockResolvedValue(false);
     render(<StreamingPage />);
     await wayBack();
-    press('Choose another source');
+    expect.soft(screen.getByText('Blocked for Safety')).toBeTruthy();
+    expect.soft(screen.queryByRole('button', { name: 'Choose another source' })).toBeNull();
+    press('Back to Show');
     expect.soft(nav.push.mock.calls).toEqual([['/tv/1399?season=2&episode=2']]);
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('blocked: a film offers another source, on its movie page where the picker is', async () => {
+    torrents.getTorrentStatus.mockResolvedValue(
+      status({
+        state: TorrentState.BLOCKED,
+        media_type: 'movie',
+        tmdb_id: 603,
+        season: null,
+        episode: null,
+        movie_title: 'The Matrix',
+      }),
+    );
+    vi.mocked(isStreamingReady).mockResolvedValue(false);
+    render(<StreamingPage />);
+    await wayBack();
+    expect.soft(screen.getByText('Blocked for Safety')).toBeTruthy();
+    press('Choose another source');
+    expect.soft(nav.push.mock.calls).toEqual([['/movies/603']]);
+    expect.soft(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('blocked: a download that cannot name its title still offers another source, from downloads', async () => {
+    torrents.getTorrentStatus.mockResolvedValue(
+      status({ state: TorrentState.BLOCKED, tmdb_id: null, media_type: null }),
+    );
+    vi.mocked(isStreamingReady).mockResolvedValue(false);
+    render(<StreamingPage />);
+    await wayBack();
+    expect.soft(screen.getByText('Blocked for Safety')).toBeTruthy();
+    press('Choose another source');
+    expect.soft(nav.push.mock.calls).toEqual([['/downloads']]);
     expect.soft(nav.replace).not.toHaveBeenCalled();
   });
 

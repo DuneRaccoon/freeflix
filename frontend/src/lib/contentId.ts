@@ -163,16 +163,24 @@ export function titleOfContentId(contentId: string | null | undefined): ContentI
 }
 
 /**
- * Which title a download belongs to, from its torrent row and — for a season pack — a hint
- * naming the file being played (the `/info` answer or the `/files` entry).
+ * Which title the web player's download belongs to, from its torrent row and — for a season
+ * pack — a hint naming the file being played (the `/info` answer or the `/files` entry).
  *
- * THE SAME PRECEDENCE AS `(bigscreen)/_data/useWatchProgress.watchIdentity`, so the two
- * cannot name different episodes for one file:
  * - `media_type` decides the kind, not the season fields. Anything but `'tv'` is a film,
  *   because `manager.py` stores a TV torrent as "movie" when the caller omits the type.
- * - The torrent row first, then the hint. A single-episode download names its own episode;
- *   a season pack carries `episode: null` ("this season is covered"), so only the hint can
- *   say which one.
+ * - A row that names its own episode is a single-episode download, and both numbers are the
+ *   row's. A season pack carries `episode: null` ("this season is covered"), and then BOTH
+ *   numbers are the hint's, never one from each. A pack row's season is only the season that
+ *   was asked for — a multi-season "Complete" pack is stored under one of them — while
+ *   `/info` answers a pack file's season and episode from the same precomputed map the web's
+ *   progress key is built from (`api/streaming.py`). So the episode this names is the one the
+ *   web wrote its row under, and a hint with no season is the show, not the row's season.
+ *
+ * NOT `watchIdentity`'s PRECEDENCE, and the TV player does not call this. The TV keys its
+ * progress itself in `(bigscreen)/_data/useWatchProgress.watchIdentity`, the row's season
+ * first and the file's after it, and leaves by that key (`(bigscreen)/_data/titleHref.ts`),
+ * so each surface's way back names the episode that surface wrote. The two part only over a
+ * pack: the TV can pair the row's season with the file's episode, and the web never does.
  *
  * NEVER `/info`'s `content_id`. Its last resort is the `s0` fallback (see `isEpisodeNumber`),
  * which parses cleanly and names an episode nobody chose; the hint's bare season and episode
@@ -194,5 +202,6 @@ export function titleOfStream(
   const tmdbId = status?.tmdb_id;
   if (!status || !isTmdbId(tmdbId)) return null;
   if (status.media_type !== 'tv') return { kind: 'movie', tmdbId };
-  return titleOf('tv', tmdbId, status.season ?? hint?.season, status.episode ?? hint?.episode);
+  if (status.episode != null) return titleOf('tv', tmdbId, status.season, status.episode);
+  return titleOf('tv', tmdbId, hint?.season, hint?.episode);
 }

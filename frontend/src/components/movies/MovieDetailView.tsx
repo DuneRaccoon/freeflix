@@ -3,10 +3,25 @@
 /**
  * MovieDetailView — client island for the movie detail page.
  *
- * Composes DetailHero + SourcePicker + Play/Download flow + CastRow +
+ * Composes DetailHero + SourcePicker + Resume/Play/Download flow + CastRow +
  * "More Like This" row. Server page (app/movies/[id]/page.tsx) fetches
  * MovieDetail SSR and passes it in via props; this component owns all
  * interactivity.
+ *
+ * Resume flow (a Continue Watching film card opens this page, not the player,
+ * so the way back into the film lives here):
+ *   row = useProgress().getMovieProgress('movie:{tmdb_id}')
+ *   shown iff !completed && torrent_id && current_time > 30 && percentage < 98
+ *     — the web player's own "Resume playback?" rule (PatchedVideoPlayer), so
+ *       the page never offers a Resume the player would then not honour
+ *   router.push(resumeUrlFor(row))
+ *     — the row's own torrent and file (`?file=N` for a season pack, file 0
+ *       included); it never starts a download
+ *   Resume is the first, primary action; Play steps down to the glass style
+ *   beside it and still starts a fresh stream. The press still meets the
+ *   player's prompt, deliberately: auto-seeking would lose the click gesture
+ *   that unmuted playback relies on. While ProgressContext is loading there is
+ *   no row yet, so Play stands alone until it lands.
  *
  * Play flow (load-bearing — do not modify):
  *   quality = resolve('auto' → highest-seed hit)
@@ -26,7 +41,9 @@ import { moviesService } from '@/services/movies';
 import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { useWatchlist } from '@/context/WatchlistContext';
-import { buildContentId } from '@/lib/contentId';
+import { useProgress } from '@/context/ProgressContext';
+import { buildContentId, resumeUrlFor } from '@/lib/contentId';
+import { formatTime } from '@/utils/format';
 import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 
 import DetailHero from '@/components/detail/DetailHero';
@@ -158,6 +175,24 @@ function CheckIcon() {
   );
 }
 
+// ── action styles ─────────────────────────────────────────────────────────────
+
+/** The champagne action's shape and glow: Play, or Resume when there is one. */
+const PRIMARY_ACTION_CLASS = cn(
+  '!rounded-[12px] !h-[54px] !px-[34px] !text-[16.5px] font-semibold',
+  'shadow-[0_14px_34px_-12px_rgba(201,168,106,.7)]',
+  'hover:shadow-[0_18px_42px_-12px_rgba(201,168,106,.85)] hover:-translate-y-[2px]',
+  'transition-[transform,box-shadow] duration-200',
+);
+
+/**
+ * A glass action's shape: Download, and Play beside a Resume. Play takes this
+ * whole, not just the glass variant, because the champagne glow above is what
+ * marks the one primary action and Play is no longer it.
+ */
+const GLASS_ACTION_CLASS =
+  '!rounded-[12px] !h-[54px] !px-[24px] !text-[15.5px] backdrop-blur-[8px]';
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export interface MovieDetailViewProps {
@@ -186,6 +221,25 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
   function handleMyList() {
     toggle(toWatchlistCreate(movie));
   }
+
+  // ── resume ─────────────────────────────────────────────────────────────────
+  // The profile's row for this film, under the same content id the watchlist
+  // uses. `resume` is non-null exactly when the player would prompt for it
+  // (see the header); its href is built here, where `torrent_id` is narrowed.
+  const { getMovieProgress } = useProgress();
+  const row = getMovieProgress(contentId);
+  const resume =
+    row &&
+    !row.completed &&
+    row.torrent_id &&
+    row.current_time > 30 &&
+    row.percentage < 98
+      ? {
+          href: resumeUrlFor({ torrent_id: row.torrent_id, file_index: row.file_index }),
+          at: row.current_time,
+        }
+      : null;
+  const resumable = resume !== null;
 
   // ── on mount: fetch torrents + "more like this" ────────────────────────────
   useEffect(() => {
@@ -353,21 +407,31 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
 
         {/* ── Actions row ── */}
         <div className="flex flex-wrap items-center gap-[14px] mt-[22px]">
-          {/* Play — champagne/primary */}
+          {/* Resume — champagne/primary, first, only when the player would prompt for it */}
+          {resume && (
+            <Button
+              variant="primary"
+              size="lg"
+              leftIcon={<PlayIcon />}
+              onClick={() => router.push(resume.href)}
+              disabled={isPlaying || isDownloading}
+              data-testid="movie-resume-button"
+              className={PRIMARY_ACTION_CLASS}
+            >
+              Resume from {formatTime(resume.at)}
+            </Button>
+          )}
+
+          {/* Play — champagne/primary, or glass beside Resume */}
           <Button
-            variant="primary"
+            variant={resumable ? 'glass' : 'primary'}
             size="lg"
             leftIcon={<PlayIcon />}
             onClick={handlePlay}
             isLoading={isPlaying}
             disabled={isPlaying || isDownloading}
             data-testid="movie-play-button"
-            className={cn(
-              '!rounded-[12px] !h-[54px] !px-[34px] !text-[16.5px] font-semibold',
-              'shadow-[0_14px_34px_-12px_rgba(201,168,106,.7)]',
-              'hover:shadow-[0_18px_42px_-12px_rgba(201,168,106,.85)] hover:-translate-y-[2px]',
-              'transition-[transform,box-shadow] duration-200',
-            )}
+            className={resumable ? GLASS_ACTION_CLASS : PRIMARY_ACTION_CLASS}
           >
             Play
           </Button>
@@ -381,7 +445,7 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
             isLoading={isDownloading}
             disabled={isPlaying || isDownloading}
             data-testid="movie-download-button"
-            className="!rounded-[12px] !h-[54px] !px-[24px] !text-[15.5px] backdrop-blur-[8px]"
+            className={GLASS_ACTION_CLASS}
           >
             Download
           </Button>

@@ -136,8 +136,9 @@ export function useFocusGrid(opts: {
    *
    * WHAT IT CHANGES: where the ring goes whenever it has nowhere to be. Not just the first
    * paint — a rail emptying, a recovery panel being replaced by the hero it held the place
-   * of, a search clearing its results. Every one of those falls back through `firstTarget`,
-   * and with a menu at row 0 every one of them would put the ring in the MENU.
+   * of, a search clearing its results, a press that lands before the grid has caught up with
+   * one of those. Every one of them falls back through `firstTarget`, and with a menu at row 0
+   * every one of them would put the ring in the MENU.
    *
    * IT IS A PREFERENCE, NOT A FLOOR: if nothing at or after it has items, the fall-back
    * searches from the top again, so a screen whose content has not arrived still has a focus
@@ -301,7 +302,11 @@ export function useFocusGrid(opts: {
 
       const counts = rowCountsRef.current;
       if (isEmptyGrid(counts)) return;
-      const from = clampTarget(counts, focusedRef.current);
+      // With `initialRow`, as the reconcile and `setFocus` clamp. The counts arrive here in a
+      // layout effect and the reconcile is passive, so a press that lands between the two
+      // finds the ring on a row that has just emptied. Without the preference this fall-back
+      // alone would search from row 0, which is the bar.
+      const from = clampTarget(counts, focusedRef.current, initialRowRef.current ?? 0);
       const resolve = resolveRef.current ?? move;
       go(resolve(counts, from, dir, columnMemory.current), { focusDom: true, user: true });
     };

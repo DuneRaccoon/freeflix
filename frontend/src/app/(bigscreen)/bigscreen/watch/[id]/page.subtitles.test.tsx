@@ -28,8 +28,8 @@
  *    this set — so `rowCounts` is `[1, 0, 7]`: the on-screen Back, an empty scrub row, and
  *    the transport row (seven cells, this fixture being a season pack). That is both the
  *    television's normal state and the shape in which `firstTarget`, searching from the
- *    scrub row, answers Play/Pause — the mechanism the close-restore rows are written
- *    against — while a ring handed back on the picker's first row would land on Back.
+ *    scrub row, answers Play/Pause on arrival — while a ring handed back on the picker's
+ *    first row lands on Back, which is what the close-restore rows are written against.
  *
  * WHAT THESE ROWS DO NOT TOUCH. `pair_source` is an OPAQUE STRING: the backend's
  * `naming.track_label` has already folded the provenance into `label`, the taxonomy grows (a
@@ -54,7 +54,8 @@ import { streamingService } from '@/services/streaming';
 import { torrentsService } from '@/services/torrents';
 import { tvService } from '@/services/tv';
 import { instanceService } from '@/services/instance';
-import { pickerRowCounts } from '../../../_data/subtitles';
+import { SUBTITLE_POLL_MS, pickerRowCounts } from '../../../_data/subtitles';
+import { clampTarget } from '../../../_focus/model';
 import { transportCells } from '../../../_player/TransportBar';
 import { REVEAL_HIDE_MS } from '../../../_focus/useRevealOnKey';
 import { useTvProfile } from '../../../_data/useTvProfile';
@@ -438,6 +439,19 @@ const SUBTITLES_COLUMN = transportCells({ retry: false, next: true }).findIndex(
 );
 
 /**
+ * The grid row the transport cells occupy while the picker is closed, READ OFF THE ROUTE'S
+ * SOURCE. It cannot be imported, for the reason `INFO_REFRESH_MS` gives, and a copy is what
+ * went stale: when Back took row 0 this moved from 1 to 2 and the open-move row below kept
+ * describing the old clamp. A spelling this pattern cannot read is `NaN`, which fails that
+ * row's premise rather than passing it.
+ */
+const TRANSPORT_ROW = Number(
+  /\nconst TRANSPORT_ROW = (\d+);/.exec(
+    readFileSync(join(process.cwd(), 'src/app/(bigscreen)/bigscreen/watch/[id]/page.tsx'), 'utf8'),
+  )?.[1],
+);
+
+/**
  * Mount, walk the ring to the Subtitles cell, and press it.
  *
  * THE WALK IS NOT DECORATION. `fireEvent.click` fires no focus event, so the grid's model
@@ -586,15 +600,25 @@ describe('the picker replaces the band’s rows', () => {
 
 describe('the two explicit focus moves', () => {
   it('opens onto the current selection, not onto the clamp’s answer', async () => {
-    // FIVE ENTRIES, so the picker is [3, 3] and the selection below sits in ROW 1. That is
-    // what makes this row discriminating: the ring arrives from the transport row's column 4,
-    // and `clampTarget` would answer `clamp(4, 0, 2)` = row 1 column 2 — the FIFTH entry.
-    // The truth is row 1 column 0, the third. A fixture whose selection happened to be the
-    // clamp's answer would pass with the focus move deleted.
-    svc.getSubtitles.mockResolvedValue(listOf(manyTracks(5)));
+    // EIGHT ENTRIES, so the picker is [3, 3, 3] and HAS the row the ring arrives from. Opening
+    // hands the grid's reconcile the Subtitles cell's coordinates, row 2 and the Subtitles
+    // column, and `clampTarget` keeps row 2 and pulls the column into it: row 2 column 2, the
+    // EIGHTH entry. Off (row 0) and the selection below ('Lang 3', row 1 column 0) are both
+    // somewhere else, so each half fails with the open move deleted. A fixture whose answer
+    // happened to be the clamp's would pass without it — and that is what the five-entry
+    // fixture this row used to have became when Back made the transport row row 2: a two-row
+    // picker has no row 2, so the clamp fell back to Off. Hence the premise, checked first.
+    expect(
+      clampTarget(pickerRowCounts(8), { row: TRANSPORT_ROW, col: SUBTITLES_COLUMN }),
+      'the clamp answers a real entry in the third row, Lang 8',
+    ).toEqual({ row: 2, col: 2 });
+    svc.getSubtitles.mockResolvedValue(listOf(manyTracks(8)));
     await openPicker();
-    // FIRST OPEN, nothing chosen: Off, which is cell 0 — also not the clamp's answer.
+    // FIRST OPEN, nothing chosen: Off.
     expect.soft(document.activeElement, 'the first open lands on Off').toBe(cell('Off'));
+    expect
+      .soft(document.activeElement, 'and NOT on clampTarget’s row 2 column 2')
+      .not.toBe(cell('Lang 8'));
     expect.soft(ring(), 'and exactly one cell holds the ring').toHaveLength(1);
     expect.soft(ring()[0]).toBe(document.activeElement);
 
@@ -605,23 +629,34 @@ describe('the two explicit focus moves', () => {
     const third = cell('Lang 3');
     expect.soft(document.activeElement, 'reopening lands on the chosen entry').toBe(third);
     expect
-      .soft(document.activeElement, 'and NOT on clampTarget’s row 1 column 2')
-      .not.toBe(cell('Lang 5'));
+      .soft(document.activeElement, 'and NOT on clampTarget’s row 2 column 2')
+      .not.toBe(cell('Lang 8'));
     expect.soft(ring()).toHaveLength(1);
     expect.soft(ring()[0]).toBe(third);
   });
 
   it('closes back onto the Subtitles cell — after a choice, and after Back', async () => {
     // BOTH EXITS, because they are two different code paths into one restore and either one
-    // alone leaves the other's mutation green. Without the restore, `firstTarget` answers the
-    // first POPULATED row — and with no finite duration the scrub row is empty
-    // (`ScrubBar.tsx:62`), so that is the transport row's column 0: Play/Pause.
+    // alone leaves the other's mutation green. Without the restore, the reconcile hands
+    // `clampTarget` the picker's coordinates: 'Lang 2' is row 0 column 2, and in the closed
+    // shape row 0 is populated again — by Back, its only cell — so the clamp keeps the row,
+    // pulls the column into it, and answers BACK. `firstTarget` never runs. This is Back's row
+    // reached by a column clamp; the row below reaches it from Off, the cell Back shares.
+    //
+    // THE WALK TO 'Lang 2' IS THE PREMISE. A click fires no focus event (see the header), so
+    // without it the model would still be on Off — the next row's case, where the clamp keeps
+    // (0, 0), nothing moves DOM focus off the unmounted cell, and `document.activeElement` is
+    // the body: a "not on Back" read from it would pass with the restore deleted. The ring is
+    // read as well as DOM focus for the same reason.
     svc.getSubtitles.mockResolvedValue(listOf(manyTracks(3)));
     await openPicker();
+    right();
+    right();
+    expect(document.activeElement, 'the walk ended on Lang 2').toBe(cell('Lang 2'));
     await clickOn(cell('Lang 2'));
     const sub = cell('Subtitles');
     expect.soft(document.activeElement, 'a choice puts the ring back on the cell').toBe(sub);
-    expect.soft(document.activeElement, 'and not on firstTarget').not.toBe(cell(/^Pause|^Play/));
+    expect.soft(ring(), 'and not on the clamp’s answer, Back').not.toContain(cell(EXIT_LABEL));
     expect.soft(ring()).toHaveLength(1);
     expect.soft(ring()[0]).toBe(sub);
 
@@ -630,6 +665,7 @@ describe('the two explicit focus moves', () => {
     back();
     const again = cell('Subtitles');
     expect.soft(document.activeElement, 'Back puts it back too').toBe(again);
+    expect.soft(ring(), 'and not on Back').not.toContain(cell(EXIT_LABEL));
     expect.soft(ring()).toHaveLength(1);
     expect.soft(ring()[0]).toBe(again);
   });
@@ -640,20 +676,24 @@ describe('the two explicit focus moves', () => {
     // row is populated again — by Back — so `clampTarget` keeps it, and without the move the
     // ring would sit on the control whose OK leaves the film. Both exits, from Off, which is
     // the one cell whose coordinates Back shares.
+    //
+    // "NOT ON BACK" IS READ OFF THE RING, NOT OFF DOM FOCUS. The clamp keeps (0, 0), so the
+    // grid never calls `focus()`, and DOM focus is left on the body once Off unmounts:
+    // measured, `document.activeElement` is not Back with the move deleted, while the ring is.
     svc.getSubtitles.mockResolvedValue(listOf(manyTracks(3)));
     await openPicker();
     expect(document.activeElement, 'the picker opened on Off').toBe(cell('Off'));
     await clickOn(cell('Off'));
     const back0 = cell(EXIT_LABEL);
     expect.soft(document.activeElement, 'choosing Off: the ring is on Subtitles').toBe(cell('Subtitles'));
-    expect.soft(document.activeElement, 'and not on Back').not.toBe(back0);
+    expect.soft(ring(), 'and not on Back').not.toContain(back0);
     expect.soft(ring()).toHaveLength(1);
 
     await clickOn(cell('Subtitles'));
     expect(document.activeElement, 'reopened on Off').toBe(cell('Off'));
     back();
     expect.soft(document.activeElement, 'Back from Off: the ring is on Subtitles').toBe(cell('Subtitles'));
-    expect.soft(document.activeElement, 'and not on Back').not.toBe(cell(EXIT_LABEL));
+    expect.soft(ring(), 'and not on Back').not.toContain(cell(EXIT_LABEL));
     expect.soft(ring()).toHaveLength(1);
     expect.soft(ring()[0]).toBe(document.activeElement);
   });
@@ -681,6 +721,39 @@ describe('the two explicit focus moves', () => {
     expect.soft(ring(), 'exactly one cell still holds the ring').toHaveLength(1);
     expect.soft(ring()[0], 'and it is the focused one').toBe(document.activeElement);
     expect.soft(pickerCells(), 'which is a cell that exists').toContain(document.activeElement);
+  });
+
+  it('a poll that shrinks the list under an open picker falls back to Off, not a language', async () => {
+    // THE OPEN HALF OF `initialRow: pickerOpen ? undefined : SCRUB_ROW`, from the one path that
+    // can see it. The `?file=` refresh above cannot: its read effect empties the picker to Off
+    // alone before the new list arrives, so the ring is already on (0, 0) when the list shrinks
+    // and no fall-back runs. The poll that a press on an unready entry starts replaces the list
+    // with no empty state in between. So: choose 'Lang 3' (unready, so the poll starts), reopen,
+    // walk to the picker's third row, and let the next read answer four entries — [3, 2], with
+    // no third row. With the preference dropped the fall-back searches from row 0 and finds Off.
+    // With SCRUB_ROW kept it would search from row 1 and land on 'Lang 3', a language the
+    // viewer never moved to, which a press would choose.
+    svc.getSubtitles.mockResolvedValue(listOf(manyTracks(8)));
+    await openPicker();
+    await clickOn(cell('Lang 3'));
+    expect(svc.fetchSubtitle, 'the unready entry was asked for, so the poll is running').toHaveBeenCalled();
+    expect(transportRow(), 'the choice closed the picker').not.toBeNull();
+
+    await clickOn(cell('Subtitles'));
+    expect(document.activeElement, 'reopened on the chosen entry').toBe(cell('Lang 3'));
+    down();
+    // Left never wraps, so three presses are "the start of the row" whatever the column memory said.
+    for (let i = 0; i < 3; i++) left();
+    expect(document.activeElement, 'the ring is in the third row').toBe(cell('Lang 6'));
+
+    // The chosen entry is still listed and still unready, so the poll reads again on its cadence.
+    svc.getSubtitles.mockResolvedValue(listOf(manyTracks(4)));
+    await tick(SUBTITLE_POLL_MS);
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect.soft(pickerCells(), 'the poll shrank the picker to Off plus four').toHaveLength(5);
+    expect.soft(document.activeElement, 'the fall-back is the picker’s first row').toBe(cell('Off'));
+    expect.soft(ring(), 'exactly one cell holds the ring').toHaveLength(1);
+    expect.soft(ring()[0], 'and it is the focused one').toBe(document.activeElement);
   });
 });
 

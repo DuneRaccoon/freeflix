@@ -653,8 +653,10 @@ describe('arriving', () => {
     await untilRingOn(/Pause|Play/); // see the helper: the placement is a macrotask
     expect.soft(ring()).toHaveLength(1);
     expect.soft(ring()[0]).toBe(document.activeElement);
-    // ...and the ring lands on the transport row, not the scrub bar: the scrub row is
-    // declared first but renders nothing until `loadedmetadata`.
+    // ...and the ring lands on the transport row, neither on Back nor on the scrub bar.
+    // Back is declared first, and `initialRow: SCRUB_ROW` starts the fall-back below it; the
+    // scrub row renders nothing until `loadedmetadata`, so the transport row is the first
+    // populated row from there.
     expect.soft(ring()[0]?.textContent).toMatch(/Pause|Play/);
   });
 });

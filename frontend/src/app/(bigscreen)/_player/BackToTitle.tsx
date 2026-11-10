@@ -34,6 +34,10 @@ import type { FocusProps } from '../_focus/useFocusGrid';
  * name the route's suite finds it by, and what anything reading the screen aloud would say.
  * A long title is clipped to one line by `.bs-player__back-name` rather than wrapped down
  * over the picture.
+ *
+ * THE GAP BETWEEN THEM IS THE STYLESHEET'S. `.bs-btn` is `inline-flex`, so the two spans are
+ * flex items, and a white-space text run between flex items is never drawn. A space typed
+ * between them here would draw nothing; the name's own margin is the gap.
  */
 
 /** The cells this control occupies in its grid row. One: there is one way back. */
@@ -59,7 +63,8 @@ export function BackToTitle({
   return (
     <div className={visible ? 'bs-player__back' : 'bs-player__back bs-player__back--hidden'}>
       <button type="button" className="bs-btn bs-btn--ghost" {...focusProps(row, 0)} onClick={onExit}>
-        <span aria-hidden="true">‹</span>{' '}<span className="bs-player__back-name">{label}</span>
+        <span aria-hidden="true">‹</span>
+        <span className="bs-player__back-name">{label}</span>
       </button>
     </div>
   );

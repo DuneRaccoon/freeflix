@@ -26,8 +26,9 @@
  *    implements no such default action. `fireEvent.click` fires no focus event.
  *  - ONE `act()` PER SLICE when advancing timers; React commits queued updates when `act()`
  *    exits, so one long advance cannot observe a re-render.
- *  - MOUNTED WITHOUT METADATA, so `scrubRowCount` is 0 and the transport row is the only row —
- *    the television's normal state, and the shape `firstTarget` answers Play/Pause in.
+ *  - MOUNTED WITHOUT METADATA, so `scrubRowCount` is 0 and the closed grid is `[1, 0, 7]`:
+ *    Back, an empty scrub row, the transport row. That is the television's normal state, and
+ *    the shape in which `firstTarget`, searching from the scrub row, answers Play/Pause.
  *
  * THREE NUMBERS THAT MUST NOT BE EQUAL, and the fixture is built so they are not: the VIDEO
  * file index being watched (4), the chosen sidecar's own libtorrent file index (11), and that

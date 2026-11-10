@@ -1642,7 +1642,7 @@ function Playing({
           // THE PICKER REPLACES THE BAND'S ROWS (D13). Not a cycle-on-OK, because nothing
           // arrow-driven can live inside a transport cell — the scrub cell eats the
           // horizontal arrows while focused — and on this television the transport row is
-          // usually the only row, so there is nowhere else to put a list.
+          // usually the band's only row, so there is nowhere else to put a list.
           onPickerOpen(true);
           return;
         default:
@@ -1826,6 +1826,9 @@ function Playing({
    * `initialRow` ONLY WHILE CLOSED. Closed, it is what keeps every fall-back off Back (see
    * `BACK_ROW`). Open, the picker IS the grid and its first row is where a fall-back belongs,
    * so the preference is dropped rather than pointed at a picker row it means nothing for.
+   * `page.subtitles.test.tsx`'s shrinking-poll row measures the open half. It has to be the
+   * poll: a `?file=` refresh empties the picker to Off before the shorter list arrives, so no
+   * fall-back runs.
    */
   const rowCounts = pickerOpen
     ? pickerRowCounts(subtitleRows.length)

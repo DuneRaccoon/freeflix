@@ -42,6 +42,14 @@ describe('BackToTitle', () => {
     expect.soft(chevron, 'the chevron is drawn and hidden').toEqual(['‹']);
     // A real grid cell: the only one, so it holds the ring.
     expect.soft(button.getAttribute('tabindex')).toBe('0');
+    // THE TWO SPANS AND NOTHING BETWEEN THEM. They are flex items of the inline-flex `.bs-btn`,
+    // where a white-space text run is not drawn, so the gap is the stylesheet's margin on the
+    // name (`playerCss.test.tsx` pins it). A text node here would look like the gap in the
+    // source and draw nothing on the television.
+    expect.soft(
+      [...button.childNodes].map((n) => n.nodeName),
+      'the chevron, then the name, with no text node between them',
+    ).toEqual(['SPAN', 'SPAN']);
   });
 
   it('reports a press once, and navigates nothing itself', () => {

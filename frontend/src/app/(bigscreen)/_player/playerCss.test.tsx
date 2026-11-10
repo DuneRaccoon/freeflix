@@ -693,8 +693,17 @@ describe('bigscreen.css, as the player relies on it', () => {
     expect.soft(decl(body, 'z-index')).toBeNull();
     // A long title is clipped on one line rather than wrapped down over the picture.
     const name = rule('.bs-player__back-name');
+    expect.soft(decl(name, 'max-width')).toBe('40vw');
     expect.soft(decl(name, 'white-space')).toBe('nowrap');
     expect.soft(decl(name, 'text-overflow')).toBe('ellipsis');
     expect.soft(decl(name, 'overflow')).toBe('hidden');
+  });
+
+  it('the gap between Back’s chevron and its name is a declaration, not a space', () => {
+    // `.bs-btn` is `inline-flex`, so the chevron and the name are flex items, and a text run
+    // of nothing but white space between flex items is never drawn. A `{' '}` in the markup is
+    // therefore no gap at all: the viewer reads `‹The Boys`, and jsdom, which lays nothing out,
+    // still reports the space in `textContent`. This declaration is the only gap there is.
+    expect(decl(rule('.bs-player__back-name'), 'margin-left')).toBe('12px');
   });
 });

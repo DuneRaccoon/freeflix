@@ -1601,8 +1601,10 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      whenever the viewer has pressed Up to it, and anything else blurs it for good.
    - The NAME is clipped to one line at 40vw. A show title is free text from the box, and a
      wrapped one would grow the control down over the picture; the ellipsis says it was cut.
-     `inline-block` is what lets an inline span take a width, and `vertical-align: bottom`
-     keeps the clipped box on the chevron's baseline instead of lifting it.
+     The chevron and the name are FLEX ITEMS of the inline-flex .bs-btn. A flex item is
+     blockified, so the name takes the max-width with no `display` of its own, and the
+     button's `align-items: center` lines the two up. A white-space text run between flex
+     items is never drawn, so the 12px margin on the name is the only gap between the two.
 
    No positional selector, and no new colour token. */
 .bs-player__back {
@@ -1613,10 +1615,9 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 }
 .bs-player__back--hidden { opacity: 0; }
 .bs-player__back-name {
-  display: inline-block;
+  margin-left: 12px;
   max-width: 40vw;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: bottom;
 }

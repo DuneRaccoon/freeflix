@@ -59,6 +59,7 @@ import { devicesService } from '@/services/devices';
 import { HEADER_TARGETS } from './_components/Header';
 import { TV_RAILS, toRail } from './_data/rails';
 import { fetchContinueWatching, fetchMyList } from './_data/continueWatching';
+import { showHref } from './_data/titleHref';
 import { watchHref } from './_data/watchHref';
 import { useTvProfile, type TvProfile } from './_data/useTvProfile';
 import HomePage from './bigscreen/page';
@@ -75,7 +76,9 @@ import WatchPage from './bigscreen/watch/[id]/page';
 // --- the surface's one router and one param bag ------------------------------------
 //
 // `useParams` is read by three routes ([...rest], movie/[id], show/[id]) and this file
-// mounts all of them, so the params are a mutable box rather than a per-file constant.
+// mounts all of them, so the params are a mutable box rather than a per-file constant. The
+// query is a box for the same reason: two routes read it (watch/[id]'s `?file=`, show/[id]'s
+// `?s=&e=`), and `beforeEach` resets it to empty beside the params.
 
 const nav = vi.hoisted(() => ({
   push: vi.fn(),
@@ -85,12 +88,13 @@ const nav = vi.hoisted(() => ({
   forward: vi.fn(),
   refresh: vi.fn(),
   params: { current: {} as Record<string, string | string[]> },
+  search: { current: new URLSearchParams() },
 }));
 vi.mock('next/navigation', () => ({
   useRouter: () => nav,
   useParams: () => nav.params.current,
   usePathname: () => '/bigscreen',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => nav.search.current,
 }));
 
 // Only the HTTP-facing services are replaced. `_data/rails`, `_data/continueWatching`,
@@ -466,6 +470,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   nav.params.current = {};
+  nav.search.current = new URLSearchParams();
   vi.stubGlobal('IntersectionObserver', FakeObserver);
   // jsdom implements neither, and both are called on this surface during focus handover.
   Element.prototype.scrollIntoView = vi.fn();
@@ -610,9 +615,9 @@ const SCREENS: readonly ScreenCase[] = [
     params: { id: 't1' },
     Page: WatchPage,
     back: 'escalating',
-    // `useSearchParams` is mocked (above) as a fresh EMPTY URLSearchParams, so every case in
-    // this file exercises the BARE arrival — the `unresolvedEpisode` path. `?file=` is
-    // covered by the screen's own suite, which can vary the query.
+    // `useSearchParams` reads `nav.search.current`, which `beforeEach` resets to EMPTY, so
+    // every case in this file that mounts this screen exercises the BARE arrival — the
+    // `unresolvedEpisode` path. `?file=` is covered by the screen's own suite.
     lock: () => {
       // Far enough for the one profile-scoped call the player makes: the resume read, which
       // is keyed on the content id the torrent row and `/files` produce between them.
@@ -752,12 +757,15 @@ describe('every href the TV can produce resolves to a route that exists', () => 
       for (const item of rail.items) produced.push({ source: `TV_RAILS ${spec.key}`, href: item.href });
     }
 
-    // Continue Watching: a film to resume, an episode to resume inside a pack, and the
-    // "Up next" card a FINISHED episode becomes (which points at the show screen, not a file).
+    // Continue Watching: a film to resume and an episode to resume inside a pack (both open
+    // their title's screen now, the episode with `?s=&e=`), the "Up next" card a FINISHED
+    // episode becomes (the bare show screen), and a legacy title-string row, which cannot be
+    // identified and so is the one card that still goes straight to its file.
     vi.mocked(streamingService.getRecentProgress).mockResolvedValue([
       progressRow({ id: 'a', movie_id: 'movie:603', torrent_id: 't9' }),
       progressRow({ id: 'b', movie_id: 'tv:1399:s2:e5', torrent_id: 't9', file_index: 7 }),
       progressRow({ id: 'c', movie_id: 'tv:1396:s1:e1', percentage: 100, completed: true }),
+      progressRow({ id: 'd', movie_id: 'Legacy Title', torrent_id: 't9', file_index: 7 }),
     ]);
     vi.mocked(moviesService.getDetail).mockResolvedValue(movieDetailOf(603));
     vi.mocked(tvService.getShow).mockResolvedValue(showDetailOf(1399));
@@ -784,6 +792,8 @@ describe('every href the TV can produce resolves to a route that exists', () => 
     expect(all.filter((h) => h.startsWith('/bigscreen/show/')).length).toBeGreaterThan(0);
     expect(all.filter((h) => h.startsWith('/bigscreen/watch/')).length).toBeGreaterThan(0);
     expect(all).toContain('/bigscreen/watch/t9?file=7');
+    expect(all).toContain('/bigscreen/show/1399?s=2&e=5');
+    expect(all).toContain('/bigscreen/movie/603');
     expect(produced.length).toBeGreaterThanOrEqual(HEADER_TARGETS.length + TV_RAILS.length * 2 + 5);
 
     for (const p of produced) expectBuiltRoute(p);
@@ -866,7 +876,8 @@ describe('every screen that should claim Back does', () => {
       // Nothing is on screen to collapse in this state — no control band, no pending edit —
       // so the first press is already the rung that leaves. What this file can see that the
       // screen's own suite cannot is WHICH navigation it is: `navCalls()` merges push and
-      // replace, so the two buckets above cannot tell them apart.
+      // replace, so the two buckets above cannot tell them apart. HOME, not a title: with the
+      // services still out the player knows no title, and an unknown title leaves home.
       expect(nav.replace).toHaveBeenCalledWith('/bigscreen');
       expect(nav.push, 'a pushed watch URL leaves a dead entry behind').not.toHaveBeenCalled();
     },
@@ -891,7 +902,11 @@ describe('every screen that should claim Back does', () => {
     expect(ring()).toHaveLength(1);
 
     back();
-    expect(nav.replace).toHaveBeenCalledWith('/bigscreen');
+    // To the TITLE the film belongs to, not home: `packRow()` is show 1399 and the one file is
+    // S02E01, so the show screen is asked for that episode — and the href is one this surface
+    // builds, through the same matcher every producer above goes through.
+    expect(nav.replace).toHaveBeenCalledWith('/bigscreen/show/1399?s=2&e=1');
+    expectBuiltRoute({ source: 'the player’s last Back rung', href: nav.replace.mock.calls[0][0] });
     expect(nav.push).not.toHaveBeenCalled();
   });
 
@@ -957,7 +972,8 @@ describe('?file= rides from the screen that resolved it to the watch route', () 
     else vi.mocked(streamingService.getFiles).mockResolvedValue(files);
     mountScreen(screenFor('bigscreen/show/[id]/page.tsx'));
     await waitFor(() => expect(episodeButtons()).toHaveLength(3));
-    // Row 0's own lookup must land first or it races the press under test.
+    // The action row's own lookup (ACTION_ROW = 1, under the top bar) must land first or it
+    // races the press under test.
     await screen.findByText(/S2 · E1/);
   }
 
@@ -992,24 +1008,34 @@ describe('?file= rides from the screen that resolved it to the watch route', () 
     expect(href).toBe(watchHref('pk'));
   });
 
-  it('every producer of a watch URL writes the same shape', async () => {
-    // Three screens' worth of code reach the watch route: the show screen's episode press,
-    // Continue Watching's resume card on home, and `watchHref` itself. One watch route will
-    // read all three, so a producer that spelled it `&file=` or `?f=` would be a dead player
-    // on one entry path and a working one on another — and no single-screen test can see it.
-    await mountShow([videoFile(0, 2, 1), videoFile(4, 2, 2, 900)]);
-    fireEvent.click(episodeButtons()[1]);
-    await waitFor(() => expect(nav.push).toHaveBeenCalledTimes(1));
-    const fromShowScreen = nav.push.mock.calls[0][0] as string;
-
-    vi.mocked(streamingService.getRecentProgress).mockResolvedValue([
-      progressRow({ movie_id: 'tv:1399:s2:e2', torrent_id: 'pk', file_index: 4 }),
-    ]);
+  it('Continue Watching → the show screen → the player lands on the card’s own file', async () => {
+    // The resume card used to carry the watch URL itself. It now opens the show screen on its
+    // episode (`?s=&e=`), and the `?file=` is re-derived there from the progress row — so the
+    // file index rides through TWO hops, a card href and a screen's query read, and a producer
+    // and a reader that disagreed about the spelling (`?season=`, `&e=`) would land a season
+    // pack on its default file, episode 1, with every single-screen test green.
+    const row = progressRow({ movie_id: 'tv:1399:s2:e2', torrent_id: 'pk', file_index: 4 });
+    vi.mocked(tvService.getShow).mockResolvedValue(showDetailOf(1399));
+    vi.mocked(streamingService.getRecentProgress).mockResolvedValue([row]);
     const rail = await fetchContinueWatching({ userId: 'p1' });
-    const fromResumeCard = rail.items[0]?.href;
+    const card = rail.items[0]?.href;
+    expect(card).toBe(showHref(1399, { season: 2, episode: 2 }));
+    expectBuiltRoute({ source: 'Continue Watching resume card', href: card });
 
-    expect(fromShowScreen).toBe(watchHref('pk', 4));
-    expect(fromResumeCard).toBe(watchHref('pk', 4));
+    // The show screen, mounted with exactly the query the card carried. The file list is left
+    // hanging, so only the progress row's saved `file_index` can name the file.
+    vi.mocked(tvService.getSeason).mockResolvedValue(seasonDetail);
+    vi.mocked(streamingService.getProgressByMovie).mockImplementation(async (_user, contentId) =>
+      contentId === row.movie_id ? row : null,
+    );
+    vi.mocked(torrentsService.getTorrentStatus).mockResolvedValue(packRow());
+    nav.search.current = new URL(card, 'http://tv.test').searchParams;
+    mountScreen(screenFor('bigscreen/show/[id]/page.tsx'));
+    await waitFor(() => expect(episodeButtons()).toHaveLength(3));
+    await screen.findByText(/S2 · E2/);
+    fireEvent.click(await screen.findByRole('button', { name: /^Resume from / }));
+    expect(nav.push).toHaveBeenCalledTimes(1);
+    expect(nav.push).toHaveBeenCalledWith(watchHref('pk', 4));
   });
 });
 

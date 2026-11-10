@@ -306,18 +306,23 @@ describe('the route’s <video> and its one track', () => {
     }
   });
 
-  it('keeps the film, the scrim and the band in that source order', async () => {
+  it('keeps the film, the scrim, Back and the band in that source order', async () => {
     // THE REGRESSION THE CONTAINER CHANGE COULD CAUSE. `.bs-player__video` and
     // `.bs-player__scrim` are BOTH `z-index: -1`, so which one paints on top is decided by
     // source order alone, and the scrim's whole job depends on being the later of the two.
     // Turning the self-closing `<video>` into a container is the edit most likely to move a
-    // sibling, and nothing else on this surface counts these three.
+    // sibling, and nothing else on this surface counts these children.
+    //
+    // The on-screen Back is the fourth, between the scrim and the band: after both `-1`
+    // layers, so it paints over the picture with no z-index of its own, and before the band,
+    // so the band's controls stay the last buttons in the document.
     await mount();
     const player = document.querySelector('.bs-player')!;
     const kids = [...player.children].map((el) => `${el.tagName.toLowerCase()}.${el.className}`);
     expect(kids).toEqual([
       'video.bs-player__video',
       'div.bs-player__scrim',
+      'div.bs-player__back',
       'div.bs-player__bar',
     ]);
   });

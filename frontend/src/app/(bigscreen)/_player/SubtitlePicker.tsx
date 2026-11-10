@@ -14,7 +14,8 @@ import type { FocusProps } from '../_focus/useFocusGrid';
  * leave the route's own grid inert, and a `useBackKey` in here would claim the press before
  * the route's ladder ever saw it. So this component takes `focusProps` and the grid row it
  * starts at; the route puts `pickerRowCounts(rows.length)` into `rowCounts` INSTEAD of the
- * scrub and transport rows while the picker is open.
+ * on-screen Back, scrub and transport rows while the picker is open — and does not render Back
+ * then, because this picker's `Off` is the same (0, 0) that Back is in the closed shape.
  *
  * IT REPLACES THE BAND'S ROWS; IT DOES NOT OVERLAY THEM. An overlay would need a second
  * grid (above) or a `rowCounts` that declared the transport row AND the picker, which is
@@ -108,9 +109,10 @@ function pickerCellIndex(
  * OPENS.
  *
  * It has to be explicit. `clampTarget` (`_focus/model.ts:65-69`) would otherwise answer
- * `clamp(col, 0, n-1)` of the row the ring was already on, which is the TRANSPORT row's
- * column 4 — a number that means the Subtitles cell and, in the picker's coordinates,
- * means some unrelated language.
+ * `clamp(col, 0, n-1)` of the row the ring was already on: the TRANSPORT row, grid row 2
+ * since the on-screen Back took row 0, at the Subtitles cell's column. Those are numbers that
+ * mean the Subtitles cell and, in the picker's coordinates, mean some unrelated language in
+ * its third row — or, on a list too short to have one, `firstTarget`'s Off by accident.
  */
 export function pickerTarget(
   rows: readonly SubtitlePickerRow[],

@@ -36,6 +36,7 @@ import type { FocusProps } from '../_focus/useFocusGrid';
 import { SUBTITLE_CELL_STATES, cellLabel } from '../_data/subtitles';
 import { TransportBar, type SubtitleCellView } from './TransportBar';
 import { ScrubBar } from './ScrubBar';
+import { BackToTitle } from './BackToTitle';
 
 const css = readFileSync(join(process.cwd(), 'public/bigscreen.css'), 'utf8');
 const BIGSCREEN = join(process.cwd(), 'src/app/(bigscreen)');
@@ -467,10 +468,14 @@ describe('bigscreen.css, as the player relies on it', () => {
     // THE `subtitles` VIEW IS NOT OPTIONAL HERE. Without it the Subtitles cell renders no
     // sub-line, so nothing this row sees comes from the cell's own state — see the next row
     // for what that did and did not cost.
+    //
+    // `BackToTitle` IS RENDERED HIDDEN, so the modifier its fade depends on is a class this row
+    // sees rendered rather than one it has to be told about.
     const used = classesOf(
       <>
-        <ScrubBar row={0} focusProps={fp()} position={10} duration={1000} contiguous={null} onSeek={() => {}} />
-        <TransportBar row={1} focusProps={fp()} playing retry subtitles={subtitlesView()} onAction={() => {}} />
+        <BackToTitle row={0} focusProps={fp()} label="The Boys" visible={false} onExit={() => {}} />
+        <ScrubBar row={1} focusProps={fp()} position={10} duration={1000} contiguous={null} onSeek={() => {}} />
+        <TransportBar row={2} focusProps={fp()} playing retry subtitles={subtitlesView()} onAction={() => {}} />
       </>,
     );
     expect(used.length, 'the components render bs- classes at all').toBeGreaterThan(4);
@@ -637,12 +642,68 @@ describe('bigscreen.css, as the player relies on it', () => {
     ]);
   });
 
-  it('the two --hidden modifiers are the only modifiers in the player block', () => {
-    // The COMBINING note's "except TWO modifiers driven by the SAME flag" had no instrument.
-    // A third `.bs-player__*--*` is a visual state of the band that something has to toggle,
+  it('the three --hidden modifiers are the only modifiers in the player block', () => {
+    // The COMBINING note's "except THREE modifiers driven by the SAME flag" had no instrument.
+    // A fourth `.bs-player__*--*` is a visual state of the band that something has to toggle,
     // on a surface where the band's states are counted by hand in two places; the controls in
     // this block wear `.bs-btn` unchanged precisely so that there is nothing else to toggle.
+    // The third is Back's, and it is the same `visible` flag rather than a new state.
     const modifiers = [...new Set(noComments(css).match(/\.bs-player[\w-]*--[\w-]+/g) ?? [])].sort();
-    expect(modifiers).toEqual(['.bs-player__bar--hidden', '.bs-player__scrim--hidden']);
+    expect(modifiers).toEqual(['.bs-player__back--hidden', '.bs-player__bar--hidden', '.bs-player__scrim--hidden']);
+  });
+
+  // =================================================================================
+  // The Back control (`.bs-player__back*`)
+  // =================================================================================
+
+  it('Back fades by opacity only, declared after its base, on the band’s own curve', () => {
+    // THE BAND'S RULE, FOR THE BAND'S REASON. Back holds focus (Up reaches it), so its fade is
+    // hazard 4 exactly as the band's is: `display: none`, `visibility`, `inert` and unmounting
+    // blur the focused control and nothing brings the ring back. The exact list, as the
+    // scrim's row reads it, so `opacity: 0.85` — a Back that never goes — is refused too.
+    expect(declarations(rule('.bs-player__back--hidden'))).toEqual(['opacity: 0']);
+    expect.soft(
+      decl(rule('.bs-player__back'), 'opacity'),
+      'the base rule declares no opacity of its own',
+    ).toBeNull();
+    // AND THAT THE MODIFIER WINS: one copy of each, the modifier after the rule it modifies.
+    const baseAt = ruleStarts('.bs-player__back');
+    const modAt = ruleStarts('.bs-player__back--hidden');
+    expect.soft(baseAt, 'one .bs-player__back rule').toHaveLength(1);
+    expect.soft(modAt, 'one .bs-player__back--hidden rule').toHaveLength(1);
+    expect
+      .soft(modAt[0] > baseAt[0], 'the modifier is declared after the rule it modifies')
+      .toBe(true);
+    // THE COUPLING: Back moves WITH the band, so a curve of its own would show it outliving
+    // (or beating) the controls it sits above. Compared with the band's declaration rather
+    // than written out, so the band's curve changing reddens only if Back's does not follow.
+    const backT = decl(rule('.bs-player__back'), 'transition');
+    expect.soft(backT, 'Back declares a transition').not.toBeNull();
+    expect.soft(backT, 'the same curve as the band’s').toBe(decl(rule('.bs-player__bar'), 'transition'));
+  });
+
+  it('Back sits at the top-left safe inset, and stacks nothing of its own', () => {
+    // The safe area is the stylesheet's own tokens, not a second copy of 96px and 54px. No
+    // z-index: it is a positioned child of `.bs-player`, which already isolates, and after the
+    // two `z-index: -1` layers in source order, so it paints over the picture as the band does.
+    const body = rule('.bs-player__back');
+    expect.soft(decl(body, 'position')).toBe('absolute');
+    expect.soft(decl(body, 'top')).toBe('var(--safe-y)');
+    expect.soft(decl(body, 'left')).toBe('var(--safe-x)');
+    expect.soft(decl(body, 'z-index')).toBeNull();
+    // A long title is clipped on one line rather than wrapped down over the picture.
+    const name = rule('.bs-player__back-name');
+    expect.soft(decl(name, 'max-width')).toBe('40vw');
+    expect.soft(decl(name, 'white-space')).toBe('nowrap');
+    expect.soft(decl(name, 'text-overflow')).toBe('ellipsis');
+    expect.soft(decl(name, 'overflow')).toBe('hidden');
+  });
+
+  it('the gap between Back’s chevron and its name is a declaration, not a space', () => {
+    // `.bs-btn` is `inline-flex`, so the chevron and the name are flex items, and a text run
+    // of nothing but white space between flex items is never drawn. A `{' '}` in the markup is
+    // therefore no gap at all: the viewer reads `‹The Boys`, and jsdom, which lays nothing out,
+    // still reports the space in `textContent`. This declaration is the only gap there is.
+    expect(decl(rule('.bs-player__back-name'), 'margin-left')).toBe('12px');
   });
 });

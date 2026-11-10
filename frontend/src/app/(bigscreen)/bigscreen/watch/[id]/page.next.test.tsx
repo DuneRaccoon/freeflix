@@ -630,6 +630,38 @@ describe('the Next-episode press', () => {
     expect(after.writes, 'the new episode was not seeked to the old one’s playhead').toEqual([]);
   });
 
+  it('a same-pack next episode moves the exit', async () => {
+    // THE EXIT IS DERIVED FROM THE IDENTITY ON EVERY RENDER, and this is the case that proves
+    // it is not captured once: the press stays on the same torrent and the same player (see
+    // the row above), so an exit computed on arrival would still name E01 — and Back would
+    // open the show screen on the episode the viewer has just finished.
+    torrents.getForTitle.mockResolvedValue([statusRow({ state: 'seeding' })]);
+    const { view } = await playing();
+    await act(async () => {
+      fireEvent.click(nextCell()!);
+    });
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect(nav.replace).toHaveBeenCalledWith(`/bigscreen/watch/${PACK}?file=0`);
+
+    nav.search.current = new URLSearchParams('file=0');
+    await act(async () => {
+      view.rerender(<WatchPage />);
+    });
+    for (let i = 0; i < 6; i++) await act(async () => {});
+    nav.replace.mockClear();
+
+    // The remote's Back, fired where the device fires it: collapse the band if it is up,
+    // then the rung that leaves.
+    const back = () => {
+      const e = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+      act(() => {
+        (document.activeElement ?? document.body).dispatchEvent(e);
+      });
+    };
+    for (let i = 0; i < 3 && nav.replace.mock.calls.length === 0; i++) back();
+    expect(nav.replace.mock.calls, 'one leave, to S02E02 — file 0').toEqual([['/bigscreen/show/1399?s=2&e=2']]);
+  });
+
   it('does nothing at all when there is no next episode to go to', async () => {
     tv.getSeason.mockResolvedValue(season([1]));
     const handle = await playing();

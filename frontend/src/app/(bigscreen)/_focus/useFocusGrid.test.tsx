@@ -1,10 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { memo } from 'react';
+import { memo, useLayoutEffect } from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { useFocusGrid, type FocusProps } from './useFocusGrid';
 
-function Harness({ rowCounts, storageKey, initialRow }: { rowCounts: number[]; storageKey?: string; initialRow?: number }) {
+/**
+ * `pressOnCommit` dispatches that key from a layout effect declared AFTER the hook, so it runs
+ * after the hook's own layout effect has published the new counts and BEFORE its passive
+ * reconcile has re-clamped the ring. That is the window a real press lands in when a
+ * non-discrete update commits — the player's recovery reload, which fires from a timer.
+ */
+function Harness({
+  rowCounts,
+  storageKey,
+  initialRow,
+  pressOnCommit,
+}: {
+  rowCounts: number[];
+  storageKey?: string;
+  initialRow?: number;
+  pressOnCommit?: string;
+}) {
   const grid = useFocusGrid({ rowCounts, storageKey, initialRow });
+  useLayoutEffect(() => {
+    if (pressOnCommit === undefined) return;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: pressOnCommit, bubbles: true, cancelable: true }));
+  }, [pressOnCommit]);
   return (
     <div>
       {rowCounts.map((count, row) => (
@@ -242,6 +262,21 @@ describe('useFocusGrid', () => {
       expect(document.activeElement).toBe(screen.getByText('1-0'));
       rerender(<Harness rowCounts={[4, 0, 3]} initialRow={1} />);
       expect(document.activeElement, 'the hero, not the menu').toBe(screen.getByText('2-0'));
+    });
+
+    it('keeps preferring content for a press that lands before the reconcile', () => {
+      // THE KEY PATH CLAMPS TOO, and it has to clamp the same way. The counts reach the
+      // listener in a layout effect and the reconcile is a passive one, so a press between the
+      // two finds the ring on a row that has just emptied. The player's grid is this shape:
+      // Back is row 0, the scrub cell row 1 and the transport row 2. A recovery reload empties
+      // the scrub row under a held arrow, and a fall-back searching from row 0 would land the
+      // press on Back, where an OK leaves the film.
+      const { rerender } = render(<Harness rowCounts={[1, 1, 3]} initialRow={1} />);
+      expect(document.activeElement).toBe(screen.getByText('1-0'));
+      rerender(<Harness rowCounts={[1, 0, 3]} initialRow={1} pressOnCommit="ArrowRight" />);
+      expect(document.activeElement, 'the press ran from the content row, not from the bar').toBe(
+        screen.getByText('2-1'),
+      );
     });
 
     it('falls back to the bar only when nothing under it has items', () => {

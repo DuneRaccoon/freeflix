@@ -13,7 +13,13 @@ import { useTvProfile } from '../../../_data/useTvProfile';
 import ShowPage from './page';
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => router, useParams: () => ({ id: '1399' }) }));
+/** The query the screen reads (`?s=&e=`, an asked episode). Reset to empty before each case. */
+const search = vi.hoisted(() => ({ current: new URLSearchParams() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => router,
+  useParams: () => ({ id: '1399' }),
+  useSearchParams: () => search.current,
+}));
 vi.mock('../../../_data/useTvProfile', () => ({ useTvProfile: vi.fn() }));
 vi.mock('@/services/tv', () => ({ tvService: { getShow: vi.fn(), getSeason: vi.fn() } }));
 vi.mock('@/services/torrents', () => ({ torrentsService: { getForTitle: vi.fn(), getTorrentStatus: vi.fn(), downloadCatalogMovie: vi.fn(), performTorrentAction: vi.fn() } }));
@@ -41,6 +47,7 @@ const epButtons = () => screen.queryAllByRole('button', { name: /^\d+\s/ });
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  search.current = new URLSearchParams();
   vi.mocked(useTvProfile).mockReturnValue({ profile: { id: 'p1', display_name: 'B', avatar: null }, loading: false, select: vi.fn(), clear: vi.fn() });
   vi.mocked(tvService.getShow).mockResolvedValue(showDetail);
   vi.mocked(tvService.getSeason).mockResolvedValue(seasonTwo);
@@ -144,6 +151,31 @@ describe('season packs', () => {
       vi.mocked(streamingService.getFiles).mockResolvedValue([file(0, 2, 1), file(5, 2, 2)]);
       fireEvent.click(epButtons()[1]);
       await waitFor(() => expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=5'));
+    });
+  });
+
+  describe('an asked episode (?s=&e=), which is how a Continue Watching card arrives', () => {
+    it('resumes the asked episode on the progress row’s own file', async () => {
+      // The card no longer carries `?file=`: this screen re-asks, and the row's saved
+      // `file_index` is what keeps the pack off its default file. The file list is left
+      // unreadable on purpose, so only the saved index can name file 4.
+      search.current = new URLSearchParams('s=2&e=2');
+      vi.mocked(streamingService.getProgressByMovie).mockImplementation(async (_user, contentId) =>
+        contentId === 'tv:1399:s2:e2'
+          ? {
+              id: 'pr', user_id: 'p1', movie_id: 'tv:1399:s2:e2', torrent_id: 'pk', file_index: 4,
+              current_time: 90, duration: 1800, percentage: 30, completed: false,
+              last_watched_at: '2026-11-10T20:00:00', created_at: '2026-11-10T20:00:00', updated_at: '2026-11-10T20:00:00',
+            }
+          : null,
+      );
+      vi.mocked(torrentsService.getTorrentStatus).mockResolvedValue(pack());
+      vi.mocked(streamingService.getFiles).mockRejectedValue(new Error('no list'));
+      render(<ShowPage />);
+      await waitFor(() => expect(epButtons()).toHaveLength(3));
+      await screen.findByText(/S2 · E2/);
+      fireEvent.click(await screen.findByRole('button', { name: 'Resume from 1:30' }));
+      expect(router.push).toHaveBeenCalledWith('/bigscreen/watch/pk?file=4');
     });
   });
 });

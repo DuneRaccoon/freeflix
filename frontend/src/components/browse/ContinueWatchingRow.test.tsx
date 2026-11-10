@@ -1,13 +1,21 @@
 /**
  * ContinueWatchingRow — Vitest + RTL tests
  *
- * Spec (Task 7):
+ * Spec (Task 7, then "Continue Watching opens the title page"):
  *  - with a mocked useProgress/useUser providing a movie + a TV episode in
  *    progress, renders both cards
- *  - the resume href matches /streaming/{torrent_id}?file=N for the TV episode
+ *  - a card whose title can be identified opens that title's page —
+ *    /movies/{id}, or /tv/{id}?season=S&episode=E for the episode the row is
+ *    about — never the player; only a title it cannot identify, or a season-0
+ *    episode the show page cannot be asked for, keeps the
+ *    /streaming/{torrent_id}?file=N link
+ *  - each card's accessible name says that it opens the title
  *  - the gold progress bar is present
- *  - the remove button is present
+ *  - the remove button is present, and pressing it never follows the card link
  *  - renders nothing when progressData is empty
+ *
+ * next/link is the real one, as in PosterCard.test.tsx. next/navigation is not
+ * mocked: the row never calls useRouter, so a push spy here could not fail.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -173,21 +181,84 @@ describe('ContinueWatchingRow', () => {
     expect(screen.getAllByText('Foundation').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('the TV resume link has href /streaming/{torrent_id}?file=N', () => {
+  it('the TV card opens the show page on the episode the row is about', () => {
     setupMocks({ 'tv:54321:s1:e3': tvProgress });
     render(<ContinueWatchingRow />);
-    const resumeLink = screen.getByRole('link', { name: /Resume Foundation/i });
-    expect(resumeLink).toHaveAttribute(
-      'href',
-      '/streaming/torrent-tv-1?file=3',
-    );
+    const card = screen.getByRole('link', { name: 'Open Foundation, resume S01·E03' });
+    expect(card).toHaveAttribute('href', '/tv/54321?season=1&episode=3');
   });
 
-  it('the movie resume link has href /streaming/{torrent_id} (no file param)', () => {
+  it('the movie card opens the movie page', () => {
     setupMocks({ 'movie:12345': movieProgress });
     render(<ContinueWatchingRow />);
-    const resumeLink = screen.getByRole('link', { name: /Resume Interstellar/i });
-    expect(resumeLink).toHaveAttribute('href', '/streaming/torrent-movie-1');
+    const card = screen.getByRole('link', { name: 'Open Interstellar, 50% watched' });
+    expect(card).toHaveAttribute('href', '/movies/12345');
+  });
+
+  it('an Up next card opens the show page on the finished episode', () => {
+    setupMocks({ 'tv:54321:s1:e3': { ...tvProgress, completed: true, percentage: 100 } });
+    render(<ContinueWatchingRow />);
+    const card = screen.getByRole('link', { name: 'Open Foundation, up next S01·E04' });
+    // The episode just finished, not episode + 1: nothing in a progress row says that E04
+    // exists, and the show page is what works out which episode follows.
+    expect(card).toHaveAttribute('href', '/tv/54321?season=1&episode=3');
+    expect(screen.getByText('Up next')).toBeInTheDocument();
+  });
+
+  it('a title it cannot identify still opens the player', () => {
+    // A legacy title-string id, from before content ids: there is no tmdb id to build a
+    // title page on, so the card keeps the only link it can make.
+    setupMocks({ Interstellar: { ...movieProgress, movie_id: 'Interstellar' } });
+    render(<ContinueWatchingRow />);
+    const card = screen.getByRole('link', { name: 'Open Interstellar, 50% watched' });
+    expect(card).toHaveAttribute('href', '/streaming/torrent-movie-1');
+  });
+
+  it('an unidentified episode keeps its file on the player link, file 0 included', () => {
+    // tmdb id 0 names no show, so this show card falls back to the player — and a season
+    // pack's player link without `?file=` no longer says which of its files the row was.
+    setupMocks({ 'tv:0:s1:e3': { ...tvProgress, movie_id: 'tv:0:s1:e3', file_index: 0 } });
+    render(<ContinueWatchingRow />);
+    const card = screen.getByRole('link', { name: 'Open Foundation, resume S01·E03' });
+    expect(card).toHaveAttribute('href', '/streaming/torrent-tv-1?file=0');
+  });
+
+  it('a season-0 episode resumes on its own file, file 0 included', () => {
+    // Season 0 is Specials and also the backend's `s0` fallback for a file it could not
+    // identify, so the show page is never asked for it: the card would open the bare page,
+    // whose hero plays S01·E01. The row's own file is the only place it can resume.
+    setupMocks({
+      'tv:54321:s0:e5': { ...tvProgress, movie_id: 'tv:54321:s0:e5', file_index: 0 },
+    });
+    render(<ContinueWatchingRow />);
+    const card = screen.getByRole('link', { name: 'Open Foundation, resume S00·E05' });
+    expect(card).toHaveAttribute('href', '/streaming/torrent-tv-1?file=0');
+  });
+
+  it('a finished season-0 episode opens the bare show page, as the TV’s Up next card does', () => {
+    // Nothing is left to resume, so the file is no reason to open the player: replaying the
+    // episode just finished is not "up next". The show page cannot be asked for an s0
+    // episode, so it opens bare.
+    setupMocks({
+      'tv:54321:s0:e5': { ...tvProgress, movie_id: 'tv:54321:s0:e5', file_index: 0, completed: true, percentage: 100 },
+    });
+    render(<ContinueWatchingRow />);
+    const card = screen.getByRole('link', { name: /^Open Foundation, up next/ });
+    expect(card).toHaveAttribute('href', '/tv/54321');
+  });
+
+  it('no identified card links to the player', () => {
+    setupMocks({
+      'movie:12345': movieProgress,
+      'tv:54321:s1:e3': tvProgress,
+    });
+    render(<ContinueWatchingRow />);
+    const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+    // Both cards are among the links, so the sweep below cannot pass by finding nothing.
+    expect(hrefs).toEqual(
+      expect.arrayContaining(['/movies/12345', '/tv/54321?season=1&episode=3']),
+    );
+    for (const href of hrefs) expect(href).not.toMatch(/^\/streaming\//);
   });
 
   it('renders a gold progress fill element for in-progress items', () => {
@@ -224,6 +295,23 @@ describe('ContinueWatchingRow', () => {
       expect(streamingService.deleteProgress).toHaveBeenCalledWith('user-1', 'prog-movie-1');
       expect(mockRefreshProgress).toHaveBeenCalled();
     });
+  });
+
+  it('Remove never navigates', async () => {
+    setupMocks({ 'movie:12345': movieProgress });
+    render(<ContinueWatchingRow />);
+    const remove = screen.getByRole('button', {
+      name: 'Remove Interstellar from Continue Watching',
+    });
+    // The button sits INSIDE the card's link, so a click it leaves uncancelled is a click on
+    // that link: the browser follows the href, and next/link stands aside only for a click
+    // that is already cancelled.
+    expect(remove.closest('a')).toHaveAttribute('href', '/movies/12345');
+    // fireEvent returns false only when a handler cancelled the click. jsdom performs no
+    // navigation and next/link has no router here, so the cancelled default IS the observable.
+    expect(fireEvent.click(remove)).toBe(false);
+    expect(streamingService.deleteProgress).toHaveBeenCalledWith('user-1', 'prog-movie-1');
+    await waitFor(() => expect(mockRefreshProgress).toHaveBeenCalled());
   });
 
   it('shows "Up next" badge when last TV episode is completed', () => {

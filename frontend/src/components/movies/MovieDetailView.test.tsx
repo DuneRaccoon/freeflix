@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MovieDetailView from './MovieDetailView';
-import type { MovieDetail, TorrentHit, CatalogItem } from '@/types';
+import type { MovieDetail, TorrentHit, CatalogItem, StreamingProgress } from '@/types';
 
 // ── module mocks ──────────────────────────────────────────────────────────────
 
@@ -419,6 +419,164 @@ describe('MovieDetailView', () => {
         screen.getByTestId('cast-name-Timothée Chalamet'),
       ).toBeInTheDocument();
       expect(screen.getByTestId('cast-name-Zendaya')).toBeInTheDocument();
+    });
+  });
+});
+
+// ── Resume ────────────────────────────────────────────────────────────────────
+//
+// Appended, never interleaved: `services/torrents.test.ts:12-16` cites this file's line numbers,
+// and `vi.mock` is hoisted wherever it sits, so the existing suite above also renders against this
+// ProgressContext (with no rows, which is how it rendered before Resume existed).
+
+const progress = vi.hoisted(() => ({ data: {} as Record<string, StreamingProgress> }));
+vi.mock('@/context/ProgressContext', () => ({
+  useProgress: () => ({
+    progressData: progress.data,
+    getMovieProgress: (id: string) => progress.data[id] ?? null,
+    isLoading: false,
+  }),
+}));
+
+/**
+ * The profile's unfinished row for this film, keyed the way the backend keys it (`movie:{tmdb}`,
+ * spelled out rather than built, so the page's lookup key is pinned too). Every refusing case below
+ * differs from it by exactly one field, so each one pins one clause of the rule and nothing else.
+ */
+const resumable: StreamingProgress = {
+  id: 'progress-1',
+  user_id: 'profile-1',
+  torrent_id: 't-5',
+  movie_id: 'movie:693134',
+  current_time: 2530,
+  duration: 6325,
+  percentage: 40,
+  completed: false,
+  last_watched_at: '2026-11-10T20:00:00Z',
+  created_at: '2026-11-10T19:00:00Z',
+  updated_at: '2026-11-10T20:00:00Z',
+  file_index: null,
+  title: 'Dune: Part Two',
+};
+
+describe('Resume', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    progress.data = {};
+    mockGetTorrents.mockResolvedValue(mockHits);
+    mockBrowse.mockResolvedValue({ page: 1, results: [], total_pages: 1, total_results: 0 });
+    mockHandleCatalogStreamingStart.mockResolvedValue({ id: 'stream-456' });
+  });
+
+  /**
+   * Seed this film's row (`change` applied over `resumable`; no argument means no row), render,
+   * then wait for the torrent hits to land. Waiting matters twice: an absence is read after the
+   * mount effects rather than before them, and Play resolves 'auto' against real hits.
+   */
+  async function mount(change?: Partial<StreamingProgress>) {
+    if (change) progress.data['movie:693134'] = { ...resumable, ...change };
+    render(<MovieDetailView movie={mockMovie} />);
+    await screen.findByTestId('source-pill-1080p');
+  }
+
+  it('offers Resume from the saved position', async () => {
+    await mount({});
+
+    const resume = screen.getByTestId('movie-resume-button');
+    expect(resume).toHaveTextContent(/^Resume from 42:10$/);
+
+    await userEvent.click(resume);
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/streaming/t-5');
+    expect(mockHandleCatalogStreamingStart).not.toHaveBeenCalled();
+  });
+
+  it('file 0 rides along', async () => {
+    await mount({ file_index: 0 });
+
+    await userEvent.click(screen.getByTestId('movie-resume-button'));
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/streaming/t-5?file=0');
+  });
+
+  it('keeps Play beside Resume', async () => {
+    await mount({});
+
+    const resume = screen.getByTestId('movie-resume-button');
+    const play = screen.getByTestId('movie-play-button');
+    // Resume is the first action and the primary one; Play steps down to glass beside it, in
+    // Download's whole style rather than a glass button still wearing the champagne glow.
+    expect(resume.parentElement).toBe(play.parentElement);
+    expect(resume.parentElement?.firstElementChild).toBe(resume);
+    expect(resume).toHaveAttribute('data-variant', 'primary');
+    expect(play).toHaveAttribute('data-variant', 'glass');
+    expect(play.className).toBe(screen.getByTestId('movie-download-button').className);
+
+    await userEvent.click(play);
+
+    await waitFor(() =>
+      expect(mockHandleCatalogStreamingStart).toHaveBeenCalledWith({
+        tmdb_id: mockMovie.tmdb_id,
+        quality: '1080p',
+      }),
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/streaming/stream-456'));
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it('cannot be pressed while a Play is starting', async () => {
+    // A Play that never answers: Resume must not race it to a second navigation.
+    mockHandleCatalogStreamingStart.mockReturnValue(new Promise(() => {}));
+    await mount({});
+
+    await userEvent.click(screen.getByTestId('movie-play-button'));
+
+    expect(screen.getByTestId('movie-resume-button')).toBeDisabled();
+  });
+
+  describe('offers no Resume when', () => {
+    /** Absent, and Play is the primary action again: both follow the one rule. */
+    function expectNoResume() {
+      expect(screen.queryByTestId('movie-resume-button')).toBeNull();
+      expect(screen.getByTestId('movie-play-button')).toHaveAttribute('data-variant', 'primary');
+    }
+
+    it('the film is finished', async () => {
+      await mount({ completed: true });
+      expectNoResume();
+    });
+
+    it('it stopped within the first 30 seconds', async () => {
+      await mount({ current_time: 20 });
+      expectNoResume();
+    });
+
+    it('it stopped at exactly 30 seconds', async () => {
+      await mount({ current_time: 30 });
+      expectNoResume();
+    });
+
+    it('it is 98% watched', async () => {
+      await mount({ percentage: 98 });
+      expectNoResume();
+    });
+
+    it('its torrent is gone', async () => {
+      await mount({ torrent_id: null });
+      expectNoResume();
+    });
+
+    it('there is no row', async () => {
+      await mount();
+      expectNoResume();
+    });
+
+    it("the only row is another title's", async () => {
+      progress.data['movie:111'] = { ...resumable, movie_id: 'movie:111' };
+      await mount();
+      expectNoResume();
     });
   });
 });

@@ -152,7 +152,7 @@ describe('fetchContinueWatching', () => {
     const { items } = await fetchContinueWatching({ userId: 'u1' });
     expect(items.map((c) => c.id)).toEqual(['tv:1399', 'movie:603']);
     expect(items[0].subtitle).toBe('S01 · E02');
-    expect(items[0].href).toBe('/bigscreen/watch/pack?file=1');
+    expect(items[0].href).toBe('/bigscreen/show/1399?s=1&e=2');
   });
 
   it('orders newest first, whatever order the backend sent', async () => {
@@ -167,8 +167,8 @@ describe('fetchContinueWatching', () => {
 
   it('turns a completed episode into an Up next card that opens the show screen', async () => {
     // Nothing in a progress row says whether episode + 1 exists or where its file is, so
-    // the card claims neither: it goes to the show's detail screen, where the viewer
-    // picks. The web resumes the episode just finished, which is the bug this avoids.
+    // the card claims neither: it goes to the bare show screen, which works out what comes
+    // next. The web's card labels episode + 1 without checking it exists.
     getShow.mockResolvedValue({ backdrop_url: 'https://img.test/got.jpg' } as ShowDetail);
     getRecent.mockResolvedValue([
       row({
@@ -257,7 +257,7 @@ describe('fetchContinueWatching', () => {
     ]);
     const { items } = await fetchContinueWatching({ userId: 'u1' });
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ id: 'tv:1399', subtitle: 'S01 · E02', href: '/bigscreen/watch/pack?file=1' });
+    expect(items[0]).toMatchObject({ id: 'tv:1399', subtitle: 'S01 · E02', href: '/bigscreen/show/1399?s=1&e=2' });
     expect(items[0].badge).toBeUndefined();
   });
 
@@ -279,24 +279,62 @@ describe('fetchContinueWatching', () => {
     expect(items.map((c) => [c.id, c.subtitle])).toEqual([['tv:1399', 'S01 · E02']]);
   });
 
-  it('links to a bigscreen watch route, with ?file= when file_index is set', async () => {
+  it('links each identified card to its title\'s screen, not the player', async () => {
+    // The title screen re-asks `titleStateFor`, which resumes the row's own torrent and
+    // file, so the card no longer needs to carry either. An episode card asks for ITS
+    // episode (`?s=&e=`), not the show's latest-watched season.
     getRecent.mockResolvedValue([
       row({ id: 'a', torrent_id: 'abc', file_index: 3, movie_id: 'tv:10:s1:e4', title: 'Show S01E04' }),
       row({ id: 'b', torrent_id: 'def', file_index: null, movie_id: 'movie:2', title: 'Film' }),
     ]);
     const { items } = await fetchContinueWatching({ userId: 'u1' });
     const hrefs = Object.fromEntries(items.map((c) => [c.id, c.href]));
-    expect(hrefs['tv:10']).toBe('/bigscreen/watch/abc?file=3');
-    expect(hrefs['movie:2']).toBe('/bigscreen/watch/def');
+    expect(hrefs['tv:10']).toBe('/bigscreen/show/10?s=1&e=4');
+    expect(hrefs['movie:2']).toBe('/bigscreen/movie/2');
     // resumeUrlFor would answer /streaming/{id}, a (web) route that leaves the TV's
     // root layout.
     for (const c of items) expect(c.href).not.toContain('/streaming/');
+    for (const c of items) expect(c.href).not.toContain('/bigscreen/watch/');
   });
 
-  it('keeps file_index 0: the first file of a season pack is a real file', async () => {
-    getRecent.mockResolvedValue([row({ torrent_id: 'pack', file_index: 0, movie_id: 'tv:10:s1:e1', title: 'Show S01E01' })]);
+  it('keeps file_index 0 on the fallback: the first file of a season pack is a real file', async () => {
+    // A title that cannot be identified still goes straight to the player, so that is one
+    // place `?file=0` has to survive; a season-0 resume card (below) is the other.
+    getRecent.mockResolvedValue([row({ movie_id: 'The Old Title', torrent_id: 'pack', file_index: 0, title: 'The Old Title' })]);
     const { items } = await fetchContinueWatching({ userId: 'u1' });
     expect(items[0].href).toBe('/bigscreen/watch/pack?file=0');
+  });
+
+  it('sends a film whose tmdb id is not a real one to the player, not to /bigscreen/movie/0', async () => {
+    getRecent.mockResolvedValue([row({ movie_id: 'movie:0', torrent_id: 't1', title: 'Zero' })]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items).toHaveLength(1);
+    expect(items[0].href).toBe('/bigscreen/watch/t1');
+  });
+
+  it('sends a season-0 episode to the player, on its own file', async () => {
+    // `tv:{id}:s0:e{file_index}` is the backend's last-resort key for a pack file it could not
+    // identify, and season 0 is never an ask (see `titleOfContentId`), so the show screen
+    // would make its own pick and the file this row was playing would be lost. The player
+    // still has it — file 0 included, which the backend keys `s0:e0`.
+    getRecent.mockResolvedValue([
+      row({ id: 'a', movie_id: 'tv:1399:s0:e4', torrent_id: 'pack', file_index: 4, title: 'Game of Thrones S00E04', last_watched_at: '2026-10-02T00:00:00' }),
+      row({ id: 'b', movie_id: 'tv:1400:s0:e0', torrent_id: 'other', file_index: 0, title: 'Other Show S00E00', last_watched_at: '2026-10-01T00:00:00' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => [c.id, c.href])).toEqual([
+      ['tv:1399', '/bigscreen/watch/pack?file=4'],
+      ['tv:1400', '/bigscreen/watch/other?file=0'],
+    ]);
+  });
+
+  it('still sends a finished season-0 episode’s Up next card to the bare show screen', async () => {
+    // Up next resumes nothing, so there is no file to lose: it opens the show as it always has.
+    getRecent.mockResolvedValue([
+      row({ completed: true, percentage: 100, movie_id: 'tv:1399:s0:e4', torrent_id: 'pack', file_index: 4, title: 'Game of Thrones S00E04' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => [c.id, c.href])).toEqual([['tv:1399:up-next', '/bigscreen/show/1399']]);
   });
 
   it('rounds the progress percentage', async () => {
@@ -336,6 +374,8 @@ describe('fetchContinueWatching', () => {
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe('The Old Title');
     expect(getMovie).not.toHaveBeenCalled();
+    // ...and with no title to open, the card still resumes its file.
+    expect(items[0].href).toBe('/bigscreen/watch/t1');
   });
 
   it('skips a tv row whose content id does not parse, rather than guessing its show', async () => {

@@ -27,6 +27,12 @@ export const LOAD_PATIENCE_MS = 10_000;
  *   becomes the grid's (0, 0): nothing else would move DOM focus onto it.
  * - Back is always present, so no state here renders without a focus target. On a remote
  *   there is no Tab and no pointer, so a ringless screen cannot be recovered from.
+ *
+ * WHERE BACK GOES IS THE CALLER'S (`backHref`), and home when it says nothing. The two detail
+ * screens say nothing, because their own Back key goes home. The player says where its title
+ * is: this is its preparing and failed state, the commonest first screen it has, and an
+ * on-screen Back that went home while the remote's Back went to the title would be two ways
+ * out of one screen that disagree.
  */
 export function LoadStatus({
   failed,
@@ -34,11 +40,14 @@ export function LoadStatus({
   /** "movie" or "show": the only thing that differed between the two copies. */
   noun,
   patienceMs = LOAD_PATIENCE_MS,
+  backHref = HOME,
 }: {
   failed: boolean;
   onRetry: () => void;
   noun: string;
   patienceMs?: number;
+  /** Where the Back link goes. Home unless the caller knows somewhere better. */
+  backHref?: string;
 }) {
   const [waited, setWaited] = useState(false);
   const [pressed, setPressed] = useState(false);
@@ -73,7 +82,7 @@ export function LoadStatus({
               {retryable ? 'Try again' : 'Trying again…'}
             </button>
           )}
-          <Link href={HOME} className="bs-btn bs-btn--ghost" draggable={false} {...grid.focusProps(0, showRetry ? 1 : 0)}>
+          <Link href={backHref} className="bs-btn bs-btn--ghost" draggable={false} {...grid.focusProps(0, showRetry ? 1 : 0)}>
             Back
           </Link>
           {failed ? (

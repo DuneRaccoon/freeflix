@@ -469,3 +469,74 @@ describe('EpisodeList', () => {
     });
   });
 });
+
+// ── Highlight ─────────────────────────────────────────────────────────────────
+//
+// Appended, never interleaved: `services/torrents.test.ts:12-16` cites this file's line numbers.
+// The show page highlights the episode its hero is about (the asked one, or the one after it), so
+// exactly that row says it is current — and with no highlight asked for, none does, which is how
+// the list rendered before the show page could be asked for an episode.
+
+describe('EpisodeList highlight', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('marks the highlighted episode as current, and no other', () => {
+    render(
+      <EpisodeList
+        showId={SHOW_ID}
+        seasonNumber={SEASON}
+        episodes={mockEpisodes}
+        highlightEpisode={2}
+      />,
+    );
+
+    const highlighted = screen.getByTestId('episode-row-2');
+    expect(highlighted).toHaveAttribute('aria-current', 'true');
+    expect(highlighted).toHaveAttribute('data-highlighted', 'true');
+    // The gold is the half the viewer sees; the attributes alone would pass without it.
+    expect(highlighted).toHaveClass('border-gold/45', 'bg-gold/[.06]');
+    expect(highlighted).not.toHaveClass('border-transparent');
+    for (const other of ['episode-row-1', 'episode-row-3']) {
+      expect(screen.getByTestId(other)).not.toHaveAttribute('aria-current');
+      expect(screen.getByTestId(other)).not.toHaveAttribute('data-highlighted');
+      expect(screen.getByTestId(other)).not.toHaveClass('border-gold/45');
+      expect(screen.getByTestId(other)).not.toHaveClass('bg-gold/[.06]');
+      expect(screen.getByTestId(other)).toHaveClass('border-transparent');
+    }
+  });
+
+  it('marks no episode without a highlight', () => {
+    render(
+      <EpisodeList
+        showId={SHOW_ID}
+        seasonNumber={SEASON}
+        episodes={mockEpisodes}
+      />,
+    );
+
+    for (const ep of mockEpisodes) {
+      const row = screen.getByTestId(`episode-row-${ep.episode_number}`);
+      expect(row).not.toHaveAttribute('aria-current');
+      expect(row).not.toHaveAttribute('data-highlighted');
+    }
+  });
+
+  it('marks no episode when the highlighted one is not listed', () => {
+    render(
+      <EpisodeList
+        showId={SHOW_ID}
+        seasonNumber={SEASON}
+        episodes={mockEpisodes}
+        highlightEpisode={9}
+      />,
+    );
+
+    for (const ep of mockEpisodes) {
+      expect(
+        screen.getByTestId(`episode-row-${ep.episode_number}`),
+      ).not.toHaveAttribute('aria-current');
+    }
+  });
+});

@@ -9,11 +9,11 @@
  *  - More Like This row renders PosterCards from tvService.browse
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ShowDetailView from './ShowDetailView';
-import type { ShowDetail, SeasonDetail, CatalogItem } from '@/types';
+import type { ShowDetail, SeasonDetail, CatalogItem, StreamingProgress } from '@/types';
 
 // ── module mocks ──────────────────────────────────────────────────────────────
 
@@ -499,5 +499,314 @@ describe('ShowDetailView', () => {
       const heroTitle = screen.getByRole('heading', { level: 1 });
       expect(heroTitle).toHaveTextContent(mockShow.name);
     });
+  });
+});
+
+// ── The asked episode ─────────────────────────────────────────────────────────
+//
+// Appended, never interleaved: `services/torrents.test.ts:12-16` cites this file's line numbers,
+// and `vi.mock` is hoisted wherever it sits, so the existing suite above also renders against this
+// ProgressContext (no rows, loaded) and this `findNextEpisode` (never reached without a finished
+// row) — which is how it rendered before the page could be asked for an episode.
+
+const progress = vi.hoisted(() => ({
+  data: {} as Record<string, StreamingProgress>,
+  isLoading: false,
+}));
+vi.mock('@/context/ProgressContext', () => ({
+  useProgress: () => ({
+    progressData: progress.data,
+    isLoading: progress.isLoading,
+    getMovieProgress: (id: string) => progress.data[id] ?? null,
+  }),
+}));
+
+const next = vi.hoisted(() => ({ fn: vi.fn() }));
+vi.mock('@/lib/nextEpisode', () => ({
+  findNextEpisode: (...a: unknown[]) => next.fn(...a),
+}));
+
+/** `findNextEpisode`'s answer when the catalog could not say. */
+const UNKNOWN_NEXT = { verdict: { k: 'unknown' as const }, runtimeS: null };
+
+/** `findNextEpisode`'s answer naming the episode after the finished one. */
+const readyNext = (season: number, episode: number) => ({
+  verdict: { k: 'ready' as const, next: { season, episode, name: '' } },
+  runtimeS: 2760,
+});
+
+/**
+ * The profile's unfinished row for S1·E2, on a season pack (`file_index: 4`), keyed the way the
+ * backend keys it — spelled out rather than built, so the page's lookup key is pinned too. Each
+ * case below changes only the fields it is about.
+ */
+const unfinishedS1E2: StreamingProgress = {
+  id: 'progress-1',
+  user_id: 'profile-1',
+  torrent_id: 't-9',
+  movie_id: 'tv:95396:s1:e2',
+  current_time: 840,
+  duration: 2760,
+  percentage: 30,
+  completed: false,
+  last_watched_at: '2026-11-10T20:00:00Z',
+  created_at: '2026-11-10T19:00:00Z',
+  updated_at: '2026-11-10T20:00:00Z',
+  file_index: 4,
+  title: 'Severance S01E02',
+};
+
+/** The same profile having finished S1·E1. */
+const finishedS1E1: StreamingProgress = {
+  ...unfinishedS1E2,
+  movie_id: 'tv:95396:s1:e1',
+  current_time: 2870,
+  duration: 2880,
+  percentage: 100,
+  completed: true,
+  title: 'Severance S01E01',
+};
+
+describe('ShowDetailView — the asked episode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    progress.data = {};
+    progress.isLoading = false;
+    next.fn.mockReset();
+    next.fn.mockResolvedValue(UNKNOWN_NEXT);
+    mockGetSeason.mockImplementation((_id: number, season: number) =>
+      Promise.resolve(season === 2 ? mockSeason2 : mockSeason1),
+    );
+    mockBrowse.mockResolvedValue({ page: 1, results: [], total_pages: 1, total_results: 0 });
+    mockHandleCatalogStreamingStart.mockResolvedValue(mockTorrentStatus);
+  });
+
+  afterEach(() => {
+    // The suite above reads the same hoisted progress: leave it as that suite expects it.
+    progress.data = {};
+    progress.isLoading = false;
+  });
+
+  /**
+   * Render asked for `ask`, then wait for the open season's episodes. Waiting matters twice: an
+   * absent highlight is read after the season lands rather than before it, and the hero is read
+   * after the mount effects (the next-episode lookup among them) have run.
+   */
+  async function mount(ask: { initialSeason?: number; initialEpisode?: number } = {}) {
+    const view = render(<ShowDetailView show={mockShow} {...ask} />);
+    await screen.findByTestId('episode-list');
+    return view;
+  }
+
+  /** No episode row on screen says it is current. */
+  function expectNoHighlight() {
+    for (const row of screen.queryAllByTestId(/^episode-row-\d+$/)) {
+      expect(row).not.toHaveAttribute('aria-current');
+    }
+  }
+
+  it('opens the asked season and highlights the asked episode', async () => {
+    await mount({ initialSeason: 2, initialEpisode: 1 });
+
+    expect(screen.getByTestId('season-tab-2')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('season-tab-1')).toHaveAttribute('aria-pressed', 'false');
+    expect(mockGetSeason).toHaveBeenCalledWith(SHOW_ID, 2);
+    // Seeded, not switched to: the first season is never fetched on the way to the asked one.
+    expect(mockGetSeason).not.toHaveBeenCalledWith(SHOW_ID, 1);
+    expect(screen.getByTestId('episode-row-1')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('show-play-button')).toHaveTextContent(/^Play S02·E01$/);
+  });
+
+  it('an unknown asked season opens the first', async () => {
+    await mount({ initialSeason: 7, initialEpisode: 1 });
+
+    expect(screen.getByTestId('season-tab-1')).toHaveAttribute('aria-pressed', 'true');
+    expect(mockGetSeason).toHaveBeenCalledWith(SHOW_ID, 1);
+    expectNoHighlight();
+    expect(screen.getByTestId('show-play-button')).toHaveTextContent(/^Play S01·E01$/);
+  });
+
+  it('resumes an unfinished asked episode on its own download', async () => {
+    progress.data['tv:95396:s1:e2'] = unfinishedS1E2;
+    await mount({ initialSeason: 1, initialEpisode: 2 });
+
+    const hero = screen.getByTestId('show-play-button');
+    expect(hero).toHaveTextContent(/^Resume S01·E02$/);
+    expect(screen.getByTestId('episode-row-2')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('episode-row-1')).not.toHaveAttribute('aria-current');
+
+    await userEvent.click(hero);
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/streaming/t-9?file=4');
+    expect(mockHandleCatalogStreamingStart).not.toHaveBeenCalled();
+    // An unfinished row has nothing after it to look up.
+    expect(next.fn).not.toHaveBeenCalled();
+  });
+
+  it('file 0 survives', async () => {
+    progress.data['tv:95396:s1:e2'] = { ...unfinishedS1E2, file_index: 0 };
+    await mount({ initialSeason: 1, initialEpisode: 2 });
+
+    await userEvent.click(screen.getByTestId('show-play-button'));
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/streaming/t-9?file=0');
+  });
+
+  it('a finished asked episode plays the next one', async () => {
+    progress.data['tv:95396:s1:e1'] = finishedS1E1;
+    next.fn.mockResolvedValue(readyNext(1, 2));
+    await mount({ initialSeason: 1, initialEpisode: 1 });
+
+    const hero = screen.getByTestId('show-play-button');
+    await waitFor(() => expect(hero).toHaveTextContent(/^Play S01·E02$/));
+    expect(next.fn).toHaveBeenCalledWith({ tmdbId: SHOW_ID, season: 1, episode: 1 });
+    expect(screen.getByTestId('episode-row-2')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('episode-row-1')).not.toHaveAttribute('aria-current');
+
+    await userEvent.click(hero);
+
+    await waitFor(() =>
+      expect(mockHandleCatalogStreamingStart).toHaveBeenCalledWith({
+        tmdb_id: SHOW_ID,
+        quality: '1080p',
+        media_type: 'tv',
+        season: 1,
+        episode: 2,
+      }),
+    );
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(`/streaming/${mockTorrentStatus.id}`),
+    );
+  });
+
+  it('a finished asked episode cannot start anything while its next one is being looked up', async () => {
+    progress.data['tv:95396:s1:e1'] = finishedS1E1;
+    // A lookup that never answers.
+    next.fn.mockReturnValue(new Promise(() => {}));
+    await mount({ initialSeason: 1, initialEpisode: 1 });
+
+    const hero = screen.getByTestId('show-play-button');
+    expect(hero).toBeDisabled();
+    expect(hero).toHaveAttribute('aria-busy', 'true');
+
+    await userEvent.click(hero);
+
+    expect(mockHandleCatalogStreamingStart).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('the next one can be in a later season', async () => {
+    progress.data['tv:95396:s1:e1'] = finishedS1E1;
+    next.fn.mockResolvedValue(readyNext(2, 1));
+    await mount({ initialSeason: 1, initialEpisode: 1 });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('show-play-button')).toHaveTextContent(/^Play S02·E01$/),
+    );
+    // Season 1 stays the open tab, and none of its episodes is the one the hero is about.
+    expect(screen.getByTestId('season-tab-1')).toHaveAttribute('aria-pressed', 'true');
+    expectNoHighlight();
+  });
+
+  it('nothing after a finished episode plays from the start', async () => {
+    progress.data['tv:95396:s1:e2'] = { ...unfinishedS1E2, completed: true, percentage: 100 };
+    next.fn.mockResolvedValue({ verdict: { k: 'none' }, runtimeS: null });
+    await mount({ initialSeason: 1, initialEpisode: 2 });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('show-play-button')).toHaveTextContent(/^Play S01·E01$/),
+    );
+    expect(next.fn).toHaveBeenCalledWith({ tmdbId: SHOW_ID, season: 1, episode: 2 });
+  });
+
+  it('no usable row plays the asked episode', async () => {
+    progress.data['tv:95396:s1:e2'] = { ...unfinishedS1E2, torrent_id: null };
+    await mount({ initialSeason: 1, initialEpisode: 2 });
+
+    const hero = screen.getByTestId('show-play-button');
+    expect(hero).toHaveTextContent(/^Play S01·E02$/);
+
+    await userEvent.click(hero);
+
+    await waitFor(() =>
+      expect(mockHandleCatalogStreamingStart).toHaveBeenCalledWith({
+        tmdb_id: SHOW_ID,
+        quality: '1080p',
+        media_type: 'tv',
+        season: 1,
+        episode: 2,
+      }),
+    );
+    expect(mockHandleCatalogStreamingStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('while progress loads, the hero cannot start anything', async () => {
+    progress.isLoading = true;
+    const { rerender } = await mount({ initialSeason: 1, initialEpisode: 2 });
+
+    const hero = screen.getByTestId('show-play-button');
+    expect(hero).toBeDisabled();
+    expect(hero).toHaveAttribute('aria-busy', 'true');
+
+    await userEvent.click(hero);
+
+    expect(mockHandleCatalogStreamingStart).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // The row lands: the hero it was holding back for is Resume, not a new download.
+    progress.isLoading = false;
+    progress.data['tv:95396:s1:e2'] = unfinishedS1E2;
+    rerender(<ShowDetailView show={mockShow} initialSeason={1} initialEpisode={2} />);
+
+    expect(screen.getByTestId('show-play-button')).toHaveTextContent(/^Resume S01·E02$/);
+    expect(screen.getByTestId('show-play-button')).toBeEnabled();
+  });
+
+  it('a finished row that lands after mount still finds the next episode', async () => {
+    // The fresh-load path of every "Up next" card: it links to the episode just finished, and a
+    // new tab or a reload mounts the page before ProgressProvider has any rows. The lookup can
+    // only start once the row says it is finished, so it must start on that render, not at mount.
+    progress.isLoading = true;
+    next.fn.mockResolvedValue(readyNext(1, 2));
+    const { rerender } = await mount({ initialSeason: 1, initialEpisode: 1 });
+
+    expect(screen.getByTestId('show-play-button')).toBeDisabled();
+    expect(next.fn).not.toHaveBeenCalled();
+
+    progress.isLoading = false;
+    progress.data['tv:95396:s1:e1'] = finishedS1E1;
+    rerender(<ShowDetailView show={mockShow} initialSeason={1} initialEpisode={1} />);
+
+    const hero = screen.getByTestId('show-play-button');
+    await waitFor(() => expect(hero).toHaveTextContent(/^Play S01·E02$/));
+    expect(hero).toBeEnabled();
+    expect(next.fn).toHaveBeenCalledTimes(1);
+    expect(next.fn).toHaveBeenCalledWith({ tmdbId: SHOW_ID, season: 1, episode: 1 });
+    expect(screen.getByTestId('episode-row-2')).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('without a query nothing changes', async () => {
+    // Even a row the profile could resume is not consulted: no episode was asked for.
+    progress.data['tv:95396:s1:e2'] = unfinishedS1E2;
+    await mount();
+
+    const hero = screen.getByTestId('show-play-button');
+    expect(hero).toHaveTextContent(/^Play S01·E01$/);
+    expectNoHighlight();
+
+    await userEvent.click(hero);
+
+    await waitFor(() =>
+      expect(mockHandleCatalogStreamingStart).toHaveBeenCalledWith({
+        tmdb_id: SHOW_ID,
+        quality: '1080p',
+        media_type: 'tv',
+        season: 1,
+        episode: 1,
+      }),
+    );
+    expect(next.fn).not.toHaveBeenCalled();
   });
 });

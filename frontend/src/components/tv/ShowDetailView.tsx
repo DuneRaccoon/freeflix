@@ -4,12 +4,40 @@
  * ShowDetailView — client island for the TV show detail page.
  *
  * Composes DetailHero + season selector + EpisodeList + "More Like This" row.
- * Server page (app/tv/[id]/page.tsx) fetches ShowDetail SSR and passes it in
- * via props; this component owns all interactivity.
+ * Server page (app/(web)/tv/[id]/page.tsx) fetches ShowDetail SSR and passes it
+ * in via props; this component owns all interactivity.
  *
- * Play flow (load-bearing — do not modify):
+ * The asked episode (a Continue Watching show card opens this page, not the
+ * player, so the way back into the episode lives here):
+ *   the server page reads `?season=&episode=` with `episodeAskFrom` and passes
+ *   them as `initialSeason` / `initialEpisode`, keyed on both so a search-only
+ *   navigation remounts this component rather than keeping its state
+ *   tab   = the asked season when it is one of the regular seasons, else the
+ *           first; season 0 never is (Specials, and the backend's `s0` fallback)
+ *   focus = the asked season + episode, when both are there; otherwise none,
+ *           and the page is exactly what it was without a query
+ *   row   = useProgress().progressData['tv:{tmdb_id}:s{S}:e{E}'] for the focus
+ *   next  = findNextEpisode(focus), asked only once that row is finished
+ *           (in-season or cross-season); `none` and `unknown` are both null
+ *
+ * Hero flow (the order is `showHeroAction`'s, in @/lib/showHero):
+ *   Resume S01·E03 → router.push(resumeUrlFor(row))
+ *     — an unfinished row past 0% that still has its torrent; the row's own
+ *       torrent and file (`?file=N` for a season pack, file 0 included); it
+ *       never starts a download. The player then applies its own "Resume
+ *       playback?" rule, as it does after the movie page's Resume.
+ *   Play S01·E04   → the next episode, when the asked one is finished
+ *   Play S01·E03   → the asked episode, when there is no usable row
+ *   Play S01·E01   → no asked episode, or none found after a finished one
+ *   Play, loading and disabled → progress, or the next-episode lookup, is still
+ *     out; a press then could start a download that Resume would have avoided.
+ *     Without a query the hero never waits: there is no row to wait for.
+ *   The episode the hero is about is highlighted in EpisodeList whenever its
+ *   season is the open tab. Nothing scrolls to it; the hero carries the action.
+ *
+ * Play flow (the hero's Play, for the episode it names):
  *   quality = '1080p' (default for shows)
- *   status  = await handleCatalogStreamingStart({ tmdb_id, quality:'1080p', media_type:'tv', season:1, episode:1 })
+ *   status  = await handleCatalogStreamingStart({ tmdb_id, quality:'1080p', media_type:'tv', season, episode })
  *   router.push(streamingHref(status))   // /streaming/<id>[?file=<file_index>]
  *
  * Download Season flow:
@@ -26,7 +54,10 @@ import { tvService } from '@/services/tv';
 import { torrentsService } from '@/services/torrents';
 import { handleCatalogStreamingStart } from '@/utils/streaming';
 import { useWatchlist } from '@/context/WatchlistContext';
+import { useProgress } from '@/context/ProgressContext';
 import { buildContentId } from '@/lib/contentId';
+import { findNextEpisode } from '@/lib/nextEpisode';
+import { episodeCode, showHeroAction, type EpisodeAt } from '@/lib/showHero';
 import { toWatchlistCreate } from '@/lib/watchlist/toWatchlistCreate';
 
 import DetailHero from '@/components/detail/DetailHero';
@@ -127,17 +158,32 @@ function PackageIcon() {
 
 export interface ShowDetailViewProps {
   show: ShowDetail;
+  /** `?season=`: the tab to open on, honoured only when it is a regular season. */
+  initialSeason?: number;
+  /** `?episode=`: the episode in that season the hero is about. */
+  initialEpisode?: number;
 }
 
-const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
+const ShowDetailView: React.FC<ShowDetailViewProps> = ({
+  show,
+  initialSeason,
+  initialEpisode,
+}) => {
   const router = useRouter();
 
   // Determine available seasons (filter out season 0 / specials)
   const regularSeasons = show.seasons.filter((s) => s.season_number > 0);
   const firstSeason = regularSeasons[0]?.season_number ?? 1;
+  // The asked season, only when it is one of those tabs: a season the show
+  // does not list is not an ask, and the page opens on the first as before.
+  const askedSeason = regularSeasons.some((s) => s.season_number === initialSeason)
+    ? initialSeason
+    : undefined;
 
   // ── state ──────────────────────────────────────────────────────────────────
-  const [selectedSeason, setSelectedSeason] = useState<number>(firstSeason);
+  // Seeded with the asked season, not switched to it after mount, so the
+  // first season is never fetched on the way.
+  const [selectedSeason, setSelectedSeason] = useState<number>(askedSeason ?? firstSeason);
   const [seasonDetail, setSeasonDetail] = useState<SeasonDetail | null>(null);
   const [seasonLoading, setSeasonLoading] = useState(false);
   // Use a ref for the season cache so fetchSeason doesn't need it in its deps
@@ -146,6 +192,73 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<CatalogItem[]>([]);
+  // The episode after a finished focus, kept with the content id it was asked
+  // for so that it is never read as another episode's answer.
+  const [nextFound, setNextFound] = useState<{ asked: string; at: EpisodeAt | null } | null>(null);
+
+  // ── the asked episode ──────────────────────────────────────────────────────
+  // See the header. `focusId` is the profile's progress key for the focus.
+  const { progressData, isLoading: progressLoading } = useProgress();
+  const focus: EpisodeAt | null =
+    askedSeason !== undefined && initialEpisode !== undefined
+      ? { season: askedSeason, episode: initialEpisode }
+      : null;
+  const focusId = focus ? buildContentId({ kind: 'tv', tmdbId: show.tmdb_id, ...focus }) : null;
+  const row = focusId !== null ? progressData[focusId] ?? null : null;
+  const finished = row?.completed === true;
+
+  // Asked only for a finished row: the hero reads `next` for nothing else.
+  // `ready` is the next episode and anything else is null; an answer that lands
+  // after unmount, or for a focus no longer on screen, is dropped. The answer is
+  // filed under `focusId` itself, the key `next` below reads it back by.
+  // `finished` is a dep because the row usually lands after mount (a fresh load
+  // of an "Up next" card): the lookup starts on that render, not at mount.
+  useEffect(() => {
+    // `focusId` is null exactly when either half of the ask is; the other two
+    // tests are there to narrow them for the call.
+    if (focusId === null || askedSeason === undefined || initialEpisode === undefined || !finished) {
+      return;
+    }
+    const asked = focusId;
+    let cancelled = false;
+
+    (async () => {
+      let at: EpisodeAt | null = null;
+      try {
+        const { verdict } = await findNextEpisode({
+          tmdbId: show.tmdb_id,
+          season: askedSeason,
+          episode: initialEpisode,
+        });
+        if (verdict.k === 'ready') {
+          at = { season: verdict.next.season, episode: verdict.next.episode };
+        }
+      } catch {
+        // findNextEpisode never rejects; were it to, that is `unknown` — not a
+        // hero left pending for good.
+      }
+      if (!cancelled) setNextFound({ asked, at });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [focusId, show.tmdb_id, askedSeason, initialEpisode, finished]);
+
+  const next = focusId !== null && nextFound?.asked === focusId ? nextFound.at : undefined;
+  const heroAction = showHeroAction({ focus, row, next, progressLoading });
+  const heroLabel =
+    heroAction.kind === 'resume'
+      ? `Resume ${episodeCode(heroAction.at)}`
+      : heroAction.kind === 'play'
+        ? `Play ${episodeCode(heroAction.at)}`
+        : 'Play';
+  // The episode the hero is about, when its season is the open tab. Without a
+  // query nothing is highlighted, though the hero still names S01·E01.
+  const highlightEpisode =
+    focus !== null && heroAction.kind !== 'pending' && heroAction.at.season === selectedSeason
+      ? heroAction.at.episode
+      : undefined;
 
   // ── watchlist ──────────────────────────────────────────────────────────────
   const { isSaved, toggle } = useWatchlist();
@@ -223,15 +336,20 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
 
   // ── action handlers ────────────────────────────────────────────────────────
 
-  async function handlePlay() {
+  function handleHero() {
+    if (heroAction.kind === 'resume') router.push(heroAction.href);
+    else if (heroAction.kind === 'play') handlePlay(heroAction.at.season, heroAction.at.episode);
+  }
+
+  async function handlePlay(season: number, episode: number) {
     setIsPlaying(true);
     try {
       const status = await handleCatalogStreamingStart({
         tmdb_id: show.tmdb_id,
         quality: DEFAULT_QUALITY,
         media_type: 'tv',
-        season: 1,
-        episode: 1,
+        season,
+        episode,
       });
       if (status?.id) {
         router.push(streamingHref(status));
@@ -294,13 +412,13 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
       >
         {/* ── Actions row ── */}
         <div className="flex flex-wrap items-center gap-[14px] mt-[8px]">
-          {/* Play S1·E1 — champagne/primary */}
+          {/* Hero — Resume or Play the episode it names; champagne/primary */}
           <Button
             variant="primary"
             size="lg"
             leftIcon={<PlayIcon />}
-            onClick={handlePlay}
-            isLoading={isPlaying}
+            onClick={handleHero}
+            isLoading={isPlaying || heroAction.kind === 'pending'}
             disabled={isPlaying || isDownloading}
             data-testid="show-play-button"
             className={cn(
@@ -310,7 +428,7 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
               'transition-[transform,box-shadow] duration-200',
             )}
           >
-            Play S1·E1
+            {heroLabel}
           </Button>
 
           {/* Download Season — glass */}
@@ -430,6 +548,7 @@ const ShowDetailView: React.FC<ShowDetailViewProps> = ({ show }) => {
             showId={show.tmdb_id}
             seasonNumber={selectedSeason}
             episodes={seasonDetail.episodes}
+            highlightEpisode={highlightEpisode}
           />
         ) : (
           <p

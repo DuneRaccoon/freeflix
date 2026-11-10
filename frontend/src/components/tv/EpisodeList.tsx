@@ -7,6 +7,12 @@
  *  - showId: number            TMDB show ID (used for streaming/download requests)
  *  - seasonNumber: number      Current season number (used for S·E label + requests)
  *  - episodes: Episode[]       Episodes to render (from tvService.getSeason)
+ *  - highlightEpisode?: number The episode the show page's hero is about, when it is in
+ *                              this season (see ShowDetailView). That row wears a gold
+ *                              border and tint, and says so: aria-current="true" and
+ *                              data-highlighted="true". It is NOT scrolled into view —
+ *                              the hero carries the action — and its play flow and
+ *                              S·E label are those of every other row.
  *
  * Per-episode row:
  *  - 16:9 still (null-safe with placeholder)
@@ -147,9 +153,11 @@ interface EpisodeRowProps {
   showId: number;
   seasonNumber: number;
   episode: Episode;
+  /** The episode the show page's hero is about. */
+  highlighted: boolean;
 }
 
-function EpisodeRow({ showId, seasonNumber, episode }: EpisodeRowProps) {
+function EpisodeRow({ showId, seasonNumber, episode, highlighted }: EpisodeRowProps) {
   const router = useRouter();
 
   const [quality, setQuality] = useState<QualityOption>('Auto');
@@ -215,11 +223,16 @@ function EpisodeRow({ showId, seasonNumber, episode }: EpisodeRowProps) {
       className={cn(
         'grid grid-cols-[300px_1fr_164px] gap-6 items-stretch',
         'p-[14px] rounded-[14px]',
-        'border border-transparent bg-white/[.012]',
-        'transition-[background,border-color] duration-[250ms]',
-        'hover:bg-white/[.04] hover:border-hairline',
+        'border transition-[background,border-color] duration-[250ms]',
+        // The highlight keeps its gold under the pointer, as a selected Pill does: the
+        // hover wash would otherwise take it away from the one row it marks.
+        highlighted
+          ? 'border-gold/45 bg-gold/[.06]'
+          : 'border-transparent bg-white/[.012] hover:bg-white/[.04] hover:border-hairline',
         'max-[1100px]:grid-cols-[240px_1fr] max-[820px]:grid-cols-1',
       )}
+      aria-current={highlighted ? 'true' : undefined}
+      data-highlighted={highlighted ? 'true' : undefined}
       data-testid={`episode-row-${episode.episode_number}`}
     >
       {/* ── Still ── */}
@@ -526,12 +539,15 @@ export interface EpisodeListProps {
   showId: number;
   seasonNumber: number;
   episodes: Episode[];
+  /** The episode to highlight; omitted, no row is. See the header. */
+  highlightEpisode?: number;
 }
 
 const EpisodeList: React.FC<EpisodeListProps> = ({
   showId,
   seasonNumber,
   episodes,
+  highlightEpisode,
 }) => {
   if (!episodes || episodes.length === 0) {
     return (
@@ -552,6 +568,7 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
           showId={showId}
           seasonNumber={seasonNumber}
           episode={ep}
+          highlighted={ep.episode_number === highlightEpisode}
         />
       ))}
     </div>

@@ -26,6 +26,11 @@ so that we can return to the movie or tv-show page."*
      - The "Up next" card keeps opening `/bigscreen/show/{showId}`.
    - A card whose title cannot be identified keeps going to the player. That means a legacy
      title-string id, or a non-positive tmdb id.
+   - *(Amended after review.)* An unfinished episode the title page can't be asked for keeps
+     going to the player on its own file, on both surfaces. That means season 0 or episode 0,
+     which includes the backend's `s0` last-resort key for a pack file it couldn't identify;
+     the page would open on S01·E01 and lose the row's place. A finished one (an "Up next"
+     card) opens the bare show page instead, since there is nothing to resume.
 2. **The web show page opens on the asked episode.** Season S is the open tab and the episode its
    main button is about is highlighted. That hero button says:
    - **Resume S01·E03** when the profile has an unfinished row for that episode that still has a
@@ -34,14 +39,18 @@ so that we can return to the movie or tv-show page."*
      a later season.
    - **Play S01·E03** when there is no usable row.
 
-   Without a query the page behaves exactly as today ("Play S01·E01").
+   Without a query the page plays S1·E1 as it always did, now labelled "Play S01·E01" (padded
+   like every hero label).
 3. **The web movie page offers Resume.** If the profile has an unfinished row with a torrent for
    `movie:{tmdb}`, and that row passes the web player's own prompt rule (`current_time > 30 &&
    percentage < 98`), the first action is **Resume from 42:10**. It goes to that row's
    torrent and file, and Play drops to the secondary style.
 4. **The TV show screen honours `?s=&e=`.**
-   - **Season:** the asked season opens if it is a regular season, and the finished-season
-     auto-advance never skips an asked season.
+   - **Season:** the asked season opens if it is a regular season.
+   - **Auto-advance** *(amended after review)*: the finished-season auto-advance is skipped only
+     when the ask resolves to a subject, i.e. the asked episode is listed and unwatched.
+     Otherwise it runs as today, starting from the asked season. So leaving the player after a
+     season finale lands on the next season, not on "You've finished Season 1".
    - **Subject:** row 1's subject is the asked episode, unless the episode isn't listed or is
      already watched. Then it falls back to the first unwatched episode. The "Next up" badge
      follows the subject.
@@ -86,6 +95,12 @@ so that we can return to the movie or tv-show page."*
     surfaces may import them).
   - Season 0, which is Specials and also the backend's `s0` last-resort fallback, is treated as
     show-level and never sent as an ask.
+  - *(Amended after review.)* `titleOfStream` takes both the season and the episode from the hint
+    when the torrent row names no episode (a season pack). The hint is `/info`, but only when it
+    describes the file now playing; otherwise it is the current `/files` entry. A pack row's season
+    is just the season that was requested, and a multi-season pack is stored under one season.
+    `/info`'s numbers come from the same map as the web's progress key. The TV player doesn't use
+    this helper: it derives its exit from `watchIdentity`'s content id.
 - **Route builders are per surface:**
   - The web uses `@/lib/titlePageHref.ts`. The TV never imports it.
   - The TV uses `(bigscreen)/_data/titleHref.ts`, a sibling of `watchHref.ts`.
@@ -106,9 +121,14 @@ so that we can return to the movie or tv-show page."*
     closed, and no `initialRow` when it is open.
   - Back is not rendered while the picker is open. Its key would collide with the picker's Off
     cell.
+  - *(Amended after review.)* The shared focus hook's key handler now clamps with the same
+    `initialRow` preference as its reconcile. Otherwise a press landing between a recovery's
+    commit and the grid's reconcile could put the ring on Back by itself.
 - **Web player:**
-  - The blocked state's "Choose another source" now goes to the title page, which is where the
-    source picker lives.
+  - The blocked state goes to the title page. For a film that page has the source picker, so the
+    button keeps "Choose another source". For a show it doesn't (only per-episode quality), so the
+    button says "Back to {show}" *(amended after review)*. A download with no known title keeps
+    "Choose another source" and goes to `/downloads`, as before.
   - The error state's button is labelled for where it goes.
 
 ## Constraints

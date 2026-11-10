@@ -876,7 +876,8 @@ describe('every screen that should claim Back does', () => {
       // Nothing is on screen to collapse in this state — no control band, no pending edit —
       // so the first press is already the rung that leaves. What this file can see that the
       // screen's own suite cannot is WHICH navigation it is: `navCalls()` merges push and
-      // replace, so the two buckets above cannot tell them apart.
+      // replace, so the two buckets above cannot tell them apart. HOME, not a title: with the
+      // services still out the player knows no title, and an unknown title leaves home.
       expect(nav.replace).toHaveBeenCalledWith('/bigscreen');
       expect(nav.push, 'a pushed watch URL leaves a dead entry behind').not.toHaveBeenCalled();
     },
@@ -901,7 +902,11 @@ describe('every screen that should claim Back does', () => {
     expect(ring()).toHaveLength(1);
 
     back();
-    expect(nav.replace).toHaveBeenCalledWith('/bigscreen');
+    // To the TITLE the film belongs to, not home: `packRow()` is show 1399 and the one file is
+    // S02E01, so the show screen is asked for that episode — and the href is one this surface
+    // builds, through the same matcher every producer above goes through.
+    expect(nav.replace).toHaveBeenCalledWith('/bigscreen/show/1399?s=2&e=1');
+    expectBuiltRoute({ source: 'the player’s last Back rung', href: nav.replace.mock.calls[0][0] });
     expect(nav.push).not.toHaveBeenCalled();
   });
 

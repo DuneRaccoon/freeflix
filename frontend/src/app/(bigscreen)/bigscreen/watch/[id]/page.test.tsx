@@ -133,6 +133,15 @@ const file = (index: number, episode: number, size = FILE_SIZE): VideoFile => ({
 /** `/files` as the backend sends it: already sorted by season then episode. */
 const FILES = [file(4, 1, 1_000_000_000), file(0, 2), file(7, 3)];
 
+/**
+ * Where every way out of this fixture goes: the show screen, asked for the episode on screen.
+ * A bare arrival plays `FILES[0]`, which is file 4 = S02E01, and `statusRow()`'s
+ * `movie_title` strips to `Show 1399`. Written out rather than built with `showHref`, so a
+ * builder that changed its spelling reddens here instead of agreeing with itself.
+ */
+const EXIT = '/bigscreen/show/1399?s=2&e=1';
+const EXIT_LABEL = 'Show 1399';
+
 const infoRow = (over: Partial<StreamingInfo> = {}): StreamingInfo =>
   ({
     torrent_id: PACK,
@@ -1072,7 +1081,8 @@ describe('Back', () => {
     expect.soft(navCalls()).toEqual([]);
 
     back();
-    expect.soft(nav.replace).toHaveBeenCalledWith('/bigscreen');
+    // To the TITLE, not home: the last rung is the same exit as the on-screen Back.
+    expect.soft(nav.replace).toHaveBeenCalledWith(EXIT);
     // `replace`, not `push`: a pushed watch URL leaves a dead history entry pointing at a
     // torrent that may be gone by the time the viewer walks back to it.
     expect.soft(nav.push).not.toHaveBeenCalled();
@@ -1102,7 +1112,7 @@ describe('Back', () => {
     expect.soft(hidden(), 'Back collapsed the band again').toBe(true);
     expect.soft(navCalls()).toEqual([]);
     back();
-    expect.soft(navCalls()).toEqual(['/bigscreen']);
+    expect.soft(navCalls()).toEqual([EXIT]);
   });
 
   it('cancels a pending seek before it collapses anything', async () => {
@@ -1128,12 +1138,221 @@ describe('Back', () => {
     });
     back();
     back();
-    expect.soft(nav.replace).toHaveBeenCalledWith('/bigscreen');
+    expect.soft(nav.replace).toHaveBeenCalledWith(EXIT);
     // The route change fires neither `beforeunload` nor `pagehide`; the unmount is all there
     // is, and the flush must have happened by then.
     view.unmount();
     expect.soft(svc.saveProgress).toHaveBeenCalled();
     expect.soft(svc.saveProgress.mock.calls[0][1].current_time).toBe(900);
+  });
+});
+
+// ===================================================================================
+// 3b. The on-screen Back control, and the one exit every way out shares
+// ===================================================================================
+
+/**
+ * THE CONTROL IS ROW 0 OF THE GRID, ABOVE THE SCRUB ROW, and the danger is the same one every
+ * row here is about: an OK on it LEAVES THE FILM. So the ring may land on it only when the
+ * viewer pressed Up to get there — never on arrival, never because a recovery emptied the
+ * scrub row under the ring, never because the picker closed. `initialRow` is what holds the
+ * first two off it and the close move is what holds off the third; each of the rows below is
+ * the one that sees its own half.
+ *
+ * OK IS A CLICK, as `page.subtitles.test.tsx` records: jsdom has no default action turning
+ * Enter into one, so the rows walk the ring with arrows (which moves the model and DOM focus)
+ * and then click (which only presses).
+ */
+describe('the Back control', () => {
+  const backWrapper = () => document.querySelector('.bs-player__back') as HTMLElement | null;
+  const backControl = () => backWrapper()?.querySelector('button') ?? null;
+  const backFaded = () => !!backWrapper()?.classList.contains('bs-player__back--hidden');
+  /** Back by its accessible name, which is the title it returns to and nothing else. */
+  const named = (name: string) => screen.getByRole('button', { name });
+
+  /** Leave by the remote's Back: collapse the band if it is up, then the rung that leaves. */
+  function backOut() {
+    for (let i = 0; i < 3 && navCalls().length === 0; i++) back();
+  }
+
+  it('arrival leaves the ring on Play/Pause, with Back on screen above it', async () => {
+    await mount();
+    // The positive control: without it, "the ring is not on Back" is true of a player with
+    // no Back at all.
+    expect(backControl(), 'Back is on screen').not.toBeNull();
+    await untilRingOn(/Pause|Play/);
+    expect.soft(ring(), 'one ring').toHaveLength(1);
+    expect.soft(ring()[0]?.textContent, 'on arrival, with no scrub row').toMatch(/Pause|Play/);
+    // The scrub row arriving moves nothing: the grid only re-clamps, and the ring's row is
+    // still populated.
+    await metadata();
+    await untilRingOn(/Pause|Play/);
+    expect.soft(ring()[0]?.textContent, 'and after metadata grew the scrub row').toMatch(/Pause|Play/);
+    expect.soft(document.activeElement).not.toBe(backControl());
+  });
+
+  it('Up from the transport reaches Back when there is no scrub row', async () => {
+    // The television's usual state: an in-progress stream has never been seen to report a
+    // finite duration, so the scrub row is empty and ONE Up crosses it.
+    await mount();
+    await untilRingOn(/Pause|Play/);
+    expect(document.querySelector('.bs-player__scrub'), 'no scrub row yet').toBeNull();
+    right();
+    expect(document.activeElement?.textContent).toBe('Back 10s');
+    up();
+    expect.soft(document.activeElement, 'one Up is Back').toBe(named(EXIT_LABEL));
+    expect.soft(ring()).toHaveLength(1);
+    expect.soft(ring()[0]).toBe(document.activeElement);
+    // Column memory: Down goes back to the cell the viewer came up from, not to column 0.
+    down();
+    expect.soft(document.activeElement?.textContent, 'and Down returns to the column it left').toBe('Back 10s');
+  });
+
+  it('with the scrub row, two Ups reach Back', async () => {
+    await playing();
+    await untilRingOn(/Pause|Play/);
+    up();
+    expect.soft(document.activeElement, 'the first Up is the scrub cell').toBe(
+      document.querySelector('.bs-player__scrub'),
+    );
+    up();
+    expect.soft(document.activeElement, 'the second is Back').toBe(named(EXIT_LABEL));
+  });
+
+  it('OK on Back flushes, then replaces to the title', async () => {
+    // The same rule as Stop's: the position is written BEFORE anything leaves, and the
+    // leave is a replace, so no dead watch URL is left behind in history.
+    const { seek } = await playing();
+    seek(900);
+    await act(async () => {
+      fireEvent.timeUpdate(video()!);
+    });
+    await untilRingOn(/Pause|Play/);
+    up();
+    up();
+    const control = named(EXIT_LABEL);
+    expect(document.activeElement, 'the walk ended on Back').toBe(control);
+    const order: string[] = [];
+    svc.saveProgress.mockImplementation(async (_user, p) => {
+      order.push(`save ${p.current_time}`);
+      return progressRow();
+    });
+    nav.replace.mockImplementationOnce((to: string) => {
+      order.push(`replace ${to}`);
+    });
+    await act(async () => {
+      fireEvent.click(control);
+    });
+    expect.soft(order).toEqual(['save 900', `replace ${EXIT}`]);
+    expect.soft(nav.push).not.toHaveBeenCalled();
+  });
+
+  it('Back fades with the band, on the same flag, and is never unmounted to do it', async () => {
+    // ONE node, not "at least one", for the scrim's reason (`querySelector` returns the FIRST
+    // match): a second, unconditional copy would be a Back that never faded.
+    await playing();
+    expect.soft(document.querySelectorAll('.bs-player__back'), 'exactly one Back node').toHaveLength(1);
+    expect.soft(backFaded(), 'up on arrival').toBe(false);
+
+    down(); // a press arms the quiet period
+    await tick(REVEAL_HIDE_MS + 100);
+    expect.soft(hidden(), 'the band faded').toBe(true);
+    expect.soft(backWrapper(), 'Back is still in the DOM').not.toBeNull();
+    expect.soft(backFaded(), 'and it faded with the band').toBe(true);
+
+    right(); // the press that only means "wake up"
+    expect.soft(hidden(), 'the band came back').toBe(false);
+    expect.soft(backFaded(), 'and Back came back with it').toBe(false);
+    expect.soft(document.querySelectorAll('.bs-player__back')).toHaveLength(1);
+  });
+
+  it('a recovery that removes the scrub row never parks the ring on Back', async () => {
+    // THE ROW `initialRow` IS FOR. The scrub row unmounts under the ring when `load()` takes
+    // the duration to NaN, and the grid falls back through `firstTarget` — which, searching
+    // from row 0, would answer Back. An OK pressed at the stream coming back would then leave
+    // the film the viewer was trying to watch.
+    nav.search.current = new URLSearchParams('file=0');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(null, { status: 503, headers: { 'Retry-After': '2' } })),
+    );
+    await playing();
+    await untilRingOn(/Pause|Play/);
+    up();
+    expect(document.activeElement, 'the ring is on the scrub cell').toBe(document.querySelector('.bs-player__scrub'));
+
+    await act(async () => {
+      fireEvent.error(video()!);
+    });
+    await tick(2500);
+    expect(document.querySelector('.bs-player__scrub'), 'the recovery took the scrub row away').toBeNull();
+    await untilRingOn(/Pause|Play/);
+
+    // The positive control, as on arrival: "not on Back" is true of a band with no Back.
+    expect(backControl(), 'Back is on screen while the ring falls back').not.toBeNull();
+    expect.soft(document.activeElement, 'not on Back').not.toBe(backControl());
+    expect.soft(ring()).toHaveLength(1);
+    expect.soft(ring()[0]).toBe(document.activeElement);
+    expect
+      .soft(screen.getByRole('group', { name: 'Playback controls' }).contains(document.activeElement), 'on a transport cell')
+      .toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('the Stop media key leaves to the title', async () => {
+    // 413 is the Stop key's code, as `useMediaKeys` records it. The key and the cell share one
+    // callback, so the exit cannot differ between them.
+    await playing();
+    press({ key: 'Unidentified', keyCode: 413 });
+    expect.soft(nav.replace).toHaveBeenCalledWith(EXIT);
+    expect.soft(nav.push).not.toHaveBeenCalled();
+  });
+
+  it('a film leaves to its movie screen, and Back is named for the film', async () => {
+    torrents.getTorrentStatus.mockResolvedValue(
+      statusRow({ tmdb_id: 603, media_type: 'movie', movie_title: 'The Matrix', season: null, episode: null }),
+    );
+    svc.getFiles.mockResolvedValue([{ ...file(0, 1), season: null, episode: null }]);
+    await playing();
+    expect.soft(backControl(), 'Back is named for the film').toBe(named('The Matrix'));
+    backOut();
+    expect.soft(nav.replace).toHaveBeenCalledWith('/bigscreen/movie/603');
+  });
+
+  it('an unknown title leaves home, labelled Home', async () => {
+    // A label never lies about where it goes: with no tmdb id there is no title screen to
+    // name, so the control says Home and goes there.
+    torrents.getTorrentStatus.mockResolvedValue(statusRow({ tmdb_id: null }));
+    await playing();
+    expect.soft(backControl(), 'Back says Home').toBe(named('Home'));
+    backOut();
+    expect.soft(nav.replace).toHaveBeenCalledWith('/bigscreen');
+  });
+
+  it('while preparing, the on-screen Back goes to the title', async () => {
+    // `downloading` is a PREPARING state and `/info` has not got the file yet, so this is
+    // `LoadStatus` — the player's commonest first screen. The identity is already known from
+    // the torrent row and `/files`, so its Back and the remote's both go to the title.
+    svc.getStreamingInfo.mockRejectedValue(httpError(404, NOT_READY));
+    await mount();
+    expect(video(), 'not playing yet').toBeNull();
+    expect.soft(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', EXIT);
+    back();
+    expect.soft(nav.replace, 'and the remote’s Back agrees').toHaveBeenCalledWith(EXIT);
+  });
+
+  it('a boundary Gone offers the title first', async () => {
+    // The arrival succeeded, so the title is known; the torrent going later does not unknow
+    // it. The show is still worth going to — it is where another download of it starts.
+    const info = infoThatCanFail();
+    await playing();
+    info.fail(httpError(404, 'Torrent not found'));
+    await tick(INFO_REFRESH_MS + 500);
+    expect(document.body.textContent).toMatch(/isn’t on the box any more/);
+    const links = [...document.querySelectorAll('a[href]')];
+    expect.soft(links[0]?.textContent, 'the first way out names the title').toBe(`Back to ${EXIT_LABEL}`);
+    expect.soft(links[0]?.getAttribute('href')).toBe(EXIT);
+    expect.soft(links.map((l) => l.getAttribute('href')), 'My List is still offered').toContain('/bigscreen/list');
   });
 });
 
@@ -1281,7 +1500,7 @@ describe('the control surface', () => {
     });
     expect.soft(svc.saveProgress).toHaveBeenCalled();
     expect.soft(svc.saveProgress.mock.calls[0][1].current_time).toBe(1000);
-    expect.soft(nav.replace).toHaveBeenCalledWith('/bigscreen');
+    expect.soft(nav.replace).toHaveBeenCalledWith(EXIT);
   });
 });
 

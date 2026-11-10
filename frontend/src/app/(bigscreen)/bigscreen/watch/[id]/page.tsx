@@ -40,6 +40,7 @@ import {
   type SubtitlePickerRow,
 } from '../../../_data/subtitles';
 import { PREPARING, READY, takeFourKAsk } from '../../../_data/title';
+import { titleExitOf, type TitleExit } from '../../../_data/titleHref';
 import { useTvProfile } from '../../../_data/useTvProfile';
 import { useWatchProgress, watchIdentity } from '../../../_data/useWatchProgress';
 import { useBackKey } from '../../../_focus/useBackKey';
@@ -52,6 +53,7 @@ import {
   classifyStreamFailure,
   type StreamFailure,
 } from '../../../_player/classify';
+import { BACK_TO_TITLE_CELLS, BackToTitle } from '../../../_player/BackToTitle';
 import { createRecovery, type RecoveryStatus } from '../../../_player/recovery';
 import { fileIndex, streamSrc } from '../../../_player/fileIndex';
 import { formatTime } from '../../../_player/formatTime';
@@ -246,14 +248,33 @@ function subtitleCellState(
 }
 
 /**
+ * THE CLOSED GRID'S ROWS, top to bottom: the on-screen Back, the scrub cell, the transport
+ * cells. Named, because four things read them — `rowCounts`, `initialRow`, each component's
+ * `row` and the picker's close move — and a literal in any one of them is a row that moves
+ * under the other three.
+ *
+ * BACK IS ROW 0 AND THE GRID STARTS AT ROW 1, AND THAT IS ONE DECISION. Above the scrub row,
+ * Back is one Up from the transport row when the scrub row is empty (the usual state on this
+ * television, since `scrubRowCount` returns 0 until the element reports a finite duration) and
+ * two when it is not — the viewer reaches it only by asking to. `initialRow: SCRUB_ROW` is the
+ * other half: `firstTarget` searches from it, so arrival AND a recovery that empties the scrub
+ * row under the ring both fall back to Play/Pause. Searching from row 0 they would fall back
+ * to Back, where an OK leaves the film. `page.test.tsx`'s "the Back control" rows are the
+ * measurement of each half.
+ */
+const BACK_ROW = 0;
+const SCRUB_ROW = 1;
+/**
  * The grid row the transport cells occupy while the picker is CLOSED, and the column the
  * Subtitles cell sits in.
  *
  * Both are needed for the second of the picker's two explicit focus moves (D13): closing it
  * has to put the ring back on the control the viewer opened it from, and `clampTarget`
- * cannot work that out — with the scrub row empty (the usual state on this television, since
- * `scrubRowCount` returns 0 until the element reports a finite duration) its answer is
- * `firstTarget`, which is Play/Pause.
+ * cannot work that out — it is handed the PICKER's coordinates, which mean nothing in the
+ * closed shape. A ring on the picker's first row comes back as (0, 0), which the two shapes
+ * share and which is BACK once its row is populated again — the one control whose OK leaves
+ * the film. A ring lower down falls through the scrub row (empty, as above) to `firstTarget`,
+ * which is Play/Pause, or lands on whichever transport column the picker's numbers name.
  *
  * The column is DERIVED from the same table the row renders rather than written as `4`, so
  * that a REORDER of `TRANSPORT_CELLS` moves the ring with the cell. **It is not Retry that
@@ -269,7 +290,7 @@ function subtitleCellState(
  * off the grid, which is the same visible outcome as deleting the move — and
  * `TransportBar.test.tsx`'s `TWIN_CELL` walk is what makes that unreachable.
  */
-const TRANSPORT_ROW = 1;
+const TRANSPORT_ROW = 2;
 /**
  * BOTH FLAGS, not just `retry`. The Next-episode cell is INSERTED (after `forward60`), so with
  * it in the row the Subtitles cell is column 5 rather than 4 — and this answer is where the
@@ -358,19 +379,31 @@ function Waiting() {
 
 /**
  * Both ways on from a title that is not there any more, in render order. An ARRAY, so the
- * focus count is `GONE_WAYS_OUT.length` rather than a number kept beside a layout.
+ * focus count is its length rather than a number kept beside a layout.
+ *
+ * THE TITLE FIRST, WHEN THERE IS ONE. A torrent that went AFTER the arrival (the boundary's
+ * `Torrent not found`, or the status route's 404 behind a stream probe) still has a known
+ * title, and its screen is where another download of it starts — the same exit every other
+ * way out of this player takes, and the one the remote's Back takes from this screen too. A
+ * torrent that was never there names no title, so the first way is home and says so.
+ *
+ * A FUNCTION RATHER THAN THE CONSTANT IT WAS, because the first entry now depends on the
+ * title; not exported, because Next validates a page module's exports.
  */
-const GONE_WAYS_OUT: readonly { href: string; label: string; ghost?: true }[] = [
-  { href: HOME, label: 'Back to home' },
-  { href: MY_LIST, label: 'My List', ghost: true },
-];
+function goneWaysOut(exit: TitleExit | null): readonly { href: string; label: string; ghost?: true }[] {
+  return [
+    { href: exit?.href ?? HOME, label: exit ? `Back to ${exit.label}` : 'Back to home' },
+    { href: MY_LIST, label: 'My List', ghost: true },
+  ];
+}
 
 /**
  * A terminal 404. NOT `LoadStatus(failed)`: that grows a `Try again` after ten seconds, and
  * there is nothing here a press could change — the torrent is gone from the box.
  */
-function Gone({ reason }: { reason: string }) {
-  const grid = useFocusGrid({ rowCounts: [GONE_WAYS_OUT.length] });
+function Gone({ reason, exit }: { reason: string; exit: TitleExit | null }) {
+  const ways = goneWaysOut(exit);
+  const grid = useFocusGrid({ rowCounts: [ways.length] });
   return (
     <TitleScreen
       art={null}
@@ -378,7 +411,7 @@ function Gone({ reason }: { reason: string }) {
       overview={null}
       actions={
         <>
-          {GONE_WAYS_OUT.map((way, col) => (
+          {ways.map((way, col) => (
             <Link
               key={way.href}
               href={way.href}
@@ -530,6 +563,25 @@ function WatchScreen() {
   const index = askedIndex !== undefined ? askedIndex : files?.[0]?.index;
   const chosenFile = files?.find((f) => f.index === index) ?? null;
   const identity = watchIdentity({ status: arrival.k === 'ok' ? arrival.status : null, file: chosenFile });
+  /**
+   * THE ONE WAY OUT, and every exit takes it: the on-screen Back, the last rung of the remote's
+   * Back, Stop and its media key, `LoadStatus`'s Back and `Gone`'s first way out. Each one that
+   * picked its own destination would be one more chance for a control to say one place and go
+   * to another.
+   *
+   * DERIVED ON EVERY RENDER, NEVER CAPTURED. A Next-episode press inside a season pack keeps
+   * this instance and moves only `?file=`, so an exit taken on arrival would still name the
+   * episode just finished. It reads the watch identity rather than the torrent row because
+   * `watchIdentity` has already resolved the row against the file; a second copy of that
+   * precedence here would be a second thing to keep in step, and `/info`'s `content_id` is
+   * not read at all (its last resort is `s0`).
+   *
+   * AN UNKNOWN TITLE IS HOME, AND SAYS SO: no tmdb id means no title screen to name, so the
+   * label is `Home` rather than a name for a screen nothing opens.
+   */
+  const exit = titleExitOf(identity);
+  const exitHref = exit?.href ?? HOME;
+  const exitLabel = exit?.label ?? 'Home';
 
   /**
    * THE PLAYHEAD BELONGS TO THE FILE, NOT TO THE TORRENT, and this effect is the whole of
@@ -1106,8 +1158,12 @@ function WatchScreen() {
    * press, so the press after a REVEAL would leave the player while the controls were on
    * screen. `visible` and `editOpen` are self-correcting.
    *
-   * LEVEL 3 IS NOT BUILT. Home's own Back is a documented no-op (`stayOnHome`) and stage 10
-   * owes both of them a real exit; inventing one here would be inventing the shell.
+   * THE LAST RUNG LEAVES FOR THE TITLE, NOT HOME: `exitHref`, the same place the on-screen
+   * Back names, so pressing Back until something happens and pressing the control that says
+   * where it goes arrive at the same screen. The title screens' own Back goes home, which
+   * makes the stack a remote walks home → title → player, one press per screen; an unknown
+   * title has no screen in the middle, so its exit is home itself. Nothing here leaves the APP
+   * — that is home's Back (`leaveApp`), one screen further out.
    */
   const onBack = useCallback(() => {
     // RUNG 1, AND IT IS AHEAD OF BOTH OF THE OTHERS. Ahead of `visible` because that rung
@@ -1139,8 +1195,8 @@ function WatchScreen() {
       setVisible(false);
       return;
     }
-    leave(HOME);
-  }, [phase, pickerOpen, editOpen, visible, leave]);
+    leave(exitHref);
+  }, [phase, pickerOpen, editOpen, visible, leave, exitHref]);
   useBackKey(onBack);
 
   // --- the verdicts only the screen can act on -------------------------------------
@@ -1193,7 +1249,10 @@ function WatchScreen() {
   if (phase === 'locked') return <LockedRedirect />;
   if (phase === 'gone') {
     return (
-      <Gone reason="The download this was playing from is no longer on the box. Nothing here can bring it back." />
+      <Gone
+        reason="The download this was playing from is no longer on the box. Nothing here can bring it back."
+        exit={exit}
+      />
     );
   }
   if (phase === 'playing' && arrival.k === 'ok') {
@@ -1259,7 +1318,8 @@ function WatchScreen() {
           onDuration={setDuration}
           onEnded={setEnded}
           onTerminal={onTerminal}
-          onStop={() => leave(HOME)}
+          onExit={() => leave(exitHref)}
+          exitLabel={exitLabel}
         />
       );
     }
@@ -1268,6 +1328,9 @@ function WatchScreen() {
     <LoadStatus
       noun="title"
       failed={phase === 'failed'}
+      // The player's commonest first screen, so its on-screen Back is one of the player's
+      // ways out and goes where the others go.
+      backHref={exitHref}
       onRetry={() => {
         setAttempt((a) => a + 1);
       }}
@@ -1302,9 +1365,11 @@ function WatchScreen() {
  * has to wake the band exactly as a key press does. `useRevealOnKey` composes with this but
  * watches only keys.
  *
- * IT OWNS THE ONE LIVE `useFocusGrid`, with `rowCounts = [scrub, transport]`: the scrub row
- * is declared first and renders nothing until `loadedmetadata`, so the ring lands on
- * Play/Pause on arrival and moves up to the bar when the row appears.
+ * IT OWNS THE ONE LIVE `useFocusGrid`, with `rowCounts = [Back, scrub, transport]` and
+ * `initialRow` at the scrub row. Back is reached only by pressing Up; the scrub row renders
+ * nothing until `loadedmetadata`; so the ring lands on Play/Pause on arrival, stays there when
+ * the scrub row appears, and falls back to it — never to Back — when a recovery takes the
+ * scrub row away. See `BACK_ROW`.
  *
  * THE PLAY/PAUSE STATE IS READ FROM EVENTS, NEVER FROM `video.paused`. `load()` — the first
  * thing a recovery does — sets `paused` with no `pause` event, so a label derived from the
@@ -1342,7 +1407,8 @@ function Playing({
   onDuration,
   onEnded,
   onTerminal,
-  onStop,
+  onExit,
+  exitLabel,
 }: {
   src: string;
   /** For the `<track>`'s URL, which is spelled on this side from the file index. */
@@ -1415,7 +1481,14 @@ function Playing({
    * definition.
    */
   onTerminal: (failure: StreamFailure) => Promise<boolean>;
-  onStop: () => void;
+  /**
+   * Leave the player for the title. ONE CALLBACK FOR THREE CONTROLS — the Stop cell, the Stop
+   * media key (both through `act`) and the on-screen Back — so none of them can go somewhere
+   * the others do not. The route flushes the position and replaces.
+   */
+  onExit: () => void;
+  /** What the on-screen Back says: the title it returns to, or `Home`. */
+  exitLabel: string;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const getVideo = useCallback(() => ref.current, []);
@@ -1557,7 +1630,7 @@ function Playing({
         case 'stop':
           // Reported, never navigated from inside the cell: the position has to be flushed
           // before anything leaves the player.
-          onStop();
+          onExit();
           return;
         case 'nextEpisode':
           // The route owns everything about this press — what is next, whether it exists,
@@ -1576,7 +1649,7 @@ function Playing({
           return;
       }
     },
-    [playing, seekTo, engine, onStop, onPickerOpen, onNext],
+    [playing, seekTo, engine, onExit, onPickerOpen, onNext],
   );
 
   // Long enough to read at three metres, and it suppresses the auto-hide while it is up (a
@@ -1749,21 +1822,27 @@ function Playing({
    * ONE GRID, TWO SHAPES (D13). The picker is a `rowCounts` REPLACEMENT, not a second grid:
    * `useFocusGrid` allows only one live instance per screen, and during an overlapping mount
    * the incoming one is the dead one.
+   *
+   * `initialRow` ONLY WHILE CLOSED. Closed, it is what keeps every fall-back off Back (see
+   * `BACK_ROW`). Open, the picker IS the grid and its first row is where a fall-back belongs,
+   * so the preference is dropped rather than pointed at a picker row it means nothing for.
    */
   const rowCounts = pickerOpen
     ? pickerRowCounts(subtitleRows.length)
-    : [scrubRowCount(duration), transportCellCount({ retry: retryable, next: episodic })];
-  const grid = useFocusGrid({ rowCounts });
+    : [BACK_TO_TITLE_CELLS, scrubRowCount(duration), transportCellCount({ retry: retryable, next: episodic })];
+  const grid = useFocusGrid({ rowCounts, initialRow: pickerOpen ? undefined : SCRUB_ROW });
 
   /**
    * THE TWO EXPLICIT FOCUS MOVES, in both directions, and neither is optional.
    *
    * `clampTarget` (`_focus/model.ts:65-69`) is what runs when the shape changes, and its
-   * answer is wrong in both directions here, because the two shapes' columns mean different
-   * things: opening puts the ring on `clamp(4, 0, n-1)` of the picker's own first row — some
-   * unrelated language — and closing puts it on `firstTarget`, which with an empty scrub row
-   * (the usual state on this set) is Play/Pause rather than the control the viewer opened the
-   * picker from.
+   * answer is wrong in both directions here, because the two shapes' coordinates mean
+   * different things. Opening hands it the transport row's — row 2, the Subtitles column —
+   * which in the picker's shape are some unrelated language in its third row, or Off by
+   * accident on a list too short to have one. Closing hands it the picker's, and from the
+   * picker's first row that answer is (0, 0): BACK, the one control whose OK leaves the film,
+   * because the two shapes share that cell. From lower down it is the scrub cell or Play/Pause.
+   * None of them is the control the viewer opened the picker from.
    *
    * ON THE EDGE, NOT ON THE VALUE. `pickerOpen` is false on mount, so an effect that ran on
    * every commit would drag the ring onto the Subtitles cell on arrival — where the whole
@@ -1851,6 +1930,25 @@ function Playing({
         className={visible ? 'bs-player__scrim' : 'bs-player__scrim bs-player__scrim--hidden'}
         aria-hidden="true"
       />
+      {/* BACK, TOP LEFT, OUTSIDE THE BAND and on the band's own flag: it fades with the
+          controls and is never unmounted to do it, for the band's reason (it holds the ring
+          whenever the viewer has pressed Up to it). AFTER the scrim and BEFORE the band in
+          source order, which keeps the band's controls — Retry, appended last — the last
+          buttons in the document.
+          NOT RENDERED WHILE THE PICKER IS OPEN, and that is the one exception to "never
+          unmounted": the picker replaces the grid's shape, and its Off is the picker's
+          (0, 0) — the very cell Back is in the closed shape. Two mounted elements claiming
+          one cell is a ring the model and DOM focus disagree about. The remote's Back still
+          works there: it closes the picker, which is rung 1. */}
+      {!pickerOpen && (
+        <BackToTitle
+          row={BACK_ROW}
+          focusProps={grid.focusProps}
+          label={exitLabel}
+          visible={visible}
+          onExit={onExit}
+        />
+      )}
       {/* The band FADES; it is never unmounted and its counts never change. Its child order
           is written into the stylesheet's own block: the stream's hint, then the scrub cell
           (which brings its own hint and its row), then the transport row. The hint is
@@ -1881,7 +1979,7 @@ function Playing({
         ) : (
           <>
             <ScrubBar
-              row={0}
+              row={SCRUB_ROW}
               focusProps={grid.focusProps}
               position={position}
               duration={duration}

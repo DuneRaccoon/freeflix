@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { movieHref, showAskFrom, showHref, titleHref } from './titleHref';
+import { movieHref, showAskFrom, showHref, titleExitOf, titleHref } from './titleHref';
 
 describe('movieHref / showHref', () => {
   it('is the film screen for a tmdb id', () => {
@@ -48,5 +48,32 @@ describe('showAskFrom', () => {
   it('round-trips what showHref writes', () => {
     const href = showHref(1399, { season: 2, episode: 5 });
     expect(showAskFrom(new URL(href, 'http://tv.test').searchParams)).toEqual({ season: 2, episode: 5 });
+  });
+});
+
+describe('titleExitOf', () => {
+  // The player's one way out, from the watch identity it already derives. The rows are the
+  // identity's own shapes, so the `s0` fallback and a show-level key go through the same
+  // `titleOfContentId` that Continue Watching uses.
+  it('leaves a film to its own screen, labelled with its title', () => {
+    expect(titleExitOf({ contentId: 'movie:603', title: 'The Matrix' })).toEqual({
+      href: '/bigscreen/movie/603',
+      label: 'The Matrix',
+    });
+  });
+  it('leaves an episode to its show, asked for that episode, labelled with the show alone', () => {
+    expect(titleExitOf({ contentId: 'tv:1399:s2:e5', title: 'Show 1399 S02E05' })).toEqual({
+      href: '/bigscreen/show/1399?s=2&e=5',
+      label: 'Show 1399',
+    });
+  });
+  it('leaves a show-level key to the bare show screen', () => {
+    expect(titleExitOf({ contentId: 'tv:1399', title: 'Show 1399' })?.href).toBe('/bigscreen/show/1399');
+  });
+  it('never asks for season 0: the s0 fallback leaves to the bare show screen', () => {
+    expect(titleExitOf({ contentId: 'tv:1399:s0:e4', title: 'Show 1399' })?.href).toBe('/bigscreen/show/1399');
+  });
+  it('is null when nothing names a title, so the caller says Home', () => {
+    expect(titleExitOf({ contentId: null, title: 'x' })).toBeNull();
   });
 });

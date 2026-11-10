@@ -1,4 +1,4 @@
-import type { ContentIdInput } from '@/lib/contentId';
+import { showNameFromTitle, titleOfContentId, type ContentIdInput } from '@/lib/contentId';
 
 /**
  * The television's title-screen URLs, and the one reader of the query they carry. A sibling
@@ -64,4 +64,31 @@ function positive(raw: string | null): number | null {
  */
 export function showAskFrom(params: Pick<URLSearchParams, 'get'>): { season: number | null; episode: number | null } {
   return { season: positive(params.get(SEASON_KEY)), episode: positive(params.get(EPISODE_KEY)) };
+}
+
+/** Where the player goes when the viewer leaves it, and what the control that goes there says. */
+export interface TitleExit {
+  href: string;
+  label: string;
+}
+
+/**
+ * The player's way out: the screen of the title it is playing, from the watch identity the
+ * route already derives (`useWatchProgress.watchIdentity`) — never from `/info`, whose
+ * `content_id` falls back to `s0`. For an episode that is the show screen ASKED FOR THAT
+ * EPISODE, so leaving mid-episode lands on it rather than on the show's own pick.
+ *
+ * ONE ANSWER FOR EVERY EXIT. The on-screen Back, the remote's last Back rung, Stop and its
+ * media key, `LoadStatus`'s Back and `Gone`'s first way out all read this, so no two of them
+ * can disagree about where "back" is — and the label is computed beside the href, so the
+ * control cannot name one title and open another.
+ *
+ * NULL MEANS "NO TITLE", and the caller goes home and SAYS Home: a torrent with no tmdb id (or
+ * a legacy one) has no title screen to name. The label is the show's name without its
+ * `S02E05` suffix, which `watchIdentity` composed in strippable shape for exactly this.
+ */
+export function titleExitOf(identity: { contentId: string | null; title: string | null }): TitleExit | null {
+  const t = titleOfContentId(identity.contentId);
+  if (t === null) return null;
+  return { href: titleHref(t), label: showNameFromTitle(identity.title, t.tmdbId) };
 }

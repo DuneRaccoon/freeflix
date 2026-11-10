@@ -42,4 +42,17 @@ describe('LoadStatus', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(onRetry).toHaveBeenCalledTimes(2);
   });
+
+  it('Back goes where the screen says, and home when it says nothing', () => {
+    // The player's preparing state is this component, so its on-screen Back is one of the
+    // player's ways out and has to agree with the others: the title, not home.
+    const { unmount } = render(
+      <LoadStatus failed={false} onRetry={() => {}} noun="title" backHref="/bigscreen/show/1399?s=2&e=1" />,
+    );
+    expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/bigscreen/show/1399?s=2&e=1');
+    unmount();
+    // The two detail screens pass nothing, and their Back is still home.
+    render(<LoadStatus failed={false} onRetry={() => {}} noun="show" />);
+    expect(screen.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/bigscreen');
+  });
 });

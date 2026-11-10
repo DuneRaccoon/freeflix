@@ -1233,11 +1233,13 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 
 /* --- the player: video, scrim, band, transport row, scrub cell ----------------- */
 /* Rendered by _player/ScrubBar, _player/TransportBar and _player/SubtitlePicker inside the
-   band the watch route mounts. The shape the rules below assume, top to bottom:
+   band the watch route mounts, and by _player/BackToTitle above it (its rules are at the foot
+   of this file). The shape the rules below assume, top to bottom:
 
      .bs-player                      fixed, full-bleed, the film's own stacking context
        video.bs-player__video        absolute, z-index -1
        .bs-player__scrim[--hidden]   absolute, bottom-anchored, z-index -1; fades WITH the band
+       .bs-player__back[--hidden]    absolute, top-left safe inset; fades WITH the band
        .bs-player__bar[--hidden]     the band: carries the safe inset, fades by opacity
          .bs-player__hint            the STREAM's line, only while there is one (the route)
          .bs-player__hint, __row     CLOSED: the scrub cell's line and row (ScrubBar)
@@ -1267,6 +1269,8 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      unchanged its reconcile effect never re-runs: the ring is gone for good on a surface
      with no Tab key. `pointer-events: none` while a descendant has focus is banned
      outright. The scrim and the hint hold no focus, so the route is free to unmount those.
+     Back DOES hold focus (Up reaches it), so it fades exactly as the band does; the route
+     unmounts it only while the subtitle picker is open, when it is not in the grid at all.
    - .bs-player__row is `flex-wrap: nowrap`. .bs-controls (the diag harness's row) wraps and
      must not be borrowed: the focus model counts one row per container, so a container that
      re-flowed would draw one focus row on two visual lines — Right would land on a control
@@ -1284,15 +1288,17 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
      What .bs-msg is actually reused FOR is its reserved min-height — a line appearing
      unreserved nudges the control the ring is sitting on — so that is what this copies.
 
-   COMBINING: every class here is used ALONE on its own element, except TWO modifiers driven by
-   the SAME flag: .bs-player__bar + .bs-player__bar--hidden, and .bs-player__scrim +
-   .bs-player__scrim--hidden. The scrim's one job is to make the BAND legible, so with the band
-   hidden it has none and a reason to go: native cues paint inside the video element's box, the
-   other z-index: -1 layer, so an always-on scrim paints over every cue for the whole film,
-   which the auto-hide alone does not rescue. Both modifiers set OPACITY ONLY, for different
-   reasons — the band's is hazard 4 (blurring the focused control), the scrim's is that a
-   disappearing 480px layer is a repaint where the point was a composited fade; and it is
-   aria-hidden: a wash, not content. The PICKER's rows wear the existing .bs-btn (+
+   COMBINING: every class here is used ALONE on its own element, except THREE modifiers driven
+   by the SAME flag: .bs-player__bar + .bs-player__bar--hidden, .bs-player__scrim +
+   .bs-player__scrim--hidden, and .bs-player__back + .bs-player__back--hidden. The scrim's one
+   job is to make the BAND legible, so with the band hidden it has none and a reason to go:
+   native cues paint inside the video element's box, the other z-index: -1 layer, so an
+   always-on scrim paints over every cue for the whole film, which the auto-hide alone does not
+   rescue. Back is a control of the band's that sits apart from it, so it goes when the band
+   goes. All three modifiers set OPACITY ONLY, for two reasons — the band's and Back's is
+   hazard 4 (blurring the focused control), the scrim's is that a disappearing 480px layer is a
+   repaint where the point was a composited fade; and the scrim is aria-hidden: a wash, not
+   content. The PICKER's rows and Back's one button wear the existing .bs-btn (+
    .bs-btn--ghost) unchanged, as home and the detail screens do, and no modifier is added to
    .bs-btn from this block. The TRANSPORT cells no longer do: they are icon circles with their
    own block at the foot of this file (`.bs-tp`), which says why and what it costs. They still
@@ -1575,3 +1581,42 @@ code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 20px;
 /* Focused: the control's name. Unfocused: whatever it has to say about itself. */
 .bs-tp:focus .bs-tp__label { opacity: 1; }
 .bs-tp:focus .bs-player__commit { opacity: 0; }
+
+/* --- the player's Back control (_player/BackToTitle) --------------------------- */
+/* The top-left way back to the title the film belongs to, named for it ("‹ The Boys"). It is
+   part of the player block's inventory and its COMBINING note — the third modifier on the one
+   `visible` flag — and its rules are APPENDED here rather than written into that block,
+   because this file grows at its foot.
+
+   - POSITIONED AT THE SAFE INSET with the file's own tokens, as a child of .bs-player, which
+     already isolates. NO z-index: a positioned element later in source order than the two
+     `z-index: -1` layers already paints over the picture, exactly as the band does. NO TOP
+     SCRIM and no blur: the button is .bs-btn--ghost, whose own rgba(10, 10, 11, 0.45) fill is
+     what it is legible on, and a second full-width gradient over the top of every frame is the
+     fill-rate cost the bottom scrim's own note refuses.
+   - IT FADES ON THE BAND'S CURVE, written out because a custom property for one transition
+     would be a token nothing else reads; `playerCss.test.tsx` compares the two declarations,
+     so the band's changing without this one reddens.
+   - --hidden is OPACITY ONLY, for the band's reason (hazard 4): this control holds the ring
+     whenever the viewer has pressed Up to it, and anything else blurs it for good.
+   - The NAME is clipped to one line at 40vw. A show title is free text from the box, and a
+     wrapped one would grow the control down over the picture; the ellipsis says it was cut.
+     `inline-block` is what lets an inline span take a width, and `vertical-align: bottom`
+     keeps the clipped box on the chevron's baseline instead of lifting it.
+
+   No positional selector, and no new colour token. */
+.bs-player__back {
+  position: absolute;
+  top: var(--safe-y);
+  left: var(--safe-x);
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bs-player__back--hidden { opacity: 0; }
+.bs-player__back-name {
+  display: inline-block;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}

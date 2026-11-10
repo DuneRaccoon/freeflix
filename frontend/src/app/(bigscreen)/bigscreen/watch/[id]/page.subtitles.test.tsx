@@ -25,9 +25,11 @@
  *    `act()` exits, so a single long advance cannot observe a re-render.
  *  - MOUNTED WITHOUT METADATA, deliberately, in most rows. `scrubRowCount` returns 0 until
  *    the element reports a finite duration — never yet observed for an in-progress stream on
- *    this set — so `rowCounts` is `[0, 6]` and the transport row is the only row. That is
- *    both the television's normal state and the shape in which `firstTarget` answers
- *    Play/Pause, which is the mechanism the close-restore row is written against.
+ *    this set — so `rowCounts` is `[1, 0, 7]`: the on-screen Back, an empty scrub row, and
+ *    the transport row (seven cells, this fixture being a season pack). That is both the
+ *    television's normal state and the shape in which `firstTarget`, searching from the
+ *    scrub row, answers Play/Pause — the mechanism the close-restore rows are written
+ *    against — while a ring handed back on the picker's first row would land on Back.
  *
  * WHAT THESE ROWS DO NOT TOUCH. `pair_source` is an OPAQUE STRING: the backend's
  * `naming.track_label` has already folded the provenance into `label`, the taxonomy grows (a
@@ -116,7 +118,13 @@ const profileHook = vi.mocked(useTvProfile);
 // --- fixtures ----------------------------------------------------------------------
 
 const PACK = 'pk';
-const HOME = '/bigscreen';
+/**
+ * Where the player's ways out go for this fixture: the show screen, asked for the episode on
+ * screen. A bare arrival plays `FILES[0]` (file 4 = S02E01) and `movie_title` strips to
+ * `Show 1399`, which is also the on-screen Back's name.
+ */
+const EXIT = '/bigscreen/show/1399?s=2&e=1';
+const EXIT_LABEL = 'Show 1399';
 const FILE_SIZE = 2_000_000_000;
 
 const statusRow = (over: Record<string, unknown> = {}): TorrentStatus =>
@@ -475,6 +483,25 @@ describe('the picker replaces the band’s rows', () => {
     ]);
   });
 
+  it('Back is absent while the picker is open', async () => {
+    // The on-screen Back is the closed grid's (0, 0) and so is the picker's Off: two elements
+    // claiming one cell is a ring the model and DOM focus disagree about. So the control goes
+    // while the picker is up — the remote's Back still closes it, which is rung 1 — and comes
+    // back with the band's rows.
+    svc.getSubtitles.mockResolvedValue(listOf(manyTracks(3)));
+    await mount();
+    expect(document.querySelector('.bs-player__back'), 'Back is on screen before the picker').not.toBeNull();
+    await untilRingOn(/Pause/);
+    for (let i = 0; i < SUBTITLES_COLUMN; i++) right();
+    await clickOn(cell('Subtitles'));
+    expect(transportRow(), 'the picker is open').toBeNull();
+    expect.soft(document.querySelector('.bs-player__back'), 'and Back is gone with the band’s rows').toBeNull();
+    expect.soft(maybeCell(EXIT_LABEL)).toBeNull();
+    back();
+    expect.soft(transportRow(), 'rung 1 closed it').not.toBeNull();
+    expect.soft(document.querySelector('.bs-player__back'), 'and Back is back').not.toBeNull();
+  });
+
   it('declares exactly the cells it renders, at every width the chunking produces', async () => {
     // THE HOUSE INVARIANT — a row's declared count equals the cells rendered — read from the
     // DOM. The route declares `pickerRowCounts(rows.length)` and the component lays its cells
@@ -607,6 +634,30 @@ describe('the two explicit focus moves', () => {
     expect.soft(ring()[0]).toBe(again);
   });
 
+  it('closing the picker returns the ring to Subtitles, not Back', async () => {
+    // THE CLOSE MOVE IS ALSO WHAT KEEPS THE RING OFF BACK. Back is the closed grid's (0, 0),
+    // and so is the picker's Off: closing from Off hands the grid's reconcile a target whose
+    // row is populated again — by Back — so `clampTarget` keeps it, and without the move the
+    // ring would sit on the control whose OK leaves the film. Both exits, from Off, which is
+    // the one cell whose coordinates Back shares.
+    svc.getSubtitles.mockResolvedValue(listOf(manyTracks(3)));
+    await openPicker();
+    expect(document.activeElement, 'the picker opened on Off').toBe(cell('Off'));
+    await clickOn(cell('Off'));
+    const back0 = cell(EXIT_LABEL);
+    expect.soft(document.activeElement, 'choosing Off: the ring is on Subtitles').toBe(cell('Subtitles'));
+    expect.soft(document.activeElement, 'and not on Back').not.toBe(back0);
+    expect.soft(ring()).toHaveLength(1);
+
+    await clickOn(cell('Subtitles'));
+    expect(document.activeElement, 'reopened on Off').toBe(cell('Off'));
+    back();
+    expect.soft(document.activeElement, 'Back from Off: the ring is on Subtitles').toBe(cell('Subtitles'));
+    expect.soft(document.activeElement, 'and not on Back').not.toBe(cell(EXIT_LABEL));
+    expect.soft(ring()).toHaveLength(1);
+    expect.soft(ring()[0]).toBe(document.activeElement);
+  });
+
   it('survives a refresh that shrinks the list with the ring still somewhere real', async () => {
     // `?file=` MOVES WITH NO NEW ARRIVAL (the show screen pushes a new watch URL for the same
     // torrent), so the list is re-read and can come back shorter under an OPEN picker. NO
@@ -657,7 +708,7 @@ describe('the Back ladder with the picker in it', () => {
     expect.soft(navCalls().length, 'still nowhere').toBe(navsBefore);
 
     back();
-    expect.soft(navCalls(), 'rung 3 left the player').toContain(HOME);
+    expect.soft(navCalls(), 'rung 3 left the player, for the title').toContain(EXIT);
   });
 
   it('is ahead of the scrub edit’s rung, which the picker’s own unmount can leave stale', async () => {

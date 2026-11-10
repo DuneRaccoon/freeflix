@@ -809,4 +809,39 @@ describe('ShowDetailView — the asked episode', () => {
     );
     expect(next.fn).not.toHaveBeenCalled();
   });
+
+  it('the next episode found for an earlier ask is never read as the answer for this one', async () => {
+    // The server page keys this view on the query, so a new ask normally remounts it; this is the
+    // defence behind that key. Within one mount the S1·E1 answer (S1·E2) is still held when S1·E3
+    // is asked for, and S1·E3's own lookup is still out: the hero must wait for it, not offer the
+    // episode after the wrong one.
+    progress.data['tv:95396:s1:e1'] = finishedS1E1;
+    progress.data['tv:95396:s1:e3'] = {
+      ...finishedS1E1,
+      movie_id: 'tv:95396:s1:e3',
+      title: 'Severance S01E03',
+    };
+    next.fn.mockImplementation(({ episode }: { episode: number }) =>
+      episode === 1 ? Promise.resolve(readyNext(1, 2)) : new Promise(() => {}),
+    );
+    const { rerender } = await mount({ initialSeason: 1, initialEpisode: 1 });
+    await waitFor(() =>
+      expect(screen.getByTestId('show-play-button')).toHaveTextContent(/^Play S01·E02$/),
+    );
+
+    rerender(<ShowDetailView show={mockShow} initialSeason={1} initialEpisode={3} />);
+
+    // The window this is about: S1·E3's lookup has started and has not answered.
+    expect(next.fn).toHaveBeenLastCalledWith({ tmdbId: SHOW_ID, season: 1, episode: 3 });
+    const hero = screen.getByTestId('show-play-button');
+    expect(hero).toBeDisabled();
+    expect(hero).toHaveAttribute('aria-busy', 'true');
+    expect(hero).not.toHaveTextContent(/S01·E02/);
+    expectNoHighlight();
+
+    await userEvent.click(hero);
+
+    expect(mockHandleCatalogStreamingStart).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
 });

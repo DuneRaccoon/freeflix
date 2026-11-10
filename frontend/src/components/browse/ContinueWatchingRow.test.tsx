@@ -6,7 +6,8 @@
  *    progress, renders both cards
  *  - a card whose title can be identified opens that title's page —
  *    /movies/{id}, or /tv/{id}?season=S&episode=E for the episode the row is
- *    about — never the player; only a title it cannot identify keeps the
+ *    about — never the player; only a title it cannot identify, or a season-0
+ *    episode the show page cannot be asked for, keeps the
  *    /streaming/{torrent_id}?file=N link
  *  - each card's accessible name says that it opens the title
  *  - the gold progress bar is present
@@ -219,6 +220,18 @@ describe('ContinueWatchingRow', () => {
     setupMocks({ 'tv:0:s1:e3': { ...tvProgress, movie_id: 'tv:0:s1:e3', file_index: 0 } });
     render(<ContinueWatchingRow />);
     const card = screen.getByRole('link', { name: 'Open Foundation, resume S01·E03' });
+    expect(card).toHaveAttribute('href', '/streaming/torrent-tv-1?file=0');
+  });
+
+  it('a season-0 episode resumes on its own file, file 0 included', () => {
+    // Season 0 is Specials and also the backend's `s0` fallback for a file it could not
+    // identify, so the show page is never asked for it: the card would open the bare page,
+    // whose hero plays S01·E01. The row's own file is the only place it can resume.
+    setupMocks({
+      'tv:54321:s0:e5': { ...tvProgress, movie_id: 'tv:54321:s0:e5', file_index: 0 },
+    });
+    render(<ContinueWatchingRow />);
+    const card = screen.getByRole('link', { name: 'Open Foundation, resume S00·E05' });
     expect(card).toHaveAttribute('href', '/streaming/torrent-tv-1?file=0');
   });
 

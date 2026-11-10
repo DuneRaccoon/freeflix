@@ -4,7 +4,7 @@
  * MovieDetailView — client island for the movie detail page.
  *
  * Composes DetailHero + SourcePicker + Resume/Play/Download flow + CastRow +
- * "More Like This" row. Server page (app/movies/[id]/page.tsx) fetches
+ * "More Like This" row. Server page (app/(web)/movies/[id]/page.tsx) fetches
  * MovieDetail SSR and passes it in via props; this component owns all
  * interactivity.
  *
@@ -12,8 +12,9 @@
  * so the way back into the film lives here):
  *   row = useProgress().getMovieProgress('movie:{tmdb_id}')
  *   shown iff !completed && torrent_id && current_time > 30 && percentage < 98
- *     — the web player's own "Resume playback?" rule (PatchedVideoPlayer), so
- *       the page never offers a Resume the player would then not honour
+ *     — the last two terms are the web player's own "Resume playback?" rule
+ *       (PatchedVideoPlayer), and the first two are the page's, so the page
+ *       never offers a Resume the player would then not honour
  *   router.push(resumeUrlFor(row))
  *     — the row's own torrent and file (`?file=N` for a season pack, file 0
  *       included); it never starts a download
@@ -224,8 +225,10 @@ const MovieDetailView: React.FC<MovieDetailViewProps> = ({ movie }) => {
 
   // ── resume ─────────────────────────────────────────────────────────────────
   // The profile's row for this film, under the same content id the watchlist
-  // uses. `resume` is non-null exactly when the player would prompt for it
-  // (see the header); its href is built here, where `torrent_id` is narrowed.
+  // uses. `resume` is non-null only for an unfinished row with a torrent that
+  // also passes the player's own prompt rule, so the page is stricter than the
+  // player, which checks neither `completed` nor `torrent_id` (see the header).
+  // Its href is built here, where `torrent_id` is narrowed.
   const { getMovieProgress } = useProgress();
   const row = getMovieProgress(contentId);
   const resume =

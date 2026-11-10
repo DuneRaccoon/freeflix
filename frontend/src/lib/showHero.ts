@@ -12,8 +12,9 @@ import { resumeUrlFor } from './contentId';
  * that would have made it a Resume is still on its way.
  *
  * THE ORDER, and every step of it is load-bearing:
- * 1. NO ASKED EPISODE → Play S1·E1. Exactly the page as it was before it could be asked for one,
- *    and decided before anything else so that the page without a query never waits on progress.
+ * 1. NO ASKED EPISODE → Play S1·E1, the episode the page always played without a query; the hero
+ *    labels it `Play S01·E01`, padded like every hero label (it read `Play S1·E1` before). Decided
+ *    before anything else so that the page without a query never waits on progress.
  * 2. PROGRESS STILL LOADING → pending. The row that would make this a Resume may be on its way,
  *    and a press now would start a download that Resume would have avoided.
  * 3. AN UNFINISHED ROW WITH A TORRENT, PAST 0% → Resume on that row's own torrent and file

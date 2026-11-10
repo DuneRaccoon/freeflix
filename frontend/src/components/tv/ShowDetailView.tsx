@@ -15,7 +15,8 @@
  *   tab   = the asked season when it is one of the regular seasons, else the
  *           first; season 0 never is (Specials, and the backend's `s0` fallback)
  *   focus = the asked season + episode, when both are there; otherwise none,
- *           and the page is exactly what it was without a query
+ *           and the page does what it always did without a query: it plays
+ *           S1·E1 (labelled `Play S01·E01`) and highlights nothing
  *   row   = useProgress().progressData['tv:{tmdb_id}:s{S}:e{E}'] for the focus
  *   next  = findNextEpisode(focus), asked only once that row is finished
  *           (in-season or cross-season); `none` and `unknown` are both null
@@ -32,8 +33,10 @@
  *   Play, loading and disabled → progress, or the next-episode lookup, is still
  *     out; a press then could start a download that Resume would have avoided.
  *     Without a query the hero never waits: there is no row to wait for.
- *   The episode the hero is about is highlighted in EpisodeList whenever its
- *   season is the open tab. Nothing scrolls to it; the hero carries the action.
+ *   When the page was asked for an episode (there is a focus), the episode the
+ *   hero is about is highlighted in EpisodeList whenever its season is the open
+ *   tab; without a query, and while the hero is pending, nothing is. Nothing
+ *   scrolls to it; the hero carries the action.
  *
  * Play flow (the hero's Play, for the episode it names):
  *   quality = '1080p' (default for shows)

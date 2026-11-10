@@ -18,10 +18,11 @@
  * episode its row is about, and for an Up next card that is the episode just
  * finished — nothing here knows what follows it, and the show page works that
  * out. The page carries the one control that resumes the row's exact torrent
- * and file. Only a row `titleOfContentId` cannot identify (a legacy
- * title-string id, a non-positive tmdb id) keeps `resumeUrlFor`'s player link,
- * because there is no page to send it to. The link is next/link, so the
- * progress context survives the hop.
+ * and file. Only a row the page cannot be asked about keeps `resumeUrlFor`'s
+ * player link: one `titleOfContentId` cannot identify (a legacy title-string
+ * id, a non-positive tmdb id), because there is no page to send it to, and a
+ * season-0 episode, because the show page is never asked for one (see
+ * `cardHref`). The link is next/link, so the progress context survives the hop.
  *
  * Out of scope and unchanged: the Up next label still reads `episode + 1`
  * without checking that the episode exists (the link does not depend on it),
@@ -41,6 +42,7 @@ import {
   titleOfContentId,
   tmdbIdFromContentId,
 } from '@/lib/contentId';
+import { episodeCode } from '@/lib/showHero';
 import { titlePageHref } from '@/lib/titlePageHref';
 import { useTitleImages, type TitleImageRequest } from '@/lib/useTitleImages';
 import { StreamingProgress } from '@/types';
@@ -75,20 +77,19 @@ type DisplayCard = MovieCard | TvCard;
 
 /**
  * Where a card goes: the title page of the title its content id names, asked for the row's
- * episode when it names one. The player only for a row that names no title — `resumeUrlFor`
- * then keeps `?file=` for a season pack, exactly as the card did before it had a page to
- * open. The page, not this link, resumes the row's own torrent and file.
+ * episode when it names one. The page, not this link, resumes the row's own torrent and file.
+ *
+ * The player when the page cannot be asked for what the row is about: a row that names no
+ * title, or an episode `titleOfContentId` drops — season 0 (or episode 0), which is never an
+ * ask (see `@/lib/titlePageHref`), so the page would open on S01·E01 instead. `resumeUrlFor`
+ * keeps `?file=` for a season pack, file 0 included, exactly as the card did before it had a
+ * page to open. The TV's rail applies the same rule.
  */
 function cardHref(contentId: string, torrentId: string, fileIndex: number | null | undefined): string {
   const title = titleOfContentId(contentId);
-  return title
+  return title && title.episode === parseContentId(contentId).episode
     ? titlePageHref(title)
     : resumeUrlFor({ torrent_id: torrentId, file_index: fileIndex });
-}
-
-/** `S01·E03`: the episode as the card prints it and as its accessible name says it. */
-function episodeTag(season: number, episode: number): string {
-  return `S${String(season).padStart(2, '0')}·E${String(episode).padStart(2, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +254,10 @@ const ContinueWatchingRow: React.FC = () => {
   const images = useTitleImages(imageRequests);
 
   // The button sits inside the card's Link, so a click on it is also a click on the link.
-  // preventDefault stops the browser following the href; stopPropagation keeps the click
-  // from the Link's own handler, which would navigate client-side. Remove never navigates.
+  // preventDefault is what keeps Remove from navigating: it stops the browser following the
+  // href, and next/link's own handler returns early on a click that is already
+  // defaultPrevented, so it does not navigate client-side either. stopPropagation is only a
+  // backstop, for an ancestor handler that does not check. Remove never navigates.
   const handleRemove = async (e: React.MouseEvent, item: StreamingProgress) => {
     e.preventDefault();
     e.stopPropagation();
@@ -393,13 +396,13 @@ const ContinueWatchingRow: React.FC = () => {
           const progressPct = isUpNext ? 0 : item.percentage;
 
           // "Open", not "Resume": an identified card opens the title's page, where resuming is
-          // a press of its own. An unidentified one opens that same title in the player, so
-          // the word is true of it too.
+          // a press of its own. A card that goes to the player (see `cardHref`) opens that same
+          // title there, so the word is true of it too.
           const linkLabel =
             card.kind === 'tv'
               ? card.upNextEpisode !== undefined
-                ? `Open ${name}, up next ${episodeTag(card.season, card.upNextEpisode)}`
-                : `Open ${name}, resume ${episodeTag(card.season, card.episode)}`
+                ? `Open ${name}, up next ${episodeCode({ season: card.season, episode: card.upNextEpisode })}`
+                : `Open ${name}, resume ${episodeCode(card)}`
               : `Open ${name}, ${Math.round(item.percentage)}% watched`;
 
           const imageKey = imageKeyFor(card);
@@ -567,7 +570,7 @@ const ContinueWatchingRow: React.FC = () => {
                     {card.kind === 'tv' && !isUpNext ? (
                       <span>
                         <span className="text-gold-lite font-semibold">
-                          Resume {episodeTag(card.season, card.episode)}
+                          Resume {episodeCode(card)}
                         </span>
                       </span>
                     ) : (

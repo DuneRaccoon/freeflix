@@ -23,6 +23,8 @@ import { toast } from 'react-hot-toast';
 import { cn } from '@/lib/cn';
 import { toDownloadQuality } from '@/lib/downloadQuality';
 import { useUpNextEpisode } from '@/lib/player/useUpNextEpisode';
+import { showNameFromTitle, titleOfStream } from '@/lib/contentId';
+import { titlePageHref } from '@/lib/titlePageHref';
 
 export default function StreamingPage() {
   const { id } = useParams();
@@ -246,10 +248,40 @@ export default function StreamingPage() {
 
   // Next-file data for the Up-Next card (only relevant for multi-file season packs)
   const currentFileIdx = videoFiles.findIndex(f => f.index === effectiveFileIndex);
+  const currentVideoFile: VideoFile | null = currentFileIdx >= 0 ? videoFiles[currentFileIdx] : null;
   const nextVideoFile: VideoFile | null =
     isMultiFile && currentFileIdx >= 0 && currentFileIdx + 1 < videoFiles.length
       ? videoFiles[currentFileIdx + 1]
       : null;
+
+  // Where the way back goes: the title page of what is playing, and `/downloads` only for a
+  // download that cannot say which title it is (a row from before the media columns, or a
+  // film with no name). The header arrow, the blocked state's "Choose another source" (the
+  // title page is where the source picker lives) and the error state's button all leave
+  // through `backHref`.
+  //
+  // DERIVED ON EVERY RENDER, NEVER LATCHED AT MOUNT. A file switch inside a pack and a same-
+  // torrent Up Next both replace the URL without remounting, so a latched target would send
+  // the viewer to the episode they started on. Above the early returns, because the blocked
+  // and error states need it, and while buffering `streamingInfo` is still null: the hint is
+  // then the current `/files` entry. `titleOfStream` reads the torrent row first and the hint
+  // second, and never `/info`'s `content_id`, whose `s0` fallback names an episode nobody
+  // chose.
+  //
+  // THE LABEL AND THE TARGET ARE ONE DECISION. Both hang on `backName`, so the arrow can
+  // never say "downloads" and go to a show, or name a show and go to downloads. A show's name
+  // is `showNameFromTitle`'s: it strips the release's ` S02E02`, and given a blank title it
+  // answers `Show {id}` (hence the trim, since it hands whitespace back as it found it). A
+  // film's name is its title, and a blank one sends the viewer to downloads, labelled so.
+  const backTitle = titleOfStream(torrentStatus, streamingInfo ?? currentVideoFile);
+  const playingTitle = torrentStatus?.movie_title?.trim() ?? '';
+  const backName: string | null = !backTitle
+    ? null
+    : backTitle.kind === 'tv'
+    ? showNameFromTitle(playingTitle, backTitle.tmdbId)
+    : playingTitle || null;
+  const backHref = backTitle && backName ? titlePageHref(backTitle) : '/downloads';
+  const backLabel = backName ? `Back to ${backName}` : 'Back to downloads';
 
   // The next episode outside this torrent: the catalog lookup, the owner's threshold
   // prefetch and where Play next goes. Above the early returns (rules of hooks).
@@ -291,7 +323,7 @@ export default function StreamingPage() {
   };
 
   const handleBackClick = () => {
-    router.push('/downloads');
+    router.push(backHref);
   };
 
   const toggleStreamingStats = () => {
@@ -456,7 +488,8 @@ export default function StreamingPage() {
     );
   }
 
-  // Blocked-for-safety state — the content guard rejected this torrent.
+  // Blocked-for-safety state — the content guard rejected this torrent. "Choose another
+  // source" goes to the title page, where the source picker lives (`backHref`).
   if (torrentStatus?.state === TorrentState.BLOCKED) {
     return (
       <div className="h-dvh flex flex-col items-center justify-center bg-ink p-8">
@@ -478,7 +511,8 @@ export default function StreamingPage() {
     );
   }
 
-  // Error state — FRÈ styled
+  // Error state — FRÈ styled. Its way back is labelled for where it goes: the title, or
+  // Downloads when the download cannot name one (or is gone, and `torrentStatus` with it).
   if (error || !torrentStatus) {
     return (
       <div className="h-dvh flex flex-col items-center justify-center bg-ink p-8">
@@ -505,7 +539,7 @@ export default function StreamingPage() {
             onClick={handleBackClick}
           >
             <ArrowLeftIcon className="w-4 h-4" />
-            Back to Downloads
+            {backName ? backLabel : 'Back to Downloads'}
           </Button>
         </div>
       </div>
@@ -526,7 +560,7 @@ export default function StreamingPage() {
         <button
           onClick={handleBackClick}
           className="inline-flex items-center justify-center w-9 h-9 rounded-full border border-hairline bg-surface-2/60 text-text hover:border-gold/50 transition-colors flex-shrink-0"
-          aria-label="Back to downloads"
+          aria-label={backLabel}
         >
           <ArrowLeftIcon className="w-4 h-4" />
         </button>

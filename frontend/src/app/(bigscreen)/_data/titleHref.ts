@@ -46,12 +46,13 @@ export function titleHref(t: ContentIdInput): string {
 }
 
 /**
- * A query value as an ask: a positive safe integer, or null. `Number` alone is not enough —
- * it reads `''` and `' '` as 0, `'1e21'` as a number no season has, and `'1.5'` as a
- * fraction — so blank is null first, then the integer and range checks decide.
+ * A query value as an ask: a positive safe integer, or null. Digits only (`/^\d+$/`), as the
+ * web's `episodeAskFrom` reads its own query, because `Number` alone reads `''` and `' '` as 0,
+ * `' 2'` as 2, `'1e3'` as 1000 and `'1.5'` as a fraction. `Number.isSafeInteger` then refuses
+ * a string of digits too long to be exact, and the range check refuses 0.
  */
 function positive(raw: string | null): number | null {
-  if (raw === null || raw.trim() === '') return null;
+  if (raw === null || !/^\d+$/.test(raw)) return null;
   const n = Number(raw);
   return Number.isSafeInteger(n) && n >= 1 ? n : null;
 }

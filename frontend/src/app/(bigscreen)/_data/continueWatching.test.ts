@@ -312,13 +312,29 @@ describe('fetchContinueWatching', () => {
     expect(items[0].href).toBe('/bigscreen/watch/t1');
   });
 
-  it('opens a season-0 episode on the bare show screen: s0 is never an ask', async () => {
-    // Season 0 is TMDB's Specials and also the backend's last-resort `s0` fallback; the two
-    // cannot be told apart, so the card names the show and lets the screen pick.
-    getRecent.mockResolvedValue([row({ movie_id: 'tv:1399:s0:e4', torrent_id: 'pack', file_index: 4, title: 'Game of Thrones S00E04' })]);
+  it('sends a season-0 episode to the player, on its own file', async () => {
+    // `tv:{id}:s0:e{file_index}` is the backend's last-resort key for a pack file it could not
+    // identify, and season 0 is never an ask (see `titleOfContentId`), so the show screen
+    // would make its own pick and the file this row was playing would be lost. The player
+    // still has it — file 0 included, which the backend keys `s0:e0`.
+    getRecent.mockResolvedValue([
+      row({ id: 'a', movie_id: 'tv:1399:s0:e4', torrent_id: 'pack', file_index: 4, title: 'Game of Thrones S00E04', last_watched_at: '2026-10-02T00:00:00' }),
+      row({ id: 'b', movie_id: 'tv:1400:s0:e0', torrent_id: 'other', file_index: 0, title: 'Other Show S00E00', last_watched_at: '2026-10-01T00:00:00' }),
+    ]);
     const { items } = await fetchContinueWatching({ userId: 'u1' });
-    expect(items).toHaveLength(1);
-    expect(items[0].href).toBe('/bigscreen/show/1399');
+    expect(items.map((c) => [c.id, c.href])).toEqual([
+      ['tv:1399', '/bigscreen/watch/pack?file=4'],
+      ['tv:1400', '/bigscreen/watch/other?file=0'],
+    ]);
+  });
+
+  it('still sends a finished season-0 episode’s Up next card to the bare show screen', async () => {
+    // Up next resumes nothing, so there is no file to lose: it opens the show as it always has.
+    getRecent.mockResolvedValue([
+      row({ completed: true, percentage: 100, movie_id: 'tv:1399:s0:e4', torrent_id: 'pack', file_index: 4, title: 'Game of Thrones S00E04' }),
+    ]);
+    const { items } = await fetchContinueWatching({ userId: 'u1' });
+    expect(items.map((c) => [c.id, c.href])).toEqual([['tv:1399:up-next', '/bigscreen/show/1399']]);
   });
 
   it('rounds the progress percentage', async () => {

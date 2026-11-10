@@ -129,12 +129,20 @@ function backdropFor(art: NonNullable<Candidate['art']>): Promise<string | null>
 
 /**
  * Where a resume card goes: its title's screen, which re-asks `titleStateFor` and so resumes
- * this row's own torrent and file. Only a title that cannot be identified (a legacy
- * title-string id, a tmdb id that is not a real one) still goes straight to the file.
+ * this row's own torrent and file. Two kinds of row still go straight to the file, on its
+ * saved `file_index`:
+ * - a title that cannot be identified (a legacy title-string id, a tmdb id that is not a
+ *   real one), which has no screen to send it to;
+ * - an episode the title screen cannot be asked for: the id names one, and
+ *   `titleOfContentId` hands back the show alone. That is season 0 (and episode 0), which is
+ *   also the backend's last-resort key for a pack file it could not identify
+ *   (`tv:{id}:s0:e{file_index}`). The show screen would make its own pick, and the file this
+ *   row was playing would be lost; only the player still has it.
  */
 function resumeHref(row: StreamingProgress, torrentId: string): string {
   const t = titleOfContentId(row.movie_id);
-  return t ? titleHref(t) : watchHref(torrentId, row.file_index);
+  const lostEpisode = parseContentId(row.movie_id).episode !== undefined && t?.episode === undefined;
+  return t && !lostEpisode ? titleHref(t) : watchHref(torrentId, row.file_index);
 }
 
 /**
@@ -221,10 +229,13 @@ function candidateFor(row: StreamingProgress, seenShows: Set<number>): Candidate
  *   screen asked to open on the row's own episode (`?s=&e=`). That screen re-asks `titleStateFor`,
  *   which resumes the row's own torrent and file (its saved `file_index` first), so the card
  *   no longer carries either — and the viewer sees what they are resuming, and can pick
- *   something else, before anything plays. Only a title that cannot be identified (a
- *   legacy title-string id, a tmdb id that is not a positive integer) still goes straight
- *   to the player, because there is no screen to send it to. Season 0 is never asked for:
- *   `tv:{id}:s0:e{n}` opens the bare show screen (see `titleOfContentId`).
+ *   something else, before anything plays. Two kinds of row still go straight to the player,
+ *   on their own file (`watchHref(torrent, file_index)`): a title that cannot be identified
+ *   (a legacy title-string id, a tmdb id that is not a positive integer), because there is
+ *   no screen to send it to; and an id that names an episode `titleOfContentId` does not
+ *   keep. That is season 0, never an ask, and also the backend's last-resort key for a pack
+ *   file it could not identify (`tv:{id}:s0:e{file_index}`): the show screen would make its
+ *   own pick and lose the exact file.
  *
  * A COMPLETED EPISODE BECOMES AN "UP NEXT" CARD FOR ITS SHOW. It links to the bare show
  * screen, which is where a viewer picks the next episode, and it carries no progress bar

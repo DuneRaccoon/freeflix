@@ -39,8 +39,8 @@ describe('showAskFrom', () => {
     expect(ask('s=2')).toEqual({ season: 2, episode: null });
     expect(ask('e=5')).toEqual({ season: null, episode: 5 });
   });
-  it.each(['', ' ', 'abc', '0', '-1', '1.5', '1e21'])(
-    'drops a season of %j: only a positive safe integer is an ask',
+  it.each(['', ' ', ' 2', 'abc', '0', '-1', '1.5', '1e3', '1e21', '99999999999999999'])(
+    'drops a season of %j: only digits that make a positive safe integer are an ask',
     (s) => {
       expect(ask(`s=${encodeURIComponent(s)}&e=5`)).toEqual({ season: null, episode: 5 });
     },

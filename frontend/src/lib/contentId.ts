@@ -9,8 +9,8 @@
  *   tv:{tmdb_id}                 → { kind: 'tv' } (show level)
  *   tv:{tmdb_id}:s{n}:e{m}       → { kind: 'tv', showId, season, episode }
  *
- * These helpers are extracted from ContinueWatchingSection.tsx so they can be
- * shared across the browse system without duplication.
+ * These helpers were first extracted from the old ContinueWatchingSection.tsx;
+ * both surfaces' Continue Watching rails and title pages now share them.
  *
  * IMPORT-FREE ON PURPOSE. Both surfaces import this module — the television included — and
  * the TV's import guard (`legacy-target.test.ts`) follows a `@/lib` import one hop, so the

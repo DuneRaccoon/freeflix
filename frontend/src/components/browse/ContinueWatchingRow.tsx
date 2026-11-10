@@ -20,9 +20,10 @@
  * out. The page carries the one control that resumes the row's exact torrent
  * and file. Only a row the page cannot be asked about keeps `resumeUrlFor`'s
  * player link: one `titleOfContentId` cannot identify (a legacy title-string
- * id, a non-positive tmdb id), because there is no page to send it to, and a
- * season-0 episode, because the show page is never asked for one (see
- * `cardHref`). The link is next/link, so the progress context survives the hop.
+ * id, a non-positive tmdb id), because there is no page to send it to, and an
+ * unfinished season-0 or episode-0 episode, because the show page is never
+ * asked for one (see `cardHref`). The link is next/link, so the progress
+ * context survives the hop.
  *
  * Out of scope and unchanged: the Up next label still reads `episode + 1`
  * without checking that the episode exists (the link does not depend on it),
@@ -80,16 +81,22 @@ type DisplayCard = MovieCard | TvCard;
  * episode when it names one. The page, not this link, resumes the row's own torrent and file.
  *
  * The player when the page cannot be asked for what the row is about: a row that names no
- * title, or an episode `titleOfContentId` drops — season 0 (or episode 0), which is never an
- * ask (see `@/lib/titlePageHref`), so the page would open on S01·E01 instead. `resumeUrlFor`
- * keeps `?file=` for a season pack, file 0 included, exactly as the card did before it had a
- * page to open. The TV's rail applies the same rule.
+ * title, or an UNFINISHED episode `titleOfContentId` drops — season 0 (or episode 0), which is
+ * never an ask (see `@/lib/titlePageHref`), so the page would open on S01·E01 and the row's
+ * place would be lost. `resumeUrlFor` keeps `?file=` for a season pack, file 0 included,
+ * exactly as the card did before it had a page to open. A FINISHED one (an Up next card) has
+ * nothing to resume, so it opens the bare show page instead. Both halves match the TV's rail:
+ * its resume cards follow the first rule and its Up next card always opens the show screen.
  */
-function cardHref(contentId: string, torrentId: string, fileIndex: number | null | undefined): string {
+function cardHref(
+  contentId: string,
+  torrentId: string,
+  fileIndex: number | null | undefined,
+  finished: boolean,
+): string {
   const title = titleOfContentId(contentId);
-  return title && title.episode === parseContentId(contentId).episode
-    ? titlePageHref(title)
-    : resumeUrlFor({ torrent_id: torrentId, file_index: fileIndex });
+  if (title && (finished || title.episode === parseContentId(contentId).episode)) return titlePageHref(title);
+  return resumeUrlFor({ torrent_id: torrentId, file_index: fileIndex });
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +213,7 @@ const ContinueWatchingRow: React.FC = () => {
           episode,
           showName,
           subLabel,
-          href: cardHref(item.movie_id, item.torrent_id, item.file_index),
+          href: cardHref(item.movie_id, item.torrent_id, item.file_index, item.completed),
           upNextEpisode: item.completed ? episode + 1 : undefined,
         };
         cards.push(card);
@@ -219,7 +226,8 @@ const ContinueWatchingRow: React.FC = () => {
           item,
           displayTitle,
           tmdbId: tmdbIdFromContentId(item.movie_id),
-          href: cardHref(item.movie_id, item.torrent_id, item.file_index),
+          // Never finished: a completed film was skipped above.
+          href: cardHref(item.movie_id, item.torrent_id, item.file_index, false),
         });
       }
     }

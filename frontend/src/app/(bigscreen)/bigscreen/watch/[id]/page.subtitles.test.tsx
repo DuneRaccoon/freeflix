@@ -731,8 +731,8 @@ describe('the two explicit focus moves', () => {
     // with no empty state in between. So: choose 'Lang 3' (unready, so the poll starts), reopen,
     // walk to the picker's third row, and let the next read answer four entries — [3, 2], with
     // no third row. With the preference dropped the fall-back searches from row 0 and finds Off.
-    // With SCRUB_ROW kept it would search from row 1 and land on 'Lang 3', a language the
-    // viewer never moved to, which a press would choose.
+    // With SCRUB_ROW kept it would search from row 1 and land on 'Lang 3' — the entry chosen
+    // earlier, not the row the viewer walked to and not Off, the picker's one fixed place.
     svc.getSubtitles.mockResolvedValue(listOf(manyTracks(8)));
     await openPicker();
     await clickOn(cell('Lang 3'));

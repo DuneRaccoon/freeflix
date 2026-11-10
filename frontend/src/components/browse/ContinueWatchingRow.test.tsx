@@ -235,6 +235,18 @@ describe('ContinueWatchingRow', () => {
     expect(card).toHaveAttribute('href', '/streaming/torrent-tv-1?file=0');
   });
 
+  it('a finished season-0 episode opens the bare show page, as the TV’s Up next card does', () => {
+    // Nothing is left to resume, so the file is no reason to open the player: replaying the
+    // episode just finished is not "up next". The show page cannot be asked for an s0
+    // episode, so it opens bare.
+    setupMocks({
+      'tv:54321:s0:e5': { ...tvProgress, movie_id: 'tv:54321:s0:e5', file_index: 0, completed: true, percentage: 100 },
+    });
+    render(<ContinueWatchingRow />);
+    const card = screen.getByRole('link', { name: /^Open Foundation, up next/ });
+    expect(card).toHaveAttribute('href', '/tv/54321');
+  });
+
   it('no identified card links to the player', () => {
     setupMocks({
       'movie:12345': movieProgress,

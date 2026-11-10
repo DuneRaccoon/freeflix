@@ -279,7 +279,7 @@ describe('fetchContinueWatching', () => {
     expect(items.map((c) => [c.id, c.subtitle])).toEqual([['tv:1399', 'S01 · E02']]);
   });
 
-  it('links each card to its title\'s screen, never the player', async () => {
+  it('links each identified card to its title\'s screen, not the player', async () => {
     // The title screen re-asks `titleStateFor`, which resumes the row's own torrent and
     // file, so the card no longer needs to carry either. An episode card asks for ITS
     // episode (`?s=&e=`), not the show's latest-watched season.
@@ -298,8 +298,8 @@ describe('fetchContinueWatching', () => {
   });
 
   it('keeps file_index 0 on the fallback: the first file of a season pack is a real file', async () => {
-    // Only a title that cannot be identified still goes straight to the player, so that is
-    // where `?file=0` has to survive.
+    // A title that cannot be identified still goes straight to the player, so that is one
+    // place `?file=0` has to survive; a season-0 resume card (below) is the other.
     getRecent.mockResolvedValue([row({ movie_id: 'The Old Title', torrent_id: 'pack', file_index: 0, title: 'The Old Title' })]);
     const { items } = await fetchContinueWatching({ userId: 'u1' });
     expect(items[0].href).toBe('/bigscreen/watch/pack?file=0');

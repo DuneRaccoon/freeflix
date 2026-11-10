@@ -972,7 +972,8 @@ describe('?file= rides from the screen that resolved it to the watch route', () 
     else vi.mocked(streamingService.getFiles).mockResolvedValue(files);
     mountScreen(screenFor('bigscreen/show/[id]/page.tsx'));
     await waitFor(() => expect(episodeButtons()).toHaveLength(3));
-    // Row 0's own lookup must land first or it races the press under test.
+    // The action row's own lookup (ACTION_ROW = 1, under the top bar) must land first or it
+    // races the press under test.
     await screen.findByText(/S2 · E1/);
   }
 

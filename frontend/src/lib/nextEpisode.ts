@@ -6,10 +6,11 @@ import { parseContentId } from './contentId';
  * WHAT COMES AFTER THE EPISODE ON SCREEN, and how to get there.
  *
  * THE RULE THIS MODULE EXISTS TO OBEY: never claim a next episode without checking that it
- * exists. `_data/continueWatching.ts` records the web app doing the opposite — it badges a
- * card "Up next" for `episode + 1` without asking anybody whether episode + 1 is a thing, and
- * then leaves the link on the episode just finished. Nothing in a progress row, a torrent row
- * or a file name says what follows an episode. Only the catalog does, so this asks it.
+ * exists. The web's Continue Watching card (`components/browse/ContinueWatchingRow.tsx`) still
+ * breaks it in its label alone: it badges a card "Up next" for `episode + 1` without asking
+ * anybody whether episode + 1 is a thing. Its link claims nothing — it opens the show page on
+ * the episode just finished, and the show page asks this module. Nothing in a progress row, a
+ * torrent row or a file name says what follows an episode. Only the catalog does, so this asks it.
  *
  * TMDB IS ASKED AT MOST TWICE, and the second question is cheap because the first answer
  * contains it. `getSeason` lists this season's episodes; the next one is the lowest listed

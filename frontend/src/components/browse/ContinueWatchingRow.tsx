@@ -9,17 +9,39 @@
  *
  * Returns null when there are no in-progress items.
  *
- * 16:9 cards with a thin gold progress fill, a remove (✕) calling
+ * 16:9 cards with a thin gold progress fill and a remove (✕) calling
  * streamingService.deleteProgress(currentUser.id, item.id) then
- * refreshProgress(), and a resume link resumeUrlFor(item).
+ * refreshProgress().
+ *
+ * A CARD OPENS ITS TITLE'S PAGE, NOT THE PLAYER. A film card goes to
+ * `/movies/{id}`; a show card goes to `/tv/{id}?season={S}&episode={E}` for the
+ * episode its row is about, and for an Up next card that is the episode just
+ * finished — nothing here knows what follows it, and the show page works that
+ * out. The page carries the one control that resumes the row's exact torrent
+ * and file. Only a row `titleOfContentId` cannot identify (a legacy
+ * title-string id, a non-positive tmdb id) keeps `resumeUrlFor`'s player link,
+ * because there is no page to send it to. The link is next/link, so the
+ * progress context survives the hop.
+ *
+ * Out of scope and unchanged: the Up next label still reads `episode + 1`
+ * without checking that the episode exists (the link does not depend on it),
+ * and a row whose torrent was removed is still not offered at all.
  */
 
 import React, { useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { useProgress } from '@/context/ProgressContext';
 import { useUser } from '@/context/UserContext';
 import { streamingService } from '@/services/streaming';
-import { parseContentId, resumeUrlFor, showNameFromTitle, tmdbIdFromContentId } from '@/lib/contentId';
+import {
+  parseContentId,
+  resumeUrlFor,
+  showNameFromTitle,
+  titleOfContentId,
+  tmdbIdFromContentId,
+} from '@/lib/contentId';
+import { titlePageHref } from '@/lib/titlePageHref';
 import { useTitleImages, type TitleImageRequest } from '@/lib/useTitleImages';
 import { StreamingProgress } from '@/types';
 
@@ -32,7 +54,8 @@ interface MovieCard {
   item: StreamingProgress;
   displayTitle: string;
   tmdbId?: number;
-  resumeUrl: string;
+  /** Where the card goes; see `cardHref`. */
+  href: string;
 }
 
 interface TvCard {
@@ -43,11 +66,30 @@ interface TvCard {
   episode: number;
   showName: string;
   subLabel: string;
-  resumeUrl: string;
+  /** Where the card goes; see `cardHref`. */
+  href: string;
   upNextEpisode?: number;
 }
 
 type DisplayCard = MovieCard | TvCard;
+
+/**
+ * Where a card goes: the title page of the title its content id names, asked for the row's
+ * episode when it names one. The player only for a row that names no title — `resumeUrlFor`
+ * then keeps `?file=` for a season pack, exactly as the card did before it had a page to
+ * open. The page, not this link, resumes the row's own torrent and file.
+ */
+function cardHref(contentId: string, torrentId: string, fileIndex: number | null | undefined): string {
+  const title = titleOfContentId(contentId);
+  return title
+    ? titlePageHref(title)
+    : resumeUrlFor({ torrent_id: torrentId, file_index: fileIndex });
+}
+
+/** `S01·E03`: the episode as the card prints it and as its accessible name says it. */
+function episodeTag(season: number, episode: number): string {
+  return `S${String(season).padStart(2, '0')}·E${String(episode).padStart(2, '0')}`;
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -163,7 +205,7 @@ const ContinueWatchingRow: React.FC = () => {
           episode,
           showName,
           subLabel,
-          resumeUrl: resumeUrlFor({ torrent_id: item.torrent_id, file_index: item.file_index }),
+          href: cardHref(item.movie_id, item.torrent_id, item.file_index),
           upNextEpisode: item.completed ? episode + 1 : undefined,
         };
         cards.push(card);
@@ -176,7 +218,7 @@ const ContinueWatchingRow: React.FC = () => {
           item,
           displayTitle,
           tmdbId: tmdbIdFromContentId(item.movie_id),
-          resumeUrl: resumeUrlFor({ torrent_id: item.torrent_id, file_index: item.file_index }),
+          href: cardHref(item.movie_id, item.torrent_id, item.file_index),
         });
       }
     }
@@ -210,6 +252,9 @@ const ContinueWatchingRow: React.FC = () => {
 
   const images = useTitleImages(imageRequests);
 
+  // The button sits inside the card's Link, so a click on it is also a click on the link.
+  // preventDefault stops the browser following the href; stopPropagation keeps the click
+  // from the Link's own handler, which would navigate client-side. Remove never navigates.
   const handleRemove = async (e: React.MouseEvent, item: StreamingProgress) => {
     e.preventDefault();
     e.stopPropagation();
@@ -347,6 +392,16 @@ const ContinueWatchingRow: React.FC = () => {
 
           const progressPct = isUpNext ? 0 : item.percentage;
 
+          // "Open", not "Resume": an identified card opens the title's page, where resuming is
+          // a press of its own. An unidentified one opens that same title in the player, so
+          // the word is true of it too.
+          const linkLabel =
+            card.kind === 'tv'
+              ? card.upNextEpisode !== undefined
+                ? `Open ${name}, up next ${episodeTag(card.season, card.upNextEpisode)}`
+                : `Open ${name}, resume ${episodeTag(card.season, card.episode)}`
+              : `Open ${name}, ${Math.round(item.percentage)}% watched`;
+
           const imageKey = imageKeyFor(card);
           const imageUrl = imageKey ? images[imageKey] : undefined;
 
@@ -361,18 +416,14 @@ const ContinueWatchingRow: React.FC = () => {
               )}
             >
               {/* Card link wraps art + meta */}
-              <a
-                href={card.resumeUrl}
+              <Link
+                href={card.href}
                 className={cn(
                   'block no-underline text-text rounded-[11px]',
                   'focus:outline-none focus-visible:shadow-[0_0_0_2px_var(--color-ink),0_0_0_4px_var(--color-gold)]',
                   'focus-visible:rounded-[11px]',
                 )}
-                aria-label={
-                  isUpNext
-                    ? `Up next: ${name}, Season ${(card as TvCard).season} Episode ${(card as TvCard).upNextEpisode}`
-                    : `Resume ${name}`
-                }
+                aria-label={linkLabel}
               >
                 {/* 16:9 art frame */}
                 <div
@@ -516,7 +567,7 @@ const ContinueWatchingRow: React.FC = () => {
                     {card.kind === 'tv' && !isUpNext ? (
                       <span>
                         <span className="text-gold-lite font-semibold">
-                          Resume S{String(card.season).padStart(2, '0')}·E{String(card.episode).padStart(2, '0')}
+                          Resume {episodeTag(card.season, card.episode)}
                         </span>
                       </span>
                     ) : (
@@ -524,7 +575,7 @@ const ContinueWatchingRow: React.FC = () => {
                     )}
                   </div>
                 </div>
-              </a>
+              </Link>
             </article>
           );
         })}
